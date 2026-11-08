@@ -56,16 +56,16 @@ function importClosure(entry: string, staticOnly = false, skip: string[] = []): 
 }
 
 /**
- * A fake installed `@equitybot/grievousgreps` in `<project>/node_modules`, whose
+ * A fake installed `@trailhq/trail-code` in `<project>/node_modules`, whose
  * `dist/` holds the pre-bash module and everything it imports, transpiled from
- * src the way tsc builds it. `extra` adds or overrides dist files. The shim
- * prefers this distribution, then the highest version, so this one wins over
- * a copy the machine has on PATH (`npm link`, `npm i -g`).
+ * src the way tsc builds it. `extra` adds or overrides dist files. Being
+ * upstream's package, it also shows the shim falling back to upstream; the
+ * shim would prefer any copy of this distribution, which `isolated` hides.
  */
 function fakePackage(project: string, extra: Record<string, string> = {}, withPreBash = true): string {
-  const pkg = join(project, 'node_modules', '@equitybot', 'grievousgreps');
+  const pkg = join(project, 'node_modules', '@trailhq', 'trail-code');
   mkdirSync(join(pkg, 'dist', 'claude'), { recursive: true });
-  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@equitybot/grievousgreps', version: '99.0.0', type: 'module' }));
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@trailhq/trail-code', version: '99.0.0', type: 'module' }));
   writeFileSync(join(pkg, 'dist', 'claude', 'hooks.js'), 'export function main() {}\n');
   if (withPreBash) {
     // The save gate's closure (the store, compile, the session) is loaded only for `skills add`; these shim tests never reach it.
@@ -94,26 +94,30 @@ function project(tag: string): { dir: string; shim: string; home: string } {
 /**
  * Keeps the machine's own trail or graft install out of the child, so the
  * shim sees only the fixture (see claude-shim-resolve.test.ts for why each
- * route matters): `execPath` repointed by a preload, PATH without a
- * `trail`/`graft` command, `npm root -g` answering from an empty prefix.
+ * route matters): a preload repoints `execPath` and drops each PATH dir
+ * holding a `trail`/`graft` command, inside node so that a shell still finds
+ * `node`; NODE_PATH is unset and `npm root -g` answers from an empty prefix.
+ * The remembered install is read from TRAIL_HOME, which each run sets to the
+ * project's own home.
  */
-function isolated(dir: string, extraPath: string[] = []): { args: string[]; env: NodeJS.ProcessEnv } {
+function isolated(dir: string, extraPath: string[] = []): NodeJS.ProcessEnv {
+  const ambient = (d: string) => ['trail', 'graft', 'trail.cmd', 'graft.cmd'].some((b) => existsSync(join(d, b)));
+  const path = [...extraPath, ...(process.env.PATH ?? '').split(delimiter).filter((d) => d && !ambient(d))].join(delimiter);
   const preload = join(dir, 'no-ambient-trail.cjs');
-  writeFileSync(preload, `Object.defineProperty(process, 'execPath', { value: ${JSON.stringify(join(dir, 'node-prefix', 'bin', 'node'))}, configurable: true });\n`);
+  writeFileSync(preload, `Object.defineProperty(process, 'execPath', { value: ${JSON.stringify(join(dir, 'node-prefix', 'bin', 'node'))}, configurable: true });\nprocess.env.PATH = ${JSON.stringify(path)};\n`);
   const prefix = join(dir, 'npm-prefix');
   mkdirSync(prefix, { recursive: true });
-  const ambient = (d: string) => ['trail', 'graft', 'trail.cmd', 'graft.cmd'].some((b) => existsSync(join(d, b)));
-  const path = [...extraPath, ...(process.env.PATH ?? '').split(delimiter).filter((d) => d && !ambient(d))];
-  return { args: ['--require', preload], env: { npm_config_prefix: prefix, PATH: path.join(delimiter) } };
+  // Quoted as JSON: inside double quotes NODE_OPTIONS reads a backslash as an escape, so Windows paths survive.
+  return { NODE_OPTIONS: `--require ${JSON.stringify(preload)}`, NODE_PATH: undefined, npm_config_prefix: prefix };
 }
 
-function runShim(p: { dir: string; shim: string; home: string }, stdin: string, opts: { args?: string[]; env?: NodeJS.ProcessEnv } = {}) {
-  return spawnSync(process.execPath, [...(opts.args ?? []), p.shim, 'pre-bash'], {
+function runShim(p: { dir: string; shim: string; home: string }, stdin: string, env: NodeJS.ProcessEnv = isolated(p.dir)) {
+  return spawnSync(process.execPath, [p.shim, 'pre-bash'], {
     cwd: p.dir,
     input: stdin,
     encoding: 'utf8',
     timeout: 20000,
-    env: { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '', ...opts.env },
+    env: { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '', ...env },
   });
 }
 
@@ -259,8 +263,10 @@ test('with no installed package at all, the shim does nothing, and never runs np
 
 /** The repo's PreToolUse command for Bash as `trail init` writes it, run through the platform shell from `p.dir`. */
 function hostRun(p: { dir: string; home: string }) {
-  const command = mergeGraftSettings({}, { name: 'trail' }).merged.hooks.PreToolUse.find((h: { matcher: string }) => h.matcher === 'Bash').hooks[0].command as string;
-  const env = { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '' };
+  const bash = mergeGraftSettings({}, { name: 'trail' }).merged.hooks.PreToolUse.find((h: { matcher: string }) => h.matcher === 'Bash');
+  assert.ok(bash, 'trail init writes a PreToolUse entry whose matcher is Bash');
+  const command = bash.hooks[0].command as string;
+  const env = { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '', ...isolated(p.dir) };
   return spawn(command, { shell: true, cwd: p.dir, env, stdio: 'pipe' });
 }
 
