@@ -53,6 +53,9 @@ function realAsk(b: Box, sec: number, words: string): string {
   return m[2]!;
 }
 
+/** The run the skill is compiled from holds the fetch the cd ran; without it a save would pass or fail for another reason. */
+const fetchKept = (b: Box, runId: string) => assert.match(readRunSheet(runId, b.env)!.calls.map((c) => c.cmd ?? "").join("\n"), /git fetch -q origin/);
+
 const stepsOf = (b: Box, name: string) => readFileSync(join(b.env.TRAIL_HOME!, "skills", name, "SKILL.md"), "utf8");
 
 test("an asked save from a session that started in a parent folder saves, with the step the cd ran (prompt hook, PreToolUse, CLI)", () => {
@@ -60,6 +63,7 @@ test("an asked save from a session that started in a parent folder saves, with t
   release(b, 0, true);
   stop(b, 50);
   const runId = realAsk(b, 70, "save this as a skill");
+  fetchKept(b, runId);
   const name = state(b).saveRequest!.name!;
   const r = add(b, 80, addCmd(name, runId), { cliCwd: parentOf(b) });
   assert.equal(r.decision, null, JSON.stringify(r.decision));
@@ -87,6 +91,7 @@ test("an offer's yes (moment 2) from a session that started in a parent folder s
   release(b, 0, true);
   const s = stop(b, 50);
   assert.ok(s.offer, s.why);
+  fetchKept(b, s.offer.runId);
   sayOffer(b, 52, s.offer);
   prompt(b, 70, "yes");
   const r = add(b, 80, addCmd(s.offer.name, s.offer.runId), { cliCwd: parentOf(b) });
@@ -101,6 +106,7 @@ test("a run sheet whose checkout names another repo is not used: with no checkou
   release(b, 0, true);
   stop(b, 50);
   const runId = realAsk(b, 70, "save this as a skill");
+  fetchKept(b, runId);
   const name = state(b).saveRequest!.name!;
   // Another checkout beside it (acme/other), named in the sheet out of sight.
   const other = join(parentOf(b), "other");

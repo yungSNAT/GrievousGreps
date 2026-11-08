@@ -11,7 +11,8 @@
  * Enumerating the files here instead means `npm test` behaves identically in
  * cmd.exe, PowerShell, bash and CI, on any supported Node.
  */
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -62,7 +63,10 @@ const gitEnv = {
 // Tests make thousands of scratch repos and homes under the temp folder and
 // don't all remove them: a day of runs left over 50,000 folders (6 GB). Give the
 // run its own temp folder and remove it at the end, whatever the outcome.
-const runTmp = mkdtempSync(join(tmpdir(), "trail-test-run-"));
+// Lowercase hex, not mkdtemp's mixed case: a path such as `trail-test-run-F2hE9S`
+// can read as a secret when a test's command holds it (see test/skills-consent-fixtures.ts).
+const runTmp = join(tmpdir(), `trail-test-run-${randomBytes(8).toString("hex")}`);
+mkdirSync(runTmp);
 const tmpEnv = { TMPDIR: runTmp, TEMP: runTmp, TMP: runTmp };
 
 // The suite runs `init`, hook and skill code that writes to the person's home, so
