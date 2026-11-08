@@ -23,8 +23,12 @@ const addCmd = (name: string, runId: string) => `trail skills add ${name} --run 
 /** The session's own folder: the box's `src`, which holds the shop checkout and is not one itself. */
 const parentOf = (b: Box) => join(b.root, "src");
 
-/** The first call from the parent folder: the cd into the checkout and the fetch, as one Bash call. */
-const cdFetch = (b: Box) => `cd "${b.repo}" 2>/dev/null || { echo "repo not found"; exit 1; }\ngit fetch -q origin`;
+/**
+ * The first call from the parent folder: the cd into the checkout and the fetch, as one Bash call. The checkout by
+ * its path under the box's HOME (b.root), as the compiler reads `~`: the temp folder's own path, whatever TMPDIR
+ * holds, could read as a secret and the call be recorded with no command.
+ */
+const CD_FETCH = `cd ~/src/shop 2>/dev/null || { echo "repo not found"; exit 1; }\ngit fetch -q origin`;
 
 /**
  * A release that worked. `fromParent`: the session sits in the parent folder, and the first call cds into the
@@ -35,7 +39,7 @@ function release(b: Box, sec: number, fromParent: boolean): void {
   append(b, [typed("publish 1.4.3", first)]);
   const id = nextId(b);
   // The lab's shape: the fold can't follow this cd, so the call is put down to the parent folder (no repo, no folder).
-  const fetch = fromParent ? cdFetch(b) : "git fetch -q origin";
+  const fetch = fromParent ? CD_FETCH : "git fetch -q origin";
   append(b, [toolUse(id, "Bash", { command: fetch, description: "run it" }, { ...first, timestamp: iso(sec + 5) }), toolResult(id, "", false, { ...first, timestamp: iso(sec + 6) })]);
   bash(b, sec + 10, "npm run build", "built in 2.1s");
   bash(b, sec + 20, "npm publish acme-cli-1.4.3.tgz --access public", "+ acme-cli@1.4.3");
@@ -59,7 +63,7 @@ function realAsk(b: Box, sec: number, words: string): string {
 /** The run the skill is compiled from holds the cd and its fetch as one call; without it a save would pass or fail for another reason. */
 const fetchKept = (b: Box, runId: string) => {
   const cmds = readRunSheet(runId, b.env)!.calls.map((c) => c.cmd);
-  assert.ok(cmds.includes(cdFetch(b)), JSON.stringify(cmds));
+  assert.ok(cmds.includes(CD_FETCH), JSON.stringify(cmds));
 };
 
 const stepsOf = (b: Box, name: string) => readFileSync(join(b.env.TRAIL_HOME!, "skills", name, "SKILL.md"), "utf8");
