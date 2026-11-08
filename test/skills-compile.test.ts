@@ -9,9 +9,10 @@
 process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mkdtempHex } from "../scripts/temp-dir.mjs";
 import { BUILT_IN_NAMES, NAME_RE, compileRun, draftText, proposeName, refusalWords, type CompileOpts, type CompileResult } from "../src/skills/compile.js";
 import { renderSkillMd } from "../src/skills/skillmd.js";
 import { skillProblems } from "../src/skills/validate.js";
@@ -133,7 +134,7 @@ test("4.5: a publish through script is gated; keystrokes fed to its prompt refus
 
 test("4.5: a helper script run from a scratch folder is copied into the skill; a gated line in it gates the step", () => {
   // Off Windows, /tmp itself: the run's random temp folder name can read as a secret (see skills-risk-escapes).
-  const dir = join(mkdtempSync(process.platform === "win32" ? join(tmpdir(), "g2-helper-") : "/tmp/g2-helper-"), "scratchpad");
+  const dir = join(mkdtempHex(process.platform === "win32" ? join(tmpdir(), "g2-helper-") : "/tmp/g2-helper-"), "scratchpad");
   mkdirSync(dir, { recursive: true });
   const helper = join(dir, "npm-pty.mjs");
   const content = "#!/usr/bin/env node\n// npm publish behind a pty, so npm opens the browser itself\nimport { spawn } from 'node:child_process';\nspawn('npm', process.argv.slice(2), { stdio: 'inherit' });\n";

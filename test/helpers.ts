@@ -7,10 +7,11 @@
  * than being hand-rolled per file because both carry a platform trap that is
  * invisible until CI runs on Windows: see {@link tmpRepo} and {@link homeEnv}.
  */
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
+import { mkdtempHex } from "../scripts/temp-dir.mjs";
 import type { Summarizer, Synthesizer, SynthNode, SynthLink, FileSummary } from "../src/index.js";
 import { commandOnPath } from "../src/brand.js";
 
@@ -29,7 +30,8 @@ import { commandOnPath } from "../src/brand.js";
  * `.native` goes through the OS (`GetFinalPathNameByHandle`) and does.
  */
 export function tmpRepo(tag: string): string {
-  return realpathSync.native(mkdtempSync(join(tmpdir(), `graft-${tag}-`)));
+  // Hex-named: tests record commands that hold these paths (scripts/temp-dir.mjs).
+  return realpathSync.native(mkdtempHex(join(tmpdir(), `graft-${tag}-`)));
 }
 
 /** `dir` as a linked worktree of the main checkout `main`, the shape `git worktree add` leaves. */
