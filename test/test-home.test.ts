@@ -50,7 +50,7 @@ test("the runner gives the suite a temporary home and leaves the one it started 
   const copy = join(root, "copy");
   mkdirSync(join(copy, "scripts"), { recursive: true });
   mkdirSync(join(copy, "test"));
-  copyFileSync(join(repo, "scripts", "run-tests.mjs"), join(copy, "scripts", "run-tests.mjs"));
+  for (const f of ["run-tests.mjs", "temp-dir.mjs"]) copyFileSync(join(repo, "scripts", f), join(copy, "scripts", f));
   writeFileSync(join(copy, "test", "probe.test.ts"), probe);
   symlinkSync(join(repo, "node_modules"), join(copy, "node_modules"), "junction");
 
