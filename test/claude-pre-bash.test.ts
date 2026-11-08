@@ -56,14 +56,16 @@ function importClosure(entry: string, staticOnly = false, skip: string[] = []): 
 }
 
 /**
- * A fake installed `@trailhq/trail-code` in `<project>/node_modules`, whose
+ * A fake installed `@equitybot/grievousgreps` in `<project>/node_modules`, whose
  * `dist/` holds the pre-bash module and everything it imports, transpiled from
- * src the way tsc builds it. `extra` adds or overrides dist files.
+ * src the way tsc builds it. `extra` adds or overrides dist files. The shim
+ * prefers this distribution, then the highest version, so this one wins over
+ * a copy the machine has on PATH (`npm link`, `npm i -g`).
  */
 function fakePackage(project: string, extra: Record<string, string> = {}, withPreBash = true): string {
-  const pkg = join(project, 'node_modules', '@trailhq', 'trail-code');
+  const pkg = join(project, 'node_modules', '@equitybot', 'grievousgreps');
   mkdirSync(join(pkg, 'dist', 'claude'), { recursive: true });
-  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@trailhq/trail-code', version: '99.0.0', type: 'module' }));
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@equitybot/grievousgreps', version: '99.0.0', type: 'module' }));
   writeFileSync(join(pkg, 'dist', 'claude', 'hooks.js'), 'export function main() {}\n');
   if (withPreBash) {
     // The save gate's closure (the store, compile, the session) is loaded only for `skills add`; these shim tests never reach it.
@@ -255,9 +257,9 @@ test('with no installed package at all, the shim does nothing, and never runs np
   assert.equal(existsSync(marker), false, 'no `npm root -g` before a shell command');
 });
 
-/** The repo's PreToolUse command as `trail init` writes it, run through the platform shell from `p.dir`. */
+/** The repo's PreToolUse command for Bash as `trail init` writes it, run through the platform shell from `p.dir`. */
 function hostRun(p: { dir: string; home: string }) {
-  const command = mergeGraftSettings({}, { name: 'trail' }).merged.hooks.PreToolUse[0].hooks[0].command as string;
+  const command = mergeGraftSettings({}, { name: 'trail' }).merged.hooks.PreToolUse.find((h: { matcher: string }) => h.matcher === 'Bash').hooks[0].command as string;
   const env = { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '' };
   return spawn(command, { shell: true, cwd: p.dir, env, stdio: 'pipe' });
 }
