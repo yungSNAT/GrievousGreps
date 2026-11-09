@@ -24,6 +24,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         node: ["20", "current"]
+        # Windows on Node 20 was the slowest leg and set every pull request's wait.
+        # Pull requests test Node 20 on ubuntu and Windows on Node current; pushes
+        # to main and manual runs still test Windows on Node 20.
+        exclude:
+          - os: ${{ github.event_name == 'pull_request' && 'windows-latest' || 'none' }}
+            node: "20"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

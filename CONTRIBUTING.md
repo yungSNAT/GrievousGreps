@@ -12,8 +12,8 @@ issue.
 Propose changes as a pull request against `main`. A change lands on `main` only
 when these checks from [ci.yml](.github/workflows/ci.yml) pass:
 `test (ubuntu-latest, Node 20)`, `test (ubuntu-latest, Node current)`,
-`test (windows-latest, Node 20)`, `test (windows-latest, Node current)` and
-`Node 24 WASM regression`.
+`test (windows-latest, Node current)` and `Node 24 WASM regression`. Windows on
+Node 20 runs after the merge, on the push to `main`.
 
 Run what CI runs before opening one, with Node 20.16 or later on the 20 line,
 or 22.3 or later:
