@@ -283,7 +283,7 @@ function settle(child: ReturnType<typeof spawn>, feed: (stdin: NodeJS.WritableSt
   });
 }
 
-test('a payload whose stdin never closes ends the hook with exit 0, inside the host timeout', async () => {
+test('a payload whose stdin never closes ends the hook with exit 0, inside the host timeout', { skip: process.platform === 'win32' ? 'hostRun uses a POSIX shell command; cmd.exe does not expand CLAUDE_PROJECT_DIR' : false }, async () => {
   const p = project('pre-bash-open-stdin');
   fakePackage(p.dir);
   const child = hostRun(p);
@@ -296,7 +296,7 @@ test('a payload whose stdin never closes ends the hook with exit 0, inside the h
   assert.ok(r.ms < bar, `gave up after ${r.ms} ms: the host allows 5000`);
 });
 
-test('a 5 MB payload is read to its end and lets the command through, quickly and silently', async () => {
+test('a 5 MB payload is read to its end and lets the command through, quickly and silently', { skip: process.platform === 'win32' ? 'hostRun uses a POSIX shell command; cmd.exe does not expand CLAUDE_PROJECT_DIR' : false }, async () => {
   const p = project('pre-bash-huge-stdin');
   fakePackage(p.dir);
   const huge = JSON.stringify({ ...BASH, tool_input: { command: `cat > /tmp/x/big.txt <<'EOF'\n${'a'.repeat(5 * 1024 * 1024)}\nEOF` } });
