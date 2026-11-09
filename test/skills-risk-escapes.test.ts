@@ -10,9 +10,10 @@
 process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { mkdtempHex } from "../scripts/temp-dir.mjs";
 import { agentGuard, gatedKind, gatedWhat } from "../src/skills/risk.js";
 import { literalPassword, neverSave } from "../src/skills/never-save.js";
 import { compileRun, type CompileOpts } from "../src/skills/compile.js";
@@ -166,7 +167,7 @@ test("never save: an alias or a function defined in the call can't smuggle a com
 test("never save: a helper copied into the skill is read whole, not only line by line", () => {
   // Not under the macOS tmpdir or the run's own temp folder: their random names read as a secret about one time in
   // four on macOS and one in ten on Linux (notes/secrets.ts). Windows splits the path on '\', so its tmpdir is fine.
-  const dir = join(mkdtempSync(process.platform === "win32" ? join(tmpdir(), "g2-esc-") : "/tmp/g2-esc-"), "scratchpad");
+  const dir = join(mkdtempHex(process.platform === "win32" ? join(tmpdir(), "g2-esc-") : "/tmp/g2-esc-"), "scratchpad");
   mkdirSync(dir, { recursive: true });
   const helper = join(dir, "go.sh");
   try {

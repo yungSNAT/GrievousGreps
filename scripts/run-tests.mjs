@@ -11,11 +11,12 @@
  * Enumerating the files here instead means `npm test` behaves identically in
  * cmd.exe, PowerShell, bash and CI, on any supported Node.
  */
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempHex } from "./temp-dir.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const testDir = join(repoRoot, "test");
@@ -62,7 +63,12 @@ const gitEnv = {
 // Tests make thousands of scratch repos and homes under the temp folder and
 // don't all remove them: a day of runs left over 50,000 folders (6 GB). Give the
 // run its own temp folder and remove it at the end, whatever the outcome.
-const runTmp = mkdtempSync(join(tmpdir(), "trail-test-run-"));
+// Hex-named, as tests' commands hold paths under it (see temp-dir.mjs). For the same reason, off Windows, a
+// temp root with an upper-case letter (a `mktemp -d` TMPDIR such as /tmp/tmp.Y07cIIzaIM) is passed over for
+// /tmp: under a root with none the secret check can't find a random-looking string in a path. Windows splits
+// its paths on '\', so its root is used as it is.
+const root = process.platform !== "win32" && /[A-Z]/.test(tmpdir()) ? "/tmp" : tmpdir();
+const runTmp = mkdtempHex(join(root, "trail-test-run-"));
 const tmpEnv = { TMPDIR: runTmp, TEMP: runTmp, TMP: runTmp };
 
 // The suite runs `init`, hook and skill code that writes to the person's home, so

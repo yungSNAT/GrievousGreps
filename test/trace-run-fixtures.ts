@@ -7,6 +7,7 @@
 import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
+import { mkdtempHex } from "../scripts/temp-dir.mjs";
 import type { GatedKind, RunCall, RunState, SkillInjection, SkillSessionState } from "../src/trace/types.js";
 import { jsonl, said, toolResult, toolUse, typed } from "./trace-fixtures.js";
 import { readNewEvents } from "../src/trace/claude.js";
@@ -87,7 +88,8 @@ export function foldCtx(extra: Partial<FoldContext> = {}): FoldContext {
 
 /** A transcript that grows between folds into one state, as the hooks see it. */
 export function session(tag = "s", st: SkillSessionState = emptyState()) {
-  const dir = mkdtempSync(join(tmpdir(), `trace-fold-${tag}-`));
+  // Hex-named: a test's command can hold the transcript's path (scripts/temp-dir.mjs).
+  const dir = mkdtempHex(join(tmpdir(), `trace-fold-${tag}-`));
   const path = join(dir, "s.jsonl");
   const cursor = join(dir, "cursor.json");
   writeFileSync(path, "");

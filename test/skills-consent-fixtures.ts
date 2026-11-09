@@ -9,9 +9,10 @@
  * for the lab's TRAIL_TIER_CODEX=A (4.18). Synthetic data only. Not a test
  * file itself.
  */
-import { appendFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mkdtempHex } from "../scripts/temp-dir.mjs";
 import { jsonl, said, toolResult, toolUse, typed } from "./trace-fixtures.js";
 import { skillsGate, withSkillSession, currentRun, type GateCtx } from "../src/trace/skill-session.js";
 import { checkedSuccess, costly, findPriorSheet, lastGoodRun, readRunSheet, runHelpers, writeRunSheet } from "../src/trace/runs.js";
@@ -45,7 +46,8 @@ export interface Box {
 
 /** A fresh box: skills on since August, the transcript empty, the gate's ctx pointed at the fake checkout. */
 export function box(opts: { settings?: Record<string, unknown>; payload?: Record<string, unknown>; env?: Record<string, string>; host?: "claude" | "codex"; tierA?: boolean } = {}): Box {
-  const root = mkdtempSync(join(tmpdir(), "skills-consent-"));
+  // Hex-named: the runs record `cd "<repo>"`, which a mixed-case mkdtemp name can turn secret-looking (scripts/temp-dir.mjs).
+  const root = mkdtempHex(join(tmpdir(), "skills-consent-"));
   const repo = join(root, "src", "shop");
   mkdirSync(join(repo, ".git"), { recursive: true });
   writeFileSync(join(repo, ".git", "config"), '[remote "origin"]\n\turl = git@github.com:acme/shop.git\n');

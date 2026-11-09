@@ -24,6 +24,13 @@ const addCmd = (name: string, runId: string) => `trail skills add ${name} --run 
 const parentOf = (b: Box) => join(b.root, "src");
 
 /**
+ * The first call from the parent folder: the cd into the checkout and the fetch, as one Bash call. The checkout by
+ * its path under the box's HOME (b.root), as the compiler reads `~`: the temp folder's own path, whatever TMPDIR
+ * holds, could read as a secret and the call be recorded with no command.
+ */
+const CD_FETCH = `cd ~/src/shop 2>/dev/null || { echo "repo not found"; exit 1; }\ngit fetch -q origin`;
+
+/**
  * A release that worked. `fromParent`: the session sits in the parent folder, and the first call cds into the
  * checkout and fetches; the calls after it run in the checkout, as the host records them.
  */
@@ -32,7 +39,7 @@ function release(b: Box, sec: number, fromParent: boolean): void {
   append(b, [typed("publish 1.4.3", first)]);
   const id = nextId(b);
   // The lab's shape: the fold can't follow this cd, so the call is put down to the parent folder (no repo, no folder).
-  const fetch = fromParent ? `cd "${b.repo}" 2>/dev/null || { echo "repo not found"; exit 1; }\ngit fetch -q origin` : "git fetch -q origin";
+  const fetch = fromParent ? CD_FETCH : "git fetch -q origin";
   append(b, [toolUse(id, "Bash", { command: fetch, description: "run it" }, { ...first, timestamp: iso(sec + 5) }), toolResult(id, "", false, { ...first, timestamp: iso(sec + 6) })]);
   bash(b, sec + 10, "npm run build", "built in 2.1s");
   bash(b, sec + 20, "npm publish acme-cli-1.4.3.tgz --access public", "+ acme-cli@1.4.3");
@@ -53,6 +60,12 @@ function realAsk(b: Box, sec: number, words: string): string {
   return m[2]!;
 }
 
+/** The run the skill is compiled from holds the cd and its fetch as one call; without it a save would pass or fail for another reason. */
+const fetchKept = (b: Box, runId: string) => {
+  const cmds = readRunSheet(runId, b.env)!.calls.map((c) => c.cmd);
+  assert.ok(cmds.includes(CD_FETCH), JSON.stringify(cmds));
+};
+
 const stepsOf = (b: Box, name: string) => readFileSync(join(b.env.TRAIL_HOME!, "skills", name, "SKILL.md"), "utf8");
 
 test("an asked save from a session that started in a parent folder saves, with the step the cd ran (prompt hook, PreToolUse, CLI)", () => {
@@ -60,6 +73,7 @@ test("an asked save from a session that started in a parent folder saves, with t
   release(b, 0, true);
   stop(b, 50);
   const runId = realAsk(b, 70, "save this as a skill");
+  fetchKept(b, runId);
   const name = state(b).saveRequest!.name!;
   const r = add(b, 80, addCmd(name, runId), { cliCwd: parentOf(b) });
   assert.equal(r.decision, null, JSON.stringify(r.decision));
@@ -87,6 +101,7 @@ test("an offer's yes (moment 2) from a session that started in a parent folder s
   release(b, 0, true);
   const s = stop(b, 50);
   assert.ok(s.offer, s.why);
+  fetchKept(b, s.offer.runId);
   sayOffer(b, 52, s.offer);
   prompt(b, 70, "yes");
   const r = add(b, 80, addCmd(s.offer.name, s.offer.runId), { cliCwd: parentOf(b) });
@@ -101,6 +116,7 @@ test("a run sheet whose checkout names another repo is not used: with no checkou
   release(b, 0, true);
   stop(b, 50);
   const runId = realAsk(b, 70, "save this as a skill");
+  fetchKept(b, runId);
   const name = state(b).saveRequest!.name!;
   // Another checkout beside it (acme/other), named in the sheet out of sight.
   const other = join(parentOf(b), "other");
