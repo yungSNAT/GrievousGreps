@@ -73,10 +73,18 @@ jobs:
         with:
           persist-credentials: false
       # rustup installs the toolchain pinned in rust/gg-docs/rust-toolchain.toml.
+      - name: Install the toolchain
+        working-directory: rust/gg-docs
+        run: rustup toolchain install
+      # The crate's 353 locked packages compiled from cold on every run. Only main
+      # saves; pull requests restore main's entries without writing their own.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: rust/gg-docs
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check the crate
         working-directory: rust/gg-docs
         run: |
-          rustup toolchain install
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
