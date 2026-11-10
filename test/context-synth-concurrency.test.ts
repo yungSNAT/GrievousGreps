@@ -5,7 +5,7 @@
  * while the graph they produce has to stay indistinguishable from the serial one.
  *
  * These tests pin that with a synthesizer that answers OUT OF ORDER (the first call
- * is the slowest), which is exactly what an implementation that merged batches as
+ * is the last to land), which is exactly what an implementation that merged batches as
  * their calls landed would get wrong: same nodes, same slugs, same bytes, but a
  * first-wins tie broken by network timing instead of by batch order.
  */
@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { buildContext, type BuildProgress } from "../src/context/build.js";
 import { tmpRepo, PassthroughSummarizer } from "./helpers.js";
 import type { FileSummary, SynthNode, Synthesizer } from "../src/index.js";
@@ -50,27 +50,40 @@ function nodesFor(batch: number, files: FileSummary[]): SynthNode[] {
  * Answers in reverse batch order — the first call started is the last to land — and
  * records both the completion order and the high-water mark of calls in flight, so
  * a test can show the calls really did overlap.
+ *
+ * The order is enforced, not timed, so a busy runner cannot reorder the calls: each
+ * one waits for the next batch's call to land, if that call was issued. A call with
+ * no later call issued (the last batch, or any batch of a serial run) lands at once,
+ * so a build that stopped overlapping its calls fails the assertions below rather
+ * than hanging.
  */
 class ReverseSynthesizer implements Synthesizer {
   readonly completionOrder: number[] = [];
   peakInFlight = 0;
   private inFlight = 0;
-  private started = 0;
-
-  constructor(private readonly stepMs: number) {}
+  /** One promise per call issued, in call order, settled when that call lands. */
+  private readonly landed: Promise<void>[] = [];
 
   async synthesize(files: FileSummary[]): Promise<SynthNode[]> {
     // `mapWithConcurrency` hands each worker the next batch the moment it starts, so
     // the call order is the batch order.
-    const batch = this.started++;
+    const batch = this.landed.length;
+    let land!: () => void;
+    this.landed.push(new Promise<void>((resolve) => (land = resolve)));
     this.inFlight++;
     this.peakInFlight = Math.max(this.peakInFlight, this.inFlight);
     try {
-      await sleep(this.stepMs * (BATCHES - batch));
+      // The build issues every call it overlaps before the event loop turns
+      // (`synthesizeBatch` has no `await` ahead of the call), so after one turn
+      // the next batch's call exists if it is in flight.
+      await nextTurn();
+      const next = this.landed[batch + 1];
+      if (next) await next;
       this.completionOrder.push(batch);
       return nodesFor(batch, files);
     } finally {
       this.inFlight--;
+      land();
     }
   }
 }
@@ -100,8 +113,8 @@ test("batches synthesize in parallel and the graph is byte-identical to a serial
   const orig = console.error;
   console.error = quiet;
   try {
-    const serial = new ReverseSynthesizer(5);
-    const parallel = new ReverseSynthesizer(5);
+    const serial = new ReverseSynthesizer();
+    const parallel = new ReverseSynthesizer();
     const a = await buildContext(serialDir, opts(serial, { synthConcurrency: 1, onProgress: quiet }));
     const b = await buildContext(parallelDir, opts(parallel, { synthConcurrency: BATCHES, onProgress: quiet }));
 
@@ -111,7 +124,7 @@ test("batches synthesize in parallel and the graph is byte-identical to a serial
     assert.ok(parallel.peakInFlight > 1, `expected overlapping calls, peak was ${parallel.peakInFlight}`);
     assert.deepEqual(
       parallel.completionOrder,
-      [...parallel.completionOrder].sort((x, y) => y - x),
+      [...Array(BATCHES).keys()].reverse(),
       "the stand-in must land out of batch order, or the run proves nothing",
     );
 
@@ -133,7 +146,7 @@ test("a first-wins tie is broken by batch order, not by which call landed first"
   const orig = console.error;
   console.error = () => {};
   try {
-    const synth = new ReverseSynthesizer(5);
+    const synth = new ReverseSynthesizer();
     const r = await buildContext(dir, opts(synth, { synthConcurrency: BATCHES }));
     assert.ok(r.nodes >= BATCHES);
     // Batch 0 lands last under the stand-in above, so this is batch 0's type only
@@ -183,7 +196,7 @@ test("synthesis progress climbs monotonically under concurrency", async () => {
   const orig = console.error;
   console.error = () => {};
   try {
-    await buildContext(dir, opts(new ReverseSynthesizer(5), {
+    await buildContext(dir, opts(new ReverseSynthesizer(), {
       synthConcurrency: BATCHES,
       onProgress: (info: BuildProgress) => progress.push(info),
     }));
