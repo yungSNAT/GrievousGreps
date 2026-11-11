@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { promptSkills, type PromptDeps } from "../src/claude/prompt-skills.js";
+import { PROMPT_DEADLINE_MS, promptSkills, type PromptDeps } from "../src/claude/prompt-skills.js";
 import { gateFilePath, readGateFile, sessionPath } from "../src/trace/gate-file.js";
 import { readLedger } from "../src/skills/ledger.js";
 import { getSkillState } from "../src/skills/state.js";
@@ -16,7 +16,6 @@ import type { PendingOffer } from "../src/trace/types.js";
 import { emptyState } from "./trace-run-fixtures.js";
 import { releaseSkill, shipSkill, WEBSHOP } from "./skills-recall-fixtures.js";
 import { box, CWD, gateFor, grow, payload, ranIn, replyAt, save, SID, stateOf, typedIn, withNow, type Box } from "./skills-prompt-fixtures.js";
-import { timeBar } from "./machine-speed.js";
 
 const FROM = "[trail] From Trail, the tool this person installed to keep commands that worked as skills.";
 const webshopRelease = () => releaseSkill({ applies: WEBSHOP, trail: "s-7f3a2c" });
@@ -143,18 +142,28 @@ test("held items, needs-fix skills and other repos' skills never come back", () 
 });
 
 test("the deadline: slow probes are left out, the block still comes inside 400 ms", () => {
-  const b = shipBox("slow");
+  // 4 git probes at up to 150 ms each would take 600 ms if the budget were not shared.
+  const b = box("slow");
+  save(b, shipSkill({ ready: "git status --porcelain ; git rev-parse --abbrev-ref HEAD = beta ; git rev-parse --verify v1.0.0 ; git rev-parse --verify v1.0.1" }));
+  // What the hook grants its probes, not how fast this machine runs them: a wall-clock bar here failed loaded CI runners.
+  const granted: number[] = [];
   const slow: NonNullable<PromptDeps["probes"]>["git"] = (_a, _c, ms) => {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+    granted.push(ms);
+    // 1 ms past the grant, so each wait uses at least what it was given and the grants cannot add up past the budget.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms + 1);
     return { code: null, out: "", timedOut: true };
   };
-  const t0 = Date.now();
-  const out = run(b, "now ff to prod please", {}, b.env, deps(b, { clock: Date.now, probes: { git: slow } }));
-  const took = Date.now() - t0;
+  // The hook's clock reads 250 ms later after it sets the deadline, as if reading the store took that long, so the probes
+  // may have only what is left: 150 ms.
+  const used = 250;
+  let calls = 0;
+  const clock = () => Date.now() + (calls++ === 0 ? 0 : used);
+  const out = run(b, "now ff to prod please", {}, b.env, deps(b, { clock, probes: { git: slow } }));
   assert.ok(out.context?.startsWith("[trail] Skill ship-beta-then-prod fits"));
   assert.ok(!out.context!.includes("ready:"));
-  // The 400 ms deadline, and what a slow machine adds around it.
-  assert.ok(took < 400 + timeBar(50, 200), `took ${took} ms`);
+  assert.ok(granted.length > 0, "the slow probe ran");
+  const total = granted.reduce((sum, ms) => sum + ms, 0);
+  assert.ok(total <= PROMPT_DEADLINE_MS - used, `probes granted ${total} ms: ${granted.join(", ")}`);
   // Past the deadline before the cue (a long lock wait, a slow catch-up): no block, nothing half-done.
   let now = 0;
   const lb = shipBox("late");

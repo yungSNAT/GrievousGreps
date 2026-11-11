@@ -23,9 +23,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: ["20", "current"]
+        # A released major, not "current": setup-node resolves that to the first entry of
+        # Node's index, which can be a pre-release (v27.0.0-alpha from 29 October 2026).
+        node: ["20", "26"]
         # Windows on Node 20 was the slowest leg and set every pull request's wait.
-        # Pull requests test Node 20 on ubuntu and Windows on Node current; pushes
+        # Pull requests test Node 20 on ubuntu and Windows on Node 26; pushes
         # to main and manual runs still test Windows on Node 20.
         exclude:
           - os: ${{ github.event_name == 'pull_request' && 'windows-latest' || 'none' }}
@@ -49,9 +51,9 @@ jobs:
           node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
           node node_modules/typescript/bin/tsc --noEmit -p viewer/tsconfig.json
       - name: Test
-        run: npm test ${{ matrix.os == 'ubuntu-latest' && matrix.node == 'current' && '-- --coverage' || '' }}
+        run: npm test ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '-- --coverage' || '' }}
       - name: Keep the coverage reports for the Codecov upload
-        if: matrix.os == 'ubuntu-latest' && matrix.node == 'current'
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '26'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-codecov
