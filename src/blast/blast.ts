@@ -138,6 +138,25 @@ export interface BlastReport {
   /** Who to tag, ranked across every area. Absent outside a git repository, and
    * empty when the author is the only person in the history. */
   reviewers?: Reviewer[];
+  /** Calls naming a changed symbol that the build could not pin to one definition
+   * (`graph.unresolvedCalls`). No edge carries them, so `impacted` may miss their
+   * callers; the report says so, as `callers` does. */
+  unresolved?: UnresolvedName[];
+}
+
+export interface UnresolvedName {
+  name: string;
+  calls: number;
+}
+
+/** Unresolved calls per changed symbol name, most first. */
+function unresolvedForSeeds(graph: GraphV1, seeds: Seed[]): UnresolvedName[] {
+  const names = new Set(seeds.filter((s) => !s.wholeFile).map((s) => s.name));
+  const counts = new Map<string, number>();
+  for (const c of graph.unresolvedCalls ?? []) {
+    if (names.has(c.name)) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+  }
+  return [...counts].map(([name, calls]) => ({ name, calls })).sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
 }
 
 function spanBounds(span: string): { start: number; end: number } | null {
@@ -268,6 +287,7 @@ export function blastRadius(
     modules: grouped.modules,
     testModules: grouped.testModules,
     areas: changedAreas(graph, changed, seedNodes, index, grouped.modules),
+    unresolved: unresolvedForSeeds(graph, seeds),
   };
 }
 

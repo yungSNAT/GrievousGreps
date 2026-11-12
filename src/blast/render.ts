@@ -414,6 +414,15 @@ function caveatLines(r: BlastReport): string[] {
         "no parser claims the extension, or the index predates the file.",
     );
   }
+  const unresolved = r.unresolved ?? [];
+  if (unresolved.length > 0) {
+    const calls = unresolved.reduce((n, u) => n + u.calls, 0);
+    const names = unresolved.slice(0, 5).map((u) => `${u.name} (${u.calls})`).join(", ");
+    out.push(
+      `⚠️ ${plural(calls, "call")} naming a changed symbol (${names}) did not resolve to one definition — ` +
+        `their callers are not counted above, so this may undercount. \`${cmd("graft callers")} <name>\` lists them.`,
+    );
+  }
   return out;
 }
 

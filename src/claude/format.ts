@@ -87,7 +87,12 @@ export function formatBlastRadius(w: GraphV1, filePath: string, cap = 8): string
     return ` • ${e.relation} ← ${label}${e.confidence === 'inferred' ? INFERRED_MARK : ''}`;
   });
   const more = edges.length > cap ? `\n • +${edges.length - cap} more` : '';
-  return `${tag()} blast radius for ${basename(filePath)}, who depends on it:\n${items.join('\n')}${more}`;
+  // Calls to these names the build could not pin to one definition have no edge, so the list above can be short.
+  const ids = nodeIdsInFile(w, filePath);
+  const names = new Set((w.nodes ?? []).filter((n) => ids.has(n.id) && n.kind !== 'file').map((n) => n.name));
+  const unresolved = (w.unresolvedCalls ?? []).filter((c) => names.has(c.name)).length;
+  const note = unresolved > 0 ? `\n • +${unresolved} unresolved call${unresolved === 1 ? '' : 's'} to names defined here, not listed: ${cmd('graft callers')} <name> shows them` : '';
+  return `${tag()} blast radius for ${basename(filePath)}, who depends on it:\n${items.join('\n')}${more}${note}`;
 }
 
 export interface AskJson {

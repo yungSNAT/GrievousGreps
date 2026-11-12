@@ -18,6 +18,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { runCli, tmpRepo } from "./helpers.js";
 import { blastRadius } from "../src/blast/blast.js";
+import { markdownReport, textReport } from "../src/blast/render.js";
 import { changedFiles, type ChangedFile } from "../src/blast/diff.js";
 import type { Confidence, GraphV1, NodeV1 } from "../src/graph/types.js";
 
@@ -317,6 +318,23 @@ test("blast: a shallower inferred path outranks a deeper definite one, and stays
     const dep = blastRadius(g, changed.map(edited), "test", { depth: 2 }).impacted.find((i) => i.name === "dep")!;
     assert.deepEqual([dep.depth, dep.inferred], [1, true], changed.join(" then "));
   }
+});
+
+test("blast: calls to a changed symbol that did not resolve are counted and stated, not dropped silently", () => {
+  const g = callGraph(["a.ts#seed", "z.ts#sure"], [["z.ts#sure", "a.ts#seed", "extracted"]]);
+  g.unresolvedCalls = [
+    { source: "b.ts#maybe", name: "seed", through: "./a" },
+    { source: "c.ts#maybe", name: "seed", through: null },
+    { source: "d.ts#elsewhere", name: "other", through: null },
+  ];
+  const report = blastRadius(g, [edited("a.ts")], "test", { depth: 2 });
+  assert.deepEqual(report.unresolved, [{ name: "seed", calls: 2 }]);
+  assert.match(textReport(report), /⚠ 2 calls naming a changed symbol \(seed \(2\)\) did not resolve to one definition .*may undercount/);
+  assert.match(markdownReport(report), /⚠️ 2 calls naming a changed symbol/);
+
+  const quiet = blastRadius(callGraph(["a.ts#seed"], []), [edited("a.ts")], "test", { depth: 2 });
+  assert.deepEqual(quiet.unresolved, []);
+  assert.doesNotMatch(textReport(quiet), /did not resolve/);
 });
 
 test("diff: hunks carry their text, and the next file's header is not read as a deleted line", () => {
