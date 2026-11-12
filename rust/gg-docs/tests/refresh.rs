@@ -98,6 +98,28 @@ fn edits_renames_and_deletions_are_seen_on_the_next_refresh() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn unreadable_files_and_folders_are_counted_not_dropped_silently() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, root) = setup();
+    write(&root, "a.md", "# Alpha\nthe heron flies\n");
+    write(&root, "locked.md", "# Locked\nthe heron hides\n");
+    write(&root, "shut/b.md", "# Beta\nthe heron is shut in\n");
+    fs::set_permissions(root.join("locked.md"), fs::Permissions::from_mode(0o000)).unwrap();
+    fs::set_permissions(root.join("shut"), fs::Permissions::from_mode(0o000)).unwrap();
+    let readable = fs::read(root.join("locked.md")).is_ok();
+    let stats = if readable {
+        None // root reads through mode 000: nothing to check here
+    } else {
+        Some(open(&dir).refresh().unwrap())
+    };
+    fs::set_permissions(root.join("shut"), fs::Permissions::from_mode(0o755)).unwrap();
+    if let Some(stats) = stats {
+        assert_eq!((stats.added, stats.skipped_unreadable), (1, 2));
+    }
+}
+
 #[test]
 fn a_reopened_index_keeps_its_documents() {
     let (dir, root) = setup();

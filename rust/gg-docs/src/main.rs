@@ -137,17 +137,19 @@ fn print_update(r: &Refresh, as_json: bool) -> io::Result<()> {
     if as_json {
         return print_json(
             json!({"added": r.added, "updated": r.updated, "removed": r.removed,
-                                  "unchanged": r.unchanged, "skipped_large": r.skipped_large}),
+                                  "unchanged": r.unchanged, "skipped_large": r.skipped_large,
+                                  "skipped_unreadable": r.skipped_unreadable}),
         );
     }
     writeln!(
         io::stdout().lock(),
-        "added {}, updated {}, removed {}, unchanged {}, skipped over 4 MiB {}",
+        "added {}, updated {}, removed {}, unchanged {}, skipped over 4 MiB {}, skipped unreadable {}",
         r.added,
         r.updated,
         r.removed,
         r.unchanged,
-        r.skipped_large
+        r.skipped_large,
+        r.skipped_unreadable
     )
 }
 
