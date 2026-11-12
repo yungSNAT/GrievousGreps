@@ -764,7 +764,11 @@ function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; g
   const top: RustUseScope = { start: 0, end: Number.POSITIVE_INFINITY, closed: true, names: new Map(), fulls: new Map(), renames: new Map() };
   scopes.push(top);
   visit(root, top);
-  return { scopes, names, globs, anyGlob };
+  // Every function body is a block, and each call looks through every scope around it, so
+  // keeping them all made a file's calls cost its blocks times its calls. An open scope that
+  // binds nothing answers no lookup and stops none: only `mod`s and blocks with a `use` matter.
+  const useful = scopes.filter((s) => s.closed || s.names.size > 0 || s.renames.size > 0);
+  return { scopes: useful, names, globs, anyGlob };
 }
 
 /** What `name` means at `at`: the innermost `use` that binds it, walking out through
