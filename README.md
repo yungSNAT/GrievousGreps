@@ -19,7 +19,7 @@
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. [Measured recall](#measured-recall) is higher than upstream main's on all 21 public repositories, though on 6 of the 7 TypeScript ones much of the gap is upstream's own fall since 0.28.0, and Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs the same `trail` and `graft` commands, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
+Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.77, against 0.31 for upstream's npm release 0.29.0 (measured 13 November 2026) and 0.20 for upstream `main` at `b22055d` (12 November). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is level with 0.29.0's, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs the same `trail` and `graft` commands, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
 
 ## Install
 
@@ -89,45 +89,45 @@ cargo build --release --locked --manifest-path rust/gg-docs/Cargo.toml
 
 ## Measured recall
 
-Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each row is 10 preregistered symbols on one public repository, with the truth written before any build ran on it. Upstream is `main` at `b22055d` (9 November 2026), measured on 12 November.
+Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each row is 10 preregistered symbols on one public repository, with the truth written before any build ran on it. Upstream is measured twice: its npm release 0.29.0 (6 November 2026), the version `npm install` gives, on 13 November; and `main` at `b22055d` (9 November), on 12 November.
 
 That order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one. No required row changed.
 
-**Overall, upstream to patched:** recall 0.20 to 0.77 (21 repositories and 3215 of 4157 calls on the patched build), precision 0.91 to 0.93, silent undercounts 90 to 5.
+**Overall, upstream 0.29.0 to patched:** recall 0.31 to 0.77 (21 repositories and 3215 of 4157 calls on the patched build), precision 0.94 to 0.93, silent undercounts 50 to 5. Upstream `main` scored 0.20, with precision 0.91 and 90 silent undercounts.
 
-Upstream 0.28.0 at `a44da3d` (31 October) scored 0.31, with precision 0.94 and 50 silent undercounts. Since then its Python and Rust rows held or rose (rich 0.57 to 0.80), but 6 of its 7 TypeScript rows fell, from 0.90 to 0.33 on jotai and from 0.74 to 0.03 on radix: upstream `main` no longer finds some symbols, such as radix `FocusScope`, which it reports as not in the graph. A rerun of `a44da3d` on the same machine on 12 November gave its earlier TypeScript figures, so the fall is upstream's change, not the run.
+0.29.0 resolves calls with the code of 0.28.0 (`a44da3d`, 31 October): its graph code differs only in cache and lock handling, and it gave the same figures as `a44da3d` did on 31 October. Since 0.29.0, upstream `main`'s Python and Rust rows held or rose (rich 0.57 to 0.80), but 6 of its 7 TypeScript rows fell, from 0.90 to 0.33 on jotai and from 0.74 to 0.03 on radix: `main` no longer finds some symbols, such as radix `FocusScope`, which it reports as not in the graph. A rerun of `a44da3d` on the same machine on 12 November gave its earlier TypeScript figures, so the fall is upstream's change, not the run.
 
-| Repository | Language | Calls in truth | Upstream | Patched |
-| --- | --- | --- | --- | --- |
-| python-attrs/attrs @ c8bb9bf | Python | 277 | 0.05 | 1.00 |
-| tokio-rs/axum @ bebe175 | Rust | 127 | 0.48 | 0.98 |
-| pallets/click @ 2247b35 | Python | 401 | 0.03 | 0.97 |
-| pallets/flask @ d086db8 | Python | 33 | 0.33 | 0.70 |
-| honojs/hono @ ee88684 | TypeScript | 39 | 0.74 | 0.85 |
-| encode/httpx @ b5addb6 | Python | 42 | 0.52 | 1.00 |
-| pmndrs/jotai @ e5971ba | TypeScript | 58 | 0.33 | 1.00 |
-| rust-lang/mdBook @ b21095b | Rust | 51 | 0.73 | 1.00 |
-| TanStack/query @ 979695d | TypeScript | 73 | 0.49 | 1.00 |
-| radix-ui/primitives @ eb3a2b7 | TypeScript | 129 | 0.03 | 1.00 |
-| rayon-rs/rayon @ 599425d | Rust | 226 | 0.31 | 0.99 |
-| Textualize/rich @ 9d8f9a3 | Python | 132 | 0.80 | 0.97 |
-| BurntSushi/ripgrep @ 91f5d22 | Rust | 45 | 0.56 | 0.98 |
-| mwaskom/seaborn @ c1cb287 | Python | 147 | 0.24 | 1.00 |
-| hynek/structlog @ 19c4f21 | Python | 84 | 0.79 | 1.00 |
-| TanStack/table @ c14e022 | TypeScript | 358 | 0.23 | 1.00 |
-| tokio-rs/tokio @ 6470b5e | Rust | 845 | 0.04 | 0.33 |
-| tokio-rs/tracing @ 79b80a9 | Rust | 749 | 0.00 | 0.57 |
-| trpc/trpc @ 708753f | TypeScript | 192 | 0.28 | 0.96 |
-| vuejs/core @ 24c9d0b | TypeScript | 88 | 0.56 | 0.95 |
-| getzola/zola @ 628926f | Rust | 61 | 0.90 | 0.98 |
+| Repository | Language | Calls in truth | Upstream 0.29.0 | Upstream `main` | Patched |
+| --- | --- | --- | --- | --- | --- |
+| python-attrs/attrs @ c8bb9bf | Python | 277 | 0.05 | 0.05 | 1.00 |
+| tokio-rs/axum @ bebe175 | Rust | 127 | 0.48 | 0.48 | 0.98 |
+| pallets/click @ 2247b35 | Python | 401 | 0.03 | 0.03 | 0.97 |
+| pallets/flask @ d086db8 | Python | 33 | 0.33 | 0.33 | 0.70 |
+| honojs/hono @ ee88684 | TypeScript | 39 | 0.69 | 0.74 | 0.85 |
+| encode/httpx @ b5addb6 | Python | 42 | 0.52 | 0.52 | 1.00 |
+| pmndrs/jotai @ e5971ba | TypeScript | 58 | 0.90 | 0.33 | 1.00 |
+| rust-lang/mdBook @ b21095b | Rust | 51 | 0.73 | 0.73 | 1.00 |
+| TanStack/query @ 979695d | TypeScript | 73 | 0.95 | 0.49 | 1.00 |
+| radix-ui/primitives @ eb3a2b7 | TypeScript | 129 | 0.74 | 0.03 | 1.00 |
+| rayon-rs/rayon @ 599425d | Rust | 226 | 0.31 | 0.31 | 0.99 |
+| Textualize/rich @ 9d8f9a3 | Python | 132 | 0.57 | 0.80 | 0.97 |
+| BurntSushi/ripgrep @ 91f5d22 | Rust | 45 | 0.56 | 0.56 | 0.98 |
+| mwaskom/seaborn @ c1cb287 | Python | 147 | 0.24 | 0.24 | 1.00 |
+| hynek/structlog @ 19c4f21 | Python | 84 | 0.77 | 0.79 | 1.00 |
+| TanStack/table @ c14e022 | TypeScript | 358 | 0.69 | 0.23 | 1.00 |
+| tokio-rs/tokio @ 6470b5e | Rust | 845 | 0.04 | 0.04 | 0.33 |
+| tokio-rs/tracing @ 79b80a9 | Rust | 749 | 0.00 | 0.00 | 0.57 |
+| trpc/trpc @ 708753f | TypeScript | 192 | 0.94 | 0.28 | 0.96 |
+| vuejs/core @ 24c9d0b | TypeScript | 88 | 0.95 | 0.56 | 0.95 |
+| getzola/zola @ 628926f | Rust | 61 | 0.90 | 0.90 | 0.98 |
 
 Rust recall is partial. tokio is the weakest row at 0.33, and tracing is at 0.57. Together they hold 1,594 of the 4,157 calls, and their symbols were chosen for names repeated across crates and types.
 
 About 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 false, 95% interval 11% to 27%), at `e37a764` and `949d829`. An edge with that mark is a lead. `callers`, its JSON and the MCP tool show the mark, and at depth 2 or more they also show it on any hit whose every shortest path crosses such an edge. `blast` shows the mark too, counts those dependents and lists them after the definite ones at each depth. Definite edges: 2 of 80 false over the same 2 samples.
 
-Against `a44da3d`, recall did not rise everywhere: vue did not move, and trpc moved little. Silent undercounts remain.
+Against 0.29.0, recall did not rise everywhere: vue did not move, and trpc moved little. Silent undercounts remain.
 
-The patched column is from `e8f73b9`, and `166c2fd` gave the same figures on 12 November. Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matches them. The upstream `main` column was run on Linux; `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
+The patched column is from `e8f73b9`; `166c2fd` gave the same figures on 12 November and `eaa8393` on 13 November. Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matches them. Both upstream columns were run on Linux with Node 26.13.1: 0.29.0 as the npm package `@trailhq/trail-code@0.29.0`, `main` built from source. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
 
 These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
 
@@ -165,9 +165,9 @@ Repositories where a competitor's recall beat this tool's:
 
 ## Compared with upstream
 
-This table lists what the code changes from upstream 0.28.0. Only [the recall table](#measured-recall) measures the effect on callers. Upstream's agent benchmarks are not repeated here, because they have not been rerun on this build.
+This table lists what the code changes from upstream 0.28.0, the base of this build. Upstream's npm release 0.29.0 (6 November 2026) changes none of its rows: its code differs from 0.28.0 in cache memory, locks and `trail share-session`, which is off unless `TRAIL_SHARE_SESSION=1` is set. Upstream `main` has changed since. Only [the recall table](#measured-recall) measures the effect on callers. Upstream's agent benchmarks are not repeated here, because they have not been rerun on this build.
 
-| | Upstream 0.28.0 | GrievousGreps |
+| | Upstream 0.29.0 | GrievousGreps |
 | --- | --- | --- |
 | Python calls | Calls through a module alias or a re-exported name lose their edge | Follows named imports, module aliases, re-exports and local imports, and picks the nearest of several modules with one name |
 | TypeScript calls | Bound by name lookup where an import is not followed | Follows barrels, namespaces, tsconfig paths and exports maps, and counts JSX elements as calls |
