@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'dist', 'build-commit.txt');
-const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); // NOSONAR: the person's own git, found through PATH on purpose
 
 try {
   // A copy without its own .git inside another repository must not take that repository's commit.
