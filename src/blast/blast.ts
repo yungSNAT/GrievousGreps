@@ -140,7 +140,12 @@ export interface BlastReport {
   reviewers?: Reviewer[];
   /** Calls naming a changed symbol that the build could not pin to one definition
    * (`graph.unresolvedCalls`). No edge carries them, so `impacted` may miss their
-   * callers; the report says so, as `callers` does. */
+   * callers; the report says so, as `callers` does. The resolver records only
+   * TypeScript and JavaScript calls through an import the graph does not map,
+   * Python calls it cannot place and Rust calls it cannot pin to one definition;
+   * other languages' calls to a name defined in several files, and member calls
+   * with no receiver type, are dropped unrecorded. An empty list is therefore not
+   * proof that every call resolved. */
   unresolved?: UnresolvedName[];
 }
 

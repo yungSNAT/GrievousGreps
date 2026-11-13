@@ -335,6 +335,14 @@ test("blast: calls to a changed symbol that did not resolve are counted and stat
   const quiet = blastRadius(callGraph(["a.ts#seed"], []), [edited("a.ts")], "test", { depth: 2 });
   assert.deepEqual(quiet.unresolved, []);
   assert.doesNotMatch(textReport(quiet), /did not resolve/);
+  assert.match(markdownReport(quiet), /\*\*Nothing outside this diff depends on it\.\*\*/);
+
+  // No resolved dependent, but calls that may be its callers: the headline must not say nothing depends on it.
+  const lone = callGraph(["a.ts#seed"], []);
+  lone.unresolvedCalls = [{ source: "b.ts#maybe", name: "seed", through: null }];
+  const md = markdownReport(blastRadius(lone, [edited("a.ts")], "test", { depth: 2 }));
+  assert.doesNotMatch(md, /Nothing outside this diff depends on it/);
+  assert.match(md, /\*\*No resolved dependents; 1 unresolved call names a changed symbol\.\*\*/);
 });
 
 test("diff: hunks carry their text, and the next file's header is not read as a deleted line", () => {
