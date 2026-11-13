@@ -79,15 +79,20 @@ export function incomingEdges(w: GraphV1, filePath: string): EdgeV1[] {
 
 export function formatBlastRadius(w: GraphV1, filePath: string, cap = 8): string | null {
   const edges = incomingEdges(w, filePath);
-  if (!edges.length) return null;
+  // Calls to these names the build could not pin to one definition have no edge, so the edges alone can be short, or none.
+  const ids = nodeIdsInFile(w, filePath);
+  const names = new Set((w.nodes ?? []).filter((n) => ids.has(n.id) && n.kind !== 'file').map((n) => n.name));
+  const unresolved = (w.unresolvedCalls ?? []).filter((c) => names.has(c.name)).length;
+  if (!edges.length && !unresolved) return null;
   const byId = new Map((w.nodes ?? []).map((n) => [n.id, n]));
-  const items = edges.slice(0, cap).map((e) => {
+  const lines = edges.slice(0, cap).map((e) => {
     const n = byId.get(e.source);
     const label = n ? `${n.name} (${basename(n.path)})` : e.source;
     return ` • ${e.relation} ← ${label}${e.confidence === 'inferred' ? INFERRED_MARK : ''}`;
   });
-  const more = edges.length > cap ? `\n • +${edges.length - cap} more` : '';
-  return `${tag()} blast radius for ${basename(filePath)}, who depends on it:\n${items.join('\n')}${more}`;
+  if (edges.length > cap) lines.push(` • +${edges.length - cap} more`);
+  if (unresolved > 0) lines.push(` • +${unresolved} unresolved call${unresolved === 1 ? '' : 's'} to names defined here, not listed: ${cmd('graft callers')} <name> shows them`);
+  return `${tag()} blast radius for ${basename(filePath)}, who depends on it:\n${lines.join('\n')}`;
 }
 
 export interface AskJson {

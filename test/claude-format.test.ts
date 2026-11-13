@@ -66,6 +66,24 @@ test('formatBlastRadius marks an inferred edge the way callers does', () => {
   assert.doesNotMatch(strip(formatBlastRadius(wiring2, '/abs/repo/src/pkce.ts')!), /inferred/);
 });
 
+test('formatBlastRadius counts unresolved calls to the file\'s names instead of undercounting silently', () => {
+  const unresolvedCalls = [
+    { source: 'src/a.ts#x', name: 'verify', through: null },
+    { source: 'src/b.ts#y', name: 'gen', through: './pkce' },
+    { source: 'src/c.ts#z', name: 'exchange', through: null },
+  ];
+  assert.match(strip(formatBlastRadius({ ...wiring2, unresolvedCalls }, '/abs/repo/src/pkce.ts')!), /\+2 unresolved calls to names defined here, not listed/);
+  assert.doesNotMatch(strip(formatBlastRadius(wiring2, '/abs/repo/src/pkce.ts')!), /unresolved/);
+});
+
+test('formatBlastRadius still speaks for a file whose only callers are unresolved calls', () => {
+  const unreached = { ...wiring2, edges: [] };
+  assert.equal(formatBlastRadius(unreached, '/abs/repo/src/pkce.ts'), null, 'no edges and no unresolved calls: nothing to say');
+  const txt = strip(formatBlastRadius({ ...unreached, unresolvedCalls: [{ source: 'src/a.ts#x', name: 'verify', through: null }] }, '/abs/repo/src/pkce.ts')!);
+  assert.match(txt, /blast radius for pkce\.ts/);
+  assert.match(txt, /\+1 unresolved call to names defined here, not listed/);
+});
+
 test('formatBlastRadius renders callers or null', () => {
   const txt = formatBlastRadius(wiring2, '/abs/repo/src/pkce.ts');
   assert.match(strip(txt!), /blast radius for pkce\.ts/);

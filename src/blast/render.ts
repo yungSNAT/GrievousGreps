@@ -172,7 +172,10 @@ export function markdownReport(r: BlastReport, opts: { root?: string } = {}): st
 function headline(r: BlastReport, symbols: number): string {
   const areas = plural(r.areas.length, "area");
   if (symbols === 0) {
-    return `**Nothing outside this diff depends on it.** ${areas} changed; no indexed dependents at ${depthLabel(r.depth)}.`;
+    const unresolved = (r.unresolved ?? []).reduce((n, u) => n + u.calls, 0);
+    // Not 'nothing depends on it': the graph does not record every call it could not resolve (BlastReport.unresolved).
+    const lead = unresolved > 0 ? `No resolved dependents; ${plural(unresolved, "unresolved call")} ${unresolved === 1 ? "names" : "name"} a changed symbol.` : "No resolved dependents.";
+    return `**${lead}** ${areas} changed; no indexed dependents at ${depthLabel(r.depth)}.`;
   }
   return `**${areas} changed → ${plural(r.modules.length, "area")} can be affected.** ${plural(symbols, "dependent symbol")}${inferredCount(r)}, ${depthLabel(r.depth)}.`;
 }
@@ -412,6 +415,15 @@ function caveatLines(r: BlastReport): string[] {
     out.push(
       `⚠️ ${plural(r.unindexed.length, "changed file")} not in the graph (${r.unindexed.slice(0, 5).join(", ")}) — ` +
         "no parser claims the extension, or the index predates the file.",
+    );
+  }
+  const unresolved = r.unresolved ?? [];
+  if (unresolved.length > 0) {
+    const calls = unresolved.reduce((n, u) => n + u.calls, 0);
+    const names = unresolved.slice(0, 5).map((u) => `${u.name} (${u.calls})`).join(", ");
+    out.push(
+      `⚠️ ${plural(calls, "call")} naming a changed symbol (${names}) did not resolve to one definition — ` +
+        `their callers are not counted above, so this may undercount. \`${cmd("graft callers")} <name>\` lists them.`,
     );
   }
   return out;

@@ -138,6 +138,33 @@ export interface BlastReport {
   /** Who to tag, ranked across every area. Absent outside a git repository, and
    * empty when the author is the only person in the history. */
   reviewers?: Reviewer[];
+  /** Calls naming a changed symbol that the build could not pin to one definition
+   * (`graph.unresolvedCalls`). No edge carries them, so `impacted` may miss their
+   * callers; the report says so, as `callers` does. The resolver (graph/resolve.ts)
+   * records some of them: TypeScript and JavaScript calls through an import the
+   * graph does not map; Python calls through a rebound name or a dotted module
+   * path it cannot place; and Rust trait calls with several fitting impls, `self`
+   * calls in an impl, lower-case member calls whose owner is ambiguous or unseen,
+   * and free calls to a name defined more than once. Others are dropped
+   * unrecorded, including ambiguous bare-name calls in every language and member
+   * calls whose owner is ambiguous outside Rust. An empty list is therefore not
+   * proof that every call resolved. */
+  unresolved?: UnresolvedName[];
+}
+
+export interface UnresolvedName {
+  name: string;
+  calls: number;
+}
+
+/** Unresolved calls per changed symbol name, most first. */
+function unresolvedForSeeds(graph: GraphV1, seeds: Seed[]): UnresolvedName[] {
+  const names = new Set(seeds.filter((s) => !s.wholeFile).map((s) => s.name));
+  const counts = new Map<string, number>();
+  for (const c of graph.unresolvedCalls ?? []) {
+    if (names.has(c.name)) counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+  }
+  return [...counts].map(([name, calls]) => ({ name, calls })).sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
 }
 
 function spanBounds(span: string): { start: number; end: number } | null {
@@ -268,6 +295,7 @@ export function blastRadius(
     modules: grouped.modules,
     testModules: grouped.testModules,
     areas: changedAreas(graph, changed, seedNodes, index, grouped.modules),
+    unresolved: unresolvedForSeeds(graph, seeds),
   };
 }
 
