@@ -46,8 +46,8 @@ The overall line and first table are what the README carries. Recall is required
 
 - macro recall, the mean of each symbol's recall
 - precision, the reported callers that match a required call, divided by all reported callers
-- silent, the symbols with a miss and no statement in the plain output that the answer may be short
-- stated, the symbols with a miss and such a statement
+- silent, the symbols with a miss and no statement on the target's own JSON match that the answer may be short
+- stated, the symbols with a miss and such a statement: an `unresolved` field, or a `note` saying the shared name may undercount. Notes on other definitions of the name do not count
 - perfect, the symbols with every required call found and no false positive
 
 ## Scoring rules
@@ -87,4 +87,4 @@ Limits of the truth:
 
 ## Recorded runs
 
-The README's draft figures came from upstream `a44da3dfb5894c8e316e320526041ef8e5ddbb8c` (0.28.0) and an earlier patched build, `949d829`, using the verifier's own scripts. Applying this harness's scorer to those stored outputs gave the same figures for all 21 repositories, including the overall 0.31 to 0.78. Regenerate them with this harness on the final build. On 12 November 2026 this harness gave the README's current table on Linux with Node 26.13.1: upstream `main` at `b22055dce3c3ff22722793ed0a5a3be4491a9140` against `166c2fd`, and `a44da3d` again on jotai, query, radix, table, trpc and vue, which matched its earlier figures there. On 12 November 2026 (UTC), with the same Node, the npm package `@trailhq/trail-code@0.29.0`, installed with its postinstall script skipped, against `eaa8393` gave the README's 0.29.0 column, the same figures as `a44da3d`, and the patched column unchanged.
+The README's draft figures came from upstream `a44da3dfb5894c8e316e320526041ef8e5ddbb8c` (0.28.0) and an earlier patched build, `949d829`, using the verifier's own scripts. Applying this harness's scorer to those stored outputs gave the same figures for all 21 repositories, including the overall 0.31 to 0.78. Regenerate them with this harness on the final build. On 12 November 2026 this harness gave the README's current table on Linux with Node 26.13.1: upstream `main` at `b22055dce3c3ff22722793ed0a5a3be4491a9140` against `166c2fd`, and `a44da3d` again on jotai, query, radix, table, trpc and vue, which matched its earlier figures there. On 12 November 2026 (UTC), with the same Node, the npm package `@trailhq/trail-code@0.29.0`, installed with its postinstall script skipped, against `eaa8393` gave the README's 0.29.0 column, the same figures as `a44da3d`, and the patched column unchanged. Those runs counted a statement anywhere in the plain `callers` output, so their silent and stated counts predate the JSON rule above; recall and precision do not depend on it.

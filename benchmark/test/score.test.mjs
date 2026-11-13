@@ -29,20 +29,25 @@ test('a hit needs the file and the call line, or only the file for a module-leve
 
 test('hits under another definition of the name do not count', () => {
   const result = { matches: [{ symbol: { path: 'src/other.py', span: 'L10-L20' }, hits: [inCaller, inFile] }] };
-  assert.equal(scoreSymbol(truth, result, '').found, 0);
+  assert.equal(scoreSymbol(truth, result).found, 0);
 });
 
-test('a miss is silent unless the plain output says the answer may be short', () => {
-  const result = { matches: [{ symbol: definition, hits: [inCaller] }] };
-  assert.equal(scoreSymbol(truth, result, 'caller').undercount, 'silent');
-  assert.equal(scoreSymbol(truth, result, 'this may undercount').undercount, 'stated');
-  const complete = { matches: [{ symbol: definition, hits: [inCaller, inFile] }] };
-  assert.equal(scoreSymbol(truth, complete, '').undercount, 'none');
+test("a miss is stated only by the target's own unresolved field or shared-name note", () => {
+  const short = (fields) => ({ matches: [{ symbol: definition, hits: [inCaller], ...fields }] });
+  assert.equal(scoreSymbol(truth, short({})).undercount, 'silent');
+  assert.equal(scoreSymbol(truth, short({ unresolved: '⚠ may be incomplete: 1 call(s)' })).undercount, 'stated');
+  assert.equal(scoreSymbol(truth, short({ note: 'no indexed callers. 2 definitions share the name; so this may undercount.' })).undercount, 'stated');
+  assert.equal(scoreSymbol(truth, short({ note: 'no indexed callers. Check the name' })).undercount, 'silent');
+  const homonym = { symbol: { path: 'src/other.py', span: 'L1-L2' }, hits: [], note: 'so this may undercount.', unresolved: 'did not resolve' };
+  const elsewhere = { matches: [...short({}).matches, homonym] };
+  assert.equal(scoreSymbol(truth, elsewhere).undercount, 'silent');
+  const complete = { matches: [{ symbol: definition, hits: [inCaller, inFile], unresolved: 'did not resolve' }] };
+  assert.equal(scoreSymbol(truth, complete).undercount, 'none');
 });
 
 test('a reported caller outside the truth lowers precision', () => {
   const stray = { id: 'src/d.py#other', path: 'src/d.py', span: 'L1-L2' };
-  const score = scoreSymbol(truth, { matches: [{ symbol: definition, hits: [inCaller, inFile, stray] }] }, '');
+  const score = scoreSymbol(truth, { matches: [{ symbol: definition, hits: [inCaller, inFile, stray] }] });
   const summary = summarise([score]);
   assert.equal(summary.recall, 1);
   assert.equal(summary.precision, 2 / 3);
@@ -94,7 +99,7 @@ test('chain and names rules match the target by file alone and honour optional r
     { id: 'src/b.py#caller', path: 'src/b.py' },
     { id: 'src/c.py', path: 'src/c.py' },
   ];
-  const score = scoreSymbol(entry, { matches: [{ symbol: { path: 'src/a.py' }, hits }] }, '', 'chain');
+  const score = scoreSymbol(entry, { matches: [{ symbol: { path: 'src/a.py' }, hits }] }, 'chain');
   assert.equal(score.found, 1);
   assert.equal(score.falsePositives.length, 0);
 });
