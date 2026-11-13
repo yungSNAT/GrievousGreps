@@ -173,7 +173,8 @@ function headline(r: BlastReport, symbols: number): string {
   const areas = plural(r.areas.length, "area");
   if (symbols === 0) {
     const unresolved = (r.unresolved ?? []).reduce((n, u) => n + u.calls, 0);
-    const lead = unresolved > 0 ? `No resolved dependents; ${plural(unresolved, "unresolved call")} ${unresolved === 1 ? "names" : "name"} a changed symbol.` : "Nothing outside this diff depends on it.";
+    // Not 'nothing depends on it': the graph does not record every call it could not resolve (BlastReport.unresolved).
+    const lead = unresolved > 0 ? `No resolved dependents; ${plural(unresolved, "unresolved call")} ${unresolved === 1 ? "names" : "name"} a changed symbol.` : "No resolved dependents.";
     return `**${lead}** ${areas} changed; no indexed dependents at ${depthLabel(r.depth)}.`;
   }
   return `**${areas} changed → ${plural(r.modules.length, "area")} can be affected.** ${plural(symbols, "dependent symbol")}${inferredCount(r)}, ${depthLabel(r.depth)}.`;

@@ -140,11 +140,14 @@ export interface BlastReport {
   reviewers?: Reviewer[];
   /** Calls naming a changed symbol that the build could not pin to one definition
    * (`graph.unresolvedCalls`). No edge carries them, so `impacted` may miss their
-   * callers; the report says so, as `callers` does. The resolver records only
-   * TypeScript and JavaScript calls through an import the graph does not map,
-   * Python calls it cannot place and Rust calls it cannot pin to one definition;
-   * other languages' calls to a name defined in several files, and member calls
-   * with no receiver type, are dropped unrecorded. An empty list is therefore not
+   * callers; the report says so, as `callers` does. The resolver (graph/resolve.ts)
+   * records some of them: TypeScript and JavaScript calls through an import the
+   * graph does not map; Python calls through a rebound name or a dotted module
+   * path it cannot place; and Rust trait calls with several fitting impls, `self`
+   * calls in an impl, lower-case member calls whose owner is ambiguous or unseen,
+   * and free calls to a name defined more than once. Others are dropped
+   * unrecorded, including ambiguous bare-name calls in every language and member
+   * calls whose owner is ambiguous outside Rust. An empty list is therefore not
    * proof that every call resolved. */
   unresolved?: UnresolvedName[];
 }
