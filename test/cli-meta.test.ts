@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { delimiter, join, resolve } from 'node:path';
@@ -9,6 +9,7 @@ import {
   resolvePackageJsonPath,
   readCurrentVersion,
   getNpmViewVersion,
+  versionLine,
 } from '../src/cli-meta.js';
 
 // --- formatVersionReport: this distribution has nothing published to compare with ---
@@ -35,6 +36,31 @@ test('readCurrentVersion reads the real package.json version', () => {
   const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
   const v = readCurrentVersion(pathToFileURL(resolve(process.cwd(), 'src/cli.ts')).href);
   assert.equal(v, pkg.version);
+});
+
+// --- versionLine: every build of this fork has the same version, so --version names the commit ---
+
+test('versionLine adds the commit the build recorded, and only a commit', () => {
+  const pkg = mkdtempSync(join(tmpdir(), 'graft-version-line-'));
+  try {
+    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ version: '0.28.0+gg' }));
+    mkdirSync(join(pkg, 'dist'));
+    const cli = pathToFileURL(join(pkg, 'dist', 'cli.js')).href;
+    assert.equal(versionLine(cli), '0.28.0+gg', 'no stamp: the version alone');
+    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'eaa839317b75\n');
+    assert.equal(versionLine(cli), '0.28.0+gg (eaa839317b75)');
+    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'eaa839317b75-dirty\n');
+    assert.equal(versionLine(cli), '0.28.0+gg (eaa839317b75-dirty)');
+    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'not a commit\n');
+    assert.equal(versionLine(cli), '0.28.0+gg');
+  } finally {
+    rmSync(pkg, { recursive: true, force: true });
+  }
+});
+
+test('the build stamps the commit it came from', () => {
+  const build = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).scripts.build as string;
+  assert.match(build, /node scripts\/stamp-commit\.mjs$/);
 });
 
 // --- npm launch: a fake npm first on PATH stands in for the real one ---

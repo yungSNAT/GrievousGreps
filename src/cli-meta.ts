@@ -44,6 +44,18 @@ export function readCurrentVersion(moduleUrl: string): string {
   return pkg.version ?? "0.0.0";
 }
 
+/** The version as `--version` prints it: then the commit the build came from,
+ * when `npm run build` recorded one (scripts/stamp-commit.mjs). */
+export function versionLine(moduleUrl: string): string {
+  const version = readCurrentVersion(moduleUrl);
+  try {
+    const commit = readFileSync(resolve(dirname(resolvePackageJsonPath(moduleUrl)), "dist", "build-commit.txt"), "utf8").trim();
+    return /^[0-9a-f]{7,40}(-dirty)?$/.test(commit) ? `${version} (${commit})` : version;
+  } catch {
+    return version;
+  }
+}
+
 /** Runs `npm <args>`. On Windows `npm` is the `npm.cmd` shim, which only a shell
  * can start: spawned directly it fails with ENOENT, so the update check stored nothing.
  * The shell gets one joined command line because Node 24 warns (DEP0190) when it
