@@ -59,6 +59,10 @@ pub struct Refresh {
     pub removed: usize,
     pub unchanged: usize,
     pub skipped_large: usize,
+    /// Files and folders that could not be read, or whose path is not UTF-8: left out, not
+    /// searched, and counted so a short answer is not taken as a complete one. A file indexed
+    /// before is also counted in `removed`, as an oversized one is in `skipped_large`.
+    pub skipped_unreadable: usize,
 }
 
 struct Stored {
@@ -116,27 +120,8 @@ impl Index {
                 .map_err(sql)?;
         }
         let mut writer = Writer::new(&self.conn, if bulk { BATCH_BYTES } else { u64::MAX });
-        for (rel, full, size, mtime_ns) in candidates {
-            // pollster runs this one future on this thread, so a blocking read stalls nothing else.
-            let Ok(bytes) = fs::read(&full) else { continue }; // NOSONAR: see above
-            let hash = hex(&Sha256::digest(&bytes));
-            match stored.remove(&rel) {
-                Some(old) if old.hash == hash => {
-                    writer.touch(old.id, size, mtime_ns).await?;
-                    stats.unchanged += 1;
-                }
-                old => {
-                    if let Some(old) = &old {
-                        writer.remove(old.id).await?;
-                        stats.updated += 1;
-                    } else {
-                        stats.added += 1;
-                    }
-                    let parsed = markdown::parse(&String::from_utf8_lossy(&bytes), stem(&rel));
-                    let doc = (rel.as_str(), size, mtime_ns, hash.as_str());
-                    writer.insert(doc, &parsed, bytes.len() as u64).await?;
-                }
-            }
+        for candidate in candidates {
+            index_one(&mut writer, &mut stored, &mut stats, candidate).await?;
         }
         stats.removed = stored.len();
         for old in stored.into_values() {
@@ -161,8 +146,11 @@ impl Index {
         stats: &mut Refresh,
     ) -> Vec<(String, PathBuf, i64, i64)> {
         let mut candidates = Vec::new();
-        for (rel, full) in walk(&self.root) {
+        let (files, unusable) = walk(&self.root);
+        stats.skipped_unreadable += unusable;
+        for (rel, full) in files {
             let Ok(md) = fs::metadata(&full) else {
+                stats.skipped_unreadable += 1;
                 continue;
             };
             if md.len() > MAX_BYTES {
@@ -411,36 +399,78 @@ impl<'a> Writer<'a> {
     }
 }
 
-/// Indexable files under `root` as (forward-slash relative path, full path). Honours
-/// `.gitignore`, `.ignore` and git excludes, includes dot folders except `.git`, and does not
-/// follow symbolic links, so nothing outside `root` is read.
-fn walk(root: &Path) -> Vec<(String, PathBuf)> {
+/// Reads one candidate file and adds, replaces or touches its row; an unreadable file is
+/// counted and left in `stored`, so the refresh removes it.
+async fn index_one(
+    writer: &mut Writer<'_>,
+    stored: &mut HashMap<String, Stored>,
+    stats: &mut Refresh,
+    (rel, full, size, mtime_ns): (String, PathBuf, i64, i64),
+) -> Result<(), String> {
+    // pollster runs this one future on this thread, so a blocking read stalls nothing else.
+    let read = fs::read(&full); // NOSONAR: see above
+    let Ok(bytes) = read else {
+        stats.skipped_unreadable += 1;
+        return Ok(());
+    };
+    let hash = hex(&Sha256::digest(&bytes));
+    match stored.remove(&rel) {
+        Some(old) if old.hash == hash => {
+            writer.touch(old.id, size, mtime_ns).await?;
+            stats.unchanged += 1;
+        }
+        old => {
+            if let Some(old) = &old {
+                writer.remove(old.id).await?;
+                stats.updated += 1;
+            } else {
+                stats.added += 1;
+            }
+            let parsed = markdown::parse(&String::from_utf8_lossy(&bytes), stem(&rel));
+            let doc = (rel.as_str(), size, mtime_ns, hash.as_str());
+            writer.insert(doc, &parsed, bytes.len() as u64).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Indexable files under `root` as (forward-slash relative path, full path), and how many
+/// entries the walk could not use: a folder it could not read, or an indexable file whose path
+/// is not UTF-8. Honours `.gitignore`, `.ignore` and git excludes, includes dot folders except
+/// `.git`, and does not follow symbolic links, so nothing outside `root` is read.
+fn walk(root: &Path) -> (Vec<(String, PathBuf)>, usize) {
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
         .follow_links(false)
         .filter_entry(|e| e.file_name() != ".git")
         .build();
-    let mut out: Vec<_> = walker
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-        .filter(|e| {
-            let ext = e.path().extension().and_then(|x| x.to_str()).unwrap_or("");
-            EXTENSIONS
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(ext))
-        })
-        .filter_map(|e| {
-            let rel = e
-                .path()
-                .strip_prefix(root)
-                .ok()?
-                .to_str()?
-                .replace('\\', "/");
-            Some((rel, e.into_path()))
-        })
-        .collect();
+    let mut out = Vec::new();
+    let mut unusable = 0;
+    for entry in walker {
+        let Ok(e) = entry else {
+            unusable += 1;
+            continue;
+        };
+        if !e.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let ext = e.path().extension().and_then(|x| x.to_str()).unwrap_or("");
+        if !EXTENSIONS
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(ext))
+        {
+            continue;
+        }
+        match e.path().strip_prefix(root).ok().and_then(Path::to_str) {
+            Some(rel) => {
+                let rel = rel.replace('\\', "/");
+                out.push((rel, e.into_path()));
+            }
+            None => unusable += 1,
+        }
+    }
     out.sort();
-    out
+    (out, unusable)
 }
 
 /// The file name without its extension, a document's title of last resort.

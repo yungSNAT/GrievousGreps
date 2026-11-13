@@ -79,6 +79,7 @@ fn json_answers_carry_the_protocol() {
     ));
     assert_eq!(update["added"], 1);
     assert_eq!(update["skipped_large"], 0);
+    assert_eq!(update["skipped_unreadable"], 0);
     let search = envelope(&gg_docs(
         dir.path(),
         &["--protocol", "1", "search", "claim", "lapses", "--json"],
