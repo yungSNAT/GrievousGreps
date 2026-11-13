@@ -19,7 +19,7 @@ import { hostsWiredForTrail } from '../hosts/registry.js';
 import { flushClosedSessions, summarizeSession } from '../telemetry/sessions.js';
 import { maybeFlushInBackground } from '../telemetry/flush.js';
 import { handleStopEvent } from './stop.js';
-import { main as preBashMain } from './pre-bash.js';
+import { main as preBashMain, readInput } from './pre-bash.js';
 import { classifyToolUse, commandInvokesGraft, isMcpToolName, isGraftMcpTool, parseSavings, recordToolUse, type ToolKind } from './session-metrics.js';
 import { adoptRepoBrand, brand, commandOnPath, repoWiredForTrail, tag, trailHandoverLine, trailOnPath } from '../brand.js';
 import { fitTrailServerToMachine } from '../hosts/claude-global.js';
@@ -44,16 +44,6 @@ import { keptContext, keptNotice } from './start-init.js';
 import { teamSignInLine } from '../cloud/team-file.js';
 
 export { lastFileScopeHint, promptAskTimeout } from './prompt-hook.js';
-
-function readStdin(): any {
-  const seam = process.env.GRAFT_TEST_STDIN;
-  const raw = seam !== undefined ? seam : safeReadFd0();
-  try {
-    const input = JSON.parse(raw);
-    return input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-  } catch { return {}; }
-}
-function safeReadFd0(): string { try { return readFileSync(0, 'utf8'); } catch { return ''; } }
 
 function projectDir(input: any): string {
   return process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
@@ -520,7 +510,8 @@ export async function main(event: string): Promise<void> {
   if (event === 'pre-bash') { await preBashMain(event); return; }
   // trail's own headless Claude calls (the first-run read of past sessions) run with this set.
   if (process.env.TRAIL_NO_HOOKS === '1') return;
-  const input = readStdin();
+  // Bounded as pre-bash's is: a host that never closes stdin must not hold the hook until its timeout.
+  const input: any = (await readInput(Number.POSITIVE_INFINITY)) ?? {};
   // Registered in the repo and in ~/.claude, Claude Code runs both: one answers.
   // Who sent the payload decides first: Copilot CLI runs only the repo's copy.
   if (globalCopyCovers(event, process.argv[1], homedir(), process.env, input)) return;

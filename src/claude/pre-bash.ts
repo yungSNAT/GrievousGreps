@@ -139,13 +139,13 @@ export const STDIN_WAIT_MS = 2000;
 export const STDIN_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
- * stdin to its end, or null for a terminal (a person, not a host), an
- * oversized payload or a read error. A read that is still waiting after
+ * stdin to its end, or null for a terminal (a person, not a host), a
+ * payload over `maxBytes` or a read error. A read that is still waiting after
  * STDIN_WAIT_MS sits in a thread Node joins before exiting, so no timer or
  * exit() gets past it: the process ends outright instead, and the command's
  * `|| exit 0` (settings-merge.ts failOpen) makes that a clean exit.
  */
-function readStdin(fs: typeof Fs): Promise<string | null> {
+function readStdin(fs: typeof Fs, maxBytes: number): Promise<string | null> {
   try {
     if (fs.fstatSync(0).isCharacterDevice()) return Promise.resolve(null);
   } catch {
@@ -165,9 +165,9 @@ function readStdin(fs: typeof Fs): Promise<string | null> {
         const code = (err as NodeJS.ErrnoException | null)?.code;
         if (code === 'EAGAIN') return void setTimeout(next, 5);
         if (err && code !== 'EOF') return finish(null);
-        if (err || !n) return finish(size > STDIN_MAX_BYTES ? null : Buffer.concat(chunks).toString('utf8'));
+        if (err || !n) return finish(size > maxBytes ? null : Buffer.concat(chunks).toString('utf8'));
         size += n;
-        if (size <= STDIN_MAX_BYTES) chunks.push(Buffer.from(buf.subarray(0, n)));
+        if (size <= maxBytes) chunks.push(Buffer.from(buf.subarray(0, n)));
         else chunks.length = 0;
         next();
       });
@@ -176,11 +176,14 @@ function readStdin(fs: typeof Fs): Promise<string | null> {
   });
 }
 
-/** The hook payload on stdin as an object, or null for anything else. */
-async function readInput(): Promise<Record<string, unknown> | null> {
+/**
+ * The hook payload on stdin as an object, or null for anything else. The other
+ * hooks (hooks.ts) read with no size limit: an edit's payload carries the file.
+ */
+export async function readInput(maxBytes = STDIN_MAX_BYTES): Promise<Record<string, unknown> | null> {
   try {
     const seam = process.env.GRAFT_TEST_STDIN;
-    const text = seam !== undefined ? seam : await readStdin(await nodeFs());
+    const text = seam !== undefined ? seam : await readStdin(await nodeFs(), maxBytes);
     if (text === null) return null;
     const input: unknown = JSON.parse(text);
     return input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : null;
