@@ -176,7 +176,8 @@ test("session start: 5 skills against a 15 MB packed-refs stay inside the hook's
   const big = [0, 1, 2, 3, 4].map((s) => gone(b, [`git push origin beta${s}`]));
   const ms = performance.now() - t0;
   assert.deepEqual(big, [[], [], [], [], []]);
-  // 60 ms on the bars' machine, scaled: the check is against reading 15 MB per skill, not a busy runner.
+  // At least 180 ms, scaled up on a slow machine; 60 ms only under TRAIL_PERF=1. The check is against
+  // reading 15 MB per skill, not a busy runner.
   assert.ok(ms < timeBar(60, 180), `${ms.toFixed(0)} ms`);
   packedRefs(2);
   assert.deepEqual([0, 3].map((s) => gone(b, [`git push origin beta${s}`, `git checkout beta${s}`])),
