@@ -121,7 +121,8 @@ impl Index {
         let mut writer = Writer::new(&self.conn, if bulk { BATCH_BYTES } else { u64::MAX });
         for (rel, full, size, mtime_ns) in candidates {
             // pollster runs this one future on this thread, so a blocking read stalls nothing else.
-            let Ok(bytes) = fs::read(&full) else { // NOSONAR: see above
+            let read = fs::read(&full); // NOSONAR: see above
+            let Ok(bytes) = read else {
                 stats.skipped_unreadable += 1;
                 continue;
             };
