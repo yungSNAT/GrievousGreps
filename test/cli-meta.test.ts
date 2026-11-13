@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { delimiter, join, resolve } from 'node:path';
 import {
   formatVersionReport,
@@ -40,27 +41,65 @@ test('readCurrentVersion reads the real package.json version', () => {
 
 // --- versionLine: every build of this fork has the same version, so --version names the commit ---
 
-test('versionLine adds the commit the build recorded, and only a commit', () => {
+/** A fake built package: package.json, dist/cli.js written at `builtAt`, and the stamp written after it. */
+function builtPackage(stamp: string | null): { pkg: string; cli: string; stampFile: string } {
   const pkg = mkdtempSync(join(tmpdir(), 'graft-version-line-'));
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ version: '0.28.0+gg' }));
+  mkdirSync(join(pkg, 'dist'));
+  mkdirSync(join(pkg, 'src'));
+  const cliFile = join(pkg, 'dist', 'cli.js');
+  writeFileSync(cliFile, '');
+  const builtAt = new Date(Date.now() - 60_000);
+  utimesSync(cliFile, builtAt, builtAt);
+  const stampFile = join(pkg, 'dist', 'build-commit.txt');
+  if (stamp !== null) writeFileSync(stampFile, stamp);
+  return { pkg, cli: pathToFileURL(cliFile).href, stampFile };
+}
+
+test('versionLine adds the commit the build recorded as build metadata, and only a commit', () => {
+  for (const [stamp, line] of [
+    [null, '0.28.0+gg'],
+    ['eaa839317b75\n', '0.28.0+gg.eaa839317b75'],
+    ['eaa839317b75-dirty\n', '0.28.0+gg.eaa839317b75-dirty'],
+    ['not a commit\n', '0.28.0+gg'],
+  ] as const) {
+    const { pkg, cli } = builtPackage(stamp);
+    try {
+      assert.equal(versionLine(cli), line, String(stamp));
+    } finally {
+      rmSync(pkg, { recursive: true, force: true });
+    }
+  }
+});
+
+test('versionLine ignores a stamp the running code is newer than, or that a source run did not build', () => {
+  const { pkg, cli, stampFile } = builtPackage('eaa839317b75\n');
   try {
-    writeFileSync(join(pkg, 'package.json'), JSON.stringify({ version: '0.28.0+gg' }));
-    mkdirSync(join(pkg, 'dist'));
-    const cli = pathToFileURL(join(pkg, 'dist', 'cli.js')).href;
-    assert.equal(versionLine(cli), '0.28.0+gg', 'no stamp: the version alone');
-    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'eaa839317b75\n');
-    assert.equal(versionLine(cli), '0.28.0+gg (eaa839317b75)');
-    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'eaa839317b75-dirty\n');
-    assert.equal(versionLine(cli), '0.28.0+gg (eaa839317b75-dirty)');
-    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'not a commit\n');
-    assert.equal(versionLine(cli), '0.28.0+gg');
+    // A later `tsc` or `npm run dev` rewrote dist/cli.js after the stamp.
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(fileURLToPath(cli), later, later);
+    assert.equal(versionLine(cli), '0.28.0+gg', 'a stale stamp');
+    // `npm run cli` runs src/cli.ts through tsx, whatever dist holds.
+    utimesSync(stampFile, new Date(Date.now() + 120_000), new Date(Date.now() + 120_000));
+    assert.equal(versionLine(pathToFileURL(join(pkg, 'src', 'cli.ts')).href), '0.28.0+gg', 'running from source');
   } finally {
     rmSync(pkg, { recursive: true, force: true });
   }
 });
 
-test('the build stamps the commit it came from', () => {
-  const build = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).scripts.build as string;
-  assert.match(build, /node scripts\/stamp-commit\.mjs$/);
+test('outside its own git checkout the build leaves no stamp, not a wrong one', () => {
+  const pkg = mkdtempSync(join(tmpdir(), 'graft-stamp-'));
+  try {
+    mkdirSync(join(pkg, 'scripts'));
+    mkdirSync(join(pkg, 'dist'));
+    copyFileSync(resolve(process.cwd(), 'scripts', 'stamp-commit.mjs'), join(pkg, 'scripts', 'stamp-commit.mjs'));
+    writeFileSync(join(pkg, 'dist', 'build-commit.txt'), 'eaa839317b75\n');
+    const r = spawnSync(process.execPath, [join(pkg, 'scripts', 'stamp-commit.mjs')], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(existsSync(join(pkg, 'dist', 'build-commit.txt')), false);
+  } finally {
+    rmSync(pkg, { recursive: true, force: true });
+  }
 });
 
 // --- npm launch: a fake npm first on PATH stands in for the real one ---
