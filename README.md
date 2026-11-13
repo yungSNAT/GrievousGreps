@@ -133,7 +133,7 @@ These are 21 repositories, not an estimate for yours, and none of them is unseen
 
 ## Against the alternatives
 
-On this benchmark GrievousGreps has the highest overall recall of 3 tools, and Serena beats it on Rust (0.75 to 0.57). codebase-memory-mcp leads on query cost, memory and index time. Each cell is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories and 210 symbols.
+On this benchmark GrievousGreps has the highest overall recall of 3 tools, and Serena beats it on Rust (0.75 to 0.57). codebase-memory-mcp leads on query cost, memory and index time. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories and 210 symbols.
 
 | | GrievousGreps `e37a764` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned |
 | --- | --- | --- | --- | --- |
@@ -141,6 +141,9 @@ On this benchmark GrievousGreps has the highest overall recall of 3 tools, and S
 | Python | 0.98 / 1.00 / 1 | 0.68 / 0.98 / 22 | 0.37 / 0.95 / 29 | 0.83 / 0.98 / 8 |
 | TypeScript | 0.98 / 0.95 / 3 | 0.80 / 0.96 / 23 | 0.36 / 0.96 / 46 | 0.51 / 0.97 / 39 |
 | Rust | 0.57 / 0.86 / 1 | 0.52 / 0.87 / 42 | 0.75 / 0.87 / 19 | 0.75 / 0.87 / 19 |
+| Licence | MIT | MIT | GPL-3.0-or-later, SolidLSP MIT | GPL-3.0-or-later, SolidLSP MIT |
+
+Licences were checked on 13 November 2026 against each project's LICENSE file at its latest release, which is the version tested: [codebase-memory-mcp v0.12.1](https://github.com/DeusData/codebase-memory-mcp/blob/v0.12.1/LICENSE) and [Serena v2.1.0](https://github.com/oraios/serena/blob/v2.1.0/LICENSE). Serena's application has been GPL-3.0-or-later since commit `6707cd9b` (14 September 2026), and its `serena-agent` package declares that licence; its SolidLSP library stays MIT, as do Serena releases up to v1.7.0.
 
 Repositories where a competitor's recall beat this tool's:
 
