@@ -19,13 +19,13 @@
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.77, against 0.31 for upstream's npm release 0.29.0 (measured 12 November 2026, UTC) and 0.20 for upstream `main` at `b22055d` (12 November). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.93 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs the same `trail` and `graft` commands, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
+Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.77, against 0.31 for upstream's npm release 0.29.0 (measured 12 November 2026, UTC) and 0.20 for upstream `main` at `b22055d` (12 November). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.93 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
 
 ## Install
 
 GrievousGreps has no npm package, so build it from source. You need Node 20.16 or later on the 20 line, or 22.3 or later, plus git and a C++ toolchain for the native grammars.
 
-GrievousGreps and upstream both provide `trail` and `graft`, so remove any upstream copy first:
+GrievousGreps provides `trail` and `graft`, and each upstream package provides one of them, so remove any upstream copy first:
 
 ```bash
 npm uninstall -g @trailhq/trail-code @nanonets/graft
