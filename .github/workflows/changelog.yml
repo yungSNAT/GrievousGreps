@@ -1,8 +1,8 @@
 name: changelog
 
 # Fails a pull request that changes shipped code (src, viewer, the build and
-# install scripts, package.json or rust/gg-docs) without adding a CHANGELOG.md
-# line. Waive it with the skip-changelog label; Dependabot's pull requests skip
+# install scripts, package.json, tsconfig.json or rust/gg-docs) without adding
+# a CHANGELOG.md line. Waive it with the skip-changelog label; Dependabot's pull requests skip
 # it. An upstream sync passes on the upstream sections it brings in, or takes
 # the label when it brings none.
 on:
@@ -28,8 +28,8 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          shipped='^(src|viewer)/|^scripts/(postinstall|build-viewer|build-grammar-wasm|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^rust/gg-docs/(src/|Cargo\.toml$)'
-          changed=$(git diff --name-only "$BASE...$HEAD")
+          shipped='^(src|viewer)/|^scripts/(postinstall|build-viewer|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^tsconfig\.json$|^rust/gg-docs/(src/|Cargo\.toml$)'
+          changed=$(git diff --no-renames --name-only "$BASE...$HEAD")
           if ! grep -qE "$shipped" <<< "$changed"; then
             echo "No shipped file changed."
             exit 0
