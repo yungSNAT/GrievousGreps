@@ -24,6 +24,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **`blast` separates leads from definite dependents.** A dependent reached only through an inferred edge carries the `[inferred]` mark `callers` prints, in the text, Markdown and JSON reports and in the blast radius after an edit. The summary counts them, and at each depth they follow the definite ones.
 - **A workspace counts a repository once.** A linked worktree is no longer a second child: the main checkout stands for its repository, or the first worktree when the main checkout is elsewhere.
 - **A running build keeps its lock.** A lock past 5 minutes is taken over only once its owner has gone, or at 15 minutes whoever holds it, so a slow first build no longer gets a second build beside it. `sync-run` names itself in the lock it is handed.
+- **`trail docs` says when it left files out.** The refresh before each answer counts the files and folders it could not read. `update` reports the count; `search` and `status` print `gg-docs: skipped unreadable N` on stderr when it is not 0, so a short answer is not taken for a complete one. Their standard output, `--json` included, is unchanged.
 
 ### Removed
 

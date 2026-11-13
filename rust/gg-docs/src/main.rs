@@ -185,6 +185,14 @@ fn run(cli: Cli) -> Result<(), String> {
     }
     let mut index = Index::open(&db, &cli.root)?;
     let refreshed = index.refresh()?;
+    // `update` prints the count with its other counts; the rest say it on stderr, so an answer
+    // that left files out is not taken as complete and stdout, read by scripts, keeps its shape.
+    if refreshed.skipped_unreadable > 0 && !matches!(cli.command, Command::Update { .. }) {
+        eprintln!(
+            "gg-docs: skipped unreadable {}",
+            refreshed.skipped_unreadable
+        );
+    }
     match cli.command {
         Command::Get { .. } => unreachable!("handled before the index opens"),
         Command::Search { query, limit, json } => {

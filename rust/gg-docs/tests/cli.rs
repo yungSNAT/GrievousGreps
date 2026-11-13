@@ -105,6 +105,39 @@ fn text_answers_are_unchanged_by_the_protocol_flag() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn search_and_status_say_on_stderr_what_the_refresh_could_not_read() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = folder();
+    let clean = gg_docs(dir.path(), &["search", "claim"]);
+    assert!(clean.stderr.is_empty(), "{clean:?}");
+    let locked = dir.path().join("root/locked.md");
+    fs::write(&locked, "# Locked\n\nA claim hides here.\n").unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(&locked).is_ok() {
+        return; // root reads through mode 000: nothing to check here
+    }
+    for args in [&["search", "claim"][..], &["status", "--json"]] {
+        let out = gg_docs(dir.path(), args);
+        assert!(out.status.success(), "{out:?}");
+        assert_eq!(
+            String::from_utf8(out.stderr).unwrap(),
+            "gg-docs: skipped unreadable 1\n"
+        );
+        assert!(!out.stdout.is_empty());
+    }
+    let search = gg_docs(dir.path(), &["search", "claim"]);
+    assert_eq!(search.stdout, clean.stdout, "stdout keeps its shape");
+    let update = gg_docs(dir.path(), &["update"]);
+    assert!(update.stderr.is_empty(), "update counts it on stdout");
+    assert!(
+        String::from_utf8(update.stdout)
+            .unwrap()
+            .ends_with("skipped unreadable 1\n")
+    );
+}
+
 #[test]
 fn usage_errors_exit_2_and_domain_errors_exit_1() {
     let dir = folder();
