@@ -101,13 +101,12 @@ function scoreRepo(repo, source, tool, label, work, verbose) {
   let unreadable = 0;
   for (const [symbol, symbolTruth] of Object.entries(truth)) {
     const asJson = runTool(tool, ['callers', symbol, copy, '--json'], env, work, 10 * MINUTE);
-    const plain = runTool(tool, ['callers', symbol, copy], env, work, 10 * MINUTE);
     const result = parseResult(asJson.stdout);
     if (result === null) {
       unreadable += 1;
       console.error(`benchmark: ${label} ${repo.name} ${symbol}: no JSON in the output (exit ${asJson.status})`);
     }
-    const score = scoreSymbol(symbolTruth, result ?? {}, plain.stdout + plain.stderr, repo.rules);
+    const score = scoreSymbol(symbolTruth, result ?? {}, repo.rules);
     scores.push(score);
     if (verbose) {
       const misses = score.missed.map((row) => `${row.file}:${row.chain}`).slice(0, 10);

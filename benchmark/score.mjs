@@ -6,7 +6,10 @@
 //   chain  a hit's qualified name fits the row's chain of enclosing names
 //   names  any part of a hit's qualified name is one of the row's names
 
-const UNDERCOUNT = /may undercount|may be incomplete|not listed|did not resolve|dropped|undercount/i;
+// `callers --json` states a short answer on the target's own match: `unresolved` for calls
+// to the name that resolved to no one definition, or a no-callers `note` that says the
+// name is shared. Notes on other definitions of the name, and quoted code, do not count.
+const statesUndercount = (match) => match.unresolved !== undefined || /may undercount/.test(match.note ?? '');
 
 function lineRange(span) {
   const numbers = String(span ?? '').match(/\d+/g);
@@ -57,12 +60,10 @@ function isTarget(symbol, truth, rules) {
 // Only hits under the target definition count. Hits under another definition of
 // the same name neither help nor hurt. Optional rows are true references that are
 // not calls: they neither help recall nor hurt precision.
-export function scoreSymbol(truth, result, plainOutput, rules = 'span') {
+export function scoreSymbol(truth, result, rules = 'span') {
+  const targets = (result.matches ?? []).filter((match) => isTarget(match.symbol, truth, rules));
   const hits = new Map();
-  for (const match of result.matches ?? []) {
-    if (!isTarget(match.symbol, truth, rules)) continue;
-    for (const hit of match.hits ?? []) hits.set(hit.id, hit);
-  }
+  for (const match of targets) for (const hit of match.hits ?? []) hits.set(hit.id, hit);
   const reported = [...hits.values()];
   const accepted = [...truth.required, ...(truth.optional ?? [])];
   const missed = truth.required.filter((row) => !reported.some((hit) => satisfies(hit, row, rules)));
@@ -71,7 +72,7 @@ export function scoreSymbol(truth, result, plainOutput, rules = 'span') {
   );
   const found = truth.required.length - missed.length;
   let undercount = 'none';
-  if (missed.length > 0) undercount = UNDERCOUNT.test(plainOutput) ? 'stated' : 'silent';
+  if (missed.length > 0) undercount = targets.some(statesUndercount) ? 'stated' : 'silent';
   return { found, required: truth.required.length, reported: reported.length, missed, falsePositives, undercount };
 }
 
