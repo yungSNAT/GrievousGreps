@@ -1,7 +1,8 @@
 /**
  * Records the commit a build came from in `dist/build-commit.txt`, which
- * `trail --version` prints after the version: every build of this fork is
- * `0.28.0+gg`, so the version alone does not say which code is running.
+ * `trail --version` adds to the version as build metadata (`0.28.0+gg.<commit>`):
+ * every build of this fork is `0.28.0+gg`, so the version alone does not say
+ * which code is running.
  *
  * Runs at the end of `npm run build`. Outside a git checkout, or without git,
  * it removes any old stamp rather than leave a wrong one.
