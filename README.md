@@ -19,7 +19,7 @@
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.77, against 0.31 for upstream's npm release 0.29.0 (measured 12 November 2026, UTC) and 0.20 for upstream `main` at `b22055d` (12 November). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.93 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
+Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.77, against 0.31 for upstream's npm release 0.29.0 and 0.20 for upstream `main` at `b22055d` (all measured 13 November 2026, UTC). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.93 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
 
 ## Install
 
@@ -89,11 +89,11 @@ cargo build --release --locked --manifest-path rust/gg-docs/Cargo.toml
 
 ## Measured recall
 
-Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each row is 10 preregistered symbols on one public repository, with the truth written before any build ran on it. Upstream is measured twice: its npm release 0.29.0 (6 November 2026), the version `npm install` gives, on 12 November (UTC); and `main` at `b22055d` (9 November), on 12 November.
+Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each row is 10 preregistered symbols on one public repository, with the truth written before any build ran on it. Upstream is measured twice, both on 13 November 2026 (UTC): its npm release 0.29.0 (6 November), the version `npm install` gives and still its latest; and `main` at `b22055d` (9 November), still its head.
 
 That order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one. No required row changed.
 
-**Overall, upstream 0.29.0 to patched:** recall 0.31 to 0.77 (21 repositories and 3215 of 4157 calls on the patched build), precision 0.94 to 0.93, silent undercounts 50 to 5. Upstream `main` scored 0.20, with precision 0.91 and 90 silent undercounts.
+**Overall, upstream 0.29.0 to patched:** recall 0.31 to 0.77 (21 repositories and 3215 of 4157 calls on the patched build), precision 0.94 to 0.93, silent undercounts 74 to 14. Upstream `main` scored 0.20, with precision 0.91 and 113 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule. The 12 November runs counted under an earlier rule, which searched the plain output for words such as 'undercount', and gave 50, 5 and 90 with the same recall.
 
 0.29.0 gave the same figures on all 21 repositories as `a44da3d` (30 October), the `main` commit whose package version is 0.28.0, gave on 31 October. Since 0.29.0, upstream `main`'s Python and Rust rows held or rose (rich 0.57 to 0.80), but 6 of its 7 TypeScript rows fell, from 0.90 to 0.33 on jotai and from 0.74 to 0.03 on radix: `main` no longer finds some symbols, such as radix `FocusScope`, which it reports as not in the graph. A rerun of `a44da3d` on the same machine on 12 November gave its earlier TypeScript figures, so the fall is upstream's change, not the run.
 
@@ -127,20 +127,20 @@ About 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 
 
 Against 0.29.0, recall did not rise everywhere: vue did not move, and trpc moved little. Silent undercounts remain.
 
-The patched column is from `e8f73b9`; `166c2fd` gave the same figures on 12 November, and `eaa8393` in the 0.29.0 run. Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matches them. Both upstream columns were run on Linux with Node 26.13.1: 0.29.0 as the npm package `@trailhq/trail-code@0.29.0`, `main` built from source. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
+All 3 columns were run on Linux with Node 26.13.1 on 13 November 2026 (UTC): the patched column at `219b118`, 0.29.0 as the npm package `@trailhq/trail-code@0.29.0` with its install script skipped, and `main` built from source. Every recall figure matches the 12 November runs (patched at `166c2fd` and `eaa8393`). Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matched them. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
 
 These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
 
 ## Against the alternatives
 
-On this benchmark GrievousGreps has the highest overall recall of 3 tools, and Serena beats it on Rust (0.75 to 0.57). codebase-memory-mcp leads on query cost, memory and index time. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories and 210 symbols.
+On this benchmark GrievousGreps has the highest overall recall of 3 tools and the fewest silent undercounts, and Serena beats it on Rust (0.75 to 0.57). codebase-memory-mcp leads on answer size, memory and index time. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories and 210 symbols. All 3 were measured on 13 November 2026 (UTC), each at its latest release that day.
 
-| | GrievousGreps `e37a764` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned |
+| | GrievousGreps `219b118` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned |
 | --- | --- | --- | --- | --- |
-| Overall | 0.77 / 0.93 / 5 | 0.62 / 0.93 / 87 | 0.56 / 0.91 / 94 | 0.72 / 0.93 / 66 |
-| Python | 0.98 / 1.00 / 1 | 0.68 / 0.98 / 22 | 0.37 / 0.95 / 29 | 0.83 / 0.98 / 8 |
-| TypeScript | 0.98 / 0.95 / 3 | 0.80 / 0.96 / 23 | 0.36 / 0.96 / 46 | 0.51 / 0.97 / 39 |
-| Rust | 0.57 / 0.86 / 1 | 0.52 / 0.87 / 42 | 0.75 / 0.87 / 19 | 0.75 / 0.87 / 19 |
+| Overall | 0.77 / 0.93 / 14 | 0.62 / 0.93 / 87 | 0.56 / 0.91 / 99 | 0.72 / 0.93 / 70 |
+| Python | 0.98 / 1.00 / 1 | 0.68 / 0.98 / 22 | 0.37 / 0.95 / 30 | 0.83 / 0.98 / 8 |
+| TypeScript | 0.98 / 0.95 / 6 | 0.80 / 0.96 / 23 | 0.36 / 0.96 / 46 | 0.51 / 0.97 / 39 |
+| Rust | 0.57 / 0.86 / 7 | 0.52 / 0.87 / 42 | 0.75 / 0.87 / 23 | 0.75 / 0.87 / 23 |
 | Licence | MIT | MIT | GPL-3.0-or-later, SolidLSP MIT | GPL-3.0-or-later, SolidLSP MIT |
 
 Licences were checked on 13 November 2026 against each project's LICENSE file at its latest release, which is the version tested: [codebase-memory-mcp v0.12.1](https://github.com/DeusData/codebase-memory-mcp/blob/v0.12.1/LICENSE) and [Serena v2.1.0](https://github.com/oraios/serena/blob/v2.1.0/LICENSE). Serena's application has been GPL-3.0-or-later since commit `6707cd9b` (14 September 2026), and its `serena-agent` package declares that licence; its SolidLSP library stays MIT, as do Serena releases up to v1.7.0.
@@ -154,15 +154,16 @@ Repositories where a competitor's recall beat this tool's:
 **Read the table with these limits:**
 
 - The truth was written alongside this tool and all 21 repositories have been seen in development, so the table does not predict recall on other code.
+- A silent undercount is a symbol whose answer misses a caller and whose JSON does not say it may be short. The scorer reads the 2 fields this tool writes, `unresolved` and a shared-name `note`, and neither rival writes such a field, so each rival's count is every symbol it missed. The earlier rule, which searched the plain output for words such as 'undercount', gives 5, 87, 94 and 66 on these same answers.
 - codebase-memory-mcp used documented non-default settings because the truth counts test callers: `depth=1`, `include_tests=true`, `limit=5000` and `max_output_tokens=1000000`. At its defaults its overall recall is 0.27.
 - Serena's tuned row was chosen after seeing its scores. It removes the `[tool.pyright]` table on attrs, click and structlog, and adds generated TypeScript project references on radix and trpc. Serena's Pyright, typescript-language-server and rust-analyzer ran at their documented defaults, with dependencies fetched first.
-- The scorer's precision understates all 3 tools. Of 25 edges the scorer called false for each tool, 25, 19 and 24 were judged true (this tool, codebase-memory-mcp, Serena). Of 25 random edges per tool, 23, 24 and 25 were true, and a sample that size does not separate them.
+- The scorer's precision understates all 3 tools. On 31 October, with this tool at `e37a764`, 25, 19 and 24 of 25 edges the scorer called false were judged true (this tool, codebase-memory-mcp, Serena), and 23, 24 and 25 of 25 random edges per tool were true; a sample that size does not separate them. That check was not repeated.
 
-**Cost, as medians across the 21 repositories** (this tool, codebase-memory-mcp, Serena): index time 2.66, 1.61 and 6.98 s, with Serena's first query adding 3.31 s; peak memory when querying 124, 41 and 1,146 MiB. Answers across all queries came to 1,175,936, 272,559 and 1,488,043 bytes, before 171,117 bytes of target lookups for codebase-memory-mcp and 37,086 for Serena. These runs do not rank latency, because a CLI process per query and an MCP server are not like for like.
+**Cost, as medians across the 21 repositories** (this tool, codebase-memory-mcp, Serena): index time 3.49, 2.58 and 9.56 s, with Serena's first query adding 3.37 s; peak memory when querying 100, 41 and 1,127 MiB. Answers across all queries came to 631,976, 291,999 and 1,488,043 bytes, before 178,438 bytes of target lookups for codebase-memory-mcp and 37,086 for Serena. codebase-memory-mcp names each caller with the checkout's path, so its byte counts grow with that path. 3 runs each on httpx, mdbook and hono gave the same recall every time; index times varied by up to 1.57 s for this tool (hono), 0.36 s for codebase-memory-mcp (hono) and 2.84 s for Serena (mdbook). These runs do not rank latency, because a CLI process per query and an MCP server are not like for like.
 
-**Network:** in a separate pass on httpx, mdbook and hono, in a namespace with only loopback, Serena made DNS lookups at its default settings on all 3, and it documents an opt-out. The other 2 tools made none.
+**Network:** in a separate pass on httpx, mdbook and hono, in a namespace with only loopback, Serena made DNS lookups at its default settings on all 3, for `pypi.org` and `oraios-software.de`, and it documents an opt-out. The other 2 tools made none.
 
-**Method:** all 3 ran on one Linux machine on 31 October 2026, each capped at 8 GiB and 8 threads with the network blocked. Timings come from one run per repository. Callers came from `graft callers`, codebase-memory-mcp's `trace_path` and Serena's `find_referencing_symbols`, with Serena's references mapped to their enclosing definition. All went through `benchmark/score.mjs` unchanged.
+**Method:** all 3 ran on one Linux machine from 16:51 to 19:26 UTC on 13 November 2026, each job capped at 8 GiB and 4 CPUs with the network blocked. Other jobs shared the machine, with a load average of 2.5 to 11.5 when a run started, so the timings are rough. Timings come from one run per repository. Callers came from `graft callers`, codebase-memory-mcp's `trace_path` and Serena's `find_referencing_symbols`, with Serena's references mapped to their enclosing definition. All went through `benchmark/score.mjs` unchanged. Each competitor's recall and precision match the first run of this comparison, on 31 October.
 
 **To rerun it:** `node benchmark/run.mjs --tool dist/bin/graft.js` reproduces this tool's column, as [benchmark/](benchmark/README.md) describes. The comparison scripts are not shipped, because they are tied to that machine's sandbox. To repeat the other columns, install the versions above, query each tool as described here and pass the results to `benchmark/score.mjs`.
 
