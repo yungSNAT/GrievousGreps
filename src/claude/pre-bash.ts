@@ -178,7 +178,8 @@ function readStdin(fs: typeof Fs, maxBytes: number): Promise<string | null> {
 
 /**
  * The hook payload on stdin as an object, or null for anything else. The other
- * hooks (hooks.ts) read with no size limit: an edit's payload carries the file.
+ * hooks (hooks.ts) share the STDIN_WAIT_MS bound but read up to a larger limit:
+ * an edit's payload carries the file.
  */
 export async function readInput(maxBytes = STDIN_MAX_BYTES): Promise<Record<string, unknown> | null> {
   try {

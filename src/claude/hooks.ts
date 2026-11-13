@@ -510,8 +510,9 @@ export async function main(event: string): Promise<void> {
   if (event === 'pre-bash') { await preBashMain(event); return; }
   // trail's own headless Claude calls (the first-run read of past sessions) run with this set.
   if (process.env.TRAIL_NO_HOOKS === '1') return;
-  // Bounded as pre-bash's is: a host that never closes stdin must not hold the hook until its timeout.
-  const input: any = (await readInput(Number.POSITIVE_INFINITY)) ?? {};
+  // Bounded in time as pre-bash's is: a host that never closes stdin must not hold the hook until its
+  // timeout. 64 MiB fits any edit's payload; a larger one is dropped, as an unreadable one is.
+  const input: any = (await readInput(64 * 1024 * 1024)) ?? {};
   // Registered in the repo and in ~/.claude, Claude Code runs both: one answers.
   // Who sent the payload decides first: Copilot CLI runs only the repo's copy.
   if (globalCopyCovers(event, process.argv[1], homedir(), process.env, input)) return;
