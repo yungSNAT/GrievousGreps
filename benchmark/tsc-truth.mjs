@@ -147,10 +147,23 @@ function enclosing(ts, node) {
   return { scope, names };
 }
 
+// The expression a reference stands for: the member access it names, and any parentheses, `as`, `!` or
+// `satisfies` around it.
+function calleeOf(ts, node) {
+  let callee = node;
+  for (;;) {
+    const parent = callee.parent;
+    const member = (ts.isPropertyAccessExpression(parent) && parent.name === callee) || (ts.isElementAccessExpression(parent) && parent.argumentExpression === callee);
+    const wrapper = (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isNonNullExpression(parent) ||
+      ts.isTypeAssertionExpression(parent) || ts.isSatisfiesExpression(parent)) && parent.expression === callee;
+    if (!member && !wrapper) return callee;
+    callee = parent;
+  }
+}
+
 // A call, `new`, tagged template, decorator or JSX element whose callee is the reference.
 export function isCall(ts, node) {
-  let callee = node;
-  if (ts.isPropertyAccessExpression(callee.parent) && callee.parent.name === callee) callee = callee.parent;
+  const callee = calleeOf(ts, node);
   const parent = callee.parent;
   if ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === callee) return true;
   if (ts.isTaggedTemplateExpression(parent) && parent.tag === callee) return true;

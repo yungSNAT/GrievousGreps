@@ -78,7 +78,7 @@ A verifier wrote each set with tree-sitter, `rg` and reading, and committed it t
 
 On 13 November 2026 (UTC) the rows for hono, radix and trpc were replaced by rows that the TypeScript compiler derives. `tsc-truth.mjs` keeps each symbol and target, asks the compiler's language service for every reference to the target, and writes:
 
-- a required row for each call, `new`, tagged template, decorator or JSX element whose callee is the target, grouped by file and calling definition. A call inside an anonymous callback belongs to the named definition around it, or to the file (`<file>`) at module level.
+- a required row for each call, `new`, tagged template, decorator or JSX element whose callee is the target, also inside parentheses, `as`, `satisfies` or `!` and as `obj['name']`, grouped by file and calling definition. A call inside an anonymous callback belongs to the named definition around it, or to the file (`<file>`) at module level.
 - an optional row for any other reference inside a named definition, such as the function passed as a value.
 - no row for a module-level reference that is not a call, such as an import or re-export.
 

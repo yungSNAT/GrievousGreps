@@ -114,8 +114,51 @@ test("the root tsconfig's paths resolve imports the manifests do not", (t) => {
   assert.deepEqual(truth.aliased.required, [{ file: 'use.ts', chain: 'user', lines: [3] }]);
 });
 
+test('wrapped callees, element access, tagged templates, decorators and `new` are calls', (t) => {
+  const root = fixture({
+    'package.json': '{ "name": "shapes" }',
+    'a.ts': 'export function fn(...args: unknown[]): any {}\nexport class K {}\n',
+    'b.ts': [
+      "import { fn, K } from './a';",
+      'export function wrapped() {',
+      '  (fn)();',
+      '  (fn as any)();',
+      '  fn!();',
+      '  fn`x`;',
+      '}',
+      '(fn)();',
+      'const box = { fn };',
+      'export function indexed() {',
+      "  box['fn']();",
+      '}',
+      '@fn',
+      'export class Decorated {}',
+      'export function make() {',
+      '  return new K();',
+      '}',
+      '',
+    ].join('\n'),
+  });
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const truth = deriveTruth(ts, root, { fn: { target: 'a.ts', target_lines: [1] }, K: { target: 'a.ts', target_lines: [2] } }, 'span');
+  assert.deepEqual(truth.fn.required, [
+    { file: 'b.ts', chain: 'wrapped', lines: [3, 4, 5, 6] },
+    { file: 'b.ts', chain: '<file>', lines: [8] },
+    { file: 'b.ts', chain: 'indexed', lines: [11] },
+    { file: 'b.ts', chain: 'Decorated', lines: [13] },
+  ]);
+  assert.equal(truth.fn.optional, undefined);
+  assert.deepEqual(truth.K.required, [{ file: 'b.ts', chain: 'make', lines: [16] }]);
+});
+
 test('a target with no declaration in its file is an error', (t) => {
   const root = fixture(FILES);
   t.after(() => rmSync(root, { recursive: true, force: true }));
   assert.throws(() => deriveTruth(ts, root, { missing: { target: 'src/a.ts' } }, 'span'), /no declaration/);
+});
+
+test('a target file outside the program is an error', (t) => {
+  const root = fixture(FILES);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.throws(() => deriveTruth(ts, root, { target: { target: 'src/absent.ts' } }, 'span'), /not in the program/);
 });
