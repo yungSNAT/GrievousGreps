@@ -60,7 +60,8 @@ pub struct Refresh {
     pub unchanged: usize,
     pub skipped_large: usize,
     /// Files and folders that could not be read, or whose path is not UTF-8: left out, not
-    /// searched, and counted so a short answer is not taken as a complete one.
+    /// searched, and counted so a short answer is not taken as a complete one. A file indexed
+    /// before is also counted in `removed`, as an oversized one is in `skipped_large`.
     pub skipped_unreadable: usize,
 }
 
@@ -119,31 +120,8 @@ impl Index {
                 .map_err(sql)?;
         }
         let mut writer = Writer::new(&self.conn, if bulk { BATCH_BYTES } else { u64::MAX });
-        for (rel, full, size, mtime_ns) in candidates {
-            // pollster runs this one future on this thread, so a blocking read stalls nothing else.
-            let read = fs::read(&full); // NOSONAR: see above
-            let Ok(bytes) = read else {
-                stats.skipped_unreadable += 1;
-                continue;
-            };
-            let hash = hex(&Sha256::digest(&bytes));
-            match stored.remove(&rel) {
-                Some(old) if old.hash == hash => {
-                    writer.touch(old.id, size, mtime_ns).await?;
-                    stats.unchanged += 1;
-                }
-                old => {
-                    if let Some(old) = &old {
-                        writer.remove(old.id).await?;
-                        stats.updated += 1;
-                    } else {
-                        stats.added += 1;
-                    }
-                    let parsed = markdown::parse(&String::from_utf8_lossy(&bytes), stem(&rel));
-                    let doc = (rel.as_str(), size, mtime_ns, hash.as_str());
-                    writer.insert(doc, &parsed, bytes.len() as u64).await?;
-                }
-            }
+        for candidate in candidates {
+            index_one(&mut writer, &mut stored, &mut stats, candidate).await?;
         }
         stats.removed = stored.len();
         for old in stored.into_values() {
@@ -419,6 +397,41 @@ impl<'a> Writer<'a> {
         }
         Ok(())
     }
+}
+
+/// Reads one candidate file and adds, replaces or touches its row; an unreadable file is
+/// counted and left in `stored`, so the refresh removes it.
+async fn index_one(
+    writer: &mut Writer<'_>,
+    stored: &mut HashMap<String, Stored>,
+    stats: &mut Refresh,
+    (rel, full, size, mtime_ns): (String, PathBuf, i64, i64),
+) -> Result<(), String> {
+    // pollster runs this one future on this thread, so a blocking read stalls nothing else.
+    let read = fs::read(&full); // NOSONAR: see above
+    let Ok(bytes) = read else {
+        stats.skipped_unreadable += 1;
+        return Ok(());
+    };
+    let hash = hex(&Sha256::digest(&bytes));
+    match stored.remove(&rel) {
+        Some(old) if old.hash == hash => {
+            writer.touch(old.id, size, mtime_ns).await?;
+            stats.unchanged += 1;
+        }
+        old => {
+            if let Some(old) = &old {
+                writer.remove(old.id).await?;
+                stats.updated += 1;
+            } else {
+                stats.added += 1;
+            }
+            let parsed = markdown::parse(&String::from_utf8_lossy(&bytes), stem(&rel));
+            let doc = (rel.as_str(), size, mtime_ns, hash.as_str());
+            writer.insert(doc, &parsed, bytes.len() as u64).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Indexable files under `root` as (forward-slash relative path, full path), and how many
