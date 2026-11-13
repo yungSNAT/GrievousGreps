@@ -10,7 +10,14 @@ Build the tool first, then:
 node benchmark/run.mjs --tool dist/bin/graft.js
 ```
 
-To print the README's table with its upstream column, build upstream `main` at the commit the README names in another folder and pass it as the baseline:
+The README's table has 2 upstream columns, each from its own run with that build as the baseline. For the npm release, install it in another folder; `DO_NOT_TRACK=1` stops its install script sending a usage event:
+
+```bash
+DO_NOT_TRACK=1 npm install --prefix ../upstream-0.29.0 @trailhq/trail-code@0.29.0
+node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream-0.29.0/node_modules/@trailhq/trail-code/dist/bin/graft.js
+```
+
+For upstream `main`, build it at the commit the README names:
 
 ```bash
 git clone https://github.com/trailhq/Trail-Code ../upstream
@@ -80,4 +87,4 @@ Limits of the truth:
 
 ## Recorded runs
 
-The README's draft figures came from upstream `a44da3dfb5894c8e316e320526041ef8e5ddbb8c` (0.28.0) and an earlier patched build, `949d829`, using the verifier's own scripts. Applying this harness's scorer to those stored outputs gave the same figures for all 21 repositories, including the overall 0.31 to 0.78. Regenerate them with this harness on the final build. On 12 November 2026 this harness gave the README's current table on Linux with Node 26.13.1: upstream `main` at `b22055dce3c3ff22722793ed0a5a3be4491a9140` against `166c2fd`, and `a44da3d` again on jotai, query, radix, table, trpc and vue, which matched its earlier figures there.
+The README's draft figures came from upstream `a44da3dfb5894c8e316e320526041ef8e5ddbb8c` (0.28.0) and an earlier patched build, `949d829`, using the verifier's own scripts. Applying this harness's scorer to those stored outputs gave the same figures for all 21 repositories, including the overall 0.31 to 0.78. Regenerate them with this harness on the final build. On 12 November 2026 this harness gave the README's current table on Linux with Node 26.13.1: upstream `main` at `b22055dce3c3ff22722793ed0a5a3be4491a9140` against `166c2fd`, and `a44da3d` again on jotai, query, radix, table, trpc and vue, which matched its earlier figures there. On 12 November 2026 (UTC), with the same Node, the npm package `@trailhq/trail-code@0.29.0`, installed with its postinstall script skipped, against `eaa8393` gave the README's 0.29.0 column, the same figures as `a44da3d`, and the patched column unchanged.
