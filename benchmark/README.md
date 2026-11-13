@@ -76,9 +76,23 @@ Under `span`, a file-level hit is never a false positive. Under the other 2, any
 
 A verifier wrote each set with tree-sitter, `rg` and reading, and committed it to a local log before any build ran on that repository. That log is not public, so the order of events rests on this statement.
 
+On 14 November 2026 the rows for hono, radix and trpc were replaced by rows that the TypeScript compiler derives. `tsc-truth.mjs` keeps each symbol and target, asks the compiler's language service for every reference to the target, and writes:
+
+- a required row for each call, `new`, tagged template, decorator or JSX element whose callee is the target, grouped by file and calling definition. A call inside an anonymous callback belongs to the named definition around it, or to the file (`<file>`) at module level.
+- an optional row for any other reference inside a named definition, such as the function passed as a value.
+- no row for a module-level reference that is not a call, such as an import or re-export.
+
+It follows a function stored in an object literal, such as `const Jwt = { verify }`, one level to calls such as `Jwt.verify()`. Workspace packages resolve to their source through the root `tsconfig.json`'s `paths` and each manifest's exports. Each checkout's own TypeScript ran: 6.0.3 for hono and trpc, 5.9.3 for radix. To regenerate a set, install the checkout's dependencies (`pnpm install --frozen-lockfile --ignore-scripts`; trpc's lockfile and manifest disagree, so it needs `--no-frozen-lockfile`), then:
+
+```bash
+node benchmark/tsc-truth.mjs --repo <checkout> --name radix --out benchmark/truth/radix.json
+```
+
+Every hand-written row of the 3 has a derived row in the same file, on the same line for radix and trpc and with the same calling name for hono. The compiler found calls the reading missed, mostly in radix's storybook and server-rendering apps and tests, and a recursive call in hono's `mergePath`. It also names the calling definition where a hand-written row said `<file>` or grouped several callers, so radix went from 129 rows to 252, trpc from 192 to 221 and hono from 39 to 40.
+
 Limits of the truth:
 
-- It has one author and no second reviewer, and it may hold errors.
+- It has one author and no second reviewer, and it may hold errors. The 3 compiler-derived sets rest on the compiler instead, but they were made after builds had run on those repositories, so they were not preregistered.
 - One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one (79 and 23). No required row changed.
 - Two symbols were replaced before any run, because the first choice had no call rows or no longer existed: click `get_app_dir` and table `getMemoOptions`.
 - Earlier builds have run on all 21 repositories, so fixes made in between may have been shaped by their results. None is an unseen holdout any more.
