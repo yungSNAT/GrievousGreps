@@ -53,7 +53,7 @@ import { buildGraphWithProgress } from "./claude/build-progress.js";
 import { installBrainsServer, installCursorBrainsServer, removeBrainsServer, removeCursorBrainsServer } from "./hosts/claude-global.js";
 import { upsertCodexToml } from "./hosts/mcp-config.js";
 import { homedir } from "node:os";
-import { UPGRADE_UNAVAILABLE, formatVersionReport, readCurrentVersion, resolvePackageJsonPath } from "./cli-meta.js";
+import { UPGRADE_UNAVAILABLE, formatVersionReport, readCurrentVersion, resolvePackageJsonPath, versionLine } from "./cli-meta.js";
 import type { DocsCommand } from "./docs/docs-cli.js";
 import { nativeFallbackNotice } from "./graph/native.js";
 import { patchBuildConfig, type BuildConfig } from "./util/state.js";
@@ -182,7 +182,7 @@ program
           "in your repo's .trail/, so everyone's Claude in the repo starts from them."
       : "Build a repo's context graph as linked markdown, and keep it in sync with the code.",
   )
-  .version(currentVersion, "-v, --version")
+  .version(versionLine(import.meta.url), "-v, --version")
   .option("--dir <path>", "context graph directory (default: <repo>/graft)")
   .option("--provider <name>", "LLM wire format: openai | anthropic | litellm | orcarouter (env GRAFT_PROVIDER)")
   .option("--model <id>", "model id for the LLM pass (env GRAFT_MODEL)")
@@ -429,7 +429,7 @@ program
   .command("version", { hidden: TRAIL })
   .description("Print the installed version")
   .action(() => {
-    console.log(formatVersionReport(currentVersion));
+    console.log(formatVersionReport(versionLine(import.meta.url)));
   });
 
 grouped(program.command("upgrade"), GROUP.setup)

@@ -4,9 +4,9 @@
  * Split out of cli.ts so the formatting helpers can be unit-tested with
  * injected results instead of hitting the network from tests.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brand, PACKAGE_FOR } from "./brand.js";
 
@@ -42,6 +42,29 @@ export function readCurrentVersion(moduleUrl: string): string {
   const raw = readFileSync(resolvePackageJsonPath(moduleUrl), "utf8");
   const pkg = JSON.parse(raw) as { version?: string };
   return pkg.version ?? "0.0.0";
+}
+
+/**
+ * The version as `--version` prints it, with the commit the build came from as
+ * SemVer build metadata (`0.28.0+gg.eaa839317b75`) when `npm run build` recorded
+ * one (scripts/stamp-commit.mjs). The stamp counts only for the build that wrote
+ * it: not when running from src, and not once a later `tsc` or `npm run dev` has
+ * rewritten the running module after it.
+ */
+export function versionLine(moduleUrl: string): string {
+  const version = readCurrentVersion(moduleUrl);
+  try {
+    const module = fileURLToPath(moduleUrl);
+    const dist = resolve(dirname(resolvePackageJsonPath(moduleUrl)), "dist");
+    if (!module.startsWith(dist + sep)) return version;
+    const stamp = join(dist, "build-commit.txt");
+    if (statSync(module).mtimeMs > statSync(stamp).mtimeMs) return version;
+    const commit = readFileSync(stamp, "utf8").trim();
+    if (!/^[0-9a-f]{7,40}(-dirty)?$/.test(commit)) return version;
+    return `${version}${version.includes("+") ? "." : "+"}${commit}`;
+  } catch {
+    return version;
+  }
 }
 
 /** Runs `npm <args>`. On Windows `npm` is the `npm.cmd` shim, which only a shell
