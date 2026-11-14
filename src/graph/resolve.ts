@@ -114,9 +114,11 @@ export interface ResolveOptions {
 
 export function resolveEdges(
   nodes: NodeV1[],
-  rawEdges: RawEdge[],
+  allRawEdges: RawEdge[],
   opts: ResolveOptions = {},
 ): EdgeV1[] {
+  const hidden = rustOpaqueMacroItems(nodes, allRawEdges);
+  const rawEdges = hidden.size ? allRawEdges.filter((e) => !hidden.has(e.source)) : allRawEdges;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const globalName = new Map<string, NodeV1[]>();
   const perFileName = new Map<string, Map<string, NodeV1[]>>();
@@ -179,6 +181,7 @@ export function resolveEdges(
       }
       continue;
     }
+    if (hidden.has(n.id)) continue;
     push(globalName, n.name, n);
     let fileMap = perFileName.get(n.path);
     if (!fileMap) perFileName.set(n.path, (fileMap = new Map()));
@@ -571,7 +574,7 @@ export function resolveEdges(
             : ["function"]);
       if (e.rustForm) {
         if (e.rustPath && e.rustForm !== "macro") {
-          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx);
+          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx);
           if (reached) {
             if (reached.id !== e.source) add(e.source, reached.id, "calls", stated("extracted"));
             continue;
@@ -884,7 +887,7 @@ function rustModuleOf(file: string, crate: string): string[] | undefined {
  * shortcut: reads module paths from the file tree, so a `#[path]` attribute is not followed,
  * and a path reaching a name 2 `cfg` arms define in one file is left to the fallback.
  */
-function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0): NodeV1 | undefined {
+function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0, ownModules = true): NodeV1 | undefined {
   if (depth > 5) return undefined;
   const segs = whole.split("::");
   const name = segs.pop()!;
@@ -906,7 +909,7 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
   } else if (first !== undefined && ctx.crates.has(first)) {
     crate = ctx.crates.get(first);
     parts = segs.slice(1);
-  } else if (first !== undefined) {
+  } else if (first !== undefined && ownModules) {
     // `dispatcher::f` with no `use`: a child module of this file's own.
     const here = crateHere === undefined ? undefined : rustModuleOf(file, crateHere);
     if (!here) return undefined;
@@ -933,6 +936,45 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
     if (hit) return hit;
   }
   return undefined;
+}
+
+/** The definitions read from inside an item macro the repo defines with `macro_rules!`, where no
+ * arm emits a captured `item` or `tt` again: such a macro may drop or rewrite its body, so its
+ * items are no targets and their calls no callers. A macro the repo does not define, such as a
+ * dependency's, is trusted.
+ *
+ * shortcut: reads the macro's `body_text`, which stops at 5,000 characters, and counts a
+ * capture as emitted when its name appears twice. Expanding the macro would settle both. */
+function rustOpaqueMacroItems(nodes: NodeV1[], rawEdges: RawEdge[]): Set<string> {
+  const hidden = new Set<string>();
+  const regions = rawEdges.filter((e) => e.rustMacroItems);
+  if (!regions.length) return hidden;
+  const emits = new Map<string, boolean>();
+  for (const n of nodes) {
+    if (!n.signature?.startsWith("macro_rules!")) continue;
+    const body = n.body_text ?? "";
+    const captures = [...body.matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
+    const open = captures.some((c) => body.split(new RegExp(`\\$${c}\\b`)).length > 2);
+    emits.set(n.name, (emits.get(n.name) ?? false) || open);
+  }
+  for (const e of regions) {
+    if (emits.get(e.rustMacroItems!.macro) === false) for (const id of e.rustMacroItems!.ids) hidden.add(id);
+  }
+  return hidden;
+}
+
+/** A path whose first name only a glob can bring in, such as `subscriber::mock` under
+ * `use tracing_mock::*;`, followed through each glob that starts in this crate or a workspace
+ * crate. Undefined unless exactly one function is reached. */
+function rustFollowGlobs(path: string, globs: string[] | undefined, file: string, ctx: RustPathCtx): NodeV1 | undefined {
+  const hits = new Set<NodeV1>();
+  for (const glob of globs ?? []) {
+    const first = glob.split("::")[0]!;
+    if (first !== "crate" && !ctx.crates.has(first)) continue;
+    const hit = rustFollowPath(`${glob}::${path}`, file, ctx);
+    if (hit) hits.add(hit);
+  }
+  return hits.size === 1 ? [...hits][0] : undefined;
 }
 
 /** Path aliases for the files under `dir`, whose targets read from `base`. */

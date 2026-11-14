@@ -283,10 +283,14 @@ export function extractGeneric(rel: string, source: string, langName: string): E
   if (!entry || !tsMod) return { nodes, rawEdges };
 
   let tree;
+  let macroRegions: { macro: string; start: number; end: number }[] = [];
   try {
     const parser = new tsMod.Parser();
     parser.setLanguage(entry.language as never);
-    tree = parser.parse((i: number) => source.slice(i, i + PARSE_CHUNK));
+    const parse = (text: string) => parser.parse((i: number) => text.slice(i, i + PARSE_CHUNK));
+    const unwrapped = langName === "rust" ? rustUnwrapItemMacros(source, (s) => parse(s)?.rootNode as TsNode | undefined) : undefined;
+    macroRegions = unwrapped?.regions ?? [];
+    tree = parse(unwrapped?.text ?? source);
   } catch (err) {
     // A grammar that throws (e.g. a WASM "memory access out of bounds" from an
     // external scanner) is not a per-file syntax problem: swallowing it here left
@@ -346,10 +350,61 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     extractRustAliases(tree.rootNode as TsNode, rel, rawEdges);
     extractRustPubUses(tree.rootNode as TsNode, rel, rawEdges);
     extractRustFields(tree.rootNode as TsNode, rel, rawEdges);
+    for (const { macro, start, end } of macroRegions) {
+      const ids = defs.filter((d) => start <= d.startIndex && d.startIndex < end).map((d) => d.id);
+      if (ids.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroItems: { macro, ids } });
+    }
   }
   else if (langName === "php") extractPhpUses(tree.rootNode as TsNode, rel, rawEdges);
   else if (langName === "gleam") extractGleamModules(tree.rootNode as TsNode, rel, defs, rawEdges);
   return { nodes, rawEdges };
+}
+
+/** Rust source with each item macro whose body is plain items unwrapped, so the grammar parses
+ * those items. tokio defines `spawn` inside `cfg_rt! { … }` and re-exports it there, and
+ * a macro body is a token tree that holds no definition, `use` or call of its own. The
+ * header (`cfg_rt! {`) and closing brace become spaces, so every offset is unchanged. A body
+ * that does not parse alone as items, such as `cfg_if!`'s or `lazy_static!`'s, stays a macro.
+ * Nested item macros unwrap on the next pass. `regions` gives each unwrapped body and its
+ * macro's name, as resolve.ts trusts the items only while the macro, where the repo defines it,
+ * emits what it captures. */
+function rustUnwrapItemMacros(source: string, parse: (text: string) => TsNode | undefined): { text: string; regions: { macro: string; start: number; end: number }[] } {
+  const blank = (s: string) => s.replace(/[^\n]/g, " ");
+  const regions: { macro: string; start: number; end: number }[] = [];
+  let text = source;
+  for (let pass = 0; pass < 4; pass++) {
+    const root = parse(text);
+    if (!root) break;
+    const cuts: [number, number][] = [];
+    const visit = (list: TsNode): void => {
+      for (let i = 0; i < (list.namedChildCount ?? 0); i++) {
+        const c = list.namedChild?.(i);
+        const item = c?.type === "expression_statement" ? c.namedChild?.(0) : c;
+        if (item?.type === "macro_invocation") {
+          const body = item.namedChild?.((item.namedChildCount ?? 1) - 1);
+          if (body?.type !== "token_tree" || !body.text.startsWith("{")) continue;
+          if (parse(text.slice(body.startIndex + 1, body.endIndex - 1))?.hasError === false) {
+            cuts.push([item.startIndex, body.startIndex + 1], [body.endIndex - 1, body.endIndex]);
+            const macro = item.childForFieldName?.("macro")?.text.split("::").pop();
+            if (macro) regions.push({ macro, start: body.startIndex, end: body.endIndex });
+          }
+        } else if (c && /^(mod|impl|trait)_item$/.test(c.type)) {
+          const inner = c.childForFieldName?.("body");
+          if (inner) visit(inner);
+        }
+      }
+    };
+    visit(root);
+    if (!cuts.length) break;
+    let out = "";
+    let at = 0;
+    for (const [start, end] of cuts) {
+      out += text.slice(at, start) + blank(text.slice(start, end));
+      at = end;
+    }
+    text = out + text.slice(at);
+  }
+  return { text, regions };
 }
 
 /** PHP `use App\Models\User;` → a file→class-file `imports` raw edge, one per imported
@@ -605,6 +660,28 @@ function rustWholePath(path: string | undefined, name: string, scopes: RustUseSc
   return rest.length ? written : undefined;
 }
 
+/** For a path call whose first name no `use` in scope binds, such as `subscriber::mock()`,
+ * the globs in scope at `at` that could bring that name in, walking out until a `mod`.
+ * `self` and `super` globs name this file, whose own modules the path already reaches.
+ * `rustInMod` marks a call whose walk stopped at an inline `mod`, where the file's own child
+ * modules are out of sight. */
+function rustGlobsFor(path: string | undefined, scopes: RustUseScope[], at: number): Partial<RawEdge> {
+  const first = path?.split("::")[0];
+  // A capital first name is a type, whose calls go by owner.
+  if (!first || /^(crate|self|super|[A-Z].*)$/.test(first) || rustUsedAt(scopes, first, at) !== undefined) return {};
+  const out: string[] = [];
+  const around = scopes.filter((s) => s.start <= at && at < s.end).sort((a, b) => b.start - a.start);
+  let inMod = false;
+  for (const scope of around) {
+    for (const g of scope.globs) if (!/^(self|super)(::|$)/.test(g)) out.push(g);
+    if (scope.closed) {
+      inMod = scope.start > 0 || scope.end !== Number.POSITIVE_INFINITY;
+      break;
+    }
+  }
+  return { ...(out.length ? { rustGlobs: out } : {}), ...(inMod ? { rustInMod: true } : {}) };
+}
+
 /** Whether the name a call's path starts with could be brought in from another file: a path
  * spelling it out, a rename, a `use` naming it, or a glob that may. */
 function rustOwnerBrought(path: string | undefined, scopes: RustUseScope[], at: number, anyGlob: boolean): boolean {
@@ -681,8 +758,9 @@ function rustCallEdge(
 
 /** What one `use` declaration binds: each local name → the first segment of its path.
  * `use std::{fs, io::{self, Read as R}}` binds fs, io and R to std, and in `use { a::x,
- * b::y }` each item has its own first segment. Globs bind no name. */
-function rustUseBindings(text: string): Map<string, { first: string; full: string }> {
+ * b::y }` each item has its own first segment. Globs bind no name; their whole paths go to
+ * `globs` when it is given. */
+function rustUseBindings(text: string, globs?: string[]): Map<string, { first: string; full: string }> {
   const out = new Map<string, { first: string; full: string }>();
   const walk = (item: string, root: string | undefined, parent: string | undefined, above: string[] = []): void => {
     const brace = item.indexOf("{");
@@ -707,10 +785,11 @@ function rustUseBindings(text: string): Map<string, { first: string; full: strin
     const [path, alias] = item.split(/\s+as\s+/);
     const segments = (path ?? "").trim().split("::");
     const last = segments.at(-1);
+    const whole = [...above, ...segments];
+    if (last === "*") globs?.push(whole.slice(0, -1).join("::").replace(/\s+/g, ""));
     if (!last || last === "*") return;
     const name = alias?.trim() ?? (last === "self" ? parent : last);
     const first = root ?? segments[0];
-    const whole = [...above, ...segments];
     if (last === "self") whole.pop();
     if (name && name !== "_" && first) out.set(name, { first, full: whole.join("::").replace(/\s+/g, "") });
   };
@@ -729,6 +808,8 @@ interface RustUseScope {
   fulls: Map<string, string>;
   /** `use a::Engine as E` → E: Engine. */
   renames: Map<string, string>;
+  /** Each glob's whole path: `use tracing_mock::*` → `tracing_mock`. */
+  globs: string[];
 }
 
 function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; globs: string[]; anyGlob: boolean } {
@@ -743,7 +824,7 @@ function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; g
       if (glob === "super") scope.closed = false;
       // `super::*` and `self::*` in a `mod tests` name this same file.
       if (glob && glob !== "super" && glob !== "self") globs.push(glob);
-      for (const [name, { first, full }] of rustUseBindings(n.text)) {
+      for (const [name, { first, full }] of rustUseBindings(n.text, scope.globs)) {
         scope.names.set(name, first);
         scope.fulls.set(name, full);
         names.add(name);
@@ -753,7 +834,7 @@ function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; g
     }
     let inner = scope;
     if (n.type === "mod_item" || n.type === "block") {
-      inner = { start: n.startIndex, end: n.endIndex ?? n.startIndex, closed: n.type === "mod_item", names: new Map(), fulls: new Map(), renames: new Map() };
+      inner = { start: n.startIndex, end: n.endIndex ?? n.startIndex, closed: n.type === "mod_item", names: new Map(), fulls: new Map(), renames: new Map(), globs: [] };
       scopes.push(inner);
     }
     for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
@@ -761,7 +842,7 @@ function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; g
       if (c) visit(c, inner);
     }
   };
-  const top: RustUseScope = { start: 0, end: Number.POSITIVE_INFINITY, closed: true, names: new Map(), fulls: new Map(), renames: new Map() };
+  const top: RustUseScope = { start: 0, end: Number.POSITIVE_INFINITY, closed: true, names: new Map(), fulls: new Map(), renames: new Map(), globs: [] };
   scopes.push(top);
   visit(root, top);
   return { scopes, names, globs, anyGlob };
@@ -889,6 +970,7 @@ function extractRustMacroCalls(root: TsNode, rel: string, defs: Def[], rawEdges:
       rawEdges.push({
         ...rustCallEdge(source, rel, c.text, owner, pathRoot, "free", rustBounds(owner, c), c.startIndex, rustOwnerBrought(path, scopes, c.startIndex, anyGlob)),
         ...withRustPath(rustWholePath(path, c.text, scopes, c.startIndex)),
+        ...rustGlobsFor(path, scopes, c.startIndex),
         ...(!path && !usedNames.has(c.text) ? { onlyModules: globs } : {}),
         ...(inArm ? { rustTemplate: true } : {}),
       });
@@ -1226,7 +1308,7 @@ function tagsExtract(
     }
     rawEdges.push(
       langName === "rust"
-        ? { ...(rustSelfCallInOwnImpl(c.path, c.name, c.node) ? { rustSelfInImpl: true } : {}), ...rustCallEdge(enc ? enc.id : rel, rel, c.name, owner, rustPathRoot(c.path, rustScopes, c.at, c.form === "method" ? undefined : c.name), c.form ?? "free", rustBounds(owner, c.node), c.at, rustOwnerBrought(c.path, rustScopes, c.at, !!rustUsed?.anyGlob)), ...(c.form === "method" ? {} : withRustPath(rustWholePath(c.path, c.name, rustScopes, c.at))) }
+        ? { ...(rustSelfCallInOwnImpl(c.path, c.name, c.node) ? { rustSelfInImpl: true } : {}), ...rustCallEdge(enc ? enc.id : rel, rel, c.name, owner, rustPathRoot(c.path, rustScopes, c.at, c.form === "method" ? undefined : c.name), c.form ?? "free", rustBounds(owner, c.node), c.at, rustOwnerBrought(c.path, rustScopes, c.at, !!rustUsed?.anyGlob)), ...(c.form === "method" ? {} : { ...withRustPath(rustWholePath(c.path, c.name, rustScopes, c.at)), ...rustGlobsFor(c.path, rustScopes, c.at) }) }
         : { source: enc ? enc.id : rel, relation: "calls", file: rel, name: c.name },
     );
   }
@@ -1309,6 +1391,7 @@ export interface TsNode {
   childCount?: number;
   child?(i: number): TsNode | null;
   childForFieldName?(field: string): TsNode | null;
+  hasError?: boolean;
 }
 
 // Some grammars' tags.scm put @definition.<X> on a narrow node (C tags the

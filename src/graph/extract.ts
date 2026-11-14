@@ -146,6 +146,13 @@ export interface RawEdge {
   rustFields?: { owner: string; fields: [string, string][] };
   /** The call as a whole path, with the `use` that begins it spelt out: `crate::a::f`. */
   rustPath?: string;
+  /** A path call whose first name no `use` binds: the paths the globs in scope bring in
+   * (`use tracing_mock::*;` → `tracing_mock`), each of which may hold that first name. */
+  rustGlobs?: string[];
+  /** That call sits in an inline `mod`, so its first name is not one of the file's child modules. */
+  rustInMod?: boolean;
+  /** The definitions read from inside one item macro (`cfg_rt! { … }`), by node id. */
+  rustMacroItems?: { macro: string; ids: string[] };
   /** What a file's `pub use` makes visible through it, for a path to follow. */
   rustPubUses?: { names: [string, string][]; globs: string[] };
   /** The call's type name could have come from another file, by a `use`, a glob or its path. */
