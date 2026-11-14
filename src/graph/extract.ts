@@ -153,8 +153,12 @@ export interface RawEdge {
   rustInMod?: boolean;
   /** The definitions read from inside one item macro (`cfg_rt! { … }`), by node id. */
   rustMacroItems?: { macro: string; ids: string[] };
-  /** What a file's `pub use` makes visible through it, for a path to follow. */
-  rustPubUses?: { names: [string, string][]; globs: string[] };
+  /** A `macro_rules!` this file defines, and whether each arm that captures an `item` or `tt`
+   * emits one of them again. */
+  rustMacroDef?: { name: string; emits: boolean };
+  /** What a file's `pub use` makes visible through it, for a path to follow; `macros` names the
+   * item macros whose bodies hold these lines. */
+  rustPubUses?: { names: [string, string][]; globs: string[]; macros?: string[] };
   /** The call's type name could have come from another file, by a `use`, a glob or its path. */
   rustOwnerBrought?: boolean;
   /** calls, with a free rustForm: beyond its own file, the name can only come from these

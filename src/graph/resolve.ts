@@ -117,7 +117,8 @@ export function resolveEdges(
   allRawEdges: RawEdge[],
   opts: ResolveOptions = {},
 ): EdgeV1[] {
-  const hidden = rustOpaqueMacroItems(nodes, allRawEdges);
+  const opaque = rustOpaqueMacros(allRawEdges);
+  const hidden = new Set(allRawEdges.flatMap((e) => (e.rustMacroItems && opaque.has(e.rustMacroItems.macro) ? e.rustMacroItems.ids : [])));
   const rawEdges = hidden.size ? allRawEdges.filter((e) => !hidden.has(e.source)) : allRawEdges;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const globalName = new Map<string, NodeV1[]>();
@@ -251,7 +252,12 @@ export function resolveEdges(
   };
 
   const rustPubUses = new Map<string, NonNullable<RawEdge["rustPubUses"]>>();
-  for (const e of rawEdges) if (e.rustPubUses) rustPubUses.set(e.file, e.rustPubUses);
+  for (const e of rawEdges) {
+    const pub = e.rustPubUses;
+    if (!pub || pub.macros?.some((m) => opaque.has(m))) continue;
+    const had = rustPubUses.get(e.file);
+    rustPubUses.set(e.file, had ? { names: [...had.names, ...pub.names], globs: [...had.globs, ...pub.globs] } : pub);
+  }
   const rustFieldTypes = new Map<string, { file: string; type: string }[]>();
   for (const e of rawEdges) {
     if (!e.rustFields) continue;
@@ -938,29 +944,20 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
   return undefined;
 }
 
-/** The definitions read from inside an item macro the repo defines with `macro_rules!`, where no
- * arm emits a captured `item` or `tt` again: such a macro may drop or rewrite its body, so its
- * items are no targets and their calls no callers. A macro the repo does not define, such as a
- * dependency's, is trusted.
+/** The item macros the repo defines with `macro_rules!` that may drop or rewrite their body:
+ * some arm captures an `item` or `tt` and emits none of those captures again. The items read
+ * inside such a macro are no targets, their calls no callers and its `pub use` lines no
+ * re-exports. A macro the repo does not define, such as a dependency's, is trusted, as is a
+ * name with one definition that emits, since 2 definitions of a name sit under exclusive `cfg`s.
  *
- * shortcut: reads the macro's `body_text`, which stops at 5,000 characters, and counts a
- * capture as emitted when its name appears twice. Expanding the macro would settle both. */
-function rustOpaqueMacroItems(nodes: NodeV1[], rawEdges: RawEdge[]): Set<string> {
-  const hidden = new Set<string>();
-  const regions = rawEdges.filter((e) => e.rustMacroItems);
-  if (!regions.length) return hidden;
+ * shortcut: an arm counts as emitting when its output names a capture at all. Expanding the
+ * macro would settle what it emits. */
+function rustOpaqueMacros(rawEdges: RawEdge[]): Set<string> {
   const emits = new Map<string, boolean>();
-  for (const n of nodes) {
-    if (!n.signature?.startsWith("macro_rules!")) continue;
-    const body = n.body_text ?? "";
-    const captures = [...body.matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
-    const open = captures.some((c) => body.split(new RegExp(`\\$${c}\\b`)).length > 2);
-    emits.set(n.name, (emits.get(n.name) ?? false) || open);
+  for (const e of rawEdges) {
+    if (e.rustMacroDef) emits.set(e.rustMacroDef.name, (emits.get(e.rustMacroDef.name) ?? false) || e.rustMacroDef.emits);
   }
-  for (const e of regions) {
-    if (emits.get(e.rustMacroItems!.macro) === false) for (const id of e.rustMacroItems!.ids) hidden.add(id);
-  }
-  return hidden;
+  return new Set([...emits].filter(([, open]) => !open).map(([name]) => name));
 }
 
 /** A path whose first name only a glob can bring in, such as `subscriber::mock` under

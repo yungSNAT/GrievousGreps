@@ -378,12 +378,14 @@ test("Rust: the items inside an item macro such as `cfg_rt!` are read as items",
 
 test("Rust: the items of a repo macro that drops its body are no targets", async (t) => {
   const graph = await build(t, {
-    "src/lib.rs": "pub mod b;\npub mod a;\n#[macro_use]\nmod macros;\n",
-    "src/macros.rs": "macro_rules! discard {\n    ($($i:item)*) => {};\n}\nmacro_rules! keep {\n    ($($i:item)*) => { $( #[cfg(test)] $i )* };\n}\n",
-    "src/b.rs": "pub fn f() {}\npub fn g() {}\n",
-    "src/a.rs": "use crate::b::*;\ndiscard! {\n    pub fn f() { g(); }\n}\nkeep! {\n    pub fn g() {}\n}\npub fn go() { f(); g(); }\n",
+    "Cargo.toml": `[package]\nname = "app"\n`,
+    "src/lib.rs": "pub mod b;\npub mod a;\npub mod real;\n#[macro_use]\nmod macros;\ndiscard! {\n    pub use b::run;\n}\npub use real::run;\n",
+    "src/macros.rs": "macro_rules! discard {\n    ($($i:item)*) => {};\n}\nmacro_rules! keep {\n    ($($i:item)*) => { $( #[cfg(test)] $i )* };\n}\nmacro_rules! either {\n    (keep $($i:item)*) => { $($i)* };\n    ($($i:item)*) => {};\n}\n",
+    "src/b.rs": "pub fn f() {}\npub fn g() {}\npub fn h() {}\npub fn run() {}\n",
+    "src/real.rs": "pub fn run() {}\n",
+    "src/a.rs": "use crate::b::*;\ndiscard! {\n    pub fn f() { g(); }\n}\nkeep! {\n    pub fn g() {}\n}\neither! {\n    pub fn h() {}\n}\npub fn go() { f(); g(); h(); crate::run(); }\n",
   });
-  assert.deepEqual(calls(graph, "src/a.rs#go"), ["src/a.rs#g", "src/b.rs#f"]);
+  assert.deepEqual(calls(graph, "src/a.rs#go"), ["src/a.rs#g", "src/b.rs#f", "src/b.rs#h", "src/real.rs#run"], "an arm that drops its items makes the macro opaque, and its `pub use` re-exports nothing");
   assert.deepEqual(calls(graph, "src/a.rs#f"), [], "a dropped item calls nothing");
 });
 
@@ -394,11 +396,12 @@ test("Rust: a module path in an inline `mod` is not one of the file's child modu
     "mock/src/lib.rs": "pub mod subscriber;\n",
     "mock/src/subscriber.rs": "pub fn mock() {}\n",
     "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-mock = { path = "../mock" }\n`,
-    "app/src/lib.rs": "pub mod subscriber;\npub fn top() { subscriber::mock(); }\nmod inner {\n    use tracing_mock::*;\n    pub fn go() { subscriber::mock(); }\n}\n",
+    "app/src/lib.rs": "pub mod subscriber;\npub fn top() { subscriber::mock(); }\nmod inner {\n    use tracing_mock::*;\n    pub fn go() { subscriber::mock(); }\n}\nmod own {\n    mod subscriber {\n        pub fn mock() {}\n    }\n    use tracing_mock::*;\n    pub fn local() { subscriber::mock(); }\n}\n",
     "app/src/subscriber.rs": "pub fn mock() {}\n",
   });
   assert.deepEqual(calls(graph, "app/src/lib.rs#top"), ["app/src/subscriber.rs#mock"]);
   assert.deepEqual(calls(graph, "app/src/lib.rs#go"), ["mock/src/subscriber.rs#mock"]);
+  assert.ok(!calls(graph, "app/src/lib.rs#local").includes("mock/src/subscriber.rs#mock"), "a `mod` declared in scope shadows the glob");
 });
 
 test("Rust: a module path no `use` names reads through the crates a glob `use` brings in", async (t) => {
