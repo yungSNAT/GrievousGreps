@@ -25,6 +25,10 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **A workspace counts a repository once.** A linked worktree is no longer a second child: the main checkout stands for its repository, or the first worktree when the main checkout is elsewhere.
 - **A running build keeps its lock.** A lock past 5 minutes is taken over only once its owner has gone, or at 15 minutes whoever holds it, so a slow first build no longer gets a second build beside it. `sync-run` names itself in the lock it is handed.
 - **`trail docs` says when it left files out.** The refresh before each answer counts the files and folders it could not read, or whose path is not UTF-8. `update` reports the count; `search` and `status` print `gg-docs: skipped unreadable N` on stderr when it is not 0, so a short answer is not taken for a complete one. Their standard output, `--json` included, is unchanged.
+- **Commands start faster.** `trail`, `graft` and the MCP server load the LLM provider SDKs only when a command first uses a model, not at start-up: `trail --version` fell from a median 427 ms to 288 ms on one Linux machine. A missing or broken provider now fails at first use rather than at start-up.
+- **Every hook stops waiting on a stdin the host never closes**, as `pre-bash` already did: after 2 seconds it exits silently instead of running until the host kills it. A payload slower than that, or over 64 MiB, is dropped.
+- **`--version` names the commit a build came from**, as SemVer build metadata: `0.28.0+gg.ab677e3df962`, with `-dirty` when tracked files had changes. `trail version` prints the same. A run from `src`, or a build without its stamp, prints the bare version.
+- **`blast` counts calls to a changed symbol that did not resolve**, instead of leaving them out silently. The Markdown report names them in a warning, `--json` gains an `unresolved` field and the note after an edit gives their number. With no resolved dependents the headline is 'No resolved dependents.' rather than 'Nothing outside this diff depends on it.', since the graph does not record every unresolved call.
 
 ### Removed
 
