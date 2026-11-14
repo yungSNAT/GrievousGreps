@@ -59,8 +59,8 @@ jobs:
           name: coverage-codecov
           path: coverage-*.lcov
           retention-days: 1
-      - name: Test the benchmark scorer
-        run: node --test benchmark/test/score.test.mjs
+      - name: Test the benchmark scorer and the TypeScript truth
+        run: node --test benchmark/test/score.test.mjs benchmark/test/tsc-truth.test.mjs
 
   # rust/gg-docs, the binary behind `trail docs`: its own checks, then the docs
   # tests through both CLI entry points on the release build, which they find

@@ -2,98 +2,95 @@
   "getCookie": {
     "target": "src/helper/cookie/index.ts",
     "required": [
-      {"file":"adapters/aws-lambda/test/index.test.ts","chain":"<file>"},
-      {"file":"src/adapter/cloudflare-pages/handler.test.ts","chain":"<file>"},
-      {"file":"src/helper/cookie/index.test.ts","chain":"<file>"},
-      {"file":"src/helper/cookie/index.ts","chain":["deleteCookie"]},
-      {"file":"src/middleware/jwk/jwk.ts","chain":["jwk"]},
-      {"file":"src/middleware/jwt/jwt.ts","chain":["jwt"]},
-      {"file":"src/middleware/language/language.ts","chain":["detectFromCookie"]},
-      {"file":"src/validator/validator.ts","chain":["validator"]}
+      {"file":"adapters/aws-lambda/test/index.test.ts","chain":"<file>","lines":[168,169]},
+      {"file":"src/adapter/cloudflare-pages/handler.test.ts","chain":"<file>","lines":[97]},
+      {"file":"src/helper/cookie/index.test.ts","chain":"<file>","lines":[19,20,36,140,216,225]},
+      {"file":"src/helper/cookie/index.ts","chain":["deleteCookie"],"lines":[142]},
+      {"file":"src/middleware/jwk/jwk.ts","chain":["jwk"],"lines":[101,115,117]},
+      {"file":"src/middleware/jwt/jwt.ts","chain":["jwt"],"lines":[101,115,117]},
+      {"file":"src/middleware/language/language.ts","chain":["detectFromCookie"],"lines":[146]},
+      {"file":"src/validator/validator.ts","chain":["validator"],"lines":[158]}
     ]
   },
   "sha256": {
     "target": "src/utils/crypto.ts",
     "required": [
-      {"file":"src/middleware/cache/index.ts","chain":["createQueryDigest"]},
-      {"file":"src/utils/crypto.test.ts","chain":"<file>"}
+      {"file":"src/middleware/cache/index.ts","chain":["createQueryDigest"],"lines":[148]},
+      {"file":"src/utils/crypto.test.ts","chain":"<file>","lines":[6,9,12,31,32,40,41]}
     ],
     "optional": [
-      {"file":"src/utils/buffer.ts","chain":"<file>"}
+      {"file":"src/utils/buffer.ts","chain":["timingSafeEqualString"],"lines":[50]},
+      {"file":"src/utils/buffer.ts","chain":["timingSafeEqual"],"lines":[86]}
     ]
   },
   "verify": {
     "target": "src/utils/jwt/jwt.ts",
     "required": [
-      {"file":"src/utils/jwt/jwt.ts","chain":["verifyWithJwks"]},
-      {"file":"src/middleware/jwt/jwt.ts","chain":["jwt"]},
-      {"file":"src/utils/jwt/jwt.test.ts","chain":"<file>"}
-    ],
-    "optional": [
-      {"file":"src/middleware/jwt/jwt.ts","chain":"<file>"},
-      {"file":"src/utils/jwt/index.ts","chain":"<file>"},
-      {"file":"src/middleware/jwt/index.ts","chain":"<file>"}
+      {"file":"src/middleware/jwt/jwt.ts","chain":["jwt"],"lines":[138]},
+      {"file":"src/utils/jwt/jwt.test.ts","chain":"<file>","lines":[86,97,104,116,138,163,179,199,217,237,262,283,307,337,355,373,391,409,427,445,463,481,499,517,535,553,571,589,609,627,647,667,687,705,731,747,773,792,820,834,866,867,868,876,890,891,919,920,921,929,943,944,972,973,974,982,996,997,1010,1011,1012,1020,1034,1035,1607,1625,1652,1660,1680,1697,1704,1774,1784]},
+      {"file":"src/utils/jwt/jwt.ts","chain":["verifyWithJwks"],"lines":[259]}
     ]
   },
   "streamSSE": {
     "target": "src/helper/streaming/sse.ts",
     "required": [
-      {"file":"adapters/aws-lambda/test/index.test.ts","chain":"<file>"},
-      {"file":"runtime-tests/bun/index.test.tsx","chain":"<file>"},
-      {"file":"runtime-tests/deno/stream.test.ts","chain":"<file>"},
-      {"file":"runtime-tests/node/index.test.ts","chain":"<file>"},
-      {"file":"src/helper/streaming/sse.test.tsx","chain":"<file>"},
-      {"file":"src/middleware/compress/index.test.ts","chain":"<file>"}
+      {"file":"adapters/aws-lambda/test/index.test.ts","chain":"<file>","lines":[933]},
+      {"file":"runtime-tests/bun/index.test.tsx","chain":"<file>","lines":[181,191]},
+      {"file":"runtime-tests/deno/stream.test.ts","chain":"<file>","lines":[66,101]},
+      {"file":"runtime-tests/node/index.test.ts","chain":"<file>","lines":[162,172]},
+      {"file":"src/helper/streaming/sse.test.tsx","chain":"<file>","lines":[15,57,89,112,136,158,170,190,208,227,252,277,302,330,372,402,421,440,460,480,500,520,539]},
+      {"file":"src/middleware/compress/index.test.ts","chain":"<file>","lines":[87]}
     ]
   },
   "parseBody": {
     "target": "src/utils/body.ts",
     "required": [
-      {"file":"src/request.ts","chain":["parseBody"]},
-      {"file":"src/middleware/method-override/index.ts","chain":["methodOverride"]},
-      {"file":"src/utils/body.test.ts","chain":"<file>"}
+      {"file":"src/middleware/method-override/index.ts","chain":["methodOverride"],"lines":[93]},
+      {"file":"src/request.ts","chain":["parseBody"],"lines":[214]},
+      {"file":"src/utils/body.test.ts","chain":"<file>","lines":[36,47,58,73,83,99,116,130,143,156,170,182,192,206,214,227,236,245,255,266,282,294,307,326,348,365,376,388,398,402,408,414,420,426,436,447]}
     ]
   },
   "SSEStreamingApi.writeSSE": {
     "target": "src/helper/streaming/sse.ts",
     "required": [
-      {"file":"src/helper/streaming/sse.ts","chain":["run"]},
-      {"file":"src/helper/streaming/sse.test.tsx","chain":"<file>"},
-      {"file":"adapters/aws-lambda/test/index.test.ts","chain":"<file>"},
-      {"file":"src/middleware/compress/index.test.ts","chain":"<file>"}
+      {"file":"adapters/aws-lambda/test/index.test.ts","chain":"<file>","lines":[939]},
+      {"file":"src/helper/streaming/sse.test.tsx","chain":"<file>","lines":[23,62,94,113,137,159,191,209,228,253,278,303,331,373,403,422,441,463,483,503,523,540]},
+      {"file":"src/helper/streaming/sse.ts","chain":["run"],"lines":[59]},
+      {"file":"src/middleware/compress/index.test.ts","chain":"<file>","lines":[89]}
     ]
   },
   "mergePath": {
     "target": "src/utils/url.ts",
     "required": [
-      {"file":"src/hono-base.ts","chain":["#addRoute","addRoute"]},
-      {"file":"src/hono-base.ts","chain":["basePath"]},
-      {"file":"src/hono-base.ts","chain":["mount"]},
-      {"file":"src/hono-base.ts","chain":["request"]},
-      {"file":"src/utils/url.test.ts","chain":"<file>"}
+      {"file":"src/hono-base.ts","chain":["basePath"],"lines":[269]},
+      {"file":"src/hono-base.ts","chain":["mount"],"lines":[383,401]},
+      {"file":"src/hono-base.ts","chain":["#addRoute","addRoute"],"lines":[406,409]},
+      {"file":"src/hono-base.ts","chain":["request"],"lines":[530]},
+      {"file":"src/utils/url.test.ts","chain":"<file>","lines":[209,210,211,212,213,214,215,216,217,218,219,221,222,223,224,225,228,231,234]},
+      {"file":"src/utils/url.ts","chain":["mergePath"],"lines":[177]}
     ]
   },
   "createFactory": {
     "target": "src/helper/factory/index.ts",
     "required": [
-      {"file":"src/helper/factory/index.test.ts","chain":"<file>"},
-      {"file":"build/fixtures/declaration-emit/index.ts","chain":"<file>"}
+      {"file":"build/fixtures/declaration-emit/index.ts","chain":"<file>","lines":[8]},
+      {"file":"src/helper/factory/index.test.ts","chain":"<file>","lines":[84,132,180,245,343,365,387,400,411,419,429]}
     ]
   },
   "decodeBase64Url": {
     "target": "src/utils/encode.ts",
     "required": [
-      {"file":"src/utils/encode.test.ts","chain":"<file>"},
-      {"file":"src/utils/jwt/jwt.ts","chain":["decodeJwtPart"]},
-      {"file":"src/utils/jwt/jwt.ts","chain":["verify"]}
+      {"file":"src/utils/encode.test.ts","chain":"<file>","lines":[56]},
+      {"file":"src/utils/jwt/jwt.ts","chain":["decodeJwtPart"],"lines":[36]},
+      {"file":"src/utils/jwt/jwt.ts","chain":["verify"],"lines":[179]}
     ]
   },
   "timingSafeEqual": {
     "target": "src/utils/buffer.ts",
     "required": [
-      {"file":"src/middleware/basic-auth/index.ts","chain":["basicAuth"]},
-      {"file":"src/middleware/bearer-auth/index.ts","chain":["bearerAuth"]},
-      {"file":"src/utils/buffer.test.ts","chain":"<file>"}
+      {"file":"src/middleware/basic-auth/index.ts","chain":["basicAuth"],"lines":[119,120]},
+      {"file":"src/middleware/bearer-auth/index.ts","chain":["bearerAuth"],"lines":[211,214]},
+      {"file":"src/utils/buffer.test.ts","chain":"<file>","lines":[33,38,39,42,46,48,51,53,56,59,70,71,73,77,79,84,85,86,87,88,89]}
     ]
   }
 }
