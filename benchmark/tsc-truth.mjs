@@ -147,13 +147,15 @@ function enclosing(ts, node) {
   return { scope, names };
 }
 
-// The expression a reference stands for: the member access it names, and any parentheses, `as`, `!` or
-// `satisfies` around it.
+// The expression a reference stands for: the member access it names, as `.name` or `['name']`, and any
+// parentheses, `as`, `!` or `satisfies` around it. A reference used as a computed key, as in `obj[fn]()`,
+// is not the callee.
 function calleeOf(ts, node) {
   let callee = node;
   for (;;) {
     const parent = callee.parent;
-    const member = (ts.isPropertyAccessExpression(parent) && parent.name === callee) || (ts.isElementAccessExpression(parent) && parent.argumentExpression === callee);
+    const member = (ts.isPropertyAccessExpression(parent) && parent.name === callee) ||
+      (ts.isElementAccessExpression(parent) && parent.argumentExpression === callee && ts.isStringLiteralLike(callee));
     const wrapper = (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isNonNullExpression(parent) ||
       ts.isTypeAssertionExpression(parent) || ts.isSatisfiesExpression(parent)) && parent.expression === callee;
     if (!member && !wrapper) return callee;

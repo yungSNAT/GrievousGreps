@@ -125,6 +125,8 @@ test('wrapped callees, element access, tagged templates, decorators and `new` ar
       '  (fn as any)();',
       '  fn!();',
       '  fn`x`;',
+      '  (<any>fn)();',
+      '  (fn satisfies Function)();',
       '}',
       '(fn)();',
       'const box = { fn };',
@@ -136,19 +138,22 @@ test('wrapped callees, element access, tagged templates, decorators and `new` ar
       'export function make() {',
       '  return new K();',
       '}',
+      'export function keyed(methods: any) {',
+      '  return methods[fn as any]();',
+      '}',
       '',
     ].join('\n'),
   });
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const truth = deriveTruth(ts, root, { fn: { target: 'a.ts', target_lines: [1] }, K: { target: 'a.ts', target_lines: [2] } }, 'span');
   assert.deepEqual(truth.fn.required, [
-    { file: 'b.ts', chain: 'wrapped', lines: [3, 4, 5, 6] },
-    { file: 'b.ts', chain: '<file>', lines: [8] },
-    { file: 'b.ts', chain: 'indexed', lines: [11] },
-    { file: 'b.ts', chain: 'Decorated', lines: [13] },
+    { file: 'b.ts', chain: 'wrapped', lines: [3, 4, 5, 6, 7, 8] },
+    { file: 'b.ts', chain: '<file>', lines: [10] },
+    { file: 'b.ts', chain: 'indexed', lines: [13] },
+    { file: 'b.ts', chain: 'Decorated', lines: [15] },
   ]);
-  assert.equal(truth.fn.optional, undefined);
-  assert.deepEqual(truth.K.required, [{ file: 'b.ts', chain: 'make', lines: [16] }]);
+  assert.deepEqual(truth.fn.optional, [{ file: 'b.ts', chain: 'keyed', lines: [21] }]);
+  assert.deepEqual(truth.K.required, [{ file: 'b.ts', chain: 'make', lines: [18] }]);
 });
 
 test('a target with no declaration in its file is an error', (t) => {
