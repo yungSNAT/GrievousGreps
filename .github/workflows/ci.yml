@@ -46,7 +46,7 @@ jobs:
           fi
 
   test:
-    name: test (${{ matrix.os }}, Node ${{ matrix.node }})
+    name: test (${{ matrix.os }}, Node ${{ matrix.node }}${{ matrix.os == 'windows-latest' && format(', part {0} of 2', matrix.part) || '' }})
     needs: [changes]
     if: ${{ !cancelled() }}
     timeout-minutes: 60
@@ -59,12 +59,17 @@ jobs:
         # A released major, not "current": setup-node resolves that to the first entry of
         # Node's index, which can be a pre-release (v27.0.0-alpha from 29 October 2026).
         node: ["20", "26"]
+        # Windows splits the suite across 2 jobs (scripts/run-tests.mjs, TEST_PART):
+        # whole, its test step took about 11.5 minutes and set every pull request's wait.
+        part: [1, 2]
         # Windows on Node 20 was the slowest leg and set every pull request's wait.
         # Pull requests test Node 20 on ubuntu and Windows on Node 26; pushes
         # to main and manual runs still test Windows on Node 20.
         exclude:
           - os: ${{ github.event_name == 'pull_request' && 'windows-latest' || 'none' }}
             node: "20"
+          - os: ubuntu-latest
+            part: 2
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,12 +88,14 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: npm ci # NOSONAR: locked dependencies need native grammar and prepare lifecycle scripts.
       - name: Type check
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.part == 1
         run: |
           node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
           node node_modules/typescript/bin/tsc --noEmit -p viewer/tsconfig.json
       - name: Test
         if: needs.changes.outputs.docs_only != 'true'
+        env:
+          TEST_PART: ${{ matrix.os == 'windows-latest' && format('{0}/2', matrix.part) || '' }}
         run: npm test ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '-- --coverage' || '' }}
       - name: Keep the coverage reports for the Codecov upload
         if: needs.changes.outputs.docs_only != 'true' && matrix.os == 'ubuntu-latest' && matrix.node == '26'
@@ -98,8 +105,22 @@ jobs:
           path: coverage-*.lcov
           retention-days: 1
       - name: Test the benchmark scorer and the TypeScript truth
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.part == 1
         run: node --test benchmark/test/score.test.mjs benchmark/test/tsc-truth.test.mjs
+
+  # The ruleset requires `test (windows-latest, Node 26)`, which the 2 Windows parts
+  # replace. This job reports it, and passes only when every test job passed.
+  windows-tests:
+    name: test (windows-latest, Node 26)
+    needs: [test]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every test job to pass
+        env:
+          RESULT: ${{ needs.test.result }}
+        run: test "$RESULT" = success
 
   # rust/gg-docs, the binary behind `trail docs`: its own checks, then the docs
   # tests through both CLI entry points on the release build, which they find
