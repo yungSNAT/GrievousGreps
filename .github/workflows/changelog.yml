@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Check for a changelog line
-        uses: yungSNAT/yungSNAT/.github/actions/changelog-line@5cd2765e4c78098b7602809e60830f07373fae44 # main
+        uses: yungSNAT/yungSNAT/.github/actions/changelog-line@5cd2765e4c78098b7602809e60830f07373fae44 # v1
         with:
           shipped: '^(src|viewer)/|^scripts/(postinstall|build-viewer|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^tsconfig\.json$|^rust/gg-docs/(src/|Cargo\.toml$)'
           heading: 'the top, unreleased section'
