@@ -7,7 +7,7 @@ name: changelog
 # the label when it brings none.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -24,20 +24,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Check for a changelog line
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          shipped='^(src|viewer)/|^scripts/(postinstall|build-viewer|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^tsconfig\.json$|^rust/gg-docs/(src/|Cargo\.toml$)'
-          changed=$(git diff --no-renames --name-only "$BASE...$HEAD")
-          if ! grep -qE "$shipped" <<< "$changed"; then
-            echo "No shipped file changed."
-            exit 0
-          fi
-          log=$(git diff -U0 "$BASE...$HEAD" -- CHANGELOG.md)
-          if awk '/^\+/ && !/^\+\+\+ / && substr($0, 2) ~ /[^[:space:]]/ { found = 1 } END { exit !found }' <<< "$log"; then
-            echo "CHANGELOG.md has a new line."
-            exit 0
-          fi
-          echo "::error file=CHANGELOG.md::This pull request changes shipped code but adds no CHANGELOG.md line. Add one under the top, unreleased section, or apply the skip-changelog label if users will not notice the change."
-          exit 1
+        uses: yungSNAT/yungSNAT/.github/actions/changelog-line@5cd2765e4c78098b7602809e60830f07373fae44 # main
+        with:
+          shipped: '^(src|viewer)/|^scripts/(postinstall|build-viewer|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^tsconfig\.json$|^rust/gg-docs/(src/|Cargo\.toml$)'
+          heading: 'the top, unreleased section'
