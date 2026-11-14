@@ -14,8 +14,41 @@ permissions:
   contents: read
 
 jobs:
+  # A pull request that changes only the documents named below skips the work in
+  # every job here; no test, build or check in this workflow reads them (checked
+  # 15 November 2026: recheck before adding a path). The matrix jobs still start
+  # and pass with their steps skipped, as the ruleset requires the test jobs by name
+  # and a matrix job skipped whole would report under its unexpanded name. The
+  # others are skipped, which counts as passed. If this job fails, everything runs.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Find whether only documents changed
+        id: diff
+        if: github.event_name == 'pull_request'
+        # HEAD is the merge commit the tests run on, and its first parent is the
+        # base. Without --no-renames a file moved into docs/ would hide its source.
+        run: |
+          files=$(git diff --name-only --no-renames HEAD^1 HEAD)
+          if grep -qvE '^((README|CHANGELOG|CONTRIBUTING|SECURITY|CREDITS|TELEMETRY)\.md|benchmark/README\.md|docs/.+)$' <<< "$files"; then
+            echo docs_only=false >> "$GITHUB_OUTPUT"
+          else
+            echo docs_only=true >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     name: test (${{ matrix.os }}, Node ${{ matrix.node }})
+    needs: [changes]
+    if: ${{ !cancelled() }}
     timeout-minutes: 60
     # The tool stores repo-relative paths and parses them with '/', so a separator
     # leak on Windows matches nothing instead of failing. Windows stays a gate.
@@ -35,9 +68,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
@@ -45,21 +80,25 @@ jobs:
       # are native addons, and the node-gyp devDependency chooses their toolchain,
       # so keep it at 12.x whilst this matrix holds Node 20.
       - name: Install and build
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm ci # NOSONAR: locked dependencies need native grammar and prepare lifecycle scripts.
       - name: Type check
+        if: needs.changes.outputs.docs_only != 'true'
         run: |
           node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json
           node node_modules/typescript/bin/tsc --noEmit -p viewer/tsconfig.json
       - name: Test
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm test ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '-- --coverage' || '' }}
       - name: Keep the coverage reports for the Codecov upload
-        if: matrix.os == 'ubuntu-latest' && matrix.node == '26'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.os == 'ubuntu-latest' && matrix.node == '26'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-codecov
           path: coverage-*.lcov
           retention-days: 1
       - name: Test the benchmark scorer and the TypeScript truth
+        if: needs.changes.outputs.docs_only != 'true'
         run: node --test benchmark/test/score.test.mjs benchmark/test/tsc-truth.test.mjs
 
   # rust/gg-docs, the binary behind `trail docs`: its own checks, then the docs
@@ -67,6 +106,8 @@ jobs:
   # in target/release. GG_DOCS_E2E=require turns their skip into a failure.
   gg-docs:
     name: gg-docs (${{ matrix.os }})
+    needs: [changes]
+    if: ${{ !cancelled() }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -78,19 +119,23 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           persist-credentials: false
       # rustup installs the toolchain pinned in rust/gg-docs/rust-toolchain.toml.
       - name: Install the toolchain
+        if: needs.changes.outputs.docs_only != 'true'
         working-directory: rust/gg-docs
         run: rustup toolchain install
       # The crate's 353 locked packages compiled from cold on every run. Only main
       # saves; pull requests restore main's entries without writing their own.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           workspaces: rust/gg-docs
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check the crate
+        if: needs.changes.outputs.docs_only != 'true'
         working-directory: rust/gg-docs
         run: |
           cargo fmt --check
@@ -98,14 +143,17 @@ jobs:
           cargo test --locked
           cargo build --locked --release
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           node-version: "20"
           package-manager-cache: false
       # Install scripts stay on, as in the test job: esbuild and the tree-sitter
       # grammars need theirs, and the package's prepare script is the build.
       - name: Install and build
+        if: needs.changes.outputs.docs_only != 'true'
         run: npm ci # NOSONAR: see above
       - name: Run the docs commands on the release build
+        if: needs.changes.outputs.docs_only != 'true'
         env:
           GG_DOCS_E2E: require
         run: node --import tsx --test test/docs-cli.test.ts
@@ -114,8 +162,8 @@ jobs:
   # while test code runs.
   codecov:
     name: upload coverage to Codecov
-    needs: [test]
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: [changes, test]
+    if: needs.changes.outputs.docs_only != 'true' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # A Codecov outage must not turn the tests badge red.
@@ -139,6 +187,8 @@ jobs:
 
   node24-wasm:
     name: Node 24 WASM regression
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
