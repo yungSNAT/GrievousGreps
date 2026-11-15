@@ -61,6 +61,9 @@ test("the runner gives the suite a temporary home and leaves the one it started 
     env: {
       ...process.env,
       NODE_TEST_CONTEXT: undefined, // set by this test's own runner, it would stop the inner one running anything
+      // CI's split (TEST_PART=2/2) would give the copy's one probe file to part 1, so part 2 ran
+      // no file: Node 26 then finds the probe by its default pattern, Node 20 runs nothing.
+      TEST_PART: undefined,
       PROBE_SAYS: says,
       HOME: sentinel,
       USERPROFILE: sentinel,
