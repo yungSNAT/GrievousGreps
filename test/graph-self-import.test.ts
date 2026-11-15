@@ -362,7 +362,7 @@ test("Rust: a call reaches each `cfg` arm of a function, by path and by bare nam
   const graph = await build(t, {
     "Cargo.toml": `[workspace]\nmembers = ["core", "app"]\n`,
     "core/Cargo.toml": `[package]\nname = "tracing-core"\n`,
-    "core/src/lib.rs": "pub mod dispatcher;\npub mod other;\n",
+    "core/src/lib.rs": "pub mod dispatcher;\npub mod other;\npub mod blocking;\npub mod user;\n",
     "core/src/dispatcher.rs": `#[cfg(feature = "std")]
 pub fn get_default() {}
 #[cfg(not(feature = "std"))]
@@ -392,9 +392,20 @@ cfg_no_std! { pub fn current() {} }
 pub fn now() { current(); }
 `,
     "core/src/other.rs": "pub fn get_default() {}\n",
+    // tokio's `blocking.rs`: one arm re-exports the function, the others define it.
+    "core/src/blocking.rs": `cfg_rt! { pub(crate) use crate::other::get_default; }
+cfg_not_rt! {
+    #[cfg(unix)]
+    pub(crate) fn get_default() {}
+    #[cfg(not(unix))]
+    pub(crate) fn get_default() {}
+}
+`,
+    "core/src/user.rs": "use crate::blocking::get_default;\npub fn mixed() { get_default(); }\n",
     "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-core = { path = "../core" }\n`,
     "app/src/lib.rs": "use tracing_core::dispatcher;\npub fn far() { dispatcher::get_default(); }\n",
   });
+  assert.ok(!calls(graph, "core/src/user.rs#mixed").includes("core/src/blocking.rs#get_default"), "an arm that re-exports leaves the name uncertain");
   const arms = ["core/src/dispatcher.rs#get_default", "core/src/dispatcher.rs#get_default~2"];
   assert.deepEqual(calls(graph, "app/src/lib.rs#far"), arms, "through a path");
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#near"), arms, "by bare name in the same file");
