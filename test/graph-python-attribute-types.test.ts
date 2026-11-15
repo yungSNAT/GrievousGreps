@@ -78,14 +78,77 @@ def unknown():
     app.missing.from_mapping({})
 `;
 
-async function build(): Promise<GraphV1> {
+// Cases where the attribute's type is not known for sure: 2 classes share a name and only
+// one has the attribute, one class assigns it 2 types, and a capitalised function is called
+// through a module where a class of that name also exists.
+const UNSURE = {
+  "pkg/config.py": CONFIG,
+  "pkg/store.py": `class Store:
+    def run(self):
+        return 1
+`,
+  "pkg/factory.py": `def Store():
+    return None
+`,
+  "pkg/a.py": `from .config import Config
+
+
+class Server:
+    def __init__(self):
+        self.config = Config()
+`,
+  "pkg/b.py": `class Server:
+    def __init__(self):
+        self.name = "b"
+`,
+  "pkg/holder.py": `from .config import Config, Other
+from . import factory
+
+
+class Holder:
+    def __init__(self, flag):
+        if flag:
+            self.config = Config()
+        else:
+            self.config = Other()
+        self.store = factory.Store()
+`,
+  "user.py": `from pkg import factory, store
+from pkg.b import Server
+from pkg.holder import Holder
+
+
+def same_name():
+    s = Server()
+    s.config.from_mapping({})
+
+
+def two_types():
+    h = Holder(True)
+    h.config.from_mapping({})
+
+
+def factory_call():
+    h = Holder(False)
+    h.store.run()
+
+
+def module_and_untyped(x):
+    factory.Store()
+    x.config.from_mapping({})
+`,
+};
+
+async function build(files: Record<string, string> = {
+  "pkg/config.py": CONFIG,
+  "pkg/base.py": BASE,
+  "pkg/app.py": APP,
+  "user.py": USER,
+}): Promise<GraphV1> {
   const dir = mkdtempSync(join(tmpdir(), "graft-py-attrs-"));
   mkdirSync(join(dir, "pkg"), { recursive: true });
   writeFileSync(join(dir, "pkg", "__init__.py"), "");
-  writeFileSync(join(dir, "pkg", "config.py"), CONFIG);
-  writeFileSync(join(dir, "pkg", "base.py"), BASE);
-  writeFileSync(join(dir, "pkg", "app.py"), APP);
-  writeFileSync(join(dir, "user.py"), USER);
+  for (const [path, text] of Object.entries(files)) writeFileSync(join(dir, path), text);
   await buildGraph(dir);
   const graph = readGraph(wiringPath(join(dir, "graft")));
   assert.ok(graph, "wiring graph should be written");
@@ -104,6 +167,16 @@ test("Python: a method call on an attribute a base class types in another file r
   ], "a method's return annotation, a constructor call and an annotation each type the attribute");
   assert.ok(callsOf(graph, "user.py#through_module").includes("pkg/config.py#Config.from_mapping"), "an instance made through a module");
   assert.ok(callsOf(graph, "pkg/base.py#App.own").includes("pkg/config.py#Config.from_mapping"), "through self");
+  const viaAttr = graph.edges.find((e) => e.relation === "calls" && e.source === "user.py#create" && e.target === "pkg/config.py#Config.from_mapping");
+  assert.equal(viaAttr?.confidence, "inferred", "an attribute's type read from another file is inferred");
+});
+
+test("Python: an attribute whose type is not certain resolves to nothing", async () => {
+  const graph = await build(UNSURE);
+  assert.deepEqual(callsOf(graph, "user.py#same_name"), ["pkg/b.py#Server"], "another class of the same name has the attribute");
+  assert.deepEqual(callsOf(graph, "user.py#two_types"), ["pkg/holder.py#Holder"], "the class assigns the attribute 2 types");
+  assert.deepEqual(callsOf(graph, "user.py#factory_call"), ["pkg/holder.py#Holder"], "a capitalised function, not the class of that name");
+  assert.deepEqual(callsOf(graph, "user.py#module_and_untyped"), ["pkg/factory.py#Store"], "a module's function and an untyped receiver");
 });
 
 test("Python: an attribute with no stated type resolves to nothing", async () => {
