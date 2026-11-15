@@ -3228,7 +3228,8 @@ function pyReceiver(fn: SyntaxNode): string | undefined {
   if (obj?.type === "attribute") {
     const innerObj = obj.childForFieldName("object");
     const innerAttr = obj.childForFieldName("attribute");
-    if (innerObj?.type === "identifier" && innerObj.text === "self" && innerAttr) return `self.${innerAttr.text}`;
+    // `self.repo` binds like a field; any other `x.attr` is typed through x's class.
+    if (innerObj?.type === "identifier" && innerAttr) return `${innerObj.text}.${innerAttr.text}`;
   }
   return undefined;
 }
