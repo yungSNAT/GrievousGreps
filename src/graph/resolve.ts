@@ -17,6 +17,7 @@ import { toPosixPath } from "../util/paths.js";
 import type { EdgeV1, Kind, NodeV1, Relation, UnresolvedCallV1 } from "./types.js";
 import { languageOf, type PythonExports, type TsModule, type RawEdge } from "./extract.js";
 import { PythonModules } from "./python-roots.js";
+import type { PythonField } from "./bindings.js";
 import { genericLangOf } from "./generic.js";
 
 const IMPORT_EXTS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".py"];
@@ -271,6 +272,32 @@ export function resolveEdges(
     const list = rustFieldTypes.get(`${recv.owner}.${recv.field}`);
     return list?.find((f) => f.file === file)?.type ?? (list?.length === 1 ? list[0].type : undefined);
   };
+  const pythonFields = new Map<string, PythonField[]>();
+  for (const e of rawEdges) {
+    for (const [attr, field] of e.pythonFields?.fields ?? []) push(pythonFields, `${e.pythonFields!.owner}.${attr}`, field);
+  }
+  // The type a Python attribute holds: what its class, else the nearest base class, states
+  // for it, when every statement there names one type. A method's return annotation counts.
+  const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
+    const seen = new Set([owner]);
+    let frontier = [owner];
+    for (let depth = 0; depth <= 3 && frontier.length; depth++) {
+      const types = new Set<string | undefined>();
+      for (const type of frontier) {
+        for (const field of pythonFields.get(`${type}.${attr}`) ?? []) {
+          if ("type" in field) types.add(field.type);
+          else {
+            const hit = resolveTypedMember(type, field.returns, file, ownerMethod, classParents, classTraits);
+            const signature = hit && hit !== "ambiguous" ? byId.get(hit.id)?.signature : undefined;
+            types.add(/->\s*['"]?(?:\w+\.)*(\w+)['"]?$/.exec(signature ?? "")?.[1]);
+          }
+        }
+      }
+      if (types.size) return types.size === 1 ? [...types][0] : undefined;
+      frontier = frontier.flatMap((type) => classParents.get(type) ?? []).filter((type) => !seen.has(type) && seen.add(type));
+    }
+    return undefined;
+  };
   const rustUseNames = new Map<string, NonNullable<RawEdge["rustUseNames"]>>();
   for (const e of rawEdges) if (e.rustUseNames) rustUseNames.set(e.file, e.rustUseNames);
   const rustImpls = new Map<string, Set<string>>();
@@ -478,7 +505,7 @@ export function resolveEdges(
           rustTraitProvides(e, e.rustChain.type ?? null);
           continue;
         }
-        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvType;
+        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
         if (!recv && !e.rustForm) continue;
         const real = !recv ? { type: "" } : e.file.endsWith(".rs") ? rustRealType(recv, e.file, e.rustAt ?? 0, e.rustOwnerBrought === true) : { type: recv };
         if (real.root && opts.rustExternalCrates?.has(real.root)) { // an alias of a dependency's type
@@ -534,7 +561,7 @@ export function resolveEdges(
         }
         if (hit === "ambiguous") continue; // drop — never guess past an ambiguous owner
         if (hit) {
-          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", stated(hit.confidence));
+          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "inferred" : stated(hit.confidence));
           continue;
         }
         // No owner-qualified match means the call is unresolved. A unique bare

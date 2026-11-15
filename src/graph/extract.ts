@@ -8,7 +8,7 @@
  */
 import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
-import { collectBindings, goReceiverVarOf, resolveRecvType, type FileBindings } from "./bindings.js";
+import { collectBindings, goReceiverVarOf, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
 import { parseDepth, type SyntaxNode } from "./depth-parser.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 
@@ -144,6 +144,11 @@ export interface RawEdge {
   /** `impl Tr for T`: the trait's name, and the type's, or `*` for a blanket impl. */
   rustImpl?: { trait: string; type: string };
   rustFields?: { owner: string; fields: [string, string][] };
+  /** A Python class's instance attributes with a stated type. */
+  pythonFields?: { owner: string; fields: [string, PythonField][] };
+  /** calls with viaMember on `x.attr`, where `x` has a type and `attr` has none here:
+   * resolve.ts reads the attribute's type from the class's `pythonFields`. */
+  recvAttr?: { type: string; attr: string };
   /** The call as a whole path, with the `use` that begins it spelt out: `crate::a::f`. */
   rustPath?: string;
   /** A path call whose first name no `use` binds: the paths the globs in scope bring in
@@ -583,6 +588,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   // residual on the file node so a term outside every symbol still surfaces it.
   nodes[0].body_text = fileResidual(source, nodes.slice(1));
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
+  for (const [owner, fields] of bindings.fields) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner, fields: [...fields] } });
   if (tsModule) rawEdges.push({ source: rel, relation: "imports", file: rel, tsModule });
   return { nodes, rawEdges };
 }
@@ -970,7 +976,8 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
           edges.push({ ...callEdge, specifier: moduleSpec, pythonChain: parts!.slice(1) });
         } else if (!shadowed) {
           const recvType = resolveRecvType(callee.receiver, ctx);
-          edges.push(recvType ? { ...callEdge, recvType } : callEdge);
+          const recvAttr = recvType || ctx.lang !== "python" ? undefined : pythonAttrReceiver(callee.receiver, ctx);
+          edges.push(recvType ? { ...callEdge, recvType } : recvAttr ? { ...callEdge, recvAttr } : callEdge);
         } else if (ctx.pythonLocalRebound.has(head!)) {
           const bound = ctx.pythonLocalRebound.get(head!)!;
           edges.push({ ...callEdge, pythonRebound: head, pythonReboundModule: bound.module, pythonReboundName: bound.name });
@@ -1459,6 +1466,13 @@ function pythonCallHasLocalBinding(call: SyntaxNode, name: string): boolean {
     if (names?.has(name)) return true;
   }
   return false;
+}
+
+/** `app.config` with `app` typed: the type and the attribute, for resolve.ts to look up. */
+function pythonAttrReceiver(receiver: string | undefined, ctx: WalkCtx): RawEdge["recvAttr"] {
+  const parts = /^(\w+)\.(\w+)$/.exec(receiver ?? "");
+  const type = parts ? resolveRecvType(parts[1], ctx) : undefined;
+  return type ? { type, attr: parts![2]! } : undefined;
 }
 
 const PYTHON_OVERLOAD = /^(?:\w+\.)*overload$/;
