@@ -595,7 +595,9 @@ export function resolveEdges(
         const inModule = (path: string) =>
           !e.onlyModules || e.onlyModules.some((m) => path.endsWith(`/${m}.rs`) || path.includes(`/${m}/`));
         const global = free(globalName.get(e.name!)).filter((n) => reachable(e.file, n.path) && inModule(n.path));
-        const one = (list: NodeV1[]) => (list.length === 1 || (e.rustForm === "free" && rustCfgArms(list, rustPathCtx.cfgGated)) ? list : undefined);
+        // Arms by name only for a call with no path: a path the follower above could not
+        // settle may lead to a re-export or outside the repository, not to these arms.
+        const one = (list: NodeV1[]) => (list.length === 1 || (e.rustForm === "free" && !e.rustPath && rustCfgArms(list, rustPathCtx.cfgGated)) ? list : undefined);
         const only = one(local) ?? one(global);
         if (only) for (const arm of only) add(e.source, arm.id, "calls", stated(local.length ? "extracted" : "inferred"));
         else if (global.length > 1 && e.rustForm === "free") opts.unresolvedCalls?.push({ source: e.source, name: e.name!, through: e.rustPath ?? `${global.length} definitions of that name` });
