@@ -276,12 +276,17 @@ export function resolveEdges(
   for (const e of rawEdges) {
     for (const [attr, field] of e.pythonFields?.fields ?? []) push(pythonFields, `${e.pythonFields!.owner}.${attr}`, field);
   }
+  // Fields are keyed by class name, so a name 2 Python classes share has no known fields,
+  // and a type named like a Python function may be that function's result.
+  const pythonNamed = (name: string, kind: Kind): number =>
+    (globalName.get(name) ?? []).filter((n) => n.kind === kind && /\.pyi?$/.test(n.path)).length;
   // The type a Python attribute holds: what its class, else the nearest base class, states
   // for it, when every statement there names one type. A method's return annotation counts.
   const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
     const seen = new Set([owner]);
     let frontier = [owner];
     for (let depth = 0; depth <= 3 && frontier.length; depth++) {
+      if (frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
       const types = new Set<string | undefined>();
       for (const type of frontier) {
         for (const field of pythonFields.get(`${type}.${attr}`) ?? []) {
@@ -293,7 +298,8 @@ export function resolveEdges(
           }
         }
       }
-      if (types.size) return types.size === 1 ? [...types][0] : undefined;
+      const only = types.size === 1 ? [...types][0] : undefined;
+      if (types.size) return only && !pythonNamed(only, "function") ? only : undefined;
       frontier = frontier.flatMap((type) => classParents.get(type) ?? []).filter((type) => !seen.has(type) && seen.add(type));
     }
     return undefined;

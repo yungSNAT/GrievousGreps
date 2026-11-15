@@ -588,7 +588,10 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   // residual on the file node so a term outside every symbol still surfaces it.
   nodes[0].body_text = fileResidual(source, nodes.slice(1));
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
-  for (const [owner, fields] of bindings.fields) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner, fields: [...fields] } });
+  for (const [owner, fields] of bindings.fields) {
+    const each = [...fields].flatMap(([attr, list]) => list.map((field): [string, PythonField] => [attr, field]));
+    rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner, fields: each } });
+  }
   if (tsModule) rawEdges.push({ source: rel, relation: "imports", file: rel, tsModule });
   return { nodes, rawEdges };
 }

@@ -21,12 +21,12 @@ export type PythonField = { type: string } | { returns: string };
 
 export class FileBindings {
   private map = new Map<string, string>();
-  /** Python only: class name → its attributes with a stated type, for other files to read. */
-  readonly fields = new Map<string, Map<string, PythonField>>();
+  /** Python only: class name → its attributes' stated types, one per statement, for other files to read. */
+  readonly fields = new Map<string, Map<string, PythonField[]>>();
 
   field(owner: string, attr: string, value: PythonField): void {
-    const own = this.fields.get(owner) ?? new Map<string, PythonField>();
-    own.set(attr, value);
+    const own = this.fields.get(owner) ?? new Map<string, PythonField[]>();
+    own.set(attr, [...(own.get(attr) ?? []), value]);
     this.fields.set(owner, own);
   }
 
