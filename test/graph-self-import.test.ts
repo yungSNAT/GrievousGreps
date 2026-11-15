@@ -362,7 +362,7 @@ test("Rust: a call reaches each `cfg` arm of a function, by path and by bare nam
   const graph = await build(t, {
     "Cargo.toml": `[workspace]\nmembers = ["core", "app"]\n`,
     "core/Cargo.toml": `[package]\nname = "tracing-core"\n`,
-    "core/src/lib.rs": "pub mod dispatcher;\npub mod other;\npub mod blocking;\npub mod user;\n",
+    "core/src/lib.rs": "pub mod dispatcher;\npub mod other;\npub mod blocking;\npub mod user;\npub mod process;\n",
     "core/src/dispatcher.rs": `#[cfg(feature = "std")]
 pub fn get_default() {}
 #[cfg(not(feature = "std"))]
@@ -388,7 +388,7 @@ mod e {
     pub fn here() { os(); }
 }
 cfg_std! { pub fn current() {} }
-cfg_no_std! { pub fn current() {} }
+cfg_no_std! { cfg_alloc! { pub fn current() {} } }
 pub fn now() { current(); }
 `,
     "core/src/other.rs": "pub fn get_default() {}\n",
@@ -400,12 +400,17 @@ cfg_not_rt! {
     #[cfg(not(unix))]
     pub(crate) fn get_default() {}
 }
+pub fn inside() { crate::blocking::get_default(); }
 `,
+    // A path the graph cannot follow (std) is no call to same-named arms in this file.
+    "core/src/process.rs": "mod c {\n    #[cfg(unix)]\n    pub fn id() {}\n    #[cfg(windows)]\n    pub fn id() {}\n}\npub fn root() { std::process::id(); }\n",
     "core/src/user.rs": "use crate::blocking::get_default;\npub fn mixed() { get_default(); }\n",
     "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-core = { path = "../core" }\n`,
     "app/src/lib.rs": "use tracing_core::dispatcher;\npub fn far() { dispatcher::get_default(); }\n",
   });
   assert.ok(!calls(graph, "core/src/user.rs#mixed").includes("core/src/blocking.rs#get_default"), "an arm that re-exports leaves the name uncertain");
+  assert.ok(!calls(graph, "core/src/blocking.rs#inside").includes("core/src/blocking.rs#get_default"), "also through a path inside that file");
+  assert.deepEqual(calls(graph, "core/src/process.rs#root"), [], "a path that leads outside reaches no arm");
   const arms = ["core/src/dispatcher.rs#get_default", "core/src/dispatcher.rs#get_default~2"];
   assert.deepEqual(calls(graph, "app/src/lib.rs#far"), arms, "through a path");
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#near"), arms, "by bare name in the same file");
