@@ -40,6 +40,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 ### Fixed
 
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
+- **A Python function with `@overload` stubs now has callers.** Each stub followed in its block by the implementation counted as a definition of its own, so every call to the name was dropped as ambiguous, as for flask's `stream_with_context` and click's `prompt`. Python binds the name to the implementation, and the graph now does too. Overloads with no implementation after them, as in a stub file or a Protocol, stay.
 
 ## 0.28.0
 
