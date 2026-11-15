@@ -168,25 +168,24 @@ test("walkDir follows initialized submodules only when enabled, with their own G
   }
 });
 
-test("walkDir keeps a Git repository's dot folders, except tool caches, environments and dot-files", () => {
+test("walkDir keeps a Git repository's dot folders, except tool caches, environments and dot-files", (t) => {
   const dir = fixture("dotdirs");
-  try {
-    write(dir, ".gitignore", ".venv/\n");
-    write(dir, "src/app.ts");
-    write(dir, "examples/.test/app/client.ts");
-    write(dir, ".storybook/main.ts");
-    write(dir, ".eslintrc.js");
-    write(dir, ".venv/lib/site.py");
-    write(dir, ".yarn/plugins/plugin.cjs");
-    write(dir, ".graft/hook.ts");
-    write(dir, "node_modules/.bin/tool.js");
-    write(dir, ".ipynb_checkpoints/model-checkpoint.py");
-    write(dir, "infra/.terraform/modules/vpc/main.py");
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  write(dir, ".gitignore", ".venv/\n");
+  for (const path of [
+    "src/app.ts",
+    "examples/.test/app/client.ts",
+    ".storybook/main.ts",
+    ".eslintrc.js",
+    ".venv/lib/site.py",
+    ".yarn/plugins/plugin.cjs",
+    ".graft/hook.ts",
+    "node_modules/.bin/tool.js",
+    ".ipynb_checkpoints/model-checkpoint.py",
+    "infra/.terraform/modules/vpc/main.py",
+  ]) write(dir, path);
 
-    assert.deepEqual(walked(dir), ["examples/.test/app/client.ts", ".storybook/main.ts", "src/app.ts"].sort());
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  assert.deepEqual(walked(dir), ["examples/.test/app/client.ts", ".storybook/main.ts", "src/app.ts"].sort());
 });
 
 test("walkDir retains fixed skips and filesystem fallback outside Git", () => {
