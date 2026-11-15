@@ -35,6 +35,10 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **`trail upgrade`**, which would have installed upstream's package over this build, now refuses.
 - **Upstream's deployment, blast workflows and branding images.** `.github/upstream-removed.txt` lists them.
 
+### Fixed
+
+- **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
+
 ## 0.28.0
 
 ### Added
