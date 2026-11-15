@@ -16,6 +16,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
 - **Usage stats, the update check and workspace background reads are off** until you ask for them.
 - **Writes refuse a symlink** planted in a repository or output folder.
+- **In a Git repository, the graph indexes folders whose names start with a dot**, such as `.storybook` or trpc's `examples/.test`, when Git lists their files. Caches, environments and tool state such as `.venv`, `.next`, `.cache` and `.trail` are still skipped, as are files whose names start with a dot. Outside Git every dot folder is still skipped.
 - **`trail mcp` and `graft mcp`** are what agents' MCP entries run. Nothing launches through `npx`.
 - **`trail version`** prints the local version and compares nothing.
 - **`callers` names a shared name's definitions without callers once.** Those with callers come first; the rest share one block with up to 3 headers, a count and one undercount note, instead of a note under each, and a caller in a test file gets no quoted call line. In a 30-symbol benchmark sample the repeated note was 40% of answer tokens and the test quotes 8%. With the short savings line below, that sample's answers fall from 28,029 to 11,762 tokens (140 to 59 a correct caller) at the same 200 of 208 callers found.

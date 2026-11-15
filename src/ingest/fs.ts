@@ -24,16 +24,24 @@ export const SKIP_DIRS = new Set([
   "venv",
 ]);
 
+/** Dot folders that hold tools' caches, environments, vendored builds or this tool's own
+ * state, never a repository's source. Other dot folders that Git lists are walked. */
+const DOT_SKIP_DIRS = new Set([
+  ".git", ".graft", ".trail", ".venv", ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+  ".yarn", ".pnpm-store", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", ".gradle",
+  ".dart_tool", ".pub-cache", ".bundle", ".ipynb_checkpoints", ".terraform",
+]);
+
 /** Files above this size are generated/vendored in practice, not hand-written code. */
 export const MAX_FILE_BYTES = 1_000_000;
 
 /**
  * Whether a directory named `name` should be skipped when walking a repo tree:
  * any dot-prefixed directory (`.git`, `.github`, `.vscode`, ...) or one of
- * {@link SKIP_DIRS} not named in `includes`. The single source of truth for
- * "is this dir source" — `skippedPath` and `walkFilesystem` below and the
- * git-child discovery in `graph/scopes.ts` share it, so they can never
- * independently drift on what counts as skippable.
+ * {@link SKIP_DIRS} not named in `includes`. `walkFilesystem` below and the
+ * git-child discovery in `graph/scopes.ts` use it as is; `skippedPath` uses it
+ * for every name except a dot folder above the file, which it checks against
+ * {@link DOT_SKIP_DIRS} instead.
  *
  * `includes` is the explicit, per-repo `graft build --include-dir` override
  * (persisted via `util/state.ts`'s `readIncludeDirs`, threaded in by each
@@ -42,10 +50,9 @@ export const MAX_FILE_BYTES = 1_000_000;
  * graft's own skip list: in a Git repo, Git's ignore rules stay authoritative
  * (see {@link walkDir}).
  *
- * KNOWN LIMITATION: a dot-directory is skipped WHOLESALE and is NEVER
- * overridable, even via `includes` — unlike `SKIP_DIRS`, there is no path to
- * un-skip one. A repo that keeps real, hand-written source under a
- * dot-prefixed directory is out of scope.
+ * A dot-directory is never overridable via `includes`. Outside Git it is
+ * skipped wholesale; in a Git repo `skippedPath` keeps the dot folders Git
+ * lists, other than {@link DOT_SKIP_DIRS}.
  */
 export function shouldSkipDir(name: string, includes?: ReadonlySet<string>): boolean {
   if (name.startsWith(".")) return true;
@@ -54,9 +61,9 @@ export function shouldSkipDir(name: string, includes?: ReadonlySet<string>): boo
 }
 
 /**
- * Recursively list all files under a directory. Skips dot-directories,
- * dependency/build directories (node_modules, dist, …) not named in
- * `includes`, and files over 1 MB.
+ * Recursively list all files under a directory. Skips dot-directories (in a
+ * Git repo only {@link DOT_SKIP_DIRS}), dependency/build directories
+ * (node_modules, dist, …) not named in `includes`, and files over 1 MB.
  * In a Git worktree, tracked files plus untracked, non-ignored files come from
  * `git ls-files`; this gives indexing exactly Git's nested `.gitignore`,
  * negation, and global-exclude semantics. Non-Git directories retain the plain
@@ -319,11 +326,17 @@ function gitVisibleFilesShallow(root: string, includes?: ReadonlySet<string>): s
   return out;
 }
 
-/** A path (git-relative, either separator) is skipped when any of its
- * segments is a skippable directory name — the final segment doubles as the
+/** A path Git lists (git-relative, either separator) is skipped when a folder on it is a
+ * skippable name or a {@link DOT_SKIP_DIRS} folder. Other dot folders are kept: Git lists
+ * only tracked files and untracked ones its ignore rules let through, such as trpc's tracked
+ * `examples/.test/`, so a tool folder a repository neither ignores nor names in
+ * DOT_SKIP_DIRS is walked too. The final segment doubles as the
  * dot-FILE check (`.eslintrc.js` and friends are not source either). */
 function skippedPath(path: string, includes?: ReadonlySet<string>): boolean {
-  return path.replace(/\\/g, "/").split("/").some((segment) => shouldSkipDir(segment, includes));
+  const segments = path.replace(/\\/g, "/").split("/");
+  const last = segments.pop()!;
+  return shouldSkipDir(last, includes)
+    || segments.some((segment) => (segment.startsWith(".") ? DOT_SKIP_DIRS.has(segment) : shouldSkipDir(segment, includes)));
 }
 
 function walkFilesystem(dir: string, includes?: ReadonlySet<string>): string[] {
