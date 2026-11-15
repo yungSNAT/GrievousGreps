@@ -168,6 +168,25 @@ test("walkDir follows initialized submodules only when enabled, with their own G
   }
 });
 
+test("walkDir keeps a Git repository's dot folders, except tool caches, environments and dot-files", () => {
+  const dir = fixture("dotdirs");
+  try {
+    write(dir, ".gitignore", ".venv/\n");
+    write(dir, "src/app.ts");
+    write(dir, "examples/.test/app/client.ts");
+    write(dir, ".storybook/main.ts");
+    write(dir, ".eslintrc.js");
+    write(dir, ".venv/lib/site.py");
+    write(dir, ".yarn/plugins/plugin.cjs");
+    write(dir, ".graft/hook.ts");
+    write(dir, "node_modules/.bin/tool.js");
+
+    assert.deepEqual(walked(dir), ["examples/.test/app/client.ts", ".storybook/main.ts", "src/app.ts"].sort());
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("walkDir retains fixed skips and filesystem fallback outside Git", () => {
   const dir = mkdtempSync(join(tmpdir(), "graft-walk-nongit-"));
   try {
