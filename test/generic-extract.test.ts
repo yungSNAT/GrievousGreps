@@ -101,6 +101,16 @@ test("Rust: a call's whole path drops nested generic arguments", async () => {
   assert.equal(path('lara::Croft::<{ r"\\" }>::new()'), "lara::Croft::new", "a backslash in a raw string");
 });
 
+test("Rust: a call whose function carries a turbofish is still a call, with its path", async () => {
+  await warmGenericGrammars(["rust"]);
+  const src = "use tokio::sync::mpsc;\nfn t(c: Codec) { mpsc::channel::<u8>(1); parse::<u8>(); c.decode::<u8>(); }\n";
+  const callEdges = extractGeneric("lib.rs", src, "rust").rawEdges.filter((e) => e.relation === "calls");
+  const byName = new Map(callEdges.map((e) => [e.name, e]));
+  assert.equal(byName.get("channel")?.rustPath, "tokio::sync::mpsc::channel");
+  assert.equal(byName.get("parse")?.rustForm, "free");
+  assert.equal(byName.get("decode")?.rustForm, "method", "a method turbofish too");
+});
+
 test("Rust: a macro body gives an edge only for a target its tokens decide", async () => {
   await warmGenericGrammars(["rust"]);
   const src = `struct Repo;

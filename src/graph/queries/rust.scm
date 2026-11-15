@@ -34,6 +34,15 @@
     (scoped_identifier name: (identifier) @name)
   ]) @reference.call
 
+; the same calls with a turbofish: `mpsc::channel::<u8>(1)`, `x.collect::<Vec<_>>()`
+(call_expression
+  function: (generic_function
+    function: [
+      (identifier) @name
+      (field_expression field: (field_identifier) @name)
+      (scoped_identifier name: (identifier) @name)
+    ])) @reference.call
+
 (macro_invocation
   macro: [
     (identifier) @name
