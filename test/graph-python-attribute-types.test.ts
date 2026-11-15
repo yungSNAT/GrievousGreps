@@ -136,6 +136,48 @@ def factory_call():
 def module_and_untyped(x):
     factory.Store()
     x.config.from_mapping({})
+
+
+def plain_factory():
+    x = factory.Store()
+    x.run()
+`,
+  "pkg/dual.py": `from .config import Config
+
+
+class Worker:
+    def __init__(self):
+        self.name = "top"
+
+
+def build():
+    class Worker:
+        def __init__(self):
+            self.config = Config()
+    return Worker()
+`,
+  "pkg/lazy.py": `from .config import Config
+
+
+class Lazy:
+    def __init__(self):
+        self.config = Config()
+
+    def reset(self):
+        self.config = None
+`,
+  "more_user.py": `from pkg.dual import Worker
+from pkg.lazy import Lazy
+
+
+def use_top():
+    w = Worker()
+    w.config.from_mapping({})
+
+
+def maybe_none():
+    l = Lazy()
+    l.config.from_mapping({})
 `,
   "imports_a.py": `from pkg.a import Server
 
@@ -205,6 +247,11 @@ test("Python: an attribute of a class name 2 classes share is read from the clas
   assert.deepEqual(await unsureCalls("user.py#same_name"), ["pkg/b.py#Server"], "the imported class has no such attribute");
   assert.deepEqual(await unsureCalls("imports_a.py#same_name_imported"), ["pkg/a.py#Server", "pkg/config.py#Config.from_mapping"], "the imported class has it");
   assert.ok((await unsureCalls("svc_user.py#via_module")).includes("pkg/config.py#Config.from_mapping"), "made through a module, beside a namesake nested in a function");
+  assert.deepEqual(await unsureCalls("more_user.py#use_top"), ["pkg/dual.py#Worker"], "a namesake nested in the same file lends nothing");
+});
+
+test("Python: an attribute also assigned a value of unknown type resolves to nothing", async () => {
+  assert.deepEqual(await unsureCalls("more_user.py#maybe_none"), ["pkg/lazy.py#Lazy"]);
 });
 
 test("Python: an attribute its class assigns 2 types resolves to nothing", async () => {
@@ -212,7 +259,8 @@ test("Python: an attribute its class assigns 2 types resolves to nothing", async
 });
 
 test("Python: a capitalised function's result is not the class of that name", async () => {
-  assert.deepEqual(await unsureCalls("user.py#factory_call"), ["pkg/holder.py#Holder"]);
+  assert.deepEqual(await unsureCalls("user.py#factory_call"), ["pkg/holder.py#Holder"], "as an attribute");
+  assert.deepEqual(await unsureCalls("user.py#plain_factory"), ["pkg/factory.py#Store"], "as a local");
 });
 
 test("Python: a module's function and an untyped receiver keep their resolution", async () => {
