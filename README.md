@@ -62,7 +62,7 @@ trail grep <pattern>                 # every occurrence, grouped by enclosing sy
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
-`trail init --global` closes that gap by adding hooks to `~/.claude`, and to `~/.codex` for Codex, which run in every project on the machine. `trail uninstall -y` removes what either form wrote; without `-y` it is a dry run.
+`trail init --global` closes that gap by adding hooks to `~/.claude`, and to `~/.codex` for Codex, which run in every project on the machine. `trail uninstall -y` removes what either form wrote except the `.trail/` folder, which keeps your learnings; without `-y` it is a dry run.
 
 The map lives in `.trail/cache` in a repository on trail and in `graft/` elsewhere: a local cache to keep out of git.
 
