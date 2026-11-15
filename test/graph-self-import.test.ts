@@ -380,12 +380,12 @@ test("Rust: the items of a repo macro that drops its body are no targets", async
   const graph = await build(t, {
     "Cargo.toml": `[package]\nname = "app"\n`,
     "src/lib.rs": "pub mod b;\npub mod a;\npub mod real;\n#[macro_use]\nmod macros;\ndiscard! {\n    pub use b::run;\n}\npub use real::run;\n",
-    "src/macros.rs": "macro_rules! discard {\n    ($($i:item)*) => {};\n}\nmacro_rules! keep {\n    ($($i:item)*) => { $( #[cfg(test)] $i )* };\n}\nmacro_rules! either {\n    (keep $($i:item)*) => { $($i)* };\n    ($($i:item)*) => {};\n}\n",
-    "src/b.rs": "pub fn f() {}\npub fn g() {}\npub fn h() {}\npub fn run() {}\n",
+    "src/macros.rs": "macro_rules! discard {\n    ($($i:item)*) => {};\n}\nmacro_rules! keep {\n    ($($i:item)*) => { $( #[cfg(test)] $i )* };\n}\nmacro_rules! either {\n    (keep $($i:item)*) => { $($i)* };\n    ($($i:item)*) => {};\n}\nmacro_rules! named {\n    (pub fn $n:ident() {}) => {};\n}\nmacro_rules! first {\n    ($a:item $b:item) => { $a };\n}\nmod one {\n    macro_rules! wrap {\n        ($($i:item)*) => { $($i)* };\n    }\n}\nmod two {\n    macro_rules! wrap {\n        ($($i:item)*) => {};\n    }\n}\npub fn setup() {\n    #[macro_export]\n    macro_rules! gone {\n        ($($i:item)*) => {};\n    }\n}\n",
+    "src/b.rs": "pub fn f() {}\npub fn g() {}\npub fn h() {}\npub fn k() {}\npub fn n1() {}\npub fn q() {}\npub fn w() {}\npub fn run() {}\n",
     "src/real.rs": "pub fn run() {}\n",
-    "src/a.rs": "use crate::b::*;\ndiscard! {\n    pub fn f() { g(); }\n}\nkeep! {\n    pub fn g() {}\n}\neither! {\n    pub fn h() {}\n}\npub fn go() { f(); g(); h(); crate::run(); }\n",
+    "src/a.rs": "use crate::b::*;\ndiscard! {\n    pub fn f() { g(); }\n}\nkeep! {\n    pub fn g() {}\n}\neither! {\n    pub fn h() {}\n}\nnamed! {\n    pub fn n1() {}\n}\nfirst! {\n    pub fn k() {}\n    pub fn spare() {}\n}\nwrap! {\n    pub fn w() {}\n}\ngone! {\n    pub fn q() {}\n}\npub fn go() { f(); g(); h(); n1(); k(); w(); q(); crate::run(); }\n",
   });
-  assert.deepEqual(calls(graph, "src/a.rs#go"), ["src/a.rs#g", "src/b.rs#f", "src/b.rs#h", "src/real.rs#run"], "an arm that drops its items makes the macro opaque, and its `pub use` re-exports nothing");
+  assert.deepEqual(calls(graph, "src/a.rs#go"), ["src/a.rs#g", "src/b.rs#f", "src/b.rs#h", "src/b.rs#k", "src/b.rs#n1", "src/b.rs#q", "src/b.rs#w", "src/real.rs#run"], "an arm that drops a capture or matches without one, or a dropping definition of the name anywhere, even in a function, makes the macro opaque, and its `pub use` re-exports nothing");
   assert.deepEqual(calls(graph, "src/a.rs#f"), [], "a dropped item calls nothing");
 });
 
@@ -401,7 +401,7 @@ test("Rust: a module path in an inline `mod` is not one of the file's child modu
   });
   assert.deepEqual(calls(graph, "app/src/lib.rs#top"), ["app/src/subscriber.rs#mock"]);
   assert.deepEqual(calls(graph, "app/src/lib.rs#go"), ["mock/src/subscriber.rs#mock"]);
-  assert.ok(!calls(graph, "app/src/lib.rs#local").includes("mock/src/subscriber.rs#mock"), "a `mod` declared in scope shadows the glob");
+  assert.deepEqual(calls(graph, "app/src/lib.rs#local"), ["app/src/lib.rs#mock"], "a `mod` declared in scope shadows the glob");
 });
 
 test("Rust: a module path no `use` names reads through the crates a glob `use` brings in", async (t) => {

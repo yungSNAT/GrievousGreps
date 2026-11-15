@@ -922,8 +922,9 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
     const c = root.namedChild?.(i);
     if (c?.type !== "use_declaration" || !/^\s*pub\b/.test(c.text)) continue;
     const macros = regions.filter((r) => r.start <= c.startIndex && c.startIndex < r.end).map((r) => r.macro);
-    let into = byMacros.get(macros.join(" "));
-    if (!into) byMacros.set(macros.join(" "), (into = { names: [], globs: [], ...(macros.length ? { macros } : {}) }));
+    const key = macros.join(" ");
+    let into = byMacros.get(key);
+    if (!into) byMacros.set(key, (into = { names: [], globs: [], ...(macros.length ? { macros } : {}) }));
     for (const [name, { full }] of rustUseBindings(c.text)) into.names.push([name, full]);
     for (const m of c.text.matchAll(/([\w:]+)::\*/g)) into.globs.push(m[1]!);
   }
@@ -932,25 +933,21 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
   }
 }
 
-/** Each `macro_rules!` at item level, and whether every arm that captures an `item` or `tt`
- * emits one of those captures again; an arm that does not may drop the items it is given. */
+/** Each `macro_rules!` in the file, function bodies included, and whether every arm passes on
+ * all it captures: an arm that matches tokens without capturing them, or leaves a capture out
+ * of its output, may drop the items it is given. An empty matcher matches no items. */
 function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
-  for (let i = 0; i < (root.namedChildCount ?? 0); i++) {
-    const c = root.namedChild?.(i);
-    if (c?.type === "mod_item") {
-      const body = c.childForFieldName?.("body");
-      if (body) extractRustMacroDefs(body, rel, rawEdges);
-      continue;
-    }
-    const name = c?.type === "macro_definition" ? c.childForFieldName?.("name")?.text : undefined;
-    if (!c || !name) continue;
+  for (const def of root.descendantsOfType?.("macro_definition") ?? []) {
+    const name = def?.childForFieldName?.("name")?.text;
+    if (!def || !name) continue;
     let emits = true;
-    for (let j = 0; j < (c.namedChildCount ?? 0); j++) {
-      const rule = c.namedChild?.(j);
-      if (rule?.type !== "macro_rule") continue;
-      const captures = [...(rule.childForFieldName?.("left")?.text ?? "").matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
-      const out = rule.childForFieldName?.("right")?.text ?? "";
-      if (captures.length && !captures.some((cap) => new RegExp(`\\$${cap}\\b`).test(out))) emits = false;
+    for (let j = 0; j < (def.namedChildCount ?? 0); j++) {
+      const rule = def.namedChild?.(j);
+      const left = rule?.type === "macro_rule" ? rule.childForFieldName?.("left")?.text ?? "" : "";
+      if (!/[^\s()[\]{}]/.test(left)) continue;
+      const captures = [...left.matchAll(/\$(\w+)\s*:\s*\w+/g)].map((m) => m[1]!);
+      const out = rule?.childForFieldName?.("right")?.text ?? "";
+      if (!captures.length || !captures.every((cap) => new RegExp(`\\$${cap}\\b`).test(out))) emits = false;
     }
     rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroDef: { name, emits } });
   }
@@ -1439,6 +1436,7 @@ export interface TsNode {
   child?(i: number): TsNode | null;
   childForFieldName?(field: string): TsNode | null;
   hasError?: boolean;
+  descendantsOfType?(type: string): (TsNode | null)[];
 }
 
 // Some grammars' tags.scm put @definition.<X> on a narrow node (C tags the

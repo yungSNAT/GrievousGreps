@@ -945,19 +945,16 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
 }
 
 /** The item macros the repo defines with `macro_rules!` that may drop or rewrite their body:
- * some arm captures an `item` or `tt` and emits none of those captures again. The items read
+ * some definition of the name has an arm that does not pass on all it captures. The items read
  * inside such a macro are no targets, their calls no callers and its `pub use` lines no
- * re-exports. A macro the repo does not define, such as a dependency's, is trusted, as is a
- * name with one definition that emits, since 2 definitions of a name sit under exclusive `cfg`s.
+ * re-exports. A macro the repo does not define, such as a dependency's, is trusted.
  *
- * shortcut: an arm counts as emitting when its output names a capture at all. Expanding the
- * macro would settle what it emits. */
+ * shortcut: names are matched repo-wide, and an arm counts as passing a capture on when its
+ * output names it. Expanding the macro would settle both. */
 function rustOpaqueMacros(rawEdges: RawEdge[]): Set<string> {
-  const emits = new Map<string, boolean>();
-  for (const e of rawEdges) {
-    if (e.rustMacroDef) emits.set(e.rustMacroDef.name, (emits.get(e.rustMacroDef.name) ?? false) || e.rustMacroDef.emits);
-  }
-  return new Set([...emits].filter(([, open]) => !open).map(([name]) => name));
+  const opaque = new Set<string>();
+  for (const e of rawEdges) if (e.rustMacroDef && !e.rustMacroDef.emits) opaque.add(e.rustMacroDef.name);
+  return opaque;
 }
 
 /** A path whose first name only a glob can bring in, such as `subscriber::mock` under
