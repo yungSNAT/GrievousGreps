@@ -396,7 +396,8 @@ const JSX_ELEMENT_TYPES: ReadonlySet<string> = new Set([
 const CALL_TYPES: Record<Language, ReadonlySet<string>> = {
   typescript: new Set(["call_expression"]),
   tsx: new Set(["call_expression", ...JSX_ELEMENT_TYPES]),
-  python: new Set(["call"]),
+  // A decorator without arguments calls its expression with the function (pythonCallFunction).
+  python: new Set(["call", "decorator"]),
   go: new Set(["call_expression"]),
   java: new Set(["method_invocation", "object_creation_expression"]),
   kotlin: new Set(["call_expression"]),
@@ -712,6 +713,7 @@ function emitPhpCollapsedEnum(
 }
 
 function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], minted: Set<string>): void {
+  if (ctx.lang === "python" && pythonOverloadStub(node)) return;
   const desc = describe(node, ctx);
   if (desc) {
     // `idName` scopes the id (e.g. a Go method under its receiver: `#DB.Count`) while
@@ -1463,6 +1465,24 @@ function pythonCallHasLocalBinding(call: SyntaxNode, name: string): boolean {
   return false;
 }
 
+const PYTHON_OVERLOAD = /^(?:\w+\.)*overload$/;
+const pythonOverloaded = (node: SyntaxNode): boolean =>
+  node.type === "decorated_definition"
+  && node.namedChildren.some((c) => c.type === "decorator" && PYTHON_OVERLOAD.test(c.namedChildren[0]?.text ?? ""));
+
+/** An `@overload` stub followed in its block by the def it declares. Python binds the name
+ * to that def, so the stubs are type hints, not definitions. Overloads with no def after
+ * them (a stub file, a Protocol) stay. */
+function pythonOverloadStub(node: SyntaxNode): boolean {
+  if (!pythonOverloaded(node)) return false;
+  const name = node.childForFieldName("definition")?.childForFieldName("name")?.text;
+  for (let next = node.nextNamedSibling; next; next = next.nextNamedSibling) {
+    const def = next.type === "decorated_definition" ? next.childForFieldName("definition") : next;
+    if (def?.type === "function_definition" && def.childForFieldName("name")?.text === name && !pythonOverloaded(next)) return true;
+  }
+  return false;
+}
+
 /** The parts of a def, lambda or class that run in the enclosing scope. */
 function pythonDefinitionHeader(node: SyntaxNode): Array<SyntaxNode | null> {
   if (node.type === "class_definition") return [node.childForFieldName("superclasses")];
@@ -1806,7 +1826,8 @@ function isDirectCallee(node: SyntaxNode, callTypes: ReadonlySet<string>): boole
   if (!parent || !callTypes.has(parent.type)) return false;
   return (
     sameSyntaxNode(parent.childForFieldName("function"), node) ||
-    sameSyntaxNode(parent.childForFieldName("name"), node)
+    sameSyntaxNode(parent.childForFieldName("name"), node) ||
+    (parent.type === "decorator" && sameSyntaxNode(parent.namedChildren[0], node))
   );
 }
 
@@ -3070,7 +3091,7 @@ if (lang === "kotlin") {
     return { name: name.text, viaMember: false, kinds: ["function", "class"] };
   }
 
-  const fn = node.childForFieldName("function");
+  const fn = lang === "python" ? pythonCallFunction(node) : node.childForFieldName("function");
   if (!fn) return null;
   if (fn.type === "identifier") return { name: fn.text, viaMember: false };
   if (lang === "python" && fn.type === "attribute") {
@@ -3203,11 +3224,21 @@ function pyReceiver(fn: SyntaxNode): string | undefined {
   return undefined;
 }
 
+/** What a Python call calls: a call's `function`, or the expression of a decorator written
+ * without arguments (`@cache`, `@flask.stream_with_context`), which Python calls with the
+ * function it decorates. A decorator that is itself a call (`@route("/")`) is null here:
+ * the walk reaches that call node on its own. */
+function pythonCallFunction(node: SyntaxNode): SyntaxNode | null {
+  if (node.type !== "decorator") return node.childForFieldName("function");
+  const expr = node.namedChildren[0];
+  return expr?.type === "identifier" || expr?.type === "attribute" ? expr : null;
+}
+
 /** A Python callee as a dotted name, `a.b.f()` as [a, b, f]; null for anything else,
  * such as a call on a call's result. */
 function pythonCalleeParts(call: SyntaxNode): string[] | null {
   const parts: string[] = [];
-  let n = call.childForFieldName("function");
+  let n = pythonCallFunction(call);
   while (n?.type === "attribute") {
     const attr = n.childForFieldName("attribute");
     if (!attr) return null;
