@@ -358,6 +358,44 @@ pub fn near() {}
   assert.deepEqual(calls(graph, "sub/src/a.rs#own"), ["sub/src/a.rs#near", "sub/src/b.rs#local"]);
 });
 
+test("Rust: a call reaches each `cfg` arm of a function, by path and by bare name", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["core", "app"]\n`,
+    "core/Cargo.toml": `[package]\nname = "tracing-core"\n`,
+    "core/src/lib.rs": "pub mod dispatcher;\npub mod other;\n",
+    "core/src/dispatcher.rs": `#[cfg(feature = "std")]
+pub fn get_default() {}
+#[cfg(not(feature = "std"))]
+pub fn get_default() {}
+pub fn near() { get_default(); }
+mod a { pub fn twin() {} }
+mod b { pub fn twin() {} }
+pub fn pair() { twin(); }
+`,
+    "core/src/other.rs": "pub fn get_default() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-core = { path = "../core" }\n`,
+    "app/src/lib.rs": "use tracing_core::dispatcher;\npub fn far() { dispatcher::get_default(); }\n",
+  });
+  const arms = ["core/src/dispatcher.rs#get_default", "core/src/dispatcher.rs#get_default~2"];
+  assert.deepEqual(calls(graph, "app/src/lib.rs#far"), arms, "through a path");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#near"), arms, "by bare name in the same file");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#pair"), [], "2 functions of one name in different modules are not arms");
+});
+
+test("Rust: a path follows a crate that `pub extern crate … as` re-exports", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["cli", "grep", "core"]\n`,
+    "cli/Cargo.toml": `[package]\nname = "grep-cli"\n`,
+    "cli/src/lib.rs": "mod hostname;\npub use crate::hostname::hostname;\n",
+    "cli/src/hostname.rs": "pub fn hostname() {}\n",
+    "grep/Cargo.toml": `[package]\nname = "grep"\n[dependencies]\ngrep-cli = { path = "../cli" }\n`,
+    "grep/src/lib.rs": "pub extern crate grep_cli as cli;\n",
+    "core/Cargo.toml": `[package]\nname = "core-app"\n[dependencies]\ngrep = { path = "../grep" }\n`,
+    "core/src/lib.rs": "fn hostname() { platform(); }\nfn platform() { grep::cli::hostname(); }\n",
+  });
+  assert.deepEqual(calls(graph, "core/src/lib.rs#platform"), ["cli/src/hostname.rs#hostname"]);
+});
+
 test("Rust: the items inside an item macro such as `cfg_rt!` are read as items", async (t) => {
   const graph = await build(t, {
     "Cargo.toml": `[workspace]\nmembers = ["rt", "app"]\n`,

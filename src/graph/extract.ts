@@ -153,6 +153,8 @@ export interface RawEdge {
   rustInMod?: boolean;
   /** The definitions read from inside one item macro (`cfg_rt! { … }`), by node id. */
   rustMacroItems?: { macro: string; ids: string[] };
+  /** The definitions in this file a `#[cfg(…)]` attribute gates, by node id. */
+  rustCfgItems?: string[];
   /** A `macro_rules!` this file defines, and whether every arm captures its items as `item` or
    * `tt` and emits each of those captures again. */
   rustMacroDef?: { name: string; emits: boolean };

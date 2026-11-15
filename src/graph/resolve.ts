@@ -300,7 +300,8 @@ export function resolveEdges(
       opts.unresolvedCalls?.push({ source: e.source, name: e.name!, through: type });
     }
   };
-  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses };
+  const cfgGated = new Set(rawEdges.flatMap((e) => e.rustCfgItems ?? e.rustMacroItems?.ids ?? []));
+  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
   // when a step's signature does not say, and the method falls back on its name.
   const rustChainType = (chain: NonNullable<RawEdge["rustChain"]>, e: RawEdge): string | undefined => {
@@ -582,7 +583,7 @@ export function resolveEdges(
         if (e.rustPath && e.rustForm !== "macro") {
           const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx);
           if (reached) {
-            if (reached.id !== e.source) add(e.source, reached.id, "calls", stated("extracted"));
+            for (const arm of rustArmsOf(reached, rustPathCtx)) if (arm.id !== e.source) add(e.source, arm.id, "calls", stated("extracted"));
             continue;
           }
         }
@@ -594,8 +595,9 @@ export function resolveEdges(
         const inModule = (path: string) =>
           !e.onlyModules || e.onlyModules.some((m) => path.endsWith(`/${m}.rs`) || path.includes(`/${m}/`));
         const global = free(globalName.get(e.name!)).filter((n) => reachable(e.file, n.path) && inModule(n.path));
-        const only = local.length === 1 ? local[0] : global.length === 1 ? global[0] : undefined;
-        if (only) add(e.source, only.id, "calls", stated(local.length === 1 ? "extracted" : "inferred"));
+        const one = (list: NodeV1[]) => (list.length === 1 || (e.rustForm === "free" && rustCfgArms(list, rustPathCtx.cfgGated)) ? list : undefined);
+        const only = one(local) ?? one(global);
+        if (only) for (const arm of only) add(e.source, arm.id, "calls", stated(local.length ? "extracted" : "inferred"));
         else if (global.length > 1 && e.rustForm === "free") opts.unresolvedCalls?.push({ source: e.source, name: e.name!, through: e.rustPath ?? `${global.length} definitions of that name` });
         continue;
       }
@@ -852,6 +854,8 @@ interface RustPathCtx {
   byId: Map<string, NodeV1>;
   perFileName: Map<string, Map<string, NodeV1[]>>;
   pubUses: Map<string, NonNullable<RawEdge["rustPubUses"]>>;
+  /** Functions a `cfg` attribute or an item macro gates, by node id. */
+  cfgGated: ReadonlySet<string>;
 }
 
 /** The crate folder a file sits in: the deepest one above it. */
@@ -890,8 +894,8 @@ function rustModuleOf(file: string, crate: string): string[] | undefined {
  * module files and their `pub use` lines. Undefined when the path leaves what those show,
  * and the caller falls back on the name.
  *
- * shortcut: reads module paths from the file tree, so a `#[path]` attribute is not followed,
- * and a path reaching a name 2 `cfg` arms define in one file is left to the fallback.
+ * shortcut: reads module paths from the file tree, so a `#[path]` attribute is not followed.
+ * A name `cfg` arms define gives the first arm; the caller adds the rest.
  */
 function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0, ownModules = true): NodeV1 | undefined {
   if (depth > 5) return undefined;
@@ -933,7 +937,7 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
     return through ? rustFollowPath([through[1], ...landed.left.slice(1), name].join("::"), landed.file, ctx, depth + 1) : undefined;
   }
   const own = (ctx.perFileName.get(landed.file)?.get(name) ?? []).filter((n) => n.kind === "function" && !n.owner && !n.signature?.startsWith("macro_rules!"));
-  if (own.length === 1) return own[0];
+  if (own.length === 1 || rustCfgArms(own, ctx.cfgGated)) return own[0];
   if (own.length > 1) return undefined;
   const named = pub?.names.find(([n]) => n === name);
   if (named) return rustFollowPath(named[1], landed.file, ctx, depth + 1);
@@ -942,6 +946,23 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
     if (hit) return hit;
   }
   return undefined;
+}
+
+/** Whether several free functions are the `cfg` arms of one: each is gated by a `cfg`
+ * attribute or an item macro such as `cfg_rt!`, and they share a file and a name.
+ *
+ * shortcut: the id does not say which inline `mod` a function sits in, so 2 gated functions
+ * of one name in 2 inline modules of a file count as arms. */
+function rustCfgArms(list: NodeV1[], gated: ReadonlySet<string>): boolean {
+  const path = (n: NodeV1) => n.id.replace(/~\d+$/, "");
+  return list.length > 1 && list.every((n) => !n.owner && gated.has(n.id) && path(n) === path(list[0]!));
+}
+
+/** A free function and its other `cfg` arms. A call reaches whichever arm the build compiles,
+ * which the graph cannot tell, so it gets an edge to each. */
+function rustArmsOf(node: NodeV1, ctx: Pick<RustPathCtx, "perFileName" | "cfgGated">): NodeV1[] {
+  const arms = (ctx.perFileName.get(node.path)?.get(node.name) ?? []).filter((n) => n.kind === node.kind && !n.owner);
+  return arms.includes(node) && rustCfgArms(arms, ctx.cfgGated) ? arms : [node];
 }
 
 /** The item macros the repo defines with `macro_rules!` that may drop or rewrite their body:

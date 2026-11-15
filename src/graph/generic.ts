@@ -308,6 +308,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
   // under two @definition kinds (Swift `func` is method AND function), and the
   // walker can revisit a nested match — both would emit near-duplicate nodes.
   const spanSeen = new Set<number>();
+  const cfgGated: string[] = [];
   // Mint one definition node from a whole-definition tree node. Shared by both
   // the tags.scm path and the walker fallback so id/span/signature/body_text are
   // built identically.
@@ -333,6 +334,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
       summary_state: "pending", summary: null, crux: null,
     });
     defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex, ...(owner ? { owner } : {}) });
+    if (langName === "rust" && rustCfgGated(whole)) cfgGated.push(id);
   };
 
   if (entry.query) {
@@ -351,6 +353,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     extractRustPubUses(tree.rootNode as TsNode, rel, rawEdges, macroRegions);
     extractRustMacroDefs(tree.rootNode as TsNode, rel, rawEdges);
     extractRustFields(tree.rootNode as TsNode, rel, rawEdges);
+    if (cfgGated.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustCfgItems: cfgGated });
     for (const { macro, start, end } of macroRegions) {
       const ids = defs.filter((d) => start <= d.startIndex && d.startIndex < end).map((d) => d.id);
       if (ids.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroItems: { macro, ids } });
@@ -913,6 +916,20 @@ function extractRustFields(root: TsNode, rel: string, rawEdges: RawEdge[]): void
   visit(root);
 }
 
+/** Whether a Rust item carries a `#[cfg(…)]` among the attributes right above it. */
+function rustCfgGated(item: TsNode): boolean {
+  const parent = item.parent;
+  const count = parent?.namedChildCount ?? 0;
+  let i = 0;
+  while (i < count && parent!.namedChild?.(i)?.startIndex !== item.startIndex) i++;
+  for (let j = i - 1; j >= 0; j--) {
+    const sibling = parent!.namedChild?.(j);
+    if (sibling?.type === "attribute_item" && /^#\[\s*cfg\s*\(/.test(sibling.text)) return true;
+    if (sibling?.type !== "attribute_item" && sibling?.type !== "line_comment" && sibling?.type !== "block_comment") return false;
+  }
+  return false;
+}
+
 /** A file's top-level `pub use` lines, which a path through this module may have to follow.
  * The lines inside unwrapped item macros go in one edge per set of enclosing macros, which
  * resolve.ts drops when one of them may drop its body. */
@@ -920,12 +937,15 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
   const byMacros = new Map<string, NonNullable<RawEdge["rustPubUses"]>>();
   for (let i = 0; i < (root.namedChildCount ?? 0); i++) {
     const c = root.namedChild?.(i);
-    if (c?.type !== "use_declaration" || !/^\s*pub\b/.test(c.text)) continue;
+    // `pub extern crate grep_cli as cli;` re-exports a crate, as a `pub use` would.
+    const crate = c?.type === "extern_crate_declaration" ? /^\s*pub\b.*?\bcrate\s+(\w+)(?:\s+as\s+(\w+))?/.exec(c.text) : null;
+    if (!c || (!crate && (c.type !== "use_declaration" || !/^\s*pub\b/.test(c.text)))) continue;
     const macros = regions.filter((r) => r.start <= c.startIndex && c.startIndex < r.end).map((r) => r.macro);
     const key = macros.join(" ");
     let into = byMacros.get(key);
     if (!into) byMacros.set(key, (into = { names: [], globs: [], ...(macros.length ? { macros } : {}) }));
-    for (const [name, { full }] of rustUseBindings(c.text)) into.names.push([name, full]);
+    if (crate) into.names.push([crate[2] ?? crate[1]!, crate[1]!]);
+    else for (const [name, { full }] of rustUseBindings(c.text)) into.names.push([name, full]);
     for (const m of c.text.matchAll(/([\w:]+)::\*/g)) into.globs.push(m[1]!);
   }
   for (const pub of byMacros.values()) {
