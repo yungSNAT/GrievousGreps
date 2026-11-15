@@ -371,6 +371,15 @@ pub fn near() { get_default(); }
 mod a { pub fn twin() {} }
 mod b { pub fn twin() {} }
 pub fn pair() { twin(); }
+mod c {
+    #[cfg(unix)]
+    pub fn gated() {}
+    pub fn inner() { gated(); }
+}
+mod d {
+    #[cfg(windows)]
+    pub fn gated() {}
+}
 `,
     "core/src/other.rs": "pub fn get_default() {}\n",
     "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-core = { path = "../core" }\n`,
@@ -380,6 +389,7 @@ pub fn pair() { twin(); }
   assert.deepEqual(calls(graph, "app/src/lib.rs#far"), arms, "through a path");
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#near"), arms, "by bare name in the same file");
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#pair"), [], "2 functions of one name in different modules are not arms");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#inner"), [], "nor are 2 gated ones in different inline modules");
 });
 
 test("Rust: a path follows a crate that `pub extern crate … as` re-exports", async (t) => {
@@ -394,6 +404,18 @@ test("Rust: a path follows a crate that `pub extern crate … as` re-exports", a
     "core/src/lib.rs": "fn hostname() { platform(); }\nfn platform() { grep::cli::hostname(); }\n",
   });
   assert.deepEqual(calls(graph, "core/src/lib.rs#platform"), ["cli/src/hostname.rs#hostname"]);
+});
+
+test("Rust: `pub extern crate self as …` in a module names the crate root, not that module", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["lib", "app"]\n`,
+    "lib/Cargo.toml": `[package]\nname = "dep"\n`,
+    "lib/src/lib.rs": "pub mod sub;\npub fn target() {}\n",
+    "lib/src/sub.rs": "pub extern crate self as root;\npub fn target() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ndep = { path = "../lib" }\n`,
+    "app/src/lib.rs": "pub fn go() { dep::sub::root::target(); }\n",
+  });
+  assert.deepEqual(calls(graph, "app/src/lib.rs#go"), ["lib/src/lib.rs#target"]);
 });
 
 test("Rust: the items inside an item macro such as `cfg_rt!` are read as items", async (t) => {
