@@ -709,6 +709,7 @@ function emitPhpCollapsedEnum(
 }
 
 function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], minted: Set<string>): void {
+  if (ctx.lang === "python" && pythonOverloadStub(node)) return;
   const desc = describe(node, ctx);
   if (desc) {
     // `idName` scopes the id (e.g. a Go method under its receiver: `#DB.Count`) while
@@ -1456,6 +1457,24 @@ function pythonCallHasLocalBinding(call: SyntaxNode, name: string): boolean {
       collectPythonScopeBindings(body, names);
     }
     if (names?.has(name)) return true;
+  }
+  return false;
+}
+
+const PYTHON_OVERLOAD = /^(?:\w+\.)*overload$/;
+const pythonOverloaded = (node: SyntaxNode): boolean =>
+  node.type === "decorated_definition"
+  && node.namedChildren.some((c) => c.type === "decorator" && PYTHON_OVERLOAD.test(c.namedChildren[0]?.text ?? ""));
+
+/** An `@overload` stub followed in its block by the def it declares. Python binds the name
+ * to that def, so the stubs are type hints, not definitions. Overloads with no def after
+ * them (a stub file, a Protocol) stay. */
+function pythonOverloadStub(node: SyntaxNode): boolean {
+  if (!pythonOverloaded(node)) return false;
+  const name = node.childForFieldName("definition")?.childForFieldName("name")?.text;
+  for (let next = node.nextNamedSibling; next; next = next.nextNamedSibling) {
+    const def = next.type === "decorated_definition" ? next.childForFieldName("definition") : next;
+    if (def?.type === "function_definition" && def.childForFieldName("name")?.text === name && !pythonOverloaded(next)) return true;
   }
   return false;
 }
