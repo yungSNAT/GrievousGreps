@@ -934,8 +934,12 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
 }
 
 /** Each `macro_rules!` in the file, function bodies included, and whether every arm passes on
- * all it captures: an arm that matches tokens without capturing them, or leaves a capture out
- * of its output, may drop the items it is given. An empty matcher matches no items. */
+ * the items it is given: it captures them as `item` or `tt` and names each such capture in its
+ * output. An arm that matches an item's tokens otherwise (`pub fn $n:ident() {}`) may drop the
+ * item; a dropped `meta` or `expr`, such as a doc attribute, leaves it. An empty matcher
+ * matches no items.
+ *
+ * shortcut: a capture named only inside `stringify!` counts as passed on. */
 function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
   for (const def of root.descendantsOfType?.("macro_definition") ?? []) {
     const name = def?.childForFieldName?.("name")?.text;
@@ -945,7 +949,7 @@ function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): v
       const rule = def.namedChild?.(j);
       const left = rule?.type === "macro_rule" ? rule.childForFieldName?.("left")?.text ?? "" : "";
       if (!/[^\s()[\]{}]/.test(left)) continue;
-      const captures = [...left.matchAll(/\$(\w+)\s*:\s*\w+/g)].map((m) => m[1]!);
+      const captures = [...left.matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
       const out = rule?.childForFieldName?.("right")?.text ?? "";
       if (!captures.length || !captures.every((cap) => new RegExp(`\\$${cap}\\b`).test(out))) emits = false;
     }
