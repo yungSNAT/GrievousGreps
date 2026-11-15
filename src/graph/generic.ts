@@ -934,10 +934,10 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
 }
 
 /** Each `macro_rules!` in the file, function bodies included, and whether every arm passes on
- * the items it is given: it captures them as `item` or `tt` and names each such capture in its
- * output. An arm that matches an item's tokens otherwise (`pub fn $n:ident() {}`) may drop the
- * item; a dropped `meta` or `expr`, such as a doc attribute, leaves it. An empty matcher
- * matches no items.
+ * the items it is given: its matcher holds nothing but attributes and `item` or `tt` captures,
+ * and its output names each such capture. An arm that matches an item's tokens otherwise
+ * (`pub fn $n:ident() {}`) may drop the item; a dropped attribute, such as `#[doc = $d:expr]`,
+ * leaves it. An empty matcher matches no items.
  *
  * shortcut: a capture named only inside `stringify!` counts as passed on. */
 function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
@@ -950,8 +950,10 @@ function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): v
       const left = rule?.type === "macro_rule" ? rule.childForFieldName?.("left")?.text ?? "" : "";
       if (!/[^\s()[\]{}]/.test(left)) continue;
       const captures = [...left.matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
+      // What the matcher holds besides attributes, item or tt captures and repetition marks.
+      const rest = left.replace(/#!?\s*\[[^\]]*\]/g, "").replace(/\$\w+\s*:\s*(?:item|tt)\b/g, "").replace(/[\s$()[\]{}*+?,;]/g, "");
       const out = rule?.childForFieldName?.("right")?.text ?? "";
-      if (!captures.length || !captures.every((cap) => new RegExp(`\\$${cap}\\b`).test(out))) emits = false;
+      if (rest || !captures.length || !captures.every((cap) => new RegExp(`\\$${cap}\\b`).test(out))) emits = false;
     }
     rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroDef: { name, emits } });
   }
