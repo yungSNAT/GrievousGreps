@@ -308,7 +308,8 @@ export function extractGeneric(rel: string, source: string, langName: string): E
   // under two @definition kinds (Swift `func` is method AND function), and the
   // walker can revisit a nested match — both would emit near-duplicate nodes.
   const spanSeen = new Set<number>();
-  const cfgGated: string[] = [];
+  // Rust definitions outside inline modules, and whether a `#[cfg(…)]` sits on each.
+  const rustTop: { id: string; at: number; cfg: boolean }[] = [];
   // Mint one definition node from a whole-definition tree node. Shared by both
   // the tags.scm path and the walker fallback so id/span/signature/body_text are
   // built identically.
@@ -334,7 +335,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
       summary_state: "pending", summary: null, crux: null,
     });
     defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex, ...(owner ? { owner } : {}) });
-    if (langName === "rust" && rustCfgGated(whole)) cfgGated.push(id);
+    if (langName === "rust" && !rustInInlineModule(whole)) rustTop.push({ id, at: whole.startIndex, cfg: rustCfgGated(whole) });
   };
 
   if (entry.query) {
@@ -353,7 +354,8 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     extractRustPubUses(tree.rootNode as TsNode, rel, rawEdges, macroRegions);
     extractRustMacroDefs(tree.rootNode as TsNode, rel, rawEdges);
     extractRustFields(tree.rootNode as TsNode, rel, rawEdges);
-    if (cfgGated.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustCfgItems: cfgGated });
+    const cfgItems = rustTop.filter((d) => d.cfg || macroRegions.some((r) => r.start <= d.at && d.at < r.end)).map((d) => d.id);
+    if (cfgItems.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustCfgItems: cfgItems });
     for (const { macro, start, end } of macroRegions) {
       const ids = defs.filter((d) => start <= d.startIndex && d.startIndex < end).map((d) => d.id);
       if (ids.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroItems: { macro, ids } });
@@ -916,6 +918,12 @@ function extractRustFields(root: TsNode, rel: string, rawEdges: RawEdge[]): void
   visit(root);
 }
 
+/** Whether a Rust item sits inside an inline `mod name { … }`, whose scope its id does not carry. */
+function rustInInlineModule(item: TsNode): boolean {
+  for (let at = item.parent; at; at = at.parent) if (at.type === "mod_item") return true;
+  return false;
+}
+
 /** Whether a Rust item carries a `#[cfg(…)]` among the attributes right above it. */
 function rustCfgGated(item: TsNode): boolean {
   const parent = item.parent;
@@ -944,7 +952,8 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
     const key = macros.join(" ");
     let into = byMacros.get(key);
     if (!into) byMacros.set(key, (into = { names: [], globs: [], ...(macros.length ? { macros } : {}) }));
-    if (crate) into.names.push([crate[2] ?? crate[1]!, crate[1]!]);
+    // `extern crate self as x;` names this crate's root, which a `self::` path would not.
+    if (crate) into.names.push([crate[2] ?? crate[1]!, crate[1] === "self" ? "crate" : crate[1]!]);
     else for (const [name, { full }] of rustUseBindings(c.text)) into.names.push([name, full]);
     for (const m of c.text.matchAll(/([\w:]+)::\*/g)) into.globs.push(m[1]!);
   }

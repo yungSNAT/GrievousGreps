@@ -300,7 +300,7 @@ export function resolveEdges(
       opts.unresolvedCalls?.push({ source: e.source, name: e.name!, through: type });
     }
   };
-  const cfgGated = new Set(rawEdges.flatMap((e) => e.rustCfgItems ?? e.rustMacroItems?.ids ?? []));
+  const cfgGated = new Set(rawEdges.flatMap((e) => e.rustCfgItems ?? []));
   const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
   // when a step's signature does not say, and the method falls back on its name.
@@ -854,7 +854,7 @@ interface RustPathCtx {
   byId: Map<string, NodeV1>;
   perFileName: Map<string, Map<string, NodeV1[]>>;
   pubUses: Map<string, NonNullable<RawEdge["rustPubUses"]>>;
-  /** Functions a `cfg` attribute or an item macro gates, by node id. */
+  /** Functions outside inline modules that a `cfg` attribute or an item macro gates, by node id. */
   cfgGated: ReadonlySet<string>;
 }
 
@@ -951,8 +951,9 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
 /** Whether several free functions are the `cfg` arms of one: each is gated by a `cfg`
  * attribute or an item macro such as `cfg_rt!`, and they share a file and a name.
  *
- * shortcut: the id does not say which inline `mod` a function sits in, so 2 gated functions
- * of one name in 2 inline modules of a file count as arms. */
+ * shortcut: the id does not say which inline `mod` a function sits in, so a function inside
+ * one is never an arm (extractGeneric leaves it out of `rustCfgItems`) and its calls drop as
+ * before. Ids that carried the module would let such arms count too. */
 function rustCfgArms(list: NodeV1[], gated: ReadonlySet<string>): boolean {
   const path = (n: NodeV1) => n.id.replace(/~\d+$/, "");
   return list.length > 1 && list.every((n) => !n.owner && gated.has(n.id) && path(n) === path(list[0]!));
