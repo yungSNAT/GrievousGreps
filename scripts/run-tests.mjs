@@ -47,6 +47,16 @@ const ALONE = [
   "trail-connect-cli",
 ].map((name) => join("test", `${name}.test.ts`));
 
+// CI splits the suite across jobs with TEST_PART=k/n: part k runs every nth file from the kth, and
+// the last part also runs the ALONE files, so they still run one at a time.
+const partSpec = process.env.TEST_PART;
+const part = partSpec ? /^([1-9]\d*)\/([1-9]\d*)$/.exec(partSpec) : null;
+if (partSpec && (!part || Number(part[1]) > Number(part[2]))) {
+  console.error(`✗ TEST_PART must be k/n with 1 <= k <= n, not '${partSpec}'`);
+  process.exit(1);
+}
+const [k, n] = part ? [Number(part[1]), Number(part[2])] : [1, 1];
+
 // Several tests `git init` a scratch repo and `git commit` into it to exercise the
 // incremental/submodule/ingest git paths. Those commits inherit the developer's
 // global git config — so a contributor who signs commits (gpg, or gitsign, whose
@@ -114,8 +124,9 @@ const coverageFlags = (run) =>
         `--test-reporter-destination=coverage-${run}.lcov`,
       ]
     : [];
-const results = [runFiles(files.filter((f) => !ALONE.includes(f)), ...coverageFlags("main"))];
-const alone = files.filter((f) => ALONE.includes(f));
+const shared = files.filter((f) => !ALONE.includes(f)).filter((_, i) => i % n === k - 1);
+const alone = k === n ? files.filter((f) => ALONE.includes(f)) : [];
+const results = [runFiles(shared, ...coverageFlags("main"))];
 if (alone.length > 0) results.push(runFiles(alone, "--test-concurrency=1", ...coverageFlags("alone")));
 try {
   rmSync(runTmp, { recursive: true, force: true });
