@@ -29,7 +29,7 @@ export const SKIP_DIRS = new Set([
 const DOT_SKIP_DIRS = new Set([
   ".git", ".graft", ".trail", ".venv", ".tox", ".nox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
   ".yarn", ".pnpm-store", ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache", ".gradle",
-  ".dart_tool", ".pub-cache", ".bundle",
+  ".dart_tool", ".pub-cache", ".bundle", ".ipynb_checkpoints", ".terraform",
 ]);
 
 /** Files above this size are generated/vendored in practice, not hand-written code. */
@@ -38,10 +38,10 @@ export const MAX_FILE_BYTES = 1_000_000;
 /**
  * Whether a directory named `name` should be skipped when walking a repo tree:
  * any dot-prefixed directory (`.git`, `.github`, `.vscode`, ...) or one of
- * {@link SKIP_DIRS} not named in `includes`. The single source of truth for
- * "is this dir source" — `skippedPath` and `walkFilesystem` below and the
- * git-child discovery in `graph/scopes.ts` share it, so they can never
- * independently drift on what counts as skippable.
+ * {@link SKIP_DIRS} not named in `includes`. `walkFilesystem` below and the
+ * git-child discovery in `graph/scopes.ts` use it as is; `skippedPath` uses it
+ * for every name except a dot folder above the file, which it checks against
+ * {@link DOT_SKIP_DIRS} instead.
  *
  * `includes` is the explicit, per-repo `graft build --include-dir` override
  * (persisted via `util/state.ts`'s `readIncludeDirs`, threaded in by each
@@ -327,9 +327,10 @@ function gitVisibleFilesShallow(root: string, includes?: ReadonlySet<string>): s
 }
 
 /** A path Git lists (git-relative, either separator) is skipped when a folder on it is a
- * skippable name or a {@link DOT_SKIP_DIRS} folder. Other dot folders are kept: Git's ignore
- * rules have already left out the untracked ones that are not source, and what remains
- * is tracked code such as trpc's `examples/.test/`. The final segment doubles as the
+ * skippable name or a {@link DOT_SKIP_DIRS} folder. Other dot folders are kept: Git lists
+ * only tracked files and untracked ones its ignore rules let through, such as trpc's tracked
+ * `examples/.test/`, so a tool folder a repository neither ignores nor names in
+ * DOT_SKIP_DIRS is walked too. The final segment doubles as the
  * dot-FILE check (`.eslintrc.js` and friends are not source either). */
 function skippedPath(path: string, includes?: ReadonlySet<string>): boolean {
   const segments = path.replace(/\\/g, "/").split("/");
