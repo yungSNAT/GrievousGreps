@@ -114,9 +114,12 @@ export interface ResolveOptions {
 
 export function resolveEdges(
   nodes: NodeV1[],
-  rawEdges: RawEdge[],
+  allRawEdges: RawEdge[],
   opts: ResolveOptions = {},
 ): EdgeV1[] {
+  const opaque = rustOpaqueMacros(allRawEdges);
+  const hidden = new Set(allRawEdges.flatMap((e) => (e.rustMacroItems && opaque.has(e.rustMacroItems.macro) ? e.rustMacroItems.ids : [])));
+  const rawEdges = hidden.size ? allRawEdges.filter((e) => !hidden.has(e.source)) : allRawEdges;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const globalName = new Map<string, NodeV1[]>();
   const perFileName = new Map<string, Map<string, NodeV1[]>>();
@@ -179,6 +182,7 @@ export function resolveEdges(
       }
       continue;
     }
+    if (hidden.has(n.id)) continue;
     push(globalName, n.name, n);
     let fileMap = perFileName.get(n.path);
     if (!fileMap) perFileName.set(n.path, (fileMap = new Map()));
@@ -248,7 +252,12 @@ export function resolveEdges(
   };
 
   const rustPubUses = new Map<string, NonNullable<RawEdge["rustPubUses"]>>();
-  for (const e of rawEdges) if (e.rustPubUses) rustPubUses.set(e.file, e.rustPubUses);
+  for (const e of rawEdges) {
+    const pub = e.rustPubUses;
+    if (!pub || pub.macros?.some((m) => opaque.has(m))) continue;
+    const had = rustPubUses.get(e.file);
+    rustPubUses.set(e.file, had ? { names: [...had.names, ...pub.names], globs: [...had.globs, ...pub.globs] } : pub);
+  }
   const rustFieldTypes = new Map<string, { file: string; type: string }[]>();
   for (const e of rawEdges) {
     if (!e.rustFields) continue;
@@ -571,7 +580,7 @@ export function resolveEdges(
             : ["function"]);
       if (e.rustForm) {
         if (e.rustPath && e.rustForm !== "macro") {
-          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx);
+          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx);
           if (reached) {
             if (reached.id !== e.source) add(e.source, reached.id, "calls", stated("extracted"));
             continue;
@@ -884,7 +893,7 @@ function rustModuleOf(file: string, crate: string): string[] | undefined {
  * shortcut: reads module paths from the file tree, so a `#[path]` attribute is not followed,
  * and a path reaching a name 2 `cfg` arms define in one file is left to the fallback.
  */
-function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0): NodeV1 | undefined {
+function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0, ownModules = true): NodeV1 | undefined {
   if (depth > 5) return undefined;
   const segs = whole.split("::");
   const name = segs.pop()!;
@@ -906,7 +915,7 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
   } else if (first !== undefined && ctx.crates.has(first)) {
     crate = ctx.crates.get(first);
     parts = segs.slice(1);
-  } else if (first !== undefined) {
+  } else if (first !== undefined && ownModules) {
     // `dispatcher::f` with no `use`: a child module of this file's own.
     const here = crateHere === undefined ? undefined : rustModuleOf(file, crateHere);
     if (!here) return undefined;
@@ -933,6 +942,33 @@ function rustFollowPath(whole: string, file: string, ctx: RustPathCtx, depth = 0
     if (hit) return hit;
   }
   return undefined;
+}
+
+/** The item macros the repo defines with `macro_rules!` that may drop or rewrite their body:
+ * some definition of the name has an arm that does not pass on all it captures. The items read
+ * inside such a macro are no targets, their calls no callers and its `pub use` lines no
+ * re-exports. A macro the repo does not define, such as a dependency's, is trusted.
+ *
+ * shortcut: names are matched repo-wide, and an arm counts as passing a capture on when its
+ * output names it. Expanding the macro would settle both. */
+function rustOpaqueMacros(rawEdges: RawEdge[]): Set<string> {
+  const opaque = new Set<string>();
+  for (const e of rawEdges) if (e.rustMacroDef && !e.rustMacroDef.emits) opaque.add(e.rustMacroDef.name);
+  return opaque;
+}
+
+/** A path whose first name only a glob can bring in, such as `subscriber::mock` under
+ * `use tracing_mock::*;`, followed through each glob that starts in this crate or a workspace
+ * crate. Undefined unless exactly one function is reached. */
+function rustFollowGlobs(path: string, globs: string[] | undefined, file: string, ctx: RustPathCtx): NodeV1 | undefined {
+  const hits = new Set<NodeV1>();
+  for (const glob of globs ?? []) {
+    const first = glob.split("::")[0]!;
+    if (first !== "crate" && !ctx.crates.has(first)) continue;
+    const hit = rustFollowPath(`${glob}::${path}`, file, ctx);
+    if (hit) hits.add(hit);
+  }
+  return hits.size === 1 ? [...hits][0] : undefined;
 }
 
 /** Path aliases for the files under `dir`, whose targets read from `base`. */
