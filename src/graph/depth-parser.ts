@@ -52,6 +52,7 @@ export interface SyntaxNode {
   readonly children: SyntaxNode[];
   readonly namedChildren: SyntaxNode[];
   readonly previousNamedSibling: SyntaxNode | null;
+  readonly nextNamedSibling: SyntaxNode | null;
   childForFieldName(fieldName: string): SyntaxNode | null;
 }
 
