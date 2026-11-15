@@ -180,6 +180,8 @@ test("walkDir keeps a Git repository's dot folders, except tool caches, environm
     write(dir, ".yarn/plugins/plugin.cjs");
     write(dir, ".graft/hook.ts");
     write(dir, "node_modules/.bin/tool.js");
+    write(dir, ".ipynb_checkpoints/model-checkpoint.py");
+    write(dir, "infra/.terraform/modules/vpc/main.py");
 
     assert.deepEqual(walked(dir), ["examples/.test/app/client.ts", ".storybook/main.ts", "src/app.ts"].sort());
   } finally {
