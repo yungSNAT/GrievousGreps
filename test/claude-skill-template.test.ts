@@ -63,3 +63,12 @@ test("the skill asks for a plain headline a teammate understands and puts the fi
   assert.match(src, /Put files, commands and values in the body under "In the code:"\./);
   assert.doesNotMatch(src, /the fact, not the task/);
 });
+
+// Claude Code reads `$N` in a skill body as the Nth argument of `/<skill> <args>`
+// and replaces it, code spans included, so `$0` became the first argument.
+test("no skill body has a $ before a digit, which Claude Code would replace with an argument", () => {
+  for (const brand of ["graft", "trail"] as const) {
+    const hits = skillTemplate(brand).split("\n").filter((l) => /\$\d/.test(l));
+    assert.deepEqual(hits, [], `${brand} skill`);
+  }
+});
