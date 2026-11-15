@@ -144,6 +144,26 @@ def same_name_imported():
     s = Server()
     s.config.from_mapping({})
 `,
+  "pkg/svc.py": `from .config import Config
+
+
+class Service:
+    def __init__(self):
+        self.config = Config()
+`,
+  "svc_user.py": `from pkg import svc
+
+
+def custom():
+    class Service(svc.Service):
+        pass
+    return Service()
+
+
+def via_module():
+    s = svc.Service()
+    s.config.from_mapping({})
+`,
 };
 
 async function build(files: Record<string, string> = {
@@ -184,6 +204,7 @@ const unsureCalls = async (source: string): Promise<string[]> => callsOf(await (
 test("Python: an attribute of a class name 2 classes share is read from the class the file imports", async () => {
   assert.deepEqual(await unsureCalls("user.py#same_name"), ["pkg/b.py#Server"], "the imported class has no such attribute");
   assert.deepEqual(await unsureCalls("imports_a.py#same_name_imported"), ["pkg/a.py#Server", "pkg/config.py#Config.from_mapping"], "the imported class has it");
+  assert.ok((await unsureCalls("svc_user.py#via_module")).includes("pkg/config.py#Config.from_mapping"), "made through a module, beside a namesake nested in a function");
 });
 
 test("Python: an attribute its class assigns 2 types resolves to nothing", async () => {
