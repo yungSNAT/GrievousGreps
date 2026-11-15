@@ -380,6 +380,16 @@ mod d {
     #[cfg(windows)]
     pub fn gated() {}
 }
+mod e {
+    #[cfg(unix)]
+    pub fn os() {}
+    #[cfg(windows)]
+    pub fn os() {}
+    pub fn here() { os(); }
+}
+cfg_std! { pub fn current() {} }
+cfg_no_std! { pub fn current() {} }
+pub fn now() { current(); }
 `,
     "core/src/other.rs": "pub fn get_default() {}\n",
     "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-core = { path = "../core" }\n`,
@@ -390,6 +400,8 @@ mod d {
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#near"), arms, "by bare name in the same file");
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#pair"), [], "2 functions of one name in different modules are not arms");
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#inner"), [], "nor are 2 gated ones in different inline modules");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#here"), ["core/src/dispatcher.rs#os", "core/src/dispatcher.rs#os~2"], "2 gated ones in one inline module are");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#now"), ["core/src/dispatcher.rs#current", "core/src/dispatcher.rs#current~2"], "as are 2 inside item macros");
 });
 
 test("Rust: a path follows a crate that `pub extern crate … as` re-exports", async (t) => {
