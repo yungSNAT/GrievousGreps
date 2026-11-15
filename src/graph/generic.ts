@@ -308,8 +308,8 @@ export function extractGeneric(rel: string, source: string, langName: string): E
   // under two @definition kinds (Swift `func` is method AND function), and the
   // walker can revisit a nested match — both would emit near-duplicate nodes.
   const spanSeen = new Set<number>();
-  // Rust definitions outside inline modules, and whether a `#[cfg(…)]` sits on each.
-  const rustTop: { id: string; at: number; cfg: boolean }[] = [];
+  // Rust definitions, the inline module each sits in, and whether a `#[cfg(…)]` sits on each.
+  const rustItems: { id: string; at: number; cfg: boolean; mod: string }[] = [];
   // Mint one definition node from a whole-definition tree node. Shared by both
   // the tags.scm path and the walker fallback so id/span/signature/body_text are
   // built identically.
@@ -335,7 +335,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
       summary_state: "pending", summary: null, crux: null,
     });
     defs.push({ id, startIndex: whole.startIndex, endIndex: whole.endIndex, ...(owner ? { owner } : {}) });
-    if (langName === "rust" && !rustInInlineModule(whole)) rustTop.push({ id, at: whole.startIndex, cfg: rustCfgGated(whole) });
+    if (langName === "rust") rustItems.push({ id, at: whole.startIndex, cfg: rustCfgGated(whole), mod: rustInlineModule(whole) });
   };
 
   if (entry.query) {
@@ -354,7 +354,9 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     extractRustPubUses(tree.rootNode as TsNode, rel, rawEdges, macroRegions);
     extractRustMacroDefs(tree.rootNode as TsNode, rel, rawEdges);
     extractRustFields(tree.rootNode as TsNode, rel, rawEdges);
-    const cfgItems = rustTop.filter((d) => d.cfg || macroRegions.some((r) => r.start <= d.at && d.at < r.end)).map((d) => d.id);
+    const cfgItems = rustItems
+      .filter((d) => d.cfg || macroRegions.some((r) => r.start <= d.at && d.at < r.end))
+      .map((d): [string, string] => [d.id, d.mod]);
     if (cfgItems.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustCfgItems: cfgItems });
     for (const { macro, start, end } of macroRegions) {
       const ids = defs.filter((d) => start <= d.startIndex && d.startIndex < end).map((d) => d.id);
@@ -918,10 +920,12 @@ function extractRustFields(root: TsNode, rel: string, rawEdges: RawEdge[]): void
   visit(root);
 }
 
-/** Whether a Rust item sits inside an inline `mod name { … }`, whose scope its id does not carry. */
-function rustInInlineModule(item: TsNode): boolean {
-  for (let at = item.parent; at; at = at.parent) if (at.type === "mod_item") return true;
-  return false;
+/** The inline `mod a { mod b { … } }` path a Rust item sits in, `a::b`, which its id does not
+ * carry; "" outside one. */
+function rustInlineModule(item: TsNode): string {
+  const names: string[] = [];
+  for (let at = item.parent; at; at = at.parent) if (at.type === "mod_item") names.unshift(at.childForFieldName?.("name")?.text ?? "");
+  return names.join("::");
 }
 
 /** Whether a Rust item carries a `#[cfg(…)]` among the attributes right above it. */
