@@ -137,6 +137,13 @@ def module_and_untyped(x):
     factory.Store()
     x.config.from_mapping({})
 `,
+  "imports_a.py": `from pkg.a import Server
+
+
+def same_name_imported():
+    s = Server()
+    s.config.from_mapping({})
+`,
 };
 
 async function build(files: Record<string, string> = {
@@ -174,8 +181,9 @@ test("Python: a method call on an attribute a base class types in another file r
 let unsure: Promise<GraphV1> | undefined;
 const unsureCalls = async (source: string): Promise<string[]> => callsOf(await (unsure ??= build(UNSURE)), source);
 
-test("Python: an attribute of a class name 2 classes share resolves to nothing", async () => {
-  assert.deepEqual(await unsureCalls("user.py#same_name"), ["pkg/b.py#Server"]);
+test("Python: an attribute of a class name 2 classes share is read from the class the file imports", async () => {
+  assert.deepEqual(await unsureCalls("user.py#same_name"), ["pkg/b.py#Server"], "the imported class has no such attribute");
+  assert.deepEqual(await unsureCalls("imports_a.py#same_name_imported"), ["pkg/a.py#Server", "pkg/config.py#Config.from_mapping"], "the imported class has it");
 });
 
 test("Python: an attribute its class assigns 2 types resolves to nothing", async () => {
