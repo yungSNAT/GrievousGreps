@@ -272,24 +272,38 @@ export function resolveEdges(
     const list = rustFieldTypes.get(`${recv.owner}.${recv.field}`);
     return list?.find((f) => f.file === file)?.type ?? (list?.length === 1 ? list[0].type : undefined);
   };
-  const pythonFields = new Map<string, PythonField[]>();
+  const pythonFields = new Map<string, { file: string; field: PythonField }[]>();
   for (const e of rawEdges) {
-    for (const [attr, field] of e.pythonFields?.fields ?? []) push(pythonFields, `${e.pythonFields!.owner}.${attr}`, field);
+    for (const [attr, field] of e.pythonFields?.fields ?? []) push(pythonFields, `${e.pythonFields!.owner}.${attr}`, { file: toPosixPath(e.file), field });
   }
-  // Fields are keyed by class name, so a name 2 Python classes share has no known fields,
-  // and a type named like a Python function may be that function's result.
+  const pythonBasesOf = new Map<string, string[]>(); // class node id → its base names
+  for (const e of rawEdges) if (e.relation === "extends" && e.name && /\.pyi?$/.test(e.file)) push(pythonBasesOf, e.source, e.name);
+  // Fields and parents are keyed by class name, so a name 2 Python classes share is read
+  // only as the class the calling file's imports name, and only that class's own fields
+  // and bases count; a shared base name has no known fields. A type named like a Python
+  // function may be that function's result.
   const pythonNamed = (name: string, kind: Kind): number =>
     (globalName.get(name) ?? []).filter((n) => n.kind === kind && /\.pyi?$/.test(n.path)).length;
   // The type a Python attribute holds: what its class, else the nearest base class, states
   // for it, when every statement there names one type. A method's return annotation counts.
   const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
+    let ownerClass: NodeV1 | undefined;
+    if (pythonNamed(owner, "class") > 1) {
+      const hit = followPythonName(owner, toPosixPath(file), pythonCtx);
+      // A name the file neither defines nor imports came through a module, `flask.Flask()`:
+      // the one module-level class of that name, as one nested in a function is not reachable.
+      const top = (globalName.get(owner) ?? []).filter((n) => n.kind === "class" && /\.pyi?$/.test(n.path) && n.id.replace(/~\d+$/, "") === `${toPosixPath(n.path)}#${owner}`);
+      ownerClass = hit === "undecided" ? (top.length === 1 ? top[0] : undefined) : typeof hit !== "string" && "id" in hit && hit.kind === "class" ? hit : undefined;
+      if (!ownerClass) return undefined;
+    }
     const seen = new Set([owner]);
     let frontier = [owner];
     for (let depth = 0; depth <= 3 && frontier.length; depth++) {
-      if (frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
+      if (depth > 0 && frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
       const types = new Set<string | undefined>();
       for (const type of frontier) {
-        for (const field of pythonFields.get(`${type}.${attr}`) ?? []) {
+        for (const { file: at, field } of pythonFields.get(`${type}.${attr}`) ?? []) {
+          if (depth === 0 && ownerClass && at !== toPosixPath(ownerClass.path)) continue;
           if ("type" in field) types.add(field.type);
           else {
             const hit = resolveTypedMember(type, field.returns, file, ownerMethod, classParents, classTraits);
@@ -300,7 +314,8 @@ export function resolveEdges(
       }
       const only = types.size === 1 ? [...types][0] : undefined;
       if (types.size) return only && !pythonNamed(only, "function") ? only : undefined;
-      frontier = frontier.flatMap((type) => classParents.get(type) ?? []).filter((type) => !seen.has(type) && seen.add(type));
+      const parents = (type: string) => (depth === 0 && ownerClass ? pythonBasesOf.get(ownerClass.id) : classParents.get(type)) ?? [];
+      frontier = frontier.flatMap(parents).filter((type) => !seen.has(type) && seen.add(type));
     }
     return undefined;
   };
