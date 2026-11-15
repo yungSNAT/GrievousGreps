@@ -171,12 +171,23 @@ test("Python: a method call on an attribute a base class types in another file r
   assert.equal(viaAttr?.confidence, "inferred", "an attribute's type read from another file is inferred");
 });
 
-test("Python: an attribute whose type is not certain resolves to nothing", async () => {
-  const graph = await build(UNSURE);
-  assert.deepEqual(callsOf(graph, "user.py#same_name"), ["pkg/b.py#Server"], "another class of the same name has the attribute");
-  assert.deepEqual(callsOf(graph, "user.py#two_types"), ["pkg/holder.py#Holder"], "the class assigns the attribute 2 types");
-  assert.deepEqual(callsOf(graph, "user.py#factory_call"), ["pkg/holder.py#Holder"], "a capitalised function, not the class of that name");
-  assert.deepEqual(callsOf(graph, "user.py#module_and_untyped"), ["pkg/factory.py#Store"], "a module's function and an untyped receiver");
+let unsure: Promise<GraphV1> | undefined;
+const unsureCalls = async (source: string): Promise<string[]> => callsOf(await (unsure ??= build(UNSURE)), source);
+
+test("Python: an attribute of a class name 2 classes share resolves to nothing", async () => {
+  assert.deepEqual(await unsureCalls("user.py#same_name"), ["pkg/b.py#Server"]);
+});
+
+test("Python: an attribute its class assigns 2 types resolves to nothing", async () => {
+  assert.deepEqual(await unsureCalls("user.py#two_types"), ["pkg/holder.py#Holder"]);
+});
+
+test("Python: a capitalised function's result is not the class of that name", async () => {
+  assert.deepEqual(await unsureCalls("user.py#factory_call"), ["pkg/holder.py#Holder"]);
+});
+
+test("Python: a module's function and an untyped receiver keep their resolution", async () => {
+  assert.deepEqual(await unsureCalls("user.py#module_and_untyped"), ["pkg/factory.py#Store"]);
 });
 
 test("Python: an attribute with no stated type resolves to nothing", async () => {
