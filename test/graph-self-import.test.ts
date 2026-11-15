@@ -358,6 +358,87 @@ pub fn near() {}
   assert.deepEqual(calls(graph, "sub/src/a.rs#own"), ["sub/src/a.rs#near", "sub/src/b.rs#local"]);
 });
 
+test("Rust: the items inside an item macro such as `cfg_rt!` are read as items", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["rt", "app"]\n`,
+    "rt/Cargo.toml": `[package]\nname = "tokio"\n`,
+    "rt/src/lib.rs": "pub mod task;\npub mod runtime;\ncfg_rt! {\n    pub use task::spawn;\n}\n",
+    "rt/src/task/mod.rs": "mod spawn;\ncfg_rt! {\n    mod yield_now;\n    cfg_more! {\n        #![doc = \"inner\"]\n        pub use yield_now::yield_now;\n    }\n}\ncfg_rt! { pub use spawn::spawn; }\n",
+    "rt/src/task/spawn.rs": "cfg_rt! {\n    pub fn spawn() { helper(); }\n}\nfn helper() {}\n",
+    "rt/src/task/yield_now.rs": "cfg_a! {\n    cfg_b! {\n        pub fn yield_now() {}\n    }\n}\nlazy_static! {\n    static ref READY: bool = true;\n}\n",
+    "rt/src/runtime.rs": "pub fn spawn() {}\npub fn yield_now() {}\npub struct Handle;\nimpl Handle {\n    cfg_rt! {\n        pub fn block_on(&self) { crate::task::spawn(); }\n    }\n}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntokio = { path = "../rt" }\n`,
+    "app/src/lib.rs": "pub mod a;\n",
+    "app/src/a.rs": "pub fn go() { tokio::spawn(); tokio::task::yield_now(); }\n",
+  });
+  assert.deepEqual(calls(graph, "app/src/a.rs#go"), ["rt/src/task/spawn.rs#spawn", "rt/src/task/yield_now.rs#yield_now"]);
+  assert.deepEqual(calls(graph, "rt/src/task/spawn.rs#spawn"), ["rt/src/task/spawn.rs#helper"], "a call inside belongs to its function");
+  assert.deepEqual(calls(graph, "rt/src/runtime.rs#block_on"), ["rt/src/task/spawn.rs#spawn"], "an impl's item macro too");
+});
+
+test("Rust: the items of a repo macro that drops its body are no targets", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[package]\nname = "app"\n`,
+    "src/lib.rs": "pub mod b;\npub mod a;\npub mod real;\n#[macro_use]\nmod macros;\ndiscard! {\n    pub use b::run;\n}\npub use real::run;\n",
+    "src/macros.rs": "macro_rules! discard {\n    ($($i:item)*) => {};\n}\nmacro_rules! keep {\n    ($($i:item)*) => { $( #[cfg(test)] $i )* };\n}\nmacro_rules! either {\n    (keep $($i:item)*) => { $($i)* };\n    ($($i:item)*) => {};\n}\nmacro_rules! named {\n    (pub fn $n:ident() {}) => {};\n}\nmacro_rules! first {\n    ($a:item $b:item) => { $a };\n}\nmod one {\n    macro_rules! wrap {\n        ($($i:item)*) => { $($i)* };\n    }\n}\nmod two {\n    macro_rules! wrap {\n        ($($i:item)*) => {};\n    }\n}\npub fn setup() {\n    #[macro_export]\n    macro_rules! gone {\n        ($($i:item)*) => {};\n    }\n}\nmacro_rules! label {\n    (pub fn $n:ident() {}) => { const _: &str = stringify!($n); };\n}\nmacro_rules! documented {\n    (#[doc = $d:expr] $i:item) => { $i };\n}\nmacro_rules! pair {\n    (pub fn $n:ident() {} $b:item) => { $b };\n}\n",
+    "src/b.rs": "pub fn f() {}\npub fn g() {}\npub fn h() {}\npub fn k() {}\npub fn n1() {}\npub fn q() {}\npub fn w() {}\npub fn lb() {}\npub fn dd() {}\npub fn pp() {}\npub fn run() {}\n",
+    "src/real.rs": "pub fn run() {}\n",
+    "src/a.rs": "use crate::b::*;\ndiscard! {\n    pub fn f() { g(); }\n}\nkeep! {\n    pub fn g() {}\n}\neither! {\n    pub fn h() {}\n}\nnamed! {\n    pub fn n1() {}\n}\nfirst! {\n    pub fn k() {}\n    pub fn spare() {}\n}\nwrap! {\n    pub fn w() {}\n}\ngone! {\n    pub fn q() {}\n}\nlabel! {\n    pub fn lb() {}\n}\ndocumented! {\n    #[doc = \"kept\"]\n    pub fn dd() {}\n}\npair! {\n    pub fn pp() {}\n    pub fn kept() {}\n}\npub fn go() { f(); g(); h(); n1(); k(); w(); q(); lb(); dd(); pp(); crate::run(); }\n",
+  });
+  assert.deepEqual(calls(graph, "src/a.rs#go"), ["src/a.rs#dd", "src/a.rs#g", "src/b.rs#f", "src/b.rs#h", "src/b.rs#k", "src/b.rs#lb", "src/b.rs#n1", "src/b.rs#pp", "src/b.rs#q", "src/b.rs#w", "src/real.rs#run"], "an arm that matches item tokens outside an item capture, or drops a captured item, or a dropping definition of the name anywhere, even in a function, makes the macro opaque, and its `pub use` re-exports nothing; a dropped attribute does not");
+  assert.deepEqual(calls(graph, "src/a.rs#f"), [], "a dropped item calls nothing");
+});
+
+test("Rust: a module path in an inline `mod` is not one of the file's child modules", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "app"]\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod subscriber;\n",
+    "mock/src/subscriber.rs": "pub fn mock() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-mock = { path = "../mock" }\n`,
+    "app/src/lib.rs": "pub mod subscriber;\npub fn top() { subscriber::mock(); }\nmod inner {\n    use tracing_mock::*;\n    pub fn go() { subscriber::mock(); }\n}\nmod own {\n    mod subscriber {\n        pub fn mock() {}\n    }\n    use tracing_mock::*;\n    pub fn local() { subscriber::mock(); }\n}\n",
+    "app/src/subscriber.rs": "pub fn mock() {}\n",
+  });
+  assert.deepEqual(calls(graph, "app/src/lib.rs#top"), ["app/src/subscriber.rs#mock"]);
+  assert.deepEqual(calls(graph, "app/src/lib.rs#go"), ["mock/src/subscriber.rs#mock"]);
+  assert.deepEqual(calls(graph, "app/src/lib.rs#local"), ["app/src/lib.rs#mock"], "a `mod` declared in scope shadows the glob");
+});
+
+test("Rust: a module path no `use` names reads through the crates a glob `use` brings in", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "app"]\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod subscriber;\npub mod layer;\npub mod expect;\n",
+    "mock/src/subscriber.rs": "pub fn mock() {}\n",
+    "mock/src/layer.rs": "pub fn mock() {}\n",
+    "mock/src/expect.rs": "pub fn span() {}\n",
+    "two/Cargo.toml": `[package]\nname = "two"\n`,
+    "two/src/lib.rs": "pub mod expect;\n",
+    "two/src/expect.rs": "pub fn span() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dev-dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
+    "app/src/lib.rs": "",
+    "app/tests/t.rs": `use tracing_mock::*;
+#[test]
+fn globbed() { subscriber::mock(); layer::mock(); }
+mod inner {
+    use two::*;
+    use tracing_mock::*;
+    #[test]
+    fn both() { expect::span(); }
+}
+mod named {
+    use tracing_mock::*;
+    use two::expect;
+    #[test]
+    fn by_use() { expect::span(); }
+}
+`,
+  });
+  assert.deepEqual(calls(graph, "app/tests/t.rs#globbed"), ["mock/src/layer.rs#mock", "mock/src/subscriber.rs#mock"]);
+  assert.deepEqual(calls(graph, "app/tests/t.rs#both"), [], "2 globs reach a `span`, so neither is chosen");
+  assert.deepEqual(calls(graph, "app/tests/t.rs#by_use"), ["two/src/expect.rs#span"], "a `use` naming the module beats a glob");
+});
+
 test("Rust: a repeated name no path settles is stated, and a dependency's stays silent", async (t) => {
   const graph = await build(t, {
     ...tracingLike,
