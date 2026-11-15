@@ -18,6 +18,7 @@ import type { EdgeV1, Kind, NodeV1, Relation, UnresolvedCallV1 } from "./types.j
 import { languageOf, type PythonExports, type TsModule, type RawEdge } from "./extract.js";
 import { PythonModules } from "./python-roots.js";
 import { genericLangOf } from "./generic.js";
+import { containerLangOf } from "./container.js";
 
 const IMPORT_EXTS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".py"];
 /** C/C++ source + header extensions, for resolving `#include` targets. */
@@ -64,9 +65,10 @@ for (const group of FAMILIES) for (const lang of group) FAMILY_OF.set(lang, grou
 /**
  * The language family a path belongs to, or null when no tier claims the file.
  * A language of its own is its own family, so the common case needs no entry above.
+ * A Vue, Svelte or Astro file is the language of its script blocks.
  */
 function familyOf(path: string): string | null {
-  const lang = languageOf(path) ?? genericLangOf(path)?.name ?? null;
+  const lang = languageOf(path) ?? containerLangOf(path)?.inner ?? genericLangOf(path)?.name ?? null;
   if (!lang) return null;
   return FAMILY_OF.get(lang) ?? lang;
 }

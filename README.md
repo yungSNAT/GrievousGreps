@@ -222,7 +222,7 @@ npm test
 
 GrievousGreps is built on [Trail-Code](https://github.com/trailhq/Trail-Code) by trailhq, with Shrish Dwivedi and anirudhkumar-nanonets as its main authors. [CREDITS.md](CREDITS.md) lists the contributors of its language support.
 
-Fixes ported from upstream pull requests and other forks, each MIT:
+Fixes and languages ported from upstream pull requests and other forks, each MIT:
 
 | Author | Source | Fix |
 | --- | --- | --- |
@@ -232,6 +232,11 @@ Fixes ported from upstream pull requests and other forks, each MIT:
 | anirudhkumar-nanonets | [#736](https://github.com/trailhq/Trail-Code/pull/736) | A running build keeps its lock |
 | Nishad Herath | [nishadherath/fork_Graft](https://github.com/nishadherath/fork_Graft) `a241f6fb308d`, `50122fbd500f` | Machine-wide wiring kept when `init` omits a host; a `--dir` on another drive kept out of ignore files |
 | ansidium | [ansidium/trail-code-se7en](https://github.com/ansidium/trail-code-se7en) `4fa301e664a8` | npm on Windows |
+| Frankie-Xu | [#358](https://github.com/trailhq/Trail-Code/pull/358) | GLSL |
+| Shinichi Nakagawa | [#379](https://github.com/trailhq/Trail-Code/pull/379) | Julia |
+| VisualzbyVJ | [#550](https://github.com/trailhq/Trail-Code/pull/550) | PowerShell |
+| cookerpapa | [#354](https://github.com/trailhq/Trail-Code/pull/354) | Bash function symbols |
+| David Pruñonosa | [#444](https://github.com/trailhq/Trail-Code/pull/444) | Svelte and Astro components |
 | datrixlab | [#317](https://github.com/trailhq/Trail-Code/pull/317), [#315](https://github.com/trailhq/Trail-Code/pull/315), taken from [Ercaner1988/Graft](https://github.com/Ercaner1988/Graft) | Cached parse errors re-parsed; the argument cap in the file walker |
 
 The banner's lettering and emblem are drawn from Cascadia Mono and Besley glyphs (SIL OFL 1.1).
