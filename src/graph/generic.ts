@@ -952,8 +952,8 @@ function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): v
       const captures = [...left.matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
       // What the matcher holds besides attributes, item or tt captures and repetition marks.
       const rest = left.replace(/#!?\s*\[[^\]]*\]/g, "").replace(/\$\w+\s*:\s*(?:item|tt)\b/g, "").replace(/[\s$()[\]{}*+?,;]/g, "");
-      const out = rule?.childForFieldName?.("right")?.text ?? "";
-      if (rest || !captures.length || !captures.every((cap) => new RegExp(`\\$${cap}\\b`).test(out))) emits = false;
+      const named = new Set([...(rule?.childForFieldName?.("right")?.text ?? "").matchAll(/\$(\w+)/g)].map((m) => m[1]!));
+      if (rest || !captures.length || !captures.every((cap) => named.has(cap))) emits = false;
     }
     rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroDef: { name, emits } });
   }
