@@ -414,7 +414,8 @@ pub fn inside() { crate::blocking::get_default(); }
   assert.ok(!calls(graph, "core/src/blocking.rs#inside").includes("core/src/blocking.rs#get_default"), "also through a path inside that file");
   assert.deepEqual(calls(graph, "core/src/process.rs#root"), [], "a path that leads outside reaches no arm");
   const stated = (graph.unresolvedCalls ?? []).filter((u) => ["core/src/blocking.rs#inside", "core/src/process.rs#root"].includes(u.source)).map((u) => [u.source, u.name, u.through]).sort();
-  assert.deepEqual(stated, [["core/src/blocking.rs#inside", "get_default", "crate::blocking::get_default"], ["core/src/process.rs#root", "id", "std::process::id"]], "both are reported unresolved, with their paths");
+  // A call into std reaches nothing the repository defines, so it states no undercount.
+  assert.deepEqual(stated, [["core/src/blocking.rs#inside", "get_default", "crate::blocking::get_default"]], "the uncertain path call is reported unresolved, with its path");
   assert.deepEqual(calls(graph, "core/src/user.rs#through"), ["core/src/both.rs#foo", "core/src/both.rs#foo~2"], "a same-named macro does not hide an arm");
   const arms = ["core/src/dispatcher.rs#get_default", "core/src/dispatcher.rs#get_default~2"];
   assert.deepEqual(calls(graph, "app/src/lib.rs#far"), arms, "through a path");
