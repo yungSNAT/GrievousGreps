@@ -45,6 +45,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 ### Fixed
 
 - **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
+- **A cached parse is replayed only when it describes its own file.** The extraction cache in the output folder could come with a clone, and an entry whose node named a path outside the repository was replayed as it stood, so `trail build --lsp` read that file and sent it to the language server. Such an entry, or a malformed one, is now dropped and its file parsed again.
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
 - **A Python function with `@overload` stubs now has callers.** Each stub followed in its block by the implementation counted as a definition of its own, so every call to the name was dropped as ambiguous, as for flask's `stream_with_context` and click's `prompt`. Python binds the name to the implementation, and the graph now does too. Overloads with no implementation after them, as in a stub file or a Protocol, stay.
 - **Restoring a skill version brings back its lessons when the skill already has a `lessons/` folder.** The restore reported success but copied none of the archived lessons; it now copies each one the skill lacks and leaves a current lesson of the same file name alone.
