@@ -355,7 +355,8 @@ export function resolveEdges(
     }
   };
   const cfgGated = new Map(rawEdges.flatMap((e) => e.rustCfgItems ?? []));
-  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated };
+  const modUses = new Map(rawEdges.flatMap((e) => (e.rustModUses ? [[e.file, e.rustModUses] as const] : [])));
+  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated, modUses };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
   // when a step's signature does not say, and the method falls back on its name.
   const rustChainType = (chain: NonNullable<RawEdge["rustChain"]>, e: RawEdge): string | undefined => {
@@ -641,7 +642,8 @@ export function resolveEdges(
             : ["function"]);
       if (e.rustForm) {
         if (e.rustPath && e.rustForm !== "macro") {
-          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx);
+          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx)
+            ?? (e.rustSuperGlob ? rustFollowSuper(e.rustPath, e.file, rustPathCtx) : undefined);
           if (reached) {
             for (const arm of rustArmsOf(reached, rustPathCtx)) if (arm.id !== e.source) add(e.source, arm.id, "calls", stated("extracted"));
             continue;
@@ -918,6 +920,8 @@ interface RustPathCtx {
   pubUses: Map<string, NonNullable<RawEdge["rustPubUses"]>>;
   /** Functions a `cfg` attribute or an item macro gates: node id → the inline module path it sits in. */
   cfgGated: ReadonlyMap<string, string>;
+  /** Files that declare module files, by path: those modules and the file's top-level `use` lines. */
+  modUses: ReadonlyMap<string, NonNullable<RawEdge["rustModUses"]>>;
 }
 
 /** The crate folder a file sits in: the deepest one above it. */
@@ -1051,6 +1055,34 @@ function rustFollowGlobs(path: string, globs: string[] | undefined, file: string
     if (first !== "crate" && !ctx.crates.has(first)) continue;
     const hit = rustFollowPath(`${glob}::${path}`, file, ctx);
     if (hit) hits.add(hit);
+  }
+  return hits.size === 1 ? [...hits][0] : undefined;
+}
+
+/** A path under a file-level `use super::*`, such as `expect::event()` in tracing's
+ * `tests/layer_filters/option.rs`, read where the file that declares this module reads it:
+ * through its `use` lines, its own modules, then its globs. Undefined unless every such file
+ * reaches the same one function.
+ *
+ * shortcut: a file beside this one that declares the module counts as its parent when it is a
+ * `mod.rs`, `lib.rs` or `main.rs`, sits outside a `src` folder (a test, example or bench root)
+ * or in `src/bin`; reading Cargo's targets would settle which files are crate roots. */
+function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 | undefined {
+  const dirOf = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
+  const nested = file.endsWith("/mod.rs");
+  const own = nested ? dirOf(file) : file;
+  const stem = own.slice(own.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const at = dirOf(own);
+  const declares = (p: string) => (at !== "" && p === `${at}.rs`)
+    || (dirOf(p) === at && (/(^|\/)(mod|lib|main)\.rs$/.test(p) || !/(^|\/)src\//.test(p) || /(^|\/)src\/bin\/[^/]+$/.test(p)));
+  const [first, ...rest] = path.split("::");
+  const hits = new Set<NodeV1 | undefined>();
+  for (const [parent, uses] of ctx.modUses) {
+    if (parent === file || !uses.mods.includes(stem) || !declares(parent)) continue;
+    const bound = uses.names.find(([n]) => n === first)?.[1];
+    hits.add(bound
+      ? rustFollowPath([bound, ...rest].join("::"), parent, ctx)
+      : rustFollowPath(path, parent, ctx) ?? rustFollowGlobs(path, uses.globs, parent, ctx));
   }
   return hits.size === 1 ? [...hits][0] : undefined;
 }

@@ -156,6 +156,12 @@ export interface RawEdge {
   rustGlobs?: string[];
   /** That call sits in an inline `mod`, so its first name is not one of the file's child modules. */
   rustInMod?: boolean;
+  /** That call's first name may come from the file that declares this one, through a
+   * file-level `use super::*`. */
+  rustSuperGlob?: boolean;
+  /** A file's module files (`mod option;`) and its top-level `use` lines and globs, which a
+   * `use super::*` in one of those modules brings in. */
+  rustModUses?: { mods: string[]; names: [string, string][]; globs: string[] };
   /** The definitions read from inside one item macro (`cfg_rt! { … }`), by node id. */
   rustMacroItems?: { macro: string; ids: string[] };
   /** The definitions in this file that a `#[cfg(…)]` attribute or an item macro gates: each
