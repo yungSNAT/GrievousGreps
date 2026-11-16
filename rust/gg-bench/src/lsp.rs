@@ -804,10 +804,18 @@ pub fn run(opts: &LspOptions) -> Result<String, String> {
         .iter()
         .map(|repo| summaries[&repo.name].clone())
         .collect();
+    // serverInfo is optional in the protocol, and pyright sends none.
+    let named: Vec<&str> = [&info["name"], &info["version"]]
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    let named = if named.is_empty() {
+        String::new()
+    } else {
+        format!(" ({})", named.join(" "))
+    };
     let mut report = format!(
-        "Server: {} {} ({}), asked for {}, {} UTC\n\n",
-        info["name"].as_str().unwrap_or("unknown"),
-        info["version"].as_str().unwrap_or("unknown"),
+        "Server: `{}`{named}, asked for {}, {} UTC\n\n",
         server.join(" "),
         label(opts.ask),
         utc_date(SystemTime::now())

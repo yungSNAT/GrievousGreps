@@ -164,7 +164,7 @@ fn call_hierarchy_answers_are_named_by_their_definition_and_scored() {
     let report = run(&f.options(Ask::Calls, &[])).unwrap();
     let (first, rest) = report.split_once("\n\n").unwrap();
     assert!(
-        first.starts_with("Server: fake-ls 0.1 (node ") && first.contains(", asked for calls, "),
+        first.starts_with("Server: `node ") && first.contains("` (fake-ls 0.1), asked for calls, "),
         "{first}"
     );
     assert_eq!(
