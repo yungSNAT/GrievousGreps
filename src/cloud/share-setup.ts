@@ -170,7 +170,7 @@ export function collectSetup(opts: { home?: string; dirs?: string[]; who: string
   for (const [dir, p] of Object.entries(obj(root?.projects))) addServers(`local ${dir}`, obj(p).mcpServers);
   addServers("desktop", readJson(desktopConfig(home))?.mcpServers);
 
-  const dirs = [...new Set(opts.dirs ?? [])].filter((d) => d !== home).sort();
+  const dirs = [...new Set(opts.dirs ?? [])].filter((d) => d !== home).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   for (const d of dirs) addServers(`project ${d}`, readJson(join(d, ".mcp.json"))?.mcpServers);
 
   const settings: SettingsInfo[] = [];
@@ -213,7 +213,7 @@ export function collectSetup(opts: { home?: string; dirs?: string[]; who: string
   for (const d of dirs) for (const f of ["settings.json", "settings.local.json"]) addSettings(join(d, ".claude", f));
 
   const installed = readJson(join(home, ".claude", "plugins", "installed_plugins.json"));
-  const plugins = Object.keys(obj(installed?.plugins ?? installed)).map(clean).sort();
+  const plugins = Object.keys(obj(installed?.plugins ?? installed)).map(clean).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
   const files: SetupFile[] = [];
   const seen = new Set<string>();

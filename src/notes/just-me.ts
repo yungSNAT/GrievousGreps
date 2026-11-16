@@ -45,8 +45,9 @@ export const JUST_ME_DIRECTIVE =
  * reaches teammates once `.trail/` is committed; just me is one keypress away. Null when the input closed instead.
  */
 export async function askJustMe(
-  io: { input: NodeJS.ReadableStream; output: NodeJS.WritableStream } = { input: process.stdin, output: process.stderr },
+  given?: { input: NodeJS.ReadableStream; output: NodeJS.WritableStream },
 ): Promise<boolean | null> {
+  const io = given ?? { input: process.stdin, output: process.stderr };
   io.output.write("\nWho is trail for in this repo?\n");
   io.output.write("  1  my team: you commit .trail/ and .claude/settings.json once, and teammates' Claude reads your learnings\n");
   io.output.write("  2  just me: nothing in the repo changes, and your learnings stay in ~/.trail\n");

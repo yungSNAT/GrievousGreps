@@ -132,7 +132,7 @@ export async function runSync(opts: {
       sent++;
       writeSyncState(s, opts.env);
     }
-    s.dirs = [...cwds].sort();
+    s.dirs = [...cwds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     const set = collectSetup({ home: opts.home, dirs: s.dirs, who: opts.who });
     const json = `${JSON.stringify(set.setup, null, 2)}\n`;
     const hash = createHash("sha256").update(json).digest("hex");

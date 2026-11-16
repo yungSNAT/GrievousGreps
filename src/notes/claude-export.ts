@@ -28,8 +28,8 @@ export interface ExportFact {
 const MAX_OFFERED = 8;
 
 /** A line that is only a heading: `# Work`, `**Work context**`, `*Recent months*`, `Top of mind:`. */
-const HEADING = /^(?:#{1,6}\s+(.+?)|\*\*([^*]+?):?\*\*:?|\*([^*]+)\*|_([^_]+)_|([A-Z][\w ,&/'-]{1,50}):)$/;
-const ITEM = /^(?:[-*•·]|\d{1,3}[.)])\s+(.+)$/;
+const HEADING = /^(?:#{1,6}\s+(\S.*)|\*\*([^*]+?):?\*\*:?|\*([^*]+)\*|_([^_]+)_|([A-Z][\w ,&/'-]{1,50}):)$/;
+const ITEM = /^(?:[-*•·]|\d{1,3}[.)])\s+(\S.*)$/;
 const DATED = /^\[?(\d{4}-\d{2}-\d{2})\]?\s*[-–—:]?\s*/;
 /** After `.`, `!` or `?` and before a capital, but not after e.g., i.e. and the like. */
 const SENTENCE_END = /(?<=[.!?])(?<!\b(?:e\.g|i\.e|etc|vs|incl|approx|Mr|Ms|Dr)\.)\s+(?=[A-Z0-9"'`(])/;
@@ -89,8 +89,17 @@ export function exportFacts(text: string): ExportFact[] {
 /** A fact as a title: its words, without the full stop, at most 90 characters. */
 function factTitle(text: string): string {
   let t = text.replace(/\.$/, "");
-  if (t.length > 90) t = `${t.slice(0, 89).replace(/\s+\S*$/, "")}…`;
+  if (t.length > 90) t = `${dropLastWord(t.slice(0, 89))}…`;
   return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** `s` without its last run of whitespace and the part word after it; `s` itself when it has no whitespace. */
+function dropLastWord(s: string): string {
+  let end = s.length;
+  while (end > 0 && !/\s/.test(s[end - 1]!)) end--;
+  if (end === 0) return s;
+  while (end > 0 && /\s/.test(s[end - 1]!)) end--;
+  return s.slice(0, end);
 }
 
 /** Where a fact is remembered as offered: its words, not the day, so a re-export doesn't offer it again. */

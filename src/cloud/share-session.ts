@@ -49,7 +49,16 @@ function readsEnv(command: string): boolean {
   return false;
 }
 /** `NAME=value` in a `.env` file, as read (`  12→API=…` from Claude's Read) or written (`export API=…`). */
-const ENV_LINE = /^(\s*(?:\d+(?:→|\t))?\s*(?:export\s+)?)([A-Za-z_][\w.-]*)(\s*=\s*)(\S.*)$/gm;
+const ENV_LINE = /^([^\S\n]*(?:\d+(?:→|\t)[^\S\n]*)?(?:export\s+)?)([A-Za-z_][\w.-]*)(\s*=\s*)(\S.*)$/gm;
+
+/** `text` with each `.env` value redacted; `taken` hears each `NAME=value` that goes. */
+export function redactEnvValues(text: string, taken: (what: string) => void): string {
+  return text.replace(ENV_LINE, (whole, lead: string, name: string, eq: string, value: string) => {
+    if (value.startsWith(REDACTED)) return whole;
+    taken(`${name}=${value}`);
+    return `${lead}${name}${eq}${REDACTED}`;
+  });
+}
 
 export interface SessionFile {
   id: string;
@@ -254,7 +263,7 @@ export function bundleSession(session: SessionFile, who: string[] = whoIAm()): B
         if (!id || !seen.has(id)) messages++;
         if (id) seen.add(id);
       }
-      const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : NaN;
+      const at = typeof e.timestamp === "string" ? Date.parse(e.timestamp) : Number.NaN;
       if (!Number.isNaN(at)) {
         if (startedAt === undefined || at < Date.parse(startedAt)) startedAt = e.timestamp as string;
         if (endedAt === undefined || at > Date.parse(endedAt)) endedAt = e.timestamp as string;
@@ -262,13 +271,7 @@ export function bundleSession(session: SessionFile, who: string[] = whoIAm()): B
       const env = touchesEnv(entry, envIds);
       const clean = walk(entry, (s) => {
         let text = s;
-        if (env) {
-          text = text.replace(ENV_LINE, (whole, lead: string, name: string, eq: string, value: string) => {
-            if (value.startsWith(REDACTED)) return whole;
-            count([{ kind: "a .env value", what: `${name}=${value}` }]);
-            return `${lead}${name}${eq}${REDACTED}`;
-          });
-        }
+        if (env) text = redactEnvValues(text, (what) => count([{ kind: "a .env value", what }]));
         const r = redactText(text);
         count(r.found);
         return hide(r.text);
@@ -319,7 +322,7 @@ export function bundleSession(session: SessionFile, who: string[] = whoIAm()): B
  */
 export function whoIAm(extra: string[] = []): string[] {
   const git = (key: string) => {
-    const r = spawnSync("git", ["config", "--global", "--get", key], { encoding: "utf8", timeout: 3000, windowsHide: true });
+    const r = spawnSync("git", ["config", "--global", "--get", key], { encoding: "utf8", timeout: 3000, windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
     return r.status === 0 ? r.stdout.trim() : "";
   };
   let login = "";
@@ -336,7 +339,33 @@ export function whoIAm(extra: string[] = []): string[] {
 /** Machine logins that name nobody, and would turn up as ordinary words (`test runner`). */
 const GENERIC_LOGINS = new Set(["root", "admin", "user", "users", "ubuntu", "runner", "vscode", "node", "ec2-user", "codespace", "developer", "dev", "app", "default"]);
 
-const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+/**
+ * `text` with each email as `[email]`, matched as `/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g`
+ * would, and how many. Scanned from each `@` rather than matched, so a long run with no `@`, or a
+ * host of many dots, stays linear.
+ */
+function hideEmails(text: string): { text: string; n: number } {
+  let out = "";
+  let kept = 0;
+  let n = 0;
+  for (let at = text.indexOf("@"); at !== -1; at = text.indexOf("@", at + 1)) {
+    let start = at;
+    while (start > kept && /[A-Za-z0-9._%+-]/.test(text[start - 1]!)) start--;
+    if (start === at) continue;
+    let hostEnd = at + 1;
+    while (hostEnd < text.length && /[A-Za-z0-9.-]/.test(text[hostEnd]!)) hostEnd++;
+    // The last dot after the host's first character with 2 letters after it, then all the letters.
+    let dot = hostEnd - 3;
+    while (dot >= at + 2 && !(text[dot] === "." && /^[A-Za-z]{2}$/.test(text.slice(dot + 1, dot + 3)))) dot--;
+    if (dot < at + 2) continue;
+    let end = dot + 3;
+    while (end < hostEnd && /[A-Za-z]/.test(text[end]!)) end++;
+    out += `${text.slice(kept, start)}[email]`;
+    kept = end;
+    n++;
+  }
+  return { text: out + text.slice(kept), n };
+}
 
 /**
  * `text` with nothing that names the sender: the home folder becomes `~`,
@@ -345,12 +374,8 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
  * `n` counts the places.
  */
 export function anonymize(text: string, who: string[]): { text: string; n: number } {
-  let n = 0;
   // Emails first, so a name part swapped below can't leave `[you]@company.com`.
-  let out = text.replace(EMAIL, () => {
-    n++;
-    return "[email]";
-  });
+  let { text: out, n } = hideEmails(text);
   for (const w of who) {
     if (!out.toLowerCase().includes(w.toLowerCase())) continue;
     const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -511,7 +536,7 @@ export function listLines(sessions: SessionFile[], now = Date.now(), max = 15): 
 
 /** What will be sent, for the person to say yes to. */
 export function previewLines(b: Bundle, to: { workspace: string; url: string }, now = Date.now()): string[] {
-  const start = b.startedAt ? Date.parse(b.startedAt) : NaN;
+  const start = b.startedAt ? Date.parse(b.startedAt) : Number.NaN;
   const end = b.endedAt ? Date.parse(b.endedAt) : b.session.mtime;
   const when = Number.isNaN(start) ? whenLabel(end, now) : spanLabel(start, end, now);
   const n = redactedCount(b);

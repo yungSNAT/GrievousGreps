@@ -20,7 +20,7 @@ function realBuild(dir: string, timeout = BUILD_TIMEOUT_MS): void {
   // point this at a stub and inspect the exact argv it was invoked with.
   const cliPath = process.env.GRAFT_TEST_CLI ?? graftCliPath();
   const workspace = readWorkspace(dir, resolveContextDir(dir));
-  const children = workspace ? discoverWorkspaceChildren(dir).sort() : [];
+  const children = workspace ? discoverWorkspaceChildren(dir).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : [];
   const roots = workspace ? children.map((child) => join(dir, child)) : [dir];
   for (const root of roots) {
     // A workspace's override belongs to its index, never its children's graphs.

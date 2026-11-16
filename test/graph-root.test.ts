@@ -114,6 +114,27 @@ test("a submodule of an UNBUILT superproject resolves to the submodule, not the 
   assert.deepEqual(nearestGraftRoot(join(sub, "src")), { root: sub, levels: 1 }, "`build` in a submodule means the submodule");
 });
 
+test("a `.git` file is read as a submodule from its `gitdir:` line, however it is spaced, slashed or ended", () => {
+  const cases: Array<[string, boolean]> = [
+    ["gitdir: ../../.git/modules/lib\n", true],
+    ["gitdir:   C:\\work\\app\\.git\\modules\\lib\\\\  \r\n", true],
+    ["core = x\ngitdir: /work/app/.git/modules/lib///\n", true],
+    ["gitdir: .git/modules/lib", true],
+    ["gitdir: ../../.git/worktrees/lib/\n", false],
+    ["  gitdir: ../../.git/modules/lib\n", false],
+    ["gitdir:\n", false],
+    ["gitdir: /work/app/.git/lib\n", false],
+  ];
+  for (const [i, [dotGit, submodule]] of cases.entries()) {
+    const parent = builtRepo(gitRepo(join(tmpRepo(`root-gitdir-${i}`), "app")));
+    const sub = join(parent, "vendor", "lib");
+    mkdirSync(join(sub, "src"), { recursive: true });
+    writeFileSync(join(sub, ".git"), dotGit);
+    const want = submodule ? { root: parent, levels: 3 } : { root: sub, levels: 1 };
+    assert.deepEqual(nearestGraftRoot(join(sub, "src")), want, JSON.stringify(dotGit));
+  }
+});
+
 test("a nested standalone clone (`.git` directory) inside a built repo still stops the walk", () => {
   const parent = builtRepo(committedRepo(join(tmpRepo("root-nested"), "app")));
   const child = committedRepo(join(parent, "toolforge"));

@@ -14,6 +14,7 @@ import { secretReason } from "../src/notes/secrets.js";
 
 // Built in pieces so no scanner reads a real-looking key in this file.
 const OPENAI = "sk-" + "proj-" + "Q7x2Lm9Pz4Rt8Vb1Nc6Kw3Hy5Jd0Fs";
+const DB_PASSWORD = "hunter2" + "hunter2";
 
 let made = 0;
 /**
@@ -40,7 +41,7 @@ function fakeHome(): { home: string; repo: string } {
     JSON.stringify({
       mcpServers: {
         linear: { type: "http", url: "https://mcp.linear.app/sse?token=abc123tok", headers: { Authorization: "Bearer very-secret-header" } },
-        db: { command: "node", args: [`${home}/mcp/db.js`, `--key=${OPENAI}`], env: { DB_PASSWORD: "hunter2hunter2" } },
+        db: { command: "node", args: [`${home}/mcp/db.js`, `--key=${OPENAI}`], env: { DB_PASSWORD } },
       },
       projects: { [repo]: { mcpServers: { local: { command: "npx", args: ["local-mcp"] } } } },
     }),
@@ -84,7 +85,7 @@ test("collectSetup: env, headers and URL paths go as names or origins, keys are 
   const { home, repo } = fakeHome();
   const r = collectSetup({ home, dirs: [repo], who: [home, "maya", "maya@acme.test"] });
   const all = JSON.stringify(r.setup);
-  for (const secret of ["hunter2hunter2", "very-secret-header", "abc123tok", "abc123secretvalue", OPENAI]) assert.ok(!all.includes(secret), `${secret} doesn't leave`);
+  for (const secret of [DB_PASSWORD, "very-secret-header", "abc123tok", "abc123secretvalue", OPENAI]) assert.ok(!all.includes(secret), `${secret} doesn't leave`);
   assert.equal(secretReason(all), null);
   const db = r.setup.mcp.find((m) => m.name === "db")!;
   assert.deepEqual(db.env, ["DB_PASSWORD"]);

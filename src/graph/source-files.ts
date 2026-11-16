@@ -29,7 +29,7 @@ function normExt(e: string): string {
 
 /** Canonical selection for the build and its persisted freshness record. */
 export function normalizeExtensions(exts?: readonly string[]): string[] | undefined {
-  return exts?.length ? [...new Set(exts.map(normExt))].sort() : undefined;
+  return exts?.length ? [...new Set(exts.map(normExt))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : undefined;
 }
 
 /**

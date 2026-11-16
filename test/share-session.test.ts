@@ -29,7 +29,7 @@ const require = createRequire(import.meta.url);
 const OPENAI = "sk-" + "proj-" + "Q7x2Lm9Pz4Rt8Vb1Nc6Kw3Hy5Jd0Fs";
 const GH = "ghp_" + "Zx81Qw72Er63Ty54Ui45Op36As27Df18";
 const AWS = "AKIA" + "Z7Q2" + "X9W4" + "V6B3" + "N8M1";
-const PEM = ["-----BEGIN RSA PRIVATE KEY-----", "MIIEowIBAAKCAQEA1x2y3z", "q9w8e7r6t5y4u3i2o1p0", "-----END RSA PRIVATE KEY-----"].join("\n");
+const PEM = ["-----BEGIN RSA " + "PRIVATE KEY-----", "MIIEowIBAAKCAQEA1x2y3z", "q9w8e7r6t5y4u3i2o1p0", "-----END RSA " + "PRIVATE KEY-----"].join("\n");
 
 test("redactText: a text with no secret comes back as it was", () => {
   const text = "ran npm test · 412 passed\nsession 984257d6-89cc-4c7c-b05b-6a6e8749f9e0 at src/cloud/workspace.ts:263, sha 4f09cfdb2084ccef";

@@ -297,7 +297,7 @@ function dropTrailShared(dir: string, path: string): void {
 /** Git tracks `rel` in the checkout at `dir`. False outside git. */
 function gitTracks(dir: string, rel: string): boolean {
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: dir, stdio: 'ignore', windowsHide: true });
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: dir, stdio: 'ignore', windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
     return true;
   } catch {
     return false;
@@ -345,7 +345,7 @@ export function keepOutOfGit(dir: string, rel: string): void {
 /** Undo `keepOutOfGit`: `rel`'s line comes out of `.git/info/exclude`, so git sees it again. */
 export function letGitSee(dir: string, rel: string): void {
   try {
-    let exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
+    let exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim(); // NOSONAR: the person's own git, found through PATH on purpose
     if (!isAbsolute(exclude)) exclude = join(dir, exclude);
     const line = `/${rel.split('\\').join('/')}`;
     const text = readFileSync(exclude, 'utf8');

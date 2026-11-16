@@ -58,11 +58,53 @@ const PRIVATE_KEY_BLOCK = /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----
 /** A word, for finding where on a line the secret is: a run between spaces, quotes and brackets. `=`, `:` and `/` stay in it. */
 const WORD = /[^\s'"`,;{}()[\]<>]+/g;
 /** The ways to take a secret out of one word and keep the rest, tried in order: a link's password, a link's key, a name's value. */
-const IN_WORD: Array<[RegExp, string]> = [
-  [/([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+(?=@)/gi, `$1${REDACTED}`],
-  [/([?&#](?:key|sig|signature|x-amz-signature|x-goog-signature|auth|token|access_token|api_key)=)[^&#\s]+/gi, `$1${REDACTED}`],
-  [/^([^=:]+[=:]+)(?=.)[\s\S]*$/, `$1${REDACTED}`],
+const IN_WORD: Array<(word: string) => string> = [
+  linkPasswordOut,
+  (word) => word.replace(/([?&#](?:key|sig|signature|x-amz-signature|x-goog-signature|auth|token|access_token|api_key)=)[^&#\s]+/gi, `$1${REDACTED}`),
+  nameValueOut,
 ];
+
+/** Where the run of characters from `i` ends: at whitespace, one of `stops` or the end. */
+function runEnd(s: string, i: number, stops: string): number {
+  while (i < s.length && !stops.includes(s[i]!) && !/\s/.test(s[i]!)) i++;
+  return i;
+}
+
+/**
+ * Each `scheme://user:password@` in `word` with its password redacted, as
+ * `/([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+(?=@)/gi` would replace it. Scanned
+ * from each `://` rather than matched, so a long word without one stays linear.
+ */
+function linkPasswordOut(word: string): string {
+  let out = '';
+  let kept = 0;
+  for (let at = word.indexOf('://'); at !== -1; at = word.indexOf('://', Math.max(at + 1, kept))) {
+    let scheme = at;
+    while (scheme > kept && /[a-z0-9+.-]/i.test(word[scheme - 1]!)) scheme--;
+    if (!/[a-z]/i.test(word.slice(scheme, at))) continue;
+    const colon = runEnd(word, at + 3, ':/@');
+    if (colon === at + 3 || word[colon] !== ':') continue;
+    const atSign = runEnd(word, colon + 1, '@/');
+    if (atSign === colon + 1 || word[atSign] !== '@') continue;
+    out += word.slice(kept, colon + 1) + REDACTED;
+    kept = atSign;
+  }
+  return out + word.slice(kept);
+}
+
+/**
+ * `NAME=value` or `name:value` with all after the name's first run of `=` and
+ * `:` redacted, as `/^([^=:]+[=:]+)(?=.)[\s\S]*$/` would: a run that ends the
+ * word gives up its last character, when it has 2, so something is redacted.
+ */
+function nameValueOut(word: string): string {
+  const name = word.search(/[=:]/);
+  if (name < 1) return word;
+  let end = name;
+  while (word[end] === '=' || word[end] === ':') end++;
+  if (end < word.length) return word.slice(0, end) + REDACTED;
+  return end - name >= 2 ? word.slice(0, end - 1) + REDACTED : word;
+}
 
 /** One secret taken out: its kind, as secretReason names it, and the text that went (to count each secret once). */
 export interface Redaction {
@@ -109,7 +151,7 @@ function redactLine(line: string, why: string, found: Redaction[]): string {
   for (const w of words) {
     const kind = secretReason(w.word);
     if (kind === null) continue;
-    w.out = IN_WORD.map(([re, to]) => w.word.replace(re, to)).find((x) => x !== w.word && secretReason(x) === null) ?? REDACTED;
+    w.out = IN_WORD.map((takeOut) => takeOut(w.word)).find((x) => x !== w.word && secretReason(x) === null) ?? REDACTED;
     found.push({ kind, what: w.word });
   }
   // `Bearer abc…`, `--token abc…`, `"api_key": "abc…"`: the word with the one or two before it.

@@ -47,9 +47,10 @@ function isSubmoduleCheckout(dir: string): boolean {
     fd = openSync(dotGit, "r");
     const buf = Buffer.alloc(1024);
     const text = buf.toString("utf8", 0, readSync(fd, buf, 0, buf.length, 0));
-    const m = /^gitdir:\s*(.+?)\s*$/m.exec(text);
-    if (!m) return false;
-    const gitdir = m[1].replace(/\\/g, "/").replace(/\/+$/, "");
+    const line = text.split(/[\r\n]/).find((l) => l.startsWith("gitdir:"));
+    if (line === undefined) return false;
+    let gitdir = line.slice("gitdir:".length).trim().replaceAll("\\", "/");
+    while (gitdir.endsWith("/")) gitdir = gitdir.slice(0, -1);
     if (/\/worktrees\/[^/]+$/.test(gitdir)) return false; // linked worktree, even of a submodule
     return /(^|\/)\.git\/modules\//.test(gitdir);
   } catch {

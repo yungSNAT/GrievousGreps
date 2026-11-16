@@ -79,7 +79,12 @@ const dayLabel = (ms: number) => `${MONTHS[new Date(ms).getMonth()]} ${new Date(
 
 /** `~/Documents/assign` → `Documents-assign`, safe as one folder name. */
 export function slug(label: string): string {
-  return label.replace(/^~[\\/]?/, "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "home";
+  const s = label.replace(/^~[\\/]?/, "").replace(/[^A-Za-z0-9._-]+/g, "-");
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === "-") start++;
+  while (end > start && s[end - 1] === "-") end--;
+  return s.slice(start, end) || "home";
 }
 
 /** A new folder for one copy under `root`: `2026-11-05-1412`, or `-2` and on if that's taken. */
@@ -186,7 +191,7 @@ export function prepareBundle(opts: {
     hidden,
     leftOut,
     setup: setupCounts(set.setup),
-    dirs: [...cwds].sort(),
+    dirs: [...cwds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
   };
   writeCopy(opts.out, m);
   return m;

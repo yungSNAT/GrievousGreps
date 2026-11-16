@@ -189,7 +189,7 @@ function handleToolUse(input: any, dir: string): void {
 /** The repo's shared git dir (`git rev-parse --git-common-dir`) for the checkout at `cwd`, resolved; null outside git. */
 function commonGitDir(cwd: string): string | null {
   try {
-    const out = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    const out = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { // NOSONAR: the person's own git, found through PATH on purpose
       cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true,
     }).trim();
     return out ? realpathSync(out) : null;
