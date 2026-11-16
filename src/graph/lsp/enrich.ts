@@ -89,13 +89,20 @@ export async function enrichWithLsp(
   };
 
   // The name-token position of a definition (0-indexed), scanning its first few
-  // lines for the name — call hierarchy needs a position ON the symbol.
+  // lines for the name — call hierarchy needs a position ON the symbol. Only a
+  // whole identifier counts: `port` inside `éport`, `$port` or `portExtra` is
+  // another symbol, and querying there loses this one's calls.
   const namePos = (src: NodeV1): { line: number; character: number } | null => {
     const sp = parseSpan(src.span); if (!sp) return null;
     const lines = linesOf(src.path);
+    const escaped = src.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(
+      `(^|[^\\p{ID_Continue}$\\u200C\\u200D])${escaped}(?![\\p{ID_Continue}$\\u200C\\u200D])`,
+      "u",
+    );
     for (let ln = sp[0] - 1; ln < Math.min(sp[0] + 2, lines.length); ln++) {
-      const c = (lines[ln] ?? "").indexOf(src.name);
-      if (c >= 0) return { line: ln, character: c };
+      const match = pattern.exec(lines[ln] ?? "");
+      if (match) return { line: ln, character: match.index + match[1].length };
     }
     return null;
   };

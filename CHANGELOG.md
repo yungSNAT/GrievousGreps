@@ -47,6 +47,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
 - **A Python function with `@overload` stubs now has callers.** Each stub followed in its block by the implementation counted as a definition of its own, so every call to the name was dropped as ambiguous, as for flask's `stream_with_context` and click's `prompt`. Python binds the name to the implementation, and the graph now does too. Overloads with no implementation after them, as in a stub file or a Protocol, stay.
+- **`trail build --lsp` asks the language server about the function itself.** It took the first place the name appeared near the definition, even inside another word, so `port` was queried inside `éport` or `portExtra` in a comment before it and its calls were lost. It now takes the first whole identifier.
 - **A Python decorator written without arguments is a call.** `@stream_with_context` or `@rich.repr.auto` above a definition calls the decorator from the scope the definition sits in, as Python does, so the decorator now shows that caller. Only decorators with arguments, such as `@route("/")`, counted before.
 
 ## 0.28.0
