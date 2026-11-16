@@ -67,7 +67,7 @@ export function ownDir(dir: string): void {
 }
 export class LinkError extends Error {}
 
-/** The plain files of `from` (scripts/, lessons/) copied into a new folder `to`; links and folders inside are left out. */
+/** Plain files of `from` (scripts/, lessons/) copied into `to`, made when needed; links and folders are left out, existing files never overwritten. */
 export function copyFlat(from: string, to: string, mode: number, only?: (name: string) => boolean): number {
   if (!lst(from)?.isDirectory()) return 0;
   let n = 0;
@@ -75,7 +75,7 @@ export function copyFlat(from: string, to: string, mode: number, only?: (name: s
     if (name.startsWith('.') || (only && !only(name))) continue;
     const s = lst(join(from, name));
     if (!s?.isFile() || s.size > MAX_SKILL_BYTES) continue;
-    if (!n) mkdirSync(to, { mode: 0o700 });
+    if (!n) ownDir(to);
     writeSynced(join(to, name), readFileSync(join(from, name), 'utf8'), mode);
     n++;
   }
