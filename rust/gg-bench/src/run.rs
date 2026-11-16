@@ -31,9 +31,12 @@ pub struct Options {
     pub verbose: bool,
 }
 
-/// A path made absolute against the working folder, with `.` and `..` resolved by name, as
-/// Node's `path.resolve` does.
+/// An absolute path as given; any other made absolute against the working folder, with `.` and
+/// `..` resolved by name, as Node's `path.resolve` does. run.mjs did the same, and printed it.
 pub fn absolute(path: &Path) -> io::Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
     let mut out = PathBuf::new();
     for part in path::absolute(path)?.components() {
         match part {

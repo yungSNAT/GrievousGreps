@@ -3,6 +3,8 @@
 use std::ffi::OsStr;
 use std::io::{self, Read};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -46,25 +48,34 @@ pub struct Output {
     pub stderr: String,
 }
 
-/// Reads a child's stream to its end on its own thread, so neither pipe fills and blocks the child.
-fn drain(stream: Option<impl Read + Send + 'static>) -> thread::JoinHandle<io::Result<Vec<u8>>> {
+/// Reads a child's stream on its own thread, so neither pipe fills and blocks the child, and stops
+/// past `cap` bytes, setting `over`, as Node's `maxBuffer` does.
+fn drain(
+    stream: Option<impl Read + Send + 'static>,
+    cap: usize,
+    over: Arc<AtomicBool>,
+) -> thread::JoinHandle<io::Result<Vec<u8>>> {
     thread::spawn(move || {
         let mut bytes = Vec::new();
-        if let Some(mut stream) = stream {
-            stream.read_to_end(&mut bytes)?;
+        if let Some(stream) = stream {
+            stream.take(cap as u64 + 1).read_to_end(&mut bytes)?;
+            if bytes.len() > cap {
+                over.store(true, Ordering::Relaxed);
+            }
         }
         Ok(bytes)
     })
 }
 
-/// The exit status, or none when the time ran out and the child was stopped.
-fn wait(child: &mut Child, timeout: Duration) -> io::Result<Option<ExitStatus>> {
+/// The exit status, or none when the time ran out or a stream passed its cap and the child was
+/// stopped.
+fn wait(child: &mut Child, timeout: Duration, over: &AtomicBool) -> io::Result<Option<ExitStatus>> {
     let deadline = Instant::now() + timeout;
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(Some(status));
         }
-        if Instant::now() >= deadline {
+        if over.load(Ordering::Relaxed) || Instant::now() >= deadline {
             child.kill()?;
             child.wait()?;
             return Ok(None);
@@ -79,8 +90,14 @@ fn joined(handle: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>
         .unwrap_or_else(|_| Err(io::Error::other("the reader thread panicked")))
 }
 
-/// Runs the command to its end with an empty standard input, and stops it once `timeout` passes.
+/// Runs the command to its end with an empty standard input, and stops it once `timeout` passes
+/// or it prints over 512 MiB on either stream. Those 2 errors read as Node's `spawnSync` put them.
 pub fn output(command: &mut Command, timeout: Duration) -> Result<Output, String> {
+    capped_output(command, timeout, MAX_OUTPUT)
+}
+
+fn capped_output(command: &mut Command, timeout: Duration, cap: usize) -> Result<Output, String> {
+    let program = command.get_program().to_string_lossy().into_owned();
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -88,23 +105,71 @@ pub fn output(command: &mut Command, timeout: Duration) -> Result<Output, String
         .spawn()
         .map_err(|e| e.to_string())?;
     drop(child.stdin.take());
-    let (stdout, stderr) = (drain(child.stdout.take()), drain(child.stderr.take()));
-    let Some(status) = wait(&mut child, timeout).map_err(|e| e.to_string())? else {
-        return Err(format!(
-            "no answer within {} minutes",
-            timeout.as_secs() / 60
-        ));
+    let over = Arc::new(AtomicBool::new(false));
+    let (stdout, stderr) = (
+        drain(child.stdout.take(), cap, Arc::clone(&over)),
+        drain(child.stderr.take(), cap, Arc::clone(&over)),
+    );
+    let status = wait(&mut child, timeout, &over).map_err(|e| e.to_string())?;
+    if over.load(Ordering::Relaxed) {
+        return Err(format!("spawnSync {program} ENOBUFS"));
+    }
+    let Some(status) = status else {
+        return Err(format!("spawnSync {program} ETIMEDOUT"));
     };
     let (stdout, stderr) = (
         joined(stdout).map_err(|e| e.to_string())?,
         joined(stderr).map_err(|e| e.to_string())?,
     );
-    if stdout.len() > MAX_OUTPUT || stderr.len() > MAX_OUTPUT {
-        return Err("printed over 512 MiB".to_owned());
+    if over.load(Ordering::Relaxed) {
+        return Err(format!("spawnSync {program} ENOBUFS"));
     }
     Ok(Output {
         status,
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: String::from_utf8_lossy(&stderr).into_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_child_printing_past_the_cap_is_stopped_at_once() {
+        // Prints 64 KiB, then would run for a minute: the cap, not the time limit, must end it.
+        let mut node = Command::new("node");
+        node.args([
+            "-e",
+            "process.stdout.write('x'.repeat(65536)); setTimeout(() => {}, 60000)",
+        ]);
+        let started = Instant::now();
+        let err = capped_output(&mut node, Duration::from_secs(60), 1024)
+            .err()
+            .unwrap();
+        assert_eq!(err, "spawnSync node ENOBUFS");
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_child_past_its_time_reads_as_node_put_it() {
+        let mut node = Command::new("node");
+        node.args(["-e", "setTimeout(() => {}, 60000)"]);
+        let err = capped_output(&mut node, Duration::from_millis(300), MAX_OUTPUT)
+            .err()
+            .unwrap();
+        assert_eq!(err, "spawnSync node ETIMEDOUT");
+    }
+
+    #[test]
+    fn output_at_the_cap_is_kept() {
+        let mut node = Command::new("node");
+        node.args(["-e", "process.stdout.write('x'.repeat(1024))"]);
+        let out = capped_output(&mut node, Duration::from_secs(60), 1024).unwrap();
+        assert_eq!(out.stdout.len(), 1024);
+    }
 }

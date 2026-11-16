@@ -232,7 +232,7 @@ fn a_tool_past_its_time_is_stopped() {
     )
     .err()
     .unwrap();
-    assert!(err.starts_with("sleep: no answer within"), "{err}");
+    assert_eq!(err, "sleep: spawnSync node ETIMEDOUT");
 }
 
 #[test]
@@ -307,4 +307,14 @@ fn a_path_resolves_dots_by_name() {
         absolute(Path::new("a/../b/./c")).unwrap(),
         cwd.join("b").join("c")
     );
+}
+
+#[test]
+fn an_absolute_path_is_kept_as_given() {
+    let given = std::env::current_dir()
+        .unwrap()
+        .join("a")
+        .join("..")
+        .join("b");
+    assert_eq!(absolute(&given).unwrap(), given);
 }
