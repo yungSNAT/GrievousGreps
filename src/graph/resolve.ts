@@ -651,7 +651,7 @@ export function resolveEdges(
           // Elixir: the receiver module exists in the repo but declares no such `def` —
           // the function is macro-generated (`use Ecto.Repo`, a DSL). The call is still
           // a real dependency on that module: point the edge at the module node.
-          const mod = moduleByFqn.get(e.recvType);
+          const mod = moduleByFqn.get(recvType);
           if (mod && mod.id !== e.source && reachable(e.file, mod.path)) {
             add(e.source, mod.id, "calls", "inferred");
           }
