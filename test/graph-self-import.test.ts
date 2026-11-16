@@ -534,6 +534,45 @@ mod named {
   assert.deepEqual(calls(graph, "app/tests/t.rs#by_use"), ["two/src/expect.rs#span"], "a `use` naming the module beats a glob");
 });
 
+test("Rust: under `use super::*`, a module path reads through the `use` lines of the file that declares the module", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "app"]\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod expect;\npub mod layer;\n",
+    "mock/src/expect.rs": "pub fn event() {}\n",
+    "mock/src/layer.rs": "pub fn mock() {}\n",
+    "two/Cargo.toml": `[package]\nname = "two"\n`,
+    "two/src/lib.rs": "pub mod expect;\npub mod layer;\n",
+    "two/src/expect.rs": "pub fn event() {}\n",
+    "two/src/layer.rs": "pub fn mock() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
+    "app/src/lib.rs": "mod outer;\n",
+    "app/src/outer.rs": "use tracing_mock::layer;\nmod inner;\n",
+    "app/src/outer/inner.rs": "use super::*;\npub fn go() { layer::mock(); }\n",
+    // tracing's tests/layer_filters: main.rs declares `mod option;` and imports `expect`.
+    "app/tests/filters/main.rs": "mod option;\nmod own;\nuse tracing_mock::{expect, layer};\n",
+    "app/tests/filters/option.rs": `use super::*;
+#[test]
+fn option_none() { expect::event(); layer::mock(); }
+mod nested {
+    use super::*;
+    fn deeper() { expect::event(); }
+}
+`,
+    "app/tests/filters/own.rs": "use super::*;\nuse two::expect;\nfn by_use() { expect::event(); }\n",
+    // 2 test crates declare `mod common;` and import `expect` from different crates.
+    "app/tests/a.rs": "mod common;\nuse tracing_mock::expect;\n",
+    "app/tests/b.rs": "mod common;\nuse two::expect;\n",
+    "app/tests/common.rs": "use super::*;\npub fn shared() { expect::event(); }\n",
+  });
+  assert.deepEqual(calls(graph, "app/tests/filters/option.rs#option_none"), ["mock/src/expect.rs#event", "mock/src/layer.rs#mock"]);
+  assert.deepEqual(calls(graph, "app/tests/filters/option.rs#deeper"), ["mock/src/expect.rs#event"], "an inline module that globs `super` sees the file's glob");
+  assert.deepEqual(calls(graph, "app/src/outer/inner.rs#go"), ["mock/src/layer.rs#mock"], "a module file below a non-mod.rs parent");
+  assert.deepEqual(calls(graph, "app/tests/filters/own.rs#by_use"), ["two/src/expect.rs#event"], "the file's own `use` beats the parent's");
+  assert.deepEqual(calls(graph, "app/tests/common.rs#shared"), [], "2 parents bind `expect` to 2 crates, so neither is chosen");
+  assert.deepEqual(stated(graph, "app/tests/common.rs#shared"), [["event", "expect::event"]]);
+});
+
 test("Rust: a repeated name no path settles is stated, and a dependency's stays silent", async (t) => {
   const graph = await build(t, {
     ...tracingLike,
