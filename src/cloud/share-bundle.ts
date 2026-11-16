@@ -296,7 +296,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
 }
 
 /** What will be sent, for the person to say yes to. `copy` is the folder as shown (`~/.trail/share/…`). */
-export function bundlePreviewLines(m: Manifest, copy: string, to: { url: string }, opts: { sync?: string } = {}): string[] {
+export function bundlePreviewLines(m: Manifest, copy: string, to: { url: string }, opts: { sync?: string; hook?: boolean } = {}): string[] {
   const sessions = m.items.filter((it) => it.kind === "session");
   const gz = m.items.reduce((n, it) => n + it.gzBytes, 0);
   const times = sessions.map((s) => s.mtime);
@@ -327,7 +327,9 @@ export function bundlePreviewLines(m: Manifest, copy: string, to: { url: string 
     ...(opts.sync
       ? ([
           ["Keeps on", `after this, each Claude Code session you start sends what changed since, scrubbed the same way and kept in a copy you can read; ${opts.sync} stops it`],
-          ["Hook", "one entry in ~/.claude/settings.json, so it runs in every folder, in the terminal and in Claude Desktop; stopping takes it out"],
+          opts.hook
+            ? ["Hook", "one entry in ~/.claude/settings.json, so it runs in every folder, in the terminal and in Claude Desktop; stopping takes it out"]
+            : ["Hook", "none without --global: it runs only in repos where trail is set up; --global adds one entry in ~/.claude/settings.json, so it runs in every folder"],
         ] as Array<[string, string]>)
       : []),
     ["Delete", "any time, with the code you get once it's sent"],

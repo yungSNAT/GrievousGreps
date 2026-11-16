@@ -10,6 +10,7 @@ import { skillTemplate } from './skill-template.js';
 import { mergeJsonKey, serverEntry, type McpWrite } from '../hosts/mcp-config.js';
 import { readJsonObject } from '../hosts/config-write.js';
 import { ignoreInTrailDir } from '../notes/repo-trail.js';
+import { removeFileInside, writeFileInside } from '../util/safe-fs.js';
 export { ignoreInTrailDir };
 import { hasGraftIndex } from '../graph/root.js';
 import type { PlannedWrite } from '../hosts/plan.js';
@@ -278,7 +279,8 @@ function clearOldLayout(dir: string, opts: { keepShims?: boolean } = {}): void {
 /**
  * Take what an earlier init put in `.claude/settings.json` back out, for a repo
  * on trail just for this person. The file goes if nothing else was in it. One
- * git tracks is the team's and stays as it is.
+ * git tracks is the team's and stays as it is. Both happen inside `dir` only:
+ * a link out of the repo is replaced, never written through.
  */
 function dropTrailShared(dir: string, path: string): void {
   try {
@@ -287,8 +289,8 @@ function dropTrailShared(dir: string, path: string): void {
     const kept = withoutOurs(existing);
     if (JSON.stringify(kept) === JSON.stringify(existing)) return;
     if (gitTracks(dir, join('.claude', 'settings.json'))) return;
-    if (Object.keys(kept).length === 0) rmSync(path, { force: true });
-    else writeFileSync(path, `${JSON.stringify(kept, null, 2)}\n`);
+    if (Object.keys(kept).length === 0) removeFileInside(dir, path);
+    else writeFileInside(dir, path, `${JSON.stringify(kept, null, 2)}\n`);
   } catch { /* leave it as the user has it */ }
 }
 

@@ -459,19 +459,30 @@ test("trail share-session keeps sending by default: says so, --yes turns it on, 
     assert.match(shown.stdout, /^Your Claude, last 30 days and from now on, ready to send to the Trail team$/m);
     assert.match(shown.stdout, /^Keeps on  after this, each Claude Code session you start sends what changed since, .* trail share-session --stop stops it$/m);
     assert.match(shown.stdout, /only if they say yes, run trail share-session --yes,/);
-    assert.match(shown.stdout, /^Hook {6}one entry in ~\/\.claude\/settings\.json, so it runs in every folder/m);
+    // The fork writes user-level config only with --global: without it there is no hook.
+    assert.match(shown.stdout, /^Hook {6}none without --global: it runs only in repos where trail is set up; --global adds one entry in ~\/\.claude\/settings\.json/m);
     assert.ok(!existsSync(join(home, ".claude", "settings.json")), "nothing is added before the yes");
     assert.ok(!trail.got.some((g) => g.method === "POST"));
+    const withHook = await spawnAsync(repo, home, ["--global"]);
+    assert.match(withHook.stdout, /^Hook {6}one entry in ~\/\.claude\/settings\.json, so it runs in every folder/m);
+    assert.match(withHook.stdout, /only if they say yes, run trail share-session --global --yes,/);
 
     const on = await spawnAsync(repo, home, ["--yes"]);
     assert.equal(on.status, 0, on.stderr);
-    assert.match(on.stderr, /and from now on: each Claude Code session you start, in any folder, sends what changed since/);
-    assert.match(on.stderr, /added one hook to ~[\\/]\.claude[\\/]settings\.json so this runs in every folder, in the terminal and in Claude Desktop/);
+    assert.match(on.stderr, /and from now on: each Claude Code session you start in a repo where trail is set up sends what changed since/);
+    assert.match(on.stderr, /no hook added to ~[\\/]\.claude[\\/]settings\.json without --global/);
+    assert.ok(!existsSync(join(home, ".claude", "settings.json")), "the yes to sending is no yes to user-level config");
     const settings = () => (existsSync(join(home, ".claude", "settings.json")) ? readFileSync(join(home, ".claude", "settings.json"), "utf8") : "");
-    assert.match(settings(), /graft-hooks\.cjs\\" share-sync \|\| exit 0/);
     assert.match(on.stderr, /stop any time: trail share-session --stop/);
     const first = trail.got.filter((g) => g.method === "POST").map((g) => JSON.parse(g.body));
     assert.deepEqual(first.map((p) => p.kind), ["setup", "session"]);
+
+    const plain = await spawnAsync(repo, home, []);
+    assert.match(plain.stdout, /no hook in ~[\\/]\.claude[\\/]settings\.json without --global/);
+    assert.ok(!existsSync(join(home, ".claude", "settings.json")), "asking where it stands adds no hook either");
+    const hooked = await spawnAsync(repo, home, ["--global"]);
+    assert.match(hooked.stdout, /put its hook back in ~[\\/]\.claude[\\/]settings\.json/);
+    assert.match(settings(), /graft-hooks\.cjs\\" share-sync \|\| exit 0/);
 
     const status = await spawnAsync(repo, home, []);
     assert.match(status.stdout, /^Sending to the Trail team since .*: 1 session so far/m);
@@ -492,9 +503,9 @@ test("trail share-session keeps sending by default: says so, --yes turns it on, 
     const ran = await spawnTrail(repo, home, ["_share-sync"]);
     assert.equal(ran.status, 0, ran.stderr);
     writeFileSync(join(home, ".claude", "settings.json"), "{}\n");
-    const after = await spawnAsync(repo, home, []);
+    const after = await spawnAsync(repo, home, ["--global"]);
     assert.match(after.stdout, /last run .*: sent 1/, "the status says what the last run did");
-    assert.match(after.stdout, /put its hook back in ~[\\/]\.claude[\\/]settings\.json/, "a hook something took out is put back");
+    assert.match(after.stdout, /put its hook back in ~[\\/]\.claude[\\/]settings\.json/, "with --global, a hook something took out is put back");
     assert.match(settings(), /share-sync/);
     const later = trail.got.filter((g) => g.method === "POST").map((g) => JSON.parse(g.body)).slice(2);
     assert.deepEqual(later.map((p) => p.session_id), [id]);

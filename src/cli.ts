@@ -2713,7 +2713,8 @@ function shareSessionCommand(name = "share-session"): Command {
     .addOption(new Option("--sync").hideHelp())
     .option("--stop", "stop sending: nothing more goes after this")
     .option("--delete <code>", "take back everything sent under this delete code, and stop sending")
-    .action(async (pick: string | undefined, opts: { list?: boolean; days: string; leaveOut?: string; yes?: boolean; delete?: string; once?: boolean; stop?: boolean }) => {
+    .option("--global", "also add one hook to ~/.claude/settings.json, so sending runs in every folder, not only in repos where trail is set up")
+    .action(async (pick: string | undefined, opts: { list?: boolean; days: string; leaveOut?: string; yes?: boolean; delete?: string; once?: boolean; stop?: boolean; global?: boolean }) => {
       const dir = process.cwd();
       const here = workspaceRepo(dir);
       // Stopping needs no sign-in: someone who tried it must always be able to stop it.
@@ -2738,9 +2739,9 @@ function shareSessionCommand(name = "share-session"): Command {
       const sync = !opts.once;
       if (sync) {
         const on = readSyncState();
-        if (on && !on.stoppedAt) return console.log(syncStatusLines(on).join("\n"));
+        if (on && !on.stoppedAt) return console.log(syncStatusLines(on, opts.global === true).join("\n"));
       }
-      return shareWholeClaude(cloud, { days, leaveOut: opts.leaveOut, yes: !!opts.yes, sync }, here.checkout);
+      return shareWholeClaude(cloud, { days, leaveOut: opts.leaveOut, yes: !!opts.yes, sync, global: opts.global === true }, here.checkout);
     });
 }
 
@@ -2802,7 +2803,7 @@ async function shareOneSession(cloud: Cloud, pick: string, yes: boolean, checkou
  * terminal (an agent ran it) it stops after the summary, and `--yes` later
  * sends that same copy.
  */
-async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: string; yes: boolean; sync: boolean }, checkout: string): Promise<void> {
+async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: string; yes: boolean; sync: boolean; global: boolean }, checkout: string): Promise<void> {
   const root = join(trailHome(), "share");
   const tty = !!(process.stdin.isTTY && process.stderr.isTTY);
   const earlier = unfinishedCopy(root);
@@ -2810,7 +2811,7 @@ async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: s
   if (earlier?.sent && tty && !opts.yes) {
     const left = earlier.manifest.items.filter((it) => !earlier.sent!.sent.includes(it.id)).length;
     console.log(`An earlier send stopped with ${left} of ${earlier.manifest.items.length} items left (${homePath(earlier.dir)}).`);
-    if (await askYes("Send the rest? [y/N] ")) await sendCopy(cloud, earlier.dir, earlier.manifest, earlier.sent, checkout, opts.sync);
+    if (await askYes("Send the rest? [y/N] ")) await sendCopy(cloud, earlier.dir, earlier.manifest, earlier.sent, checkout, opts.sync, opts.global);
     else console.error("· nothing sent");
     return;
   }
@@ -2825,7 +2826,7 @@ async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: s
       }
       m = leaveOut(earlier.dir, m, ns);
     }
-    await sendCopy(cloud, earlier.dir, m, earlier.sent ?? newSentState(), checkout, opts.sync);
+    await sendCopy(cloud, earlier.dir, m, earlier.sent ?? newSentState(), checkout, opts.sync, opts.global);
     return;
   }
 
@@ -2845,9 +2846,9 @@ async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: s
     onProgress: tty ? (done, total) => process.stderr.write(`\r· scrubbing sessions: ${done} of ${total}`) : undefined,
   });
   if (tty) process.stderr.write("\n");
-  const again = `${cmd("graft share-session")}${opts.sync ? "" : " --once"}`;
+  const again = `${cmd("graft share-session")}${opts.sync ? (opts.global ? " --global" : "") : " --once"}`;
   const show = () => {
-    console.log(bundlePreviewLines(m, homePath(out), cloud, opts.sync ? { sync: `${cmd("graft share-session")} --stop` } : {}).join("\n"));
+    console.log(bundlePreviewLines(m, homePath(out), cloud, opts.sync ? { sync: `${cmd("graft share-session")} --stop`, hook: opts.global } : {}).join("\n"));
     console.log("");
   };
   show();
@@ -2864,7 +2865,7 @@ async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: s
   for (;;) {
     const a = await askLine(`${all} y · n · or folder numbers to leave out (like 3 7): `);
     if (a === null || /^(n|no)?$/i.test(a)) return declined();
-    if (/^y(es)?$/i.test(a)) return void (await sendCopy(cloud, out, m, newSentState(), checkout, opts.sync));
+    if (/^y(es)?$/i.test(a)) return void (await sendCopy(cloud, out, m, newSentState(), checkout, opts.sync, opts.global));
     const ns = parseLeaveOut(a, m);
     if (!ns) {
       console.error("· answer y, n, or folder numbers from the list");
@@ -2872,7 +2873,7 @@ async function shareWholeClaude(cloud: Cloud, opts: { days: number; leaveOut?: s
     }
     m = leaveOut(out, m, ns);
     show();
-    if (await askYes(opts.sync ? "Send the rest, and keep sending? [y/N] " : "Send the rest? [y/N] ")) return void (await sendCopy(cloud, out, m, newSentState(), checkout, opts.sync));
+    if (await askYes(opts.sync ? "Send the rest, and keep sending? [y/N] " : "Send the rest? [y/N] ")) return void (await sendCopy(cloud, out, m, newSentState(), checkout, opts.sync, opts.global));
     return declined();
   }
 }
@@ -2882,7 +2883,7 @@ function bundleGz(m: Manifest): number {
 }
 
 /** Send what's left of a copy, one item at a time, writing down each as it lands. */
-async function sendCopy(cloud: Cloud, dir: string, m: Manifest, sent: SentState, checkout: string, sync = false): Promise<boolean> {
+async function sendCopy(cloud: Cloud, dir: string, m: Manifest, sent: SentState, checkout: string, sync = false, global = false): Promise<boolean> {
   writeSent(dir, sent);
   const tty = process.stderr.isTTY;
   const total = m.items.length;
@@ -2936,8 +2937,10 @@ async function sendCopy(cloud: Cloud, dir: string, m: Manifest, sent: SentState,
       setupHash: createHash("sha256").update(setup).digest("hex"),
       lastRunAt: Date.now(),
     });
-    console.error(`· and from now on: each Claude Code session you start, in any folder, sends what changed since, kept in ${homePath(syncDir())}`);
-    console.error(hookLine(installShareSyncHook(homedir())));
+    // The fork writes user-level config only with --global: the yes to sending is no yes to ~/.claude.
+    const where = global ? ", in any folder," : " in a repo where trail is set up";
+    console.error(`· and from now on: each Claude Code session you start${where} sends what changed since, kept in ${homePath(syncDir())}`);
+    console.error(global ? hookLine(installShareSyncHook(homedir())) : noHookLine("added to"));
     console.error(`· stop any time: ${cmd("graft share-session")} --stop`);
   }
   console.error(`· take it all back any time: ${cmd("graft share-session")} --delete ${deleteCode(sent)}`);
@@ -2955,8 +2958,13 @@ function hookLine(r: HookResult): string {
   return `✗ couldn't add its hook to ${where}${r === "unparseable" ? " (the file isn't valid JSON)" : ""}, so this runs only in repos where trail is set up`;
 }
 
-/** Where a running sync stands, and its hook put back if something took it out. */
-function syncStatusLines(s: SyncState): string[] {
+/** Why there is no hook in `~/.claude/settings.json`: it is written only with `--global`. */
+function noHookLine(verb: "added to" | "in"): string {
+  return `· no hook ${verb} ${homePath(settingsPath(homedir()))} without --global, so this runs only in repos where trail is set up; ${cmd("graft share-session")} --global adds it`;
+}
+
+/** Where a running sync stands, and with `--global` its hook put back if something took it out. */
+function syncStatusLines(s: SyncState, global = false): string[] {
   const n = Object.keys(s.sessions).length;
   const at = (ms: number) => new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   const last = s.lastRun;
@@ -2965,8 +2973,8 @@ function syncStatusLines(s: SyncState): string[] {
     : last.error
       ? `✗ the last run, ${at(last.at)}, stopped: ${last.error}. The next session you start tries again`
       : `· last run ${at(last.at)}: ${last.sent ? `sent ${last.sent}` : "nothing new to send"}`;
-  const put = hasShareSyncHook(homedir()) ? "already" : installShareSyncHook(homedir());
-  const hook = put === "added" ? `· put its hook back in ${homePath(settingsPath(homedir()))}, so this runs in every folder again` : hookLine(put);
+  const put = hasShareSyncHook(homedir()) ? "already" : global ? installShareSyncHook(homedir()) : null;
+  const hook = put === null ? noHookLine("in") : put === "added" ? `· put its hook back in ${homePath(settingsPath(homedir()))}, so this runs in every folder again` : hookLine(put);
   return [
     `Sending to the Trail team since ${at(s.since)}: ${n} session${n === 1 ? "" : "s"} so far.`,
     lastLine,

@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -112,6 +112,28 @@ test("the Claude Code wiring leaves .claude/settings.json alone, and takes back 
   setJustMe(dir, true);
   runInit(dir, { build: false, global: false, home, brand: "trail" });
   assert.deepEqual(JSON.parse(readFileSync(settings, "utf8")), { model: "opus" });
+});
+
+test("taking trail's entry back out never writes through a link that leaves the repository", (t) => {
+  const dir = repo();
+  const home = mkdtempSync(join(tmpdir(), "just-me-link-"));
+  const outside = mkdtempSync(join(tmpdir(), "just-me-outside-"));
+  const settings = join(dir, ".claude", "settings.json");
+  runInit(dir, { build: false, global: false, home, brand: "trail" });
+  const theirs = join(outside, "settings.json");
+  const before = JSON.stringify({ ...JSON.parse(readFileSync(settings, "utf8")), model: "opus" });
+  writeFileSync(theirs, before);
+  rmSync(settings);
+  try {
+    symlinkSync(theirs, settings);
+  } catch {
+    t.skip("this machine cannot make symlinks");
+    return;
+  }
+  setJustMe(dir, true);
+  runInit(dir, { build: false, global: false, home, brand: "trail" });
+  assert.equal(readFileSync(theirs, "utf8"), before, "the file the link points at is untouched");
+  assert.deepEqual(JSON.parse(readFileSync(settings, "utf8")), { model: "opus" }, "the repo gets its own file in the link's place");
 });
 
 test("keepOutOfGit and letGitSee hide .trail/ for this clone and show it again", () => {
