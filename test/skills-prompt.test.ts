@@ -154,10 +154,11 @@ test("the deadline: slow probes are left out, the block still comes inside 400 m
     return { code: null, out: "", timedOut: true };
   };
   // The hook's clock reads 250 ms later after it sets the deadline, as if reading the store took that long, so the probes
-  // may have only what is left: 150 ms.
+  // may have only what is left: 150 ms. The clock is the test's alone: on the real one, a loaded runner's own slowness
+  // before the cue ran the deadline out and the block never came.
   const used = 250;
   let calls = 0;
-  const clock = () => Date.now() + (calls++ === 0 ? 0 : used);
+  const clock = () => (calls++ === 0 ? 0 : used);
   const out = run(b, "now ff to prod please", {}, b.env, deps(b, { clock, probes: { git: slow } }));
   assert.ok(out.context?.startsWith("[trail] Skill ship-beta-then-prod fits"));
   assert.ok(!out.context!.includes("ready:"));
