@@ -358,6 +358,101 @@ pub fn near() {}
   assert.deepEqual(calls(graph, "sub/src/a.rs#own"), ["sub/src/a.rs#near", "sub/src/b.rs#local"]);
 });
 
+test("Rust: a call reaches each `cfg` arm of a function, by path and by bare name", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["core", "app"]\n`,
+    "core/Cargo.toml": `[package]\nname = "tracing-core"\n`,
+    "core/src/lib.rs": "pub mod dispatcher;\npub mod other;\npub mod blocking;\npub mod user;\npub mod process;\npub mod both;\n",
+    "core/src/dispatcher.rs": `#[cfg(feature = "std")]
+pub fn get_default() {}
+#[cfg(not(feature = "std"))]
+pub fn get_default() {}
+pub fn near() { get_default(); }
+mod a { pub fn twin() {} }
+mod b { pub fn twin() {} }
+pub fn pair() { twin(); }
+mod c {
+    #[cfg(unix)]
+    pub fn gated() {}
+    pub fn inner() { gated(); }
+}
+mod d {
+    #[cfg(windows)]
+    pub fn gated() {}
+}
+mod e {
+    #[cfg(unix)]
+    pub fn os() {}
+    #[cfg(windows)]
+    pub fn os() {}
+    pub fn here() { os(); }
+}
+cfg_std! { pub fn current() {} }
+cfg_no_std! { cfg_alloc! { pub fn current() {} } }
+pub fn now() { current(); }
+`,
+    "core/src/other.rs": "pub fn get_default() {}\n",
+    // tokio's `blocking.rs`: one arm re-exports the function, the others define it.
+    "core/src/blocking.rs": `cfg_rt! { pub(crate) use crate::other::get_default; }
+cfg_not_rt! {
+    #[cfg(unix)]
+    pub(crate) fn get_default() {}
+    #[cfg(not(unix))]
+    pub(crate) fn get_default() {}
+}
+pub fn inside() { crate::blocking::get_default(); }
+`,
+    // A path the graph cannot follow (std) is no call to same-named arms in this file.
+    "core/src/process.rs": "mod c {\n    #[cfg(unix)]\n    pub fn id() {}\n    #[cfg(windows)]\n    pub fn id() {}\n}\npub fn root() { std::process::id(); }\n",
+    // A macro may share a function's name (another namespace); it is no arm.
+    "core/src/both.rs": "#[cfg(unix)]\npub fn foo() {}\n#[cfg(windows)]\npub fn foo() {}\nmacro_rules! foo { () => {}; }\n",
+    "core/src/user.rs": "use crate::blocking::get_default;\npub fn mixed() { get_default(); }\npub fn through() { crate::both::foo(); }\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-core = { path = "../core" }\n`,
+    "app/src/lib.rs": "use tracing_core::dispatcher;\npub fn far() { dispatcher::get_default(); }\n",
+  });
+  assert.ok(!calls(graph, "core/src/user.rs#mixed").includes("core/src/blocking.rs#get_default"), "an arm that re-exports leaves the name uncertain");
+  assert.ok(!calls(graph, "core/src/blocking.rs#inside").includes("core/src/blocking.rs#get_default"), "also through a path inside that file");
+  assert.deepEqual(calls(graph, "core/src/process.rs#root"), [], "a path that leads outside reaches no arm");
+  const stated = (graph.unresolvedCalls ?? []).filter((u) => ["core/src/blocking.rs#inside", "core/src/process.rs#root"].includes(u.source)).map((u) => [u.source, u.name, u.through]).sort();
+  // A call into std reaches nothing the repository defines, so it states no undercount.
+  assert.deepEqual(stated, [["core/src/blocking.rs#inside", "get_default", "crate::blocking::get_default"]], "the uncertain path call is reported unresolved, with its path");
+  assert.deepEqual(calls(graph, "core/src/user.rs#through"), ["core/src/both.rs#foo", "core/src/both.rs#foo~2"], "a same-named macro does not hide an arm");
+  const arms = ["core/src/dispatcher.rs#get_default", "core/src/dispatcher.rs#get_default~2"];
+  assert.deepEqual(calls(graph, "app/src/lib.rs#far"), arms, "through a path");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#near"), arms, "by bare name in the same file");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#pair"), [], "2 functions of one name in different modules are not arms");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#inner"), [], "nor are 2 gated ones in different inline modules");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#here"), ["core/src/dispatcher.rs#os", "core/src/dispatcher.rs#os~2"], "2 gated ones in one inline module are");
+  assert.deepEqual(calls(graph, "core/src/dispatcher.rs#now"), ["core/src/dispatcher.rs#current", "core/src/dispatcher.rs#current~2"], "as are 2 inside item macros");
+});
+
+// Each case: test name, workspace files, caller and the one callee its path reaches.
+const externCrateCases: [string, Record<string, string>, string, string][] = [
+  ["a path follows a crate that `pub extern crate … as` re-exports", {
+    "Cargo.toml": `[workspace]\nmembers = ["cli", "grep", "core"]\n`,
+    "cli/Cargo.toml": `[package]\nname = "grep-cli"\n`,
+    "cli/src/lib.rs": "mod hostname;\npub use crate::hostname::hostname;\n",
+    "cli/src/hostname.rs": "pub fn hostname() {}\n",
+    "grep/Cargo.toml": `[package]\nname = "grep"\n[dependencies]\ngrep-cli = { path = "../cli" }\n`,
+    "grep/src/lib.rs": "pub extern crate grep_cli as cli;\n",
+    "core/Cargo.toml": `[package]\nname = "core-app"\n[dependencies]\ngrep = { path = "../grep" }\n`,
+    "core/src/lib.rs": "fn hostname() { platform(); }\nfn platform() { grep::cli::hostname(); }\n",
+  }, "core/src/lib.rs#platform", "cli/src/hostname.rs#hostname"],
+  ["`pub extern crate self as …` in a module names the crate root, not that module", {
+    "Cargo.toml": `[workspace]\nmembers = ["lib", "app"]\n`,
+    "lib/Cargo.toml": `[package]\nname = "dep"\n`,
+    "lib/src/lib.rs": "pub mod sub;\npub fn target() {}\n",
+    "lib/src/sub.rs": "pub extern crate self as root;\npub fn target() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ndep = { path = "../lib" }\n`,
+    "app/src/lib.rs": "pub fn go() { dep::sub::root::target(); }\n",
+  }, "app/src/lib.rs#go", "lib/src/lib.rs#target"],
+];
+for (const [name, files, caller, callee] of externCrateCases) {
+  test(`Rust: ${name}`, async (t) => {
+    assert.deepEqual(calls(await build(t, files), caller), [callee]);
+  });
+}
+
 test("Rust: the items inside an item macro such as `cfg_rt!` are read as items", async (t) => {
   const graph = await build(t, {
     "Cargo.toml": `[workspace]\nmembers = ["rt", "app"]\n`,
