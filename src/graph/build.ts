@@ -34,7 +34,7 @@ import {
 } from "./extract-cache.js";
 import { writeFingerprint } from "./fingerprint.js";
 import { seedGraph, type SeedResult } from "./seed.js";
-import { filterByOnlyDirs, listSourceStats } from "./source-files.js";
+import { filterByOnlyDirs, listSourceStats, normalizeExtensions } from "./source-files.js";
 import { readPythonRoots } from "./python-roots.js";
 import { resolveEdges, type GoModule, type TsPackage, type TsPaths } from "./resolve.js";
 import { readFileInside } from "../util/safe-fs.js";
@@ -141,6 +141,8 @@ function applyMinSubstanceGuard(scopes: ScopeV1[], nodes: NodeV1[]): ScopeV1[] {
 }
 
 export interface GraphBuildOptions {
+  /** Source extensions to include; absent or empty includes every supported language. */
+  extensions?: string[];
   /** Override the output dir (default: `<root>/.context`). */
   contextDir?: string;
   /** Replay unchanged files from the extraction cache instead of re-parsing them
@@ -196,6 +198,9 @@ export interface GraphBuildResult {
    * and the packages to allow at install to fix it. Absent when everything loaded. */
   nativeFallback?: NativeFallback;
   meaning: EnrichStats;
+  /** Recoverable Tier-1/build-output errors. These leave a partial graph on
+   * disk, but the CLI must not report the build as successful. */
+  structuralErrors: number;
   errors: string[];
 }
 
@@ -380,7 +385,8 @@ export async function buildGraph(
   });
   const onlyDirs = opts.onlyDirs && opts.onlyDirs.length > 0 ? new Set(opts.onlyDirs) : undefined;
   const repoFiles = filterByOnlyDirs(walked, root, onlyDirs);
-  const files = listSourceStats(root, outDir, repoFiles);
+  const extensions = normalizeExtensions(opts.extensions);
+  const files = listSourceStats(root, outDir, repoFiles, undefined, extensions);
   const discoveredScopes = discoverScopes(root, repoFiles);
 
   const nodes: NodeV1[] = [];
@@ -554,6 +560,7 @@ export async function buildGraph(
       nodeCount: nodes.length,
       edgeCount: edges.length,
       languages: [...langs].sort(), // NOSONAR: strings only, so the default code-unit order is deterministic
+      extensions,
       scopes,
     },
     nodes,
@@ -584,7 +591,7 @@ export async function buildGraph(
     const { enrichWithLsp } = await import("./lsp/enrich.js");
     const r = await enrichWithLsp(graph, root);
     graph.meta.edgeCount = graph.edges.length;
-    opts.onProgress?.({ phase: "enrich", index: r.added, total: r.queried, file: `lsp:${r.server ?? "none"}` });
+    opts.onProgress?.({ phase: "enrich", index: r.added, total: r.queried, file: `lsp:${r.servers.join(", ") || "none"}` });
   }
 
   const graphPath = writeGraph(graph, outDir);
@@ -609,7 +616,7 @@ export async function buildGraph(
   // these source bytes." Nothing about the projections below — which is why it is
   // safe to write here, and why `graphOnly` builds (the query path, which stops
   // right after this line) are still recorded as fresh.
-  writeFingerprint(outDir, entries, opts.onlyDirs);
+  writeFingerprint(outDir, entries, opts.onlyDirs, extensions);
 
   // Tier-2 passive surface: project the nodes into per-file markdown cards, and
   // refresh the INDEX roster. Pure projection — no LLM, no network.
@@ -660,6 +667,7 @@ export async function buildGraph(
       ? { nativeFallback: { languages: [...fellBackLabels].sort(), packages: missingDepthPackages(fellBack) } } // NOSONAR: strings only, so the default code-unit order is deterministic
       : {}),
     meaning,
+    structuralErrors: errors.length - meaning.errors.length,
     errors,
   };
 }

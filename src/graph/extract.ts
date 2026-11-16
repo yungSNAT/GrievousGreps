@@ -461,6 +461,8 @@ export interface WalkCtx {
    * (conditional ones included) and the enclosing defs' own imports. A call through
    * one that neither import map resolves here is dropped, never matched globally. */
   pythonImportedNames: ReadonlySet<string>;
+  goImports: ReadonlyMap<string, string>;
+  goLocals: ReadonlyMap<string, number>;
   // R6 (Phase 2): which list we're inside while walking an `R6Class(...)` call's
   // arguments — set only for the direct span of a `public =`/`private =`/
   // `active =` `list(...)`'s own entries (see walk()'s special-cased `argument`
@@ -529,6 +531,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     : EMPTY_MODULE_MAP;
   const pythonNamedImports = lang === "python" ? withoutPythonShadowedModules(pythonSymbols, root) : EMPTY_NAMED_IMPORTS;
   const importedSymbols = collectImportedSymbols(root, lang);
+  const goImports = lang === "go" ? collectGoImports(root) : new Map<string, string>();
   const rGenerics = lang === "r" ? collectRGenerics(root) : EMPTY_SET;
   const pythonExports = lang === "python" ? collectPythonExports(root) : null;
   const tsModule = lang === "typescript" || lang === "tsx" ? collectTsModule(root) : null;
@@ -577,6 +580,8 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     pythonReboundNames,
     tsImported: new Set(tsModule?.imports.map((i) => i.local)),
     pythonLocalRebound: new Map(),
+    goImports,
+    goLocals: new Map(),
     rR6Access: null,
     rGenerics,
     rSuperClass: null,
@@ -782,7 +787,10 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
     const javaTypeDecl = ctx.lang === "java" && JAVA_TYPE_KINDS.has(desc.kind);
     const kotlinTypeDecl = ctx.lang === "kotlin" && KOTLIN_TYPE_KINDS.has(desc.kind);
     const swiftTypeDecl = ctx.lang === "swift" && SWIFT_TYPE_KINDS.has(desc.kind);
-    if (desc.kind === "class" || javaTypeDecl || kotlinTypeDecl || swiftTypeDecl)
+    // A TS interface's `extends A, B` is heritage too: it is what lets a call on a
+    // `LockingStore` find `save` declared on the `Store` it extends.
+    const tsInterfaceDecl = (ctx.lang === "typescript" || ctx.lang === "tsx") && desc.kind === "interface";
+    if (desc.kind === "class" || javaTypeDecl || kotlinTypeDecl || swiftTypeDecl || tsInterfaceDecl)
       edges.push(...heritageEdges(node, id, ctx));
     if (ctx.lang === "php") edges.push(...phpAttributeReferenceEdges(node, id, ctx));
     if (ctx.lang === "java") edges.push(...javaAnnotationReferenceEdges(node, id, ctx));
@@ -800,6 +808,7 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
       parentId: id,
       enclosingClass,
       goReceiverVar: isGoMethod ? goReceiverVarOf(node) : ctx.goReceiverVar,
+      goLocals: ctx.lang === "go" && (desc.kind === "function" || desc.kind === "method") ? collectGoLocals(node) : ctx.goLocals,
       importedSymbols:
         desc.kind === "function" || desc.kind === "method"
           ? withoutShadowedImports(ctx.importedSymbols, node)
@@ -894,6 +903,12 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
   }
 
   // not a definition — capture calls/imports/references, then descend with the same context
+  if (ctx.lang === "php") {
+    const ref = phpTypeReference(node, ctx);
+    if (ref) {
+      edges.push({ source: ctx.parentId, relation: "references", ...ref, file: ctx.rel });
+    }
+  }
   // R's `call` node is also its ONLY vehicle for library()/require()/source() —
   // there's no separate import-statement grammar construct to key off, so isImport
   // must be checked before the generic calls path or every import call would be
@@ -984,7 +999,17 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
         } else if (!shadowed) {
           const recvType = resolveRecvType(callee.receiver, ctx);
           const recvAttr = recvType || ctx.lang !== "python" ? undefined : pythonAttrReceiver(callee.receiver, ctx);
-          edges.push(recvType ? { ...callEdge, recvType } : recvAttr ? { ...callEdge, recvAttr } : callEdge);
+          // Go: `pkg.Fn()` through an import no local shadows names the imported package.
+          const goPackage =
+            !recvType && callee.receiver && node.startIndex < (ctx.goLocals.get(callee.receiver) ?? Infinity)
+              ? ctx.goImports.get(callee.receiver)
+              : undefined;
+          edges.push(
+            recvType ? { ...callEdge, recvType }
+              : recvAttr ? { ...callEdge, recvAttr }
+                : goPackage ? { ...callEdge, specifier: goPackage }
+                  : callEdge,
+          );
         } else if (ctx.pythonLocalRebound.has(head!)) {
           const bound = ctx.pythonLocalRebound.get(head!)!;
           edges.push({ ...callEdge, pythonRebound: head, pythonReboundModule: bound.module, pythonReboundName: bound.name });
@@ -1625,6 +1650,40 @@ function collectImportedSymbols(
   return new Map();
 }
 
+function collectGoLocals(definition: SyntaxNode): Map<string, number> {
+  const out = new Map<string, number>();
+  const declare = (holder: SyntaxNode | null, end: number): void => {
+    for (const c of holder?.namedChildren ?? []) if (c.type === "identifier" && !out.has(c.text)) out.set(c.text, end);
+  };
+  const visit = (node: SyntaxNode): void => {
+    if (node.type === "parameter_declaration" || node.type === "variadic_parameter_declaration" || node.type === "var_spec") {
+      declare(node, node.endIndex);
+    } else if (node.type === "short_var_declaration" || node.type === "range_clause" || node.type === "receive_statement") {
+      declare(node.childForFieldName("left"), node.endIndex);
+    } else if (node.type === "type_switch_statement") {
+      declare(node.childForFieldName("alias"), node.childForFieldName("value")?.endIndex ?? node.endIndex);
+    }
+    node.namedChildren.forEach(visit);
+  };
+  visit(definition);
+  return out;
+}
+
+function collectGoImports(root: SyntaxNode): Map<string, string> {
+  const out = new Map<string, string>();
+  const visit = (node: SyntaxNode): void => {
+    if (node.type === "import_spec") {
+      const spec = importSpecifier(node, "go");
+      const local = node.childForFieldName("name")?.text ?? spec?.split("/").at(-1);
+      if (spec && local) out.set(local, spec);
+      return;
+    }
+    if (node.type === "source_file" || node.type.startsWith("import_")) node.namedChildren.forEach(visit);
+  };
+  visit(root);
+  return out;
+}
+
 /** PHP `use` bindings: local alias → { exported name, FQN specifier }. */
 function collectPhpImportedSymbols(root: SyntaxNode): Map<string, { name: string; specifier: string }> {
   const out = new Map<string, { name: string; specifier: string }>();
@@ -1718,7 +1777,36 @@ function phpAttributeClassRef(
   const nameNode =
     attr.childForFieldName("name") ??
     attr.namedChildren.find((c) => c.type === "name" || c.type === "qualified_name");
-  if (!nameNode) return null;
+  return phpClassRef(nameNode, ctx);
+}
+
+/** Only class-name positions count: a variable, member name or declaration is not a type use. */
+function phpTypeReference(node: SyntaxNode, ctx: WalkCtx): { name: string; specifier?: string } | null {
+  let nameNode: SyntaxNode | null | undefined;
+  switch (node.type) {
+    case "named_type":
+    case "object_creation_expression":
+    case "class_constant_access_expression":
+      nameNode = node.namedChildren[0];
+      break;
+    case "scoped_call_expression":
+    case "scoped_property_access_expression":
+      nameNode = node.childForFieldName("scope");
+      break;
+    case "binary_expression":
+      if (node.childForFieldName("operator")?.text === "instanceof") nameNode = node.childForFieldName("right");
+      break;
+  }
+  // This grammar also parses object and relative class keywords as named_type.
+  if (nameNode?.type === "name" && /^(object|self|parent|static)$/i.test(nameNode.text)) return null;
+  return phpClassRef(nameNode, ctx);
+}
+
+function phpClassRef(
+  nameNode: SyntaxNode | null | undefined,
+  ctx: WalkCtx,
+): { name: string; specifier?: string } | null {
+  if (!nameNode || (nameNode.type !== "name" && nameNode.type !== "qualified_name")) return null;
   if (nameNode.type === "qualified_name") {
     const fqn = nameNode.text.replace(/^\\/, "");
     return { name: fqn.replace(/^.*\\/, ""), specifier: fqn };
@@ -1893,6 +1981,23 @@ function describe(node: SyntaxNode, ctx: WalkCtx): DefDescriptor | null {
     };
   }
 
+  // TS: a method signature in a NAMED interface is a method owned by that interface,
+  // so a call through an interface-typed receiver (`store: Store` → `store.save()`)
+  // has a node to land on — the TS twin of Go's `method_elem` (#687). Signatures in
+  // anonymous object types (`type T = { m(): void }`, `(x: { m(): void })`) have no
+  // name to own them and mint nothing.
+  if ((ctx.lang === "typescript" || ctx.lang === "tsx") && node.type === "method_signature") {
+    const owner = tsInterfaceName(node);
+    const nameNode = node.childForFieldName("name");
+    // A computed (`[Symbol.iterator]()`) or string-literal name is not a name a member
+    // call can spell; skip it rather than mint a node under its source text.
+    if (!owner || nameNode?.type !== "property_identifier") return null;
+    // An overload set is one method: mint its first signature only. Two nodes for
+    // `Store.get` would make every call to it ambiguous, and resolveTypedMember drops those.
+    if (isRepeatedTsSignature(node, nameNode.text)) return null;
+    return { name: nameNode.text, kind: "method", headerEnd: node.endIndex, hashNode: node, owner };
+  }
+
   const mapped = ctx.kinds[node.type];
   if (mapped) {
     const name = node.childForFieldName("name")?.text;
@@ -1974,6 +2079,13 @@ function describeGo(node: SyntaxNode, _ctx: WalkCtx): DefDescriptor | null {
       headerEnd: body ? body.startIndex : node.endIndex,
       hashNode: node,
     };
+  }
+
+  if (node.type === "method_elem") {
+    const name = node.childForFieldName("name")?.text;
+    const owner = goInterfaceName(node);
+    if (!name || !owner) return null;
+    return { name, kind: "method", headerEnd: node.endIndex, hashNode: node, owner };
   }
 
   // `type Name <shape>` — one type_spec per name (grouped `type ( … )` yields several).
@@ -2739,6 +2851,31 @@ function goReceiverType(node: SyntaxNode): string | null {
   return type?.type === "type_identifier" ? type.text : null;
 }
 
+function goInterfaceName(node: SyntaxNode): string | null {
+  const spec = node.parent?.parent;
+  return spec?.type === "type_spec" ? (spec.childForFieldName("name")?.text ?? null) : null;
+}
+
+/** The interface a TS `method_signature` belongs to, or null when it sits in an
+ * anonymous object type (`object_type`) or anywhere else that is not a named
+ * `interface_declaration`'s own body. */
+function tsInterfaceName(node: SyntaxNode): string | null {
+  const body = node.parent;
+  const decl = body?.parent;
+  if (body?.type !== "interface_body" || decl?.type !== "interface_declaration") return null;
+  return decl.childForFieldName("name")?.text ?? null;
+}
+
+/** Whether an earlier signature in the same interface body already declares `name`
+ * (a TS overload set: `get(id: string): T; get(id: number): T;`). */
+function isRepeatedTsSignature(node: SyntaxNode, name: string): boolean {
+  for (const sib of node.parent?.namedChildren ?? []) {
+    if (sib.startIndex >= node.startIndex) return false;
+    if (sib.type === "method_signature" && sib.childForFieldName("name")?.text === name) return true;
+  }
+  return false;
+}
+
 /** Go visibility: a symbol is exported iff its own name starts with an uppercase
  * letter. For a receiver-qualified method name, the own name is the part after the dot. */
 function goExported(name: string): boolean {
@@ -2879,6 +3016,16 @@ function heritageEdges(node: SyntaxNode, classId: string, ctx: WalkCtx): RawEdge
           edges.push({ source: classId, relation, name: t.text.replace(/^.*\\/, ""), file: ctx.rel });
         }
       }
+    }
+    return edges;
+  }
+  // `interface A extends B<T>, ns.C` — the clause is a direct child of the
+  // declaration (a class wraps its clauses in `class_heritage` instead).
+  if (node.type === "interface_declaration") {
+    const clause = node.namedChildren.find((c) => c.type === "extends_type_clause");
+    for (const t of clause?.namedChildren ?? []) {
+      const name = tsSupertypeName(t);
+      if (name) edges.push({ source: classId, relation: "extends", name, file: ctx.rel });
     }
     return edges;
   }
@@ -3118,8 +3265,7 @@ if (lang === "kotlin") {
   if (lang === "go" && fn.type === "selector_expression") {
     // `pkg.Fn()` / `recv.Method()` — the called name is the trailing field.
     const p = fn.childForFieldName("field") ?? fn.namedChildren.at(-1);
-    const operand = fn.childForFieldName("operand");
-    const receiver = operand?.type === "identifier" ? operand.text : undefined;
+    const receiver = goReceiver(fn.childForFieldName("operand"));
     return p ? { name: p.text, viaMember: true, receiver } : null;
   }
   if ((lang === "typescript" || lang === "tsx") && fn.type === "member_expression") {
@@ -3314,6 +3460,14 @@ function phpScopeReceiver(scope: SyntaxNode | null): string | undefined {
   if (scope.type === "name") return text;
   if (scope.type === "qualified_name") return text.replace(/^.*\\/, "");
   return undefined;
+}
+
+function goReceiver(operand: SyntaxNode | null): string | undefined {
+  if (operand?.type === "identifier") return operand.text;
+  if (operand?.type !== "selector_expression") return undefined;
+  const head = operand.childForFieldName("operand");
+  const field = operand.childForFieldName("field");
+  return head?.type === "identifier" && field ? `${head.text}.${field.text}` : undefined;
 }
 
 /** ts `member_expression` node's receiver text: `this`, `this.x`, or a bare identifier. */

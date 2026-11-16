@@ -9,7 +9,7 @@ import {
   readSession, writeSession, acquireLock, releaseLock, cacheDir, LOCK_STALE_MS, writeJsonAtomic,
 } from '../src/claude/state.js';
 import { runSync } from '../src/claude/sync-run.js';
-import { LOCK_MAX_MS, lockHeldIn } from '../src/util/state.js';
+import { LOCK_MAX_MS, lockHeldByOther, lockHeldIn } from '../src/util/state.js';
 
 function fresh(): string { return mkdtempSync(join(tmpdir(), 'graft-state-')); }
 
@@ -108,6 +108,18 @@ test('runSync names itself in the lock it was handed', () => {
   runSync(d, () => { owner = JSON.parse(readFileSync(p, 'utf8')).pid; });
   assert.equal(owner, process.pid);
   assert.equal(existsSync(p), false, 'released when the build ends');
+});
+
+test('lockHeldByOther: another live process, not this one or its parent', () => {
+  const d = fresh();
+  assert.equal(lockHeldByOther(cacheDir(d)), false, 'no lock');
+  lockOf(d, process.pid, 0);
+  assert.equal(lockHeldByOther(cacheDir(d)), false, 'our own lock');
+  lockOf(d, process.ppid, 0);
+  assert.equal(lockHeldByOther(cacheDir(d)), false, 'our parent: sync-run holding it for its build');
+  const other = spawnSync(process.execPath, ['-e', '']); // gone, but its fresh lock is still another's
+  lockOf(d, other.pid!, 0);
+  assert.equal(lockHeldByOther(cacheDir(d)), true);
 });
 
 test('writeJsonAtomic leaves no scratch file behind when the write fails', () => {
