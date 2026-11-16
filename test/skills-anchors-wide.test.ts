@@ -249,13 +249,13 @@ test("subcommand: 2 other registrations, a dynamic .command(name), a default com
 test("subcommand: the deadline judges nothing and caches nothing; the scan has its own 150 ms deadline", () => {
   const b = cliBox("sub-deadline");
   assert.equal(WIDE_SCAN_MS, 150);
-  const t0 = Date.now();
   const slow = cliBox("sub-default");
   for (let i = 0; i < 300; i++) put(slow, `src/gen/f${i}.ts`, `export const f${i} = ${i};\n`);
   const fs = require("node:fs") as Record<string, (...a: unknown[]) => unknown>;
   const orig = fs.readdirSync!;
+  const listed: unknown[] = [];
   // Each folder listed takes 200 ms: the default deadline (150 ms from the call) passes during the walk.
-  mock.method(fs, "readdirSync" as never, ((...a: unknown[]) => { const end = Date.now() + 200; while (Date.now() < end) { /* slow disk */ } return orig(...a); }) as never);
+  mock.method(fs, "readdirSync" as never, ((...a: unknown[]) => { listed.push(a[0]); const end = Date.now() + 200; while (Date.now() < end) { /* slow disk */ } return orig(...a); }) as never);
   syncBuiltinESMExports();
   try {
     assert.deepEqual(kinds(wideGone(skill(["acme connect"]), slow.checkout, slow.env, { scan: true })), []);
@@ -263,7 +263,8 @@ test("subcommand: the deadline judges nothing and caches nothing; the scan has i
     mock.restoreAll();
     syncBuiltinESMExports();
   }
-  assert.ok(Date.now() - t0 < 2000);
+  // The work, not the clock: a walk that went on past its deadline would also list src/gen.
+  assert.ok(listed.length <= 1, `listed after the deadline: ${JSON.stringify(listed)}`);
   assert.ok(!existsSync(join(slow.trail, "state", "anchors-cache.json")));
   assert.deepEqual(kinds(wideGone(skill(["acme connect"]), b.checkout, b.env, { scan: true, deadline: Date.now() - 1 })), []);
   assert.ok(!existsSync(join(b.trail, "state", "anchors-cache.json")), "nothing cached past the deadline");
