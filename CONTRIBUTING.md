@@ -23,7 +23,7 @@ npm ci
 npx tsc --noEmit -p tsconfig.json
 npx tsc --noEmit -p viewer/tsconfig.json
 npm test
-node --test benchmark/test/score.test.mjs
+node --test benchmark/test/tsc-truth.test.mjs
 ```
 
 New functionality and bug fixes come with automated tests in `test/`, run by
@@ -42,6 +42,10 @@ cargo build --locked --release
 
 Then run `GG_DOCS_E2E=require node --import tsx --test test/docs-cli.test.ts`
 from the repository root, which runs the docs commands on that build.
+
+`rust/gg-bench`, the caller benchmark's runner and scorer, has its own CI jobs,
+`gg-bench (ubuntu-latest)` and `gg-bench (windows-latest)`. For a change there,
+run the same 4 `cargo` commands in that folder. Its tests start Node and git.
 
 Use public repositories or fabricated fixtures only, never private code,
 credentials or `.env` content.

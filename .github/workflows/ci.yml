@@ -104,9 +104,9 @@ jobs:
           name: coverage-codecov
           path: coverage-*.lcov
           retention-days: 1
-      - name: Test the benchmark scorer and the TypeScript truth
+      - name: Test the benchmark's TypeScript truth
         if: needs.changes.outputs.docs_only != 'true' && matrix.part == 1
-        run: node --test benchmark/test/score.test.mjs benchmark/test/tsc-truth.test.mjs
+        run: node --test benchmark/test/tsc-truth.test.mjs
 
   # The ruleset requires `test (windows-latest, Node 26)`, which the 2 Windows parts
   # replace. This job reports it, and passes only when every test job passed.
@@ -178,6 +178,50 @@ jobs:
         env:
           GG_DOCS_E2E: require
         run: node --import tsx --test test/docs-cli.test.ts
+
+  # rust/gg-bench, the caller benchmark's runner and scorer. Its tests start Node
+  # and git on a local fixture; nothing reaches the network.
+  gg-bench:
+    name: gg-bench (${{ matrix.os }})
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          persist-credentials: false
+      # rustup installs the toolchain pinned in rust/gg-bench/rust-toolchain.toml.
+      - name: Install the toolchain
+        if: needs.changes.outputs.docs_only != 'true'
+        working-directory: rust/gg-bench
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          workspaces: rust/gg-bench
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          node-version: "20"
+          package-manager-cache: false
+      - name: Check the crate
+        if: needs.changes.outputs.docs_only != 'true'
+        working-directory: rust/gg-bench
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
 
   # The upload runs apart from the tests so the OIDC token is never available
   # while test code runs.

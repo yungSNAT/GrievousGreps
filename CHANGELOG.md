@@ -7,8 +7,9 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 ### Added
 
 - **Caller resolution** for Python, TypeScript and Rust, with fixes ported from upstream pull requests and other forks. The README's Credits section names their authors.
-- **`benchmark/`**, which measures `callers` recall on 21 pinned public repositories.
+- **`benchmark/`**, which measures `callers` recall on 21 pinned public repositories. Its runner and scorer are `gg-bench`, a Rust binary in `rust/gg-bench`.
 - **Julia, PowerShell, GLSL and Bash files, and Svelte and Astro components**, ported from upstream pull requests, so the graph covers the 28 languages upstream's `main` does. Bash gives function symbols only. Calls into and out of a Vue, Svelte or Astro component now resolve only within TypeScript and JavaScript, the language of its script blocks; a call from Python could reach a component's function before.
+- **Perl, Objective-C, GDScript, ReScript, Groovy, Elm and Fortran files**, with definitions and the calls between them, so the graph covers 35 languages. Groovy calls can reach Java, Kotlin, Scala and Clojure, and Objective-C calls C and C++. A call that names a module or package (`List.map`, `Foo::bar()`) or a code reference stays unresolved rather than guessed.
 - **`trail docs`** (`search`, `get`, `status` and `update`): ranked search over a repository's Markdown and text, showing each file's best section, refreshed before every answer. The new `gg-docs` Rust binary in `rust/gg-docs` answers it; build it with cargo, as no release exists yet. Its `--json` answers carry a protocol number the CLI checks.
 
 ### Changed

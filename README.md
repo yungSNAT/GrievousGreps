@@ -175,7 +175,7 @@ No competitor's recall beat this tool's on any repository. Those that led on 15 
 
 **Method:** all 4 ran on one Linux machine between 07:42 and 10:42 UTC on 15 November 2026 (Serena 07:42 to 08:14, with its tuned trpc repeat at 10:01; this tool 09:28 to 09:34; codebase-memory-mcp 09:42 to 09:47; code-review-graph 10:17 to 10:42), each job capped at 8 GiB and 4 CPUs with the network blocked. Other jobs shared the machine, with a load average of 3.5 to 19.6 when a run started, so the timings are rough. Timings come from one run per repository. Callers came from `graft callers`, codebase-memory-mcp's `trace_path`, Serena's `find_referencing_symbols` and code-review-graph's `callers_of`, with Serena's references mapped to their enclosing definition. All went through `benchmark/score.mjs` unchanged, against the truth as corrected on 15 November.
 
-**To rerun it:** `node benchmark/run.mjs --tool dist/bin/graft.js` reproduces this tool's column, as [benchmark/](benchmark/README.md) describes. The comparison scripts are not shipped, because they are tied to that machine's sandbox. To repeat the other columns, install the versions above, query each tool as described here and pass the results to `benchmark/score.mjs`.
+**To rerun it:** `cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js` reproduces this tool's column, as [benchmark/](benchmark/README.md) describes. The comparison scripts are not shipped, because they are tied to that machine's sandbox. To repeat the other columns, install the versions above, query each tool as described here and score the answers with `gg-bench score`.
 
 ## Compared with upstream
 

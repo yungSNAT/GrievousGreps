@@ -67,6 +67,14 @@ export const GENERIC_LANGS: readonly GenericLang[] = [
   { name: "julia", exts: [".jl"], wasm: "julia" },
   { name: "glsl", exts: [".glsl"], wasm: "glsl" },
   { name: "bash", exts: [".sh", ".bash"], wasm: "bash" },
+  { name: "perl", exts: [".pl", ".pm"], wasm: "perl" },
+  { name: "objc", exts: [".m", ".mm"], wasm: "objc" },
+  { name: "gdscript", exts: [".gd"], wasm: "gdscript" },
+  { name: "rescript", exts: [".res", ".resi"], wasm: "rescript" },
+  { name: "groovy", exts: [".groovy", ".gradle"], wasm: "groovy" },
+  { name: "elm", exts: [".elm"], wasm: "elm" },
+  // Free-form Fortran only: fixed-form `.f`/`.for` files read badly in this grammar.
+  { name: "fortran", exts: [".f90", ".f95", ".f03", ".f08"], wasm: "fortran" },
 ];
 
 /**
@@ -1351,6 +1359,44 @@ function extractGleamModules(root: TsNode, rel: string, defs: Def[], rawEdges: R
   visit(root, null, NONE);
 }
 
+/** An Objective-C method's whole selector: `setValue:forKey:`, or `draw` with no
+ * arguments. Its first part alone would make `setValue:forKey:` and
+ * `setValue:forHTTPHeaderField:` one name. A definition's parts are its own
+ * identifiers; a message's are the name after the receiver and each name before a `:`. */
+function objcSelector(n: TsNode | undefined): string | undefined {
+  if (n?.type !== "method_definition" && n?.type !== "message_expression") return undefined;
+  const kids = Array.from({ length: n.childCount ?? 0 }, (_, i) => n.child!(i)!);
+  const receiver = n.childForFieldName?.("receiver");
+  let selector = "";
+  kids.forEach((k, i) => {
+    const next = kids[i + 1]?.type;
+    const part = n.type === "method_definition"
+      ? k.type === "identifier"
+      : k.type === "identifier" && (next === ":" || (!!receiver && kids[i - 1]?.startIndex === receiver.startIndex));
+    if (part) selector += k.text + (next === ":" || next === "method_parameter" ? ":" : "");
+  });
+  return selector;
+}
+
+/** Fortran writes an array element as it writes a call, `name(i)`: a name that a
+ * declaration in an enclosing unit makes a variable, or a `dimension` statement an
+ * array, is not a call. Fortran names ignore case. */
+function fortranDeclared(n: TsNode, name: string): boolean {
+  const lower = name.toLowerCase();
+  for (let at = n.parent; at; at = at.parent) {
+    for (let i = 0; i < (at.namedChildCount ?? 0); i++) {
+      const decl = at.namedChild!(i)!;
+      if (decl.type !== "variable_declaration" && decl.type !== "variable_modification") continue;
+      for (let j = 0; j < (decl.namedChildCount ?? 0); j++) {
+        const d = decl.namedChild!(j)!;
+        const id = d.type.endsWith("declarator") ? d.namedChild?.(0) : d;
+        if (id?.type === "identifier" && id.text.toLowerCase() === lower) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** tags.scm path: @definition.<kind> → nodes, @reference.call/@reference.send →
  * bare-name call edges attributed to the innermost enclosing definition. */
 function tagsExtract(
@@ -1378,11 +1424,12 @@ function tagsExtract(
     const defKey = Object.keys(cap).find((k) => k.startsWith("definition."));
     if (defKey && cap.name) {
       defNameAt.add(cap.name.startIndex);
-      mkDef(cap.name.text, KIND[defKey.slice("definition.".length)] ?? "function", defScope(cap[defKey], langName));
+      const name = (langName === "objc" && objcSelector(cap[defKey])) || cap.name.text;
+      mkDef(name, KIND[defKey.slice("definition.".length)] ?? "function", defScope(cap[defKey], langName));
     }
-    if (("reference.call" in cap || "reference.send" in cap) && cap.name)
+    if (("reference.call" in cap || "reference.send" in cap) && cap.name && !(langName === "fortran" && fortranDeclared(cap.name, cap.name.text)))
       calls.push({
-        name: cap.name.text,
+        name: (langName === "objc" && objcSelector(cap["reference.call"])) || cap.name.text,
         at: cap.name.startIndex,
         ...(langName === "rust" && cap.name.parent?.type === "scoped_identifier" && cap["reference.call"]?.type === "call_expression"
           ? { path: cap.name.parent.childForFieldName?.("path")?.text }
