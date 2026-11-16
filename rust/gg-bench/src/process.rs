@@ -76,6 +76,8 @@ fn wait(child: &mut Child, timeout: Duration, over: &AtomicBool) -> io::Result<O
             return Ok(Some(status));
         }
         if over.load(Ordering::Relaxed) || Instant::now() >= deadline {
+            // A child that exits just before this is still stopped without an error: std's
+            // kill returns Ok for a process that has terminated, and on Unix it is not yet reaped.
             child.kill()?;
             child.wait()?;
             return Ok(None);
@@ -134,6 +136,27 @@ fn capped_output(command: &mut Command, timeout: Duration, cap: usize) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_child_printing_past_the_cap_on_stderr_is_stopped_at_once() {
+        let started = Instant::now();
+        let err = capped_output(
+            Command::new("node").args([
+                "-e",
+                "process.stderr.write('x'.repeat(65536)); setTimeout(() => {}, 60000)",
+            ]),
+            Duration::from_secs(60),
+            1024,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(err, "spawnSync node ENOBUFS");
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "{:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn a_child_printing_past_the_cap_is_stopped_at_once() {

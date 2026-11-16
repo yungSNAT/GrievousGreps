@@ -171,6 +171,24 @@ fn the_tool_runs_in_a_scratch_home_with_an_empty_input() {
 }
 
 #[test]
+fn paths_under_a_work_folder_with_dots_read_as_nodes_join_gave_them() {
+    let f = fixture();
+    fs::create_dir_all(f.work.join("x")).unwrap();
+    let mut options = f.options(false);
+    options.work = f.work.join("x").join("..");
+    run(&options).unwrap();
+    let calls = calls(&f.tool);
+    let copy = f.work.join("run").join("patched").join("demo");
+    let home = f.work.join("home").join("patched");
+    assert_eq!(calls[0]["args"][1], json!(copy.to_str().unwrap()));
+    assert_eq!(calls[0]["home"], json!(home.to_str().unwrap()));
+    assert_eq!(
+        calls[0]["trail"],
+        json!(home.join(".trail").to_str().unwrap())
+    );
+}
+
+#[test]
 fn a_build_that_fails_stops_the_run_with_its_output() {
     let f = fixture();
     fs::write(

@@ -37,8 +37,22 @@ pub fn absolute(path: &Path) -> io::Result<PathBuf> {
     if path.is_absolute() {
         return Ok(path.to_path_buf());
     }
+    Ok(normal(&path::absolute(path)?))
+}
+
+/// `work` and the names below it, with `.` and `..` resolved by name, as Node's `path.join` gave
+/// the paths run.mjs passed to the tool.
+fn under(work: &Path, names: &[&str]) -> PathBuf {
+    normal(
+        &names
+            .iter()
+            .fold(work.to_path_buf(), |path, name| path.join(name)),
+    )
+}
+
+fn normal(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
-    for part in path::absolute(path)?.components() {
+    for part in path.components() {
         match part {
             Component::ParentDir => {
                 out.pop();
@@ -47,7 +61,7 @@ pub fn absolute(path: &Path) -> io::Result<PathBuf> {
             other => out.push(other),
         }
     }
-    Ok(out)
+    out
 }
 
 /// The pinned repositories, or the named ones in repos.json's order.
@@ -119,7 +133,7 @@ fn remove(path: &Path) -> Result<(), String> {
 /// One shallow fetch of the pinned commit. Line endings stay as committed, so the truth's line
 /// numbers and the checkout agree on every platform.
 fn fetch_repo(repo: &Repo, work: &Path) -> Result<PathBuf, String> {
-    let dir = work.join("repos").join(&repo.name);
+    let dir = under(work, &["repos", &repo.name]);
     if !dir.join(".git").exists() {
         remove(&dir)?;
         fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
@@ -225,7 +239,7 @@ pub fn parse_result(stdout: &str) -> Option<Value> {
 /// The scratch home keeps the run away from your graphs, agent settings and hooks whatever the
 /// tool does, and the dotenv path keeps it away from any .env file.
 fn scratch_env(work: &Path, label: &str) -> Result<Vec<(&'static str, PathBuf)>, String> {
-    let home = work.join("home").join(label);
+    let home = under(work, &["home", label]);
     let trail = home.join(".trail");
     fs::create_dir_all(&trail).map_err(|e| format!("cannot create {}: {e}", trail.display()))?;
     Ok(vec![
@@ -234,7 +248,7 @@ fn scratch_env(work: &Path, label: &str) -> Result<Vec<(&'static str, PathBuf)>,
         ("USERPROFILE", home.clone()),
         ("CLAUDE_CONFIG_DIR", home.join(".claude")),
         ("CODEX_HOME", home.join(".codex")),
-        ("DOTENV_CONFIG_PATH", work.join("no-such.env")),
+        ("DOTENV_CONFIG_PATH", under(work, &["no-such.env"])),
     ])
 }
 
@@ -263,7 +277,7 @@ impl<'a> Build<'a> {
         tool: &'a Path,
         label: &'a str,
     ) -> Result<Self, String> {
-        let copy = opts.work.join("run").join(label).join(&repo.name);
+        let copy = under(&opts.work, &["run", label, &repo.name]);
         remove(&copy)?;
         copy_tree(source, &copy).map_err(|e| {
             format!(
