@@ -17,6 +17,7 @@ import { toPosixPath } from "../util/paths.js";
 import type { EdgeV1, Kind, NodeV1, Relation, UnresolvedCallV1 } from "./types.js";
 import { languageOf, type PythonExports, type TsModule, type RawEdge } from "./extract.js";
 import { PythonModules } from "./python-roots.js";
+import type { PythonField } from "./bindings.js";
 import { genericLangOf } from "./generic.js";
 import { containerLangOf } from "./container.js";
 
@@ -273,6 +274,57 @@ export function resolveEdges(
     const list = rustFieldTypes.get(`${recv.owner}.${recv.field}`);
     return list?.find((f) => f.file === file)?.type ?? (list?.length === 1 ? list[0].type : undefined);
   };
+  // Class name and attribute → each statement's field, with the id of the class it sits in.
+  const pythonFields = new Map<string, { classId: string; field: PythonField }[]>();
+  for (const e of rawEdges) {
+    const at = e.pythonFields;
+    for (const [attr, field] of at?.fields ?? []) push(pythonFields, `${at!.owner}.${attr}`, { classId: `${toPosixPath(e.file)}#${at!.scope}`, field });
+  }
+  const pythonBasesOf = new Map<string, string[]>(); // class node id → its base names
+  for (const e of rawEdges) if (e.relation === "extends" && e.name && /\.pyi?$/.test(e.file)) push(pythonBasesOf, e.source, e.name);
+  // Fields and parents are keyed by class name, so a name 2 Python classes share is read
+  // only as the class the calling file's imports name, and only that class's own fields
+  // and bases count; a shared base name has no known fields. A type named like a Python
+  // function may be that function's result.
+  const pythonNamed = (name: string, kind: Kind): number =>
+    (globalName.get(name) ?? []).filter((n) => n.kind === kind && /\.pyi?$/.test(n.path)).length;
+  // The type a Python attribute holds: what its class, else the nearest base class, states
+  // for it, when every statement there names one type. A method's return annotation counts;
+  // an assignment of no known type (`self.config = None`) leaves the attribute untyped.
+  const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
+    let ownerClass: NodeV1 | undefined;
+    if (pythonNamed(owner, "class") > 1) {
+      const hit = followPythonName(owner, toPosixPath(file), pythonCtx);
+      // A name the file neither defines nor imports came through a module, `flask.Flask()`:
+      // the one module-level class of that name, as one nested in a function is not reachable.
+      const top = (globalName.get(owner) ?? []).filter((n) => n.kind === "class" && /\.pyi?$/.test(n.path) && n.id.replace(/~\d+$/, "") === `${toPosixPath(n.path)}#${owner}`);
+      ownerClass = hit === "undecided" ? (top.length === 1 ? top[0] : undefined) : typeof hit !== "string" && "id" in hit && hit.kind === "class" ? hit : undefined;
+      if (!ownerClass) return undefined;
+    }
+    const seen = new Set([owner]);
+    let frontier = [owner];
+    for (let depth = 0; depth <= 3 && frontier.length; depth++) {
+      if (depth > 0 && frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
+      const types = new Set<string | undefined>();
+      for (const type of frontier) {
+        for (const { classId, field } of pythonFields.get(`${type}.${attr}`) ?? []) {
+          if (depth === 0 && ownerClass && classId !== ownerClass.id.replace(/~\d+$/, "")) continue;
+          if ("type" in field) types.add(field.type);
+          else if ("unknown" in field) types.add(undefined);
+          else {
+            const hit = resolveTypedMember(type, field.returns, file, ownerMethod, classParents, classTraits);
+            const signature = hit && hit !== "ambiguous" ? byId.get(hit.id)?.signature : undefined;
+            types.add(/->\s*['"]?(?:\w+\.)*(\w+)['"]?$/.exec(signature ?? "")?.[1]);
+          }
+        }
+      }
+      const only = types.size === 1 ? [...types][0] : undefined;
+      if (types.size) return only && !pythonNamed(only, "function") ? only : undefined;
+      const parents = (type: string) => (depth === 0 && ownerClass ? pythonBasesOf.get(ownerClass.id) : classParents.get(type)) ?? [];
+      frontier = frontier.flatMap(parents).filter((type) => !seen.has(type) && seen.add(type));
+    }
+    return undefined;
+  };
   const rustUseNames = new Map<string, NonNullable<RawEdge["rustUseNames"]>>();
   for (const e of rawEdges) if (e.rustUseNames) rustUseNames.set(e.file, e.rustUseNames);
   const rustImpls = new Map<string, Set<string>>();
@@ -481,8 +533,14 @@ export function resolveEdges(
           rustTraitProvides(e, e.rustChain.type ?? null);
           continue;
         }
-        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvType;
+        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
         if (!recv && !e.rustForm) continue;
+        // `x = factory.Store()` may hold what a function named Store returns, not a Store,
+        // unless the calling file's own definitions and imports name Store as a class.
+        if (recv && e.recvType && /\.pyi?$/.test(e.file) && pythonNamed(recv, "function")) {
+          const named = followPythonName(recv, toPosixPath(e.file), pythonCtx);
+          if (typeof named === "string" || !("id" in named) || named.kind !== "class") continue;
+        }
         const real = !recv ? { type: "" } : e.file.endsWith(".rs") ? rustRealType(recv, e.file, e.rustAt ?? 0, e.rustOwnerBrought === true) : { type: recv };
         if (real.root && opts.rustExternalCrates?.has(real.root)) { // an alias of a dependency's type
           rustTraitProvides(e, real.type);
@@ -537,7 +595,7 @@ export function resolveEdges(
         }
         if (hit === "ambiguous") continue; // drop — never guess past an ambiguous owner
         if (hit) {
-          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", stated(hit.confidence));
+          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "inferred" : stated(hit.confidence));
           continue;
         }
         // No owner-qualified match means the call is unresolved. A unique bare

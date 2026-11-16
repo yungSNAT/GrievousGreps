@@ -23,7 +23,7 @@ Use it over upstream if your agent relies on `callers`. On 21 public repositorie
 
 ## Install
 
-GrievousGreps has no npm package, so build it from source. You need Node 20.16 or later on the 20 line, or 22.3 or later, plus git and a C++ toolchain for the native grammars.
+GrievousGreps has no npm package, so npm builds it from this repository. You need Node 20.16 or later on the 20 line, or 22.3 or later, plus git and a C++ toolchain for the native grammars.
 
 GrievousGreps provides `trail` and `graft`, and each upstream package provides one of them, so remove any upstream copy first:
 
@@ -31,7 +31,16 @@ GrievousGreps provides `trail` and `graft`, and each upstream package provides o
 npm uninstall -g @trailhq/trail-code @nanonets/graft
 ```
 
-Then build it and link the commands:
+Then install it from GitHub:
+
+```bash
+npm install -g --allow-git=root git+https://github.com/yungSNAT/GrievousGreps.git
+trail --version
+```
+
+npm 12 refuses a package from git unless `--allow-git` allows it, and `root` allows only the one named. With npm 12.2.2 and Node 26.13.1 on Linux, on 16 November 2026 (UTC) at `2a68b91`, the install took 103 s and 131 MiB of disk, and both commands printed `0.28.0+gg`, without the commit. npm 12 also skipped the package's `postinstall` script, which prints a hint; the commands work without it. To update, run the same command.
+
+To work on the code, build it from a clone and link the commands instead:
 
 ```bash
 git clone https://github.com/yungSNAT/GrievousGreps
@@ -46,7 +55,7 @@ trail --version
 
 A repository already wired to upstream with `npx` keeps starting upstream's package until you run `trail init` there, which replaces those entries in `.cursor/mcp.json` with the installed command and removes them from `.mcp.json`. `~/.codex/config.toml` changes only with `--global`.
 
-To update, run `git pull`, `npm ci` and `npm run build` in the folder. `trail upgrade` refuses on this build, because the package on npm is upstream's.
+To update a clone, run `git pull`, `npm ci` and `npm run build` in the folder. `trail upgrade` refuses on this build, because the package on npm is upstream's.
 
 ## Use
 
