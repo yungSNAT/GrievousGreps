@@ -142,6 +142,18 @@ def plain_factory():
     x = factory.Store()
     x.run()
 `,
+  "store_user.py": `from pkg.store import Store
+
+
+def constructed():
+    x = Store()
+    x.run()
+
+
+def annotated(get):
+    x: Store = get()
+    x.run()
+`,
   "pkg/dual.py": `from .config import Config
 
 
@@ -261,6 +273,11 @@ test("Python: an attribute its class assigns 2 types resolves to nothing", async
 test("Python: a capitalised function's result is not the class of that name", async () => {
   assert.deepEqual(await unsureCalls("user.py#factory_call"), ["pkg/holder.py#Holder"], "as an attribute");
   assert.deepEqual(await unsureCalls("user.py#plain_factory"), ["pkg/factory.py#Store"], "as a local");
+});
+
+test("Python: a class the file imports keeps its methods beside a function of that name elsewhere", async () => {
+  assert.deepEqual(await unsureCalls("store_user.py#constructed"), ["pkg/store.py#Store", "pkg/store.py#Store.run"], "made here");
+  assert.deepEqual(await unsureCalls("store_user.py#annotated"), ["pkg/store.py#Store.run"], "annotated");
 });
 
 test("Python: a module's function and an untyped receiver keep their resolution", async () => {
