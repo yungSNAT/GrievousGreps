@@ -1,20 +1,20 @@
 # Caller benchmark
 
-This harness measures how many real calls `callers` finds. It builds a graph of 21 pinned public repositories with the tool you name, asks for the callers of 10 symbols in each and prints recall against committed truth. It needs Node, git and network access to GitHub, and has no dependencies of its own.
+This harness measures how many real calls `callers` finds. It builds a graph of 21 pinned public repositories with the tool you name, asks for the callers of 10 symbols in each and prints recall against committed truth. It is `gg-bench`, a Rust binary in [`rust/gg-bench`](../rust/gg-bench). It needs Rust (`cargo`), Node, git and network access to GitHub.
 
 ## Run it
 
 Build the tool first, then:
 
 ```bash
-node benchmark/run.mjs --tool dist/bin/graft.js
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js
 ```
 
 The README's table has 2 upstream columns, each from its own run with that build as the baseline. For the npm release, install it in another folder; `DO_NOT_TRACK=1` stops its install script sending a usage event:
 
 ```bash
 DO_NOT_TRACK=1 npm install --prefix ../upstream-0.29.0 @trailhq/trail-code@0.29.0
-node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream-0.29.0/node_modules/@trailhq/trail-code/dist/bin/graft.js
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js --baseline ../upstream-0.29.0/node_modules/@trailhq/trail-code/dist/bin/graft.js
 ```
 
 For upstream `main`, build it at the commit the README names:
@@ -23,7 +23,7 @@ For upstream `main`, build it at the commit the README names:
 git clone https://github.com/trailhq/Trail-Code ../upstream
 git -C ../upstream checkout b22055dce3c3ff22722793ed0a5a3be4491a9140
 (cd ../upstream && npm ci)
-node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream/dist/bin/graft.js
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js --baseline ../upstream/dist/bin/graft.js
 ```
 
 | Option | Effect |
@@ -33,12 +33,24 @@ node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream/dist/bin/
 | `--repos httpx,click` | Score only these repositories. |
 | `--work <dir>` | Where clones and graphs go. The default is a folder in the system temp directory. |
 | `--verbose` | Print each symbol's score and first 10 misses to stderr. |
+| `--node <path>` | The Node that runs the tool. The default is `node` on the path. |
+| `--bench <dir>` | The folder with `repos.json` and `truth/`. The default is this folder. |
 
 The harness runs one repository at a time at below normal priority. It keeps the shallow clones for the next run and deletes each graph copy after scoring. It only builds and queries, and never runs the tool's test suite.
 
 Each run points `HOME`, `USERPROFILE`, `TRAIL_HOME`, `CLAUDE_CONFIG_DIR` and `CODEX_HOME` at a scratch folder under the work folder, and `DOTENV_CONFIG_PATH` at a missing file. The tool therefore leaves your graphs, agent settings and hooks alone and loads no `.env` file. Telemetry and the hosted workspace are off for the run.
 
 On Windows with Node 26, httpx took about 40 seconds per build at 60 files. tokio, tracing and the larger TypeScript repositories have not been timed through this harness, so run the full set on a machine that is otherwise idle.
+
+## Score another tool
+
+`gg-bench score` scores one repository's answers from any tool, shaped as `callers --json` gives them: per symbol, a list of `matches`, each with the definition's `symbol` (its `path`, and its `span` under `span` rules) and its `hits` (each with `id`, `path`, `span` and `name`). Put the answers in one JSON object keyed by symbol:
+
+```bash
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- score --repo httpx --answers httpx-answers.json
+```
+
+It prints each symbol's score and the repository's summary as JSON. A symbol with no answer scores as one with no callers, with a warning on stderr; an answer the rules cannot read, such as a hit without a `path`, stops it with an error.
 
 ## What it prints
 
@@ -103,4 +115,4 @@ Limits of the truth:
 
 ## Recorded runs
 
-The README's draft figures came from upstream `a44da3dfb5894c8e316e320526041ef8e5ddbb8c` (0.28.0) and an earlier patched build, `949d829`, using the verifier's own scripts. Applying this harness's scorer to those stored outputs gave the same figures for all 21 repositories, including the overall 0.31 to 0.78. Regenerate them with this harness on the final build. On 12 November 2026 this harness gave the README's table of that day on Linux with Node 26.13.1: upstream `main` at `b22055dce3c3ff22722793ed0a5a3be4491a9140` against `166c2fd`, and `a44da3d` again on jotai, query, radix, table, trpc and vue, which matched its earlier figures there. On 12 November 2026 (UTC), with the same Node, the npm package `@trailhq/trail-code@0.29.0`, installed with its postinstall script skipped, against `eaa8393` gave the README's 0.29.0 column, the same figures as `a44da3d`, and the patched column unchanged. Those runs counted a statement anywhere in the plain `callers` output, so their silent and stated counts predate the JSON rule above; recall and precision do not depend on it. On 13 November 2026 (UTC), with the same Node, this harness ran with the JSON rule on the hand-written truth: the patched build at `219b118`, the npm package 0.29.0 with its postinstall script skipped, and upstream `main` at `b22055d` built from source. Recall and precision matched the 12 November runs in every row; silent undercounts were 14, 74 and 113, where the plain-output rule had given 5, 50 and 90. Later that day the same 3 builds ran on hono, radix and trpc with the compiler-derived truth (`--repos hono,radix,trpc`), which gave the README's current rows for those 3. With the other 18 rows unchanged, overall recall was 0.78, 0.32 and 0.19 and silent undercounts were 14, 75 and 113 (patched, 0.29.0, `main`). On 15 November 2026 (UTC), with the same Node, this harness ran the patched build at `6994515` against the npm package 0.29.0 on all 21: overall recall 0.96 and 0.32, precision 0.95 and 0.94, silent undercounts 11 and 75. Only the patched tokio and tracing rows changed. Later that day, on the corrected tokio truth, the same Node ran the patched build at `491b060` against the npm package 0.29.0, and in a second run upstream `main` at `b22055d` alone as the tool: overall recall 0.97, 0.32 and 0.19, precision 0.95, 0.94 and 0.91, silent undercounts 11, 75 and 113. These are the README's current figures.
+The README's draft figures came from upstream `a44da3dfb5894c8e316e320526041ef8e5ddbb8c` (0.28.0) and an earlier patched build, `949d829`, using the verifier's own scripts. Applying this harness's scorer to those stored outputs gave the same figures for all 21 repositories, including the overall 0.31 to 0.78. Regenerate them with this harness on the final build. On 12 November 2026 this harness gave the README's table of that day on Linux with Node 26.13.1: upstream `main` at `b22055dce3c3ff22722793ed0a5a3be4491a9140` against `166c2fd`, and `a44da3d` again on jotai, query, radix, table, trpc and vue, which matched its earlier figures there. On 12 November 2026 (UTC), with the same Node, the npm package `@trailhq/trail-code@0.29.0`, installed with its postinstall script skipped, against `eaa8393` gave the README's 0.29.0 column, the same figures as `a44da3d`, and the patched column unchanged. Those runs counted a statement anywhere in the plain `callers` output, so their silent and stated counts predate the JSON rule above; recall and precision do not depend on it. On 13 November 2026 (UTC), with the same Node, this harness ran with the JSON rule on the hand-written truth: the patched build at `219b118`, the npm package 0.29.0 with its postinstall script skipped, and upstream `main` at `b22055d` built from source. Recall and precision matched the 12 November runs in every row; silent undercounts were 14, 74 and 113, where the plain-output rule had given 5, 50 and 90. Later that day the same 3 builds ran on hono, radix and trpc with the compiler-derived truth (`--repos hono,radix,trpc`), which gave the README's current rows for those 3. With the other 18 rows unchanged, overall recall was 0.78, 0.32 and 0.19 and silent undercounts were 14, 75 and 113 (patched, 0.29.0, `main`). On 15 November 2026 (UTC), with the same Node, this harness ran the patched build at `6994515` against the npm package 0.29.0 on all 21: overall recall 0.96 and 0.32, precision 0.95 and 0.94, silent undercounts 11 and 75. Only the patched tokio and tracing rows changed. Later that day, on the corrected tokio truth, the same Node ran the patched build at `491b060` against the npm package 0.29.0, and in a second run upstream `main` at `b22055d` alone as the tool: overall recall 0.97, 0.32 and 0.19, precision 0.95, 0.94 and 0.91, silent undercounts 11, 75 and 113. These are the README's current figures. On 16 November 2026 (UTC), with the same Node, `gg-bench run` and the JavaScript runner it replaced, `run.mjs`, printed the same stdout, stderr and exit code for the patched build at `88c214e` against the npm package 0.29.0 on all 21 repositories, in 3 runs of 7, and on 7 fixture cases that cover each error path.
