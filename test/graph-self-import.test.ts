@@ -573,6 +573,39 @@ mod nested {
   assert.deepEqual(stated(graph, "app/tests/common.rs#shared"), [["event", "expect::event"]]);
 });
 
+test("Rust: under `use super::*`, only a file whose own modules sit beside it is a parent, and every binding must agree", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "app"]\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod expect;\n",
+    "mock/src/expect.rs": "pub fn event() {}\n",
+    "two/Cargo.toml": `[package]\nname = "two"\n`,
+    "two/src/lib.rs": "pub mod expect;\n",
+    "two/src/expect.rs": "pub fn event() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
+    "app/src/lib.rs": "",
+    // inner.rs is main.rs's module, so its `mod option;` is tests/nest/inner/option.rs.
+    "app/tests/nest/main.rs": "mod option;\nmod inner;\nuse tracing_mock::expect;\n",
+    "app/tests/nest/inner.rs": "mod option;\nuse two::expect;\n",
+    "app/tests/nest/option.rs": "use super::*;\nfn from_main() { expect::event(); }\n",
+    // A root no rule names (a custom target): its module lib.rs is no parent of option.rs either.
+    "app/src/fixtures/root.rs": "mod option;\nmod lib;\nuse tracing_mock::expect;\n",
+    "app/src/fixtures/lib.rs": "mod option;\nuse two::expect;\n",
+    "app/src/fixtures/option.rs": "use super::*;\nfn custom() { expect::event(); }\n",
+    // `cfg` arms bind `expect` to 2 crates; the build picks one, the graph cannot.
+    "app/tests/cfg/main.rs": `mod option;\n#[cfg(feature = "a")]\nuse tracing_mock::expect;\n#[cfg(not(feature = "a"))]\nuse two::expect;\n`,
+    "app/tests/cfg/option.rs": "use super::*;\nfn either() { expect::event(); }\n",
+    // The parent's own module file, outside `src`.
+    "app/tests/own/main.rs": "mod option;\nmod helpers;\n",
+    "app/tests/own/helpers.rs": "pub fn event() {}\n",
+    "app/tests/own/option.rs": "use super::*;\nfn local() { helpers::event(); }\n",
+  });
+  assert.deepEqual(calls(graph, "app/tests/nest/option.rs#from_main"), ["mock/src/expect.rs#event"], "inner.rs is not a parent");
+  assert.deepEqual(calls(graph, "app/src/fixtures/option.rs#custom"), [], "a module of an unnamed root is not a parent");
+  assert.deepEqual(calls(graph, "app/tests/cfg/option.rs#either"), [], "2 bindings disagree");
+  assert.deepEqual(calls(graph, "app/tests/own/option.rs#local"), ["app/tests/own/helpers.rs#event"], "the parent's own module");
+});
+
 test("Rust: a repeated name no path settles is stated, and a dependency's stays silent", async (t) => {
   const graph = await build(t, {
     ...tracingLike,

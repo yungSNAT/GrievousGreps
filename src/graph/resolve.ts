@@ -1061,30 +1061,48 @@ function rustFollowGlobs(path: string, globs: string[] | undefined, file: string
 
 /** A path under a file-level `use super::*`, such as `expect::event()` in tracing's
  * `tests/layer_filters/option.rs`, read where the file that declares this module reads it:
- * through its `use` lines, its own modules, then its globs. Undefined unless every such file
- * reaches the same one function.
+ * through its `use` lines, its own modules, then its globs. Undefined unless every such file,
+ * and every `use` that binds the path's first name, reaches the same one function.
  *
  * shortcut: a file beside this one that declares the module counts as its parent when it is a
  * `mod.rs`, `lib.rs` or `main.rs`, sits outside a `src` folder (a test, example or bench root)
- * or in `src/bin`; reading Cargo's targets would settle which files are crate roots. */
+ * or in `src/bin`, and no other file beside it declares it as a module, whose own modules would
+ * sit in a folder of its name; reading Cargo's targets would settle which files are crate roots.
+ * A parent's `self::` and `super::` globs are not followed, so a path only they bring in stays
+ * unresolved. */
 function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 | undefined {
   const dirOf = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
-  const nested = file.endsWith("/mod.rs");
-  const own = nested ? dirOf(file) : file;
-  const stem = own.slice(own.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const stemOf = (p: string) => p.slice(p.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const own = file.endsWith("/mod.rs") ? dirOf(file) : file;
+  const stem = stemOf(own);
   const at = dirOf(own);
+  const declaredBeside = (p: string) => !p.endsWith("/mod.rs")
+    && [...ctx.modUses].some(([q, u]) => q !== p && u.mods.includes(stemOf(p)) && (dirOf(q) === dirOf(p) || q === `${dirOf(p)}.rs`));
   const declares = (p: string) => (at !== "" && p === `${at}.rs`)
-    || (dirOf(p) === at && (/(^|\/)(mod|lib|main)\.rs$/.test(p) || !/(^|\/)src\//.test(p) || /(^|\/)src\/bin\/[^/]+$/.test(p)));
-  const [first, ...rest] = path.split("::");
+    || (dirOf(p) === at && (/(^|\/)(mod|lib|main)\.rs$/.test(p) || !/(^|\/)src\//.test(p) || /(^|\/)src\/bin\/[^/]+$/.test(p)) && !declaredBeside(p));
+  const [first = "", ...rest] = path.split("::");
   const hits = new Set<NodeV1 | undefined>();
   for (const [parent, uses] of ctx.modUses) {
     if (parent === file || !uses.mods.includes(stem) || !declares(parent)) continue;
-    const bound = uses.names.find(([n]) => n === first)?.[1];
-    hits.add(bound
-      ? rustFollowPath([bound, ...rest].join("::"), parent, ctx)
-      : rustFollowPath(path, parent, ctx) ?? rustFollowGlobs(path, uses.globs, parent, ctx));
+    const bound = uses.names.filter(([n]) => n === first);
+    for (const [, full] of bound) hits.add(rustFollowPath([full, ...rest].join("::"), parent, ctx));
+    if (!bound.length) {
+      hits.add(rustFollowPath(path, parent, ctx)
+        ?? (uses.mods.includes(first) ? rustSiblingModuleFn(at, first, rest, ctx) : undefined)
+        ?? rustFollowGlobs(path, uses.globs, parent, ctx));
+    }
   }
   return hits.size === 1 ? [...hits][0] : undefined;
+}
+
+/** `helpers::event` where `helpers` is a module file in `dir`, as a test root's own `mod helpers;`
+ * declares it: the one free function of that name the file defines. */
+function rustSiblingModuleFn(dir: string, mod: string, rest: string[], ctx: RustPathCtx): NodeV1 | undefined {
+  if (rest.length !== 1) return undefined;
+  const base = dir === "" ? mod : `${dir}/${mod}`;
+  const file = [`${base}.rs`, `${base}/mod.rs`].find((f) => ctx.byId.has(f));
+  const fns = (file ? ctx.perFileName.get(file)?.get(rest[0]!) ?? [] : []).filter((n) => n.kind === "function" && !n.owner && !n.signature?.startsWith("macro_rules!"));
+  return fns.length === 1 ? fns[0] : undefined;
 }
 
 /** Path aliases for the files under `dir`, whose targets read from `base`. */
