@@ -4,3 +4,4 @@ pub mod lsp;
 pub mod process;
 pub mod run;
 pub mod score;
+pub mod truth;

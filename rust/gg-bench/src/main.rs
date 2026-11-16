@@ -7,6 +7,7 @@ use clap::{Args, Parser, Subcommand};
 use gg_bench::lsp::{Ask, LspOptions};
 use gg_bench::run::{self, Options};
 use gg_bench::score::{Repo, score_symbol, summarise};
+use gg_bench::truth::TruthOptions;
 use serde_json::{Map, Value, json};
 
 /// The benchmark folder beside this crate: repos.json and truth/.
@@ -42,6 +43,30 @@ enum Command {
     /// the callers of each truth symbol and print recall. Install each checkout's dependencies
     /// first where the server reads them. The answers are kept under the work folder's `lsp/`.
     Lsp(LspArgs),
+    /// Derive one repository's truth from a language server's references and write
+    /// truth/<repo>.json, as tsc-truth.mjs does with the TypeScript compiler. With `--pick` it
+    /// first chooses the symbols by a fixed rule, for a repository that has no truth yet.
+    LspTruth(LspTruthArgs),
+}
+
+#[derive(Args)]
+struct LspTruthArgs {
+    /// The repository, as repos.json names it.
+    #[arg(long)]
+    repo: String,
+    /// Choose this many functions and methods from the repository's non-test source files, in an
+    /// order the seed fixes, keeping those with 3 to 300 calls.
+    #[arg(long)]
+    pick: Option<usize>,
+    /// The seed for `--pick`.
+    #[arg(long, default_value_t = 0)]
+    seed: u64,
+    /// Scratch folder for the checkout [default: grievousgreps-benchmark in the temporary folder].
+    #[arg(long)]
+    work: Option<PathBuf>,
+    /// The server and its arguments, after `--`.
+    #[arg(last = true, required = true)]
+    server: Vec<OsString>,
 }
 
 #[derive(Args)]
@@ -124,6 +149,22 @@ fn lsp_command(bench: PathBuf, args: LspArgs) -> Result<String, String> {
     })
 }
 
+fn lsp_truth_command(bench: PathBuf, args: LspTruthArgs) -> Result<String, String> {
+    let [repo]: [Repo; 1] = run::select_repos(&bench, Some(&args.repo))?
+        .try_into()
+        .map_err(|_| "--repo takes one repository.")?;
+    let work = work_folder(args.work)?;
+    gg_bench::process::lower_priority();
+    gg_bench::truth::run(&TruthOptions {
+        bench,
+        repo,
+        work,
+        server: args.server,
+        pick: args.pick,
+        seed: args.seed,
+    })
+}
+
 fn run_command(bench: PathBuf, args: RunArgs) -> Result<String, String> {
     let tool = absolute(
         &args
@@ -194,6 +235,7 @@ fn main() -> ExitCode {
         Command::Run(args) => run_command(cli.bench, args),
         Command::Score { repo, answers } => score_command(&cli.bench, &repo, &answers),
         Command::Lsp(args) => lsp_command(cli.bench, args),
+        Command::LspTruth(args) => lsp_truth_command(cli.bench, args),
     };
     match result {
         Ok(out) => {

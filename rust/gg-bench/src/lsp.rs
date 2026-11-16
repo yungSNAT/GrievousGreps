@@ -22,8 +22,8 @@ use crate::score::{
 };
 
 /// How long a server may take to load a repository, and to answer one request.
-const READY_LIMIT: Duration = Duration::from_secs(25 * 60);
-const REQUEST_LIMIT: Duration = Duration::from_secs(20 * 60);
+pub(crate) const READY_LIMIT: Duration = Duration::from_secs(25 * 60);
+pub(crate) const REQUEST_LIMIT: Duration = Duration::from_secs(20 * 60);
 /// A server counts as ready once its progress has ended and it has been quiet this long.
 const QUIET: Duration = Duration::from_secs(3);
 
@@ -148,6 +148,8 @@ fn language_id(path: &str) -> &'static str {
         "js" | "mjs" | "cjs" => "javascript",
         "jsx" => "javascriptreact",
         "rs" => "rust",
+        "go" => "go",
+        "cs" => "csharp",
         _ => "plaintext",
     }
 }
@@ -378,7 +380,7 @@ pub struct Scope {
     pub parent: Option<usize>,
 }
 
-fn position(value: &Value) -> (u64, u64) {
+pub(crate) fn position(value: &Value) -> (u64, u64) {
     (
         value["line"].as_u64().unwrap_or_default(),
         value["character"].as_u64().unwrap_or_default(),
@@ -424,7 +426,7 @@ pub fn flatten(symbols: &Value) -> Result<Vec<Scope>, String> {
 /// LSP symbol kinds: File, Module, Namespace and Package only scope a name; the others listed in
 /// `LOCAL` are values inside a definition, not callers.
 const SCOPE_ONLY: [u64; 4] = [1, 2, 3, 4];
-const LOCAL: [u64; 12] = [7, 8, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
+pub(crate) const LOCAL: [u64; 12] = [7, 8, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 
 /// tsserver names a test callback like `it('x') callback`, and other anonymous scopes `<function>`.
 fn anonymous(name: &str) -> bool {
@@ -491,7 +493,7 @@ fn owners(scopes: &[Scope], scope: &Scope) -> Vec<String> {
 }
 
 /// A symbol's first and last line, from 1.
-fn lines(scope: &Scope) -> (i64, i64) {
+pub(crate) fn lines(scope: &Scope) -> (i64, i64) {
     (scope.start.0 as i64 + 1, scope.end.0 as i64 + 1)
 }
 
@@ -556,18 +558,18 @@ pub fn targets<'a>(
 
 /// One repository's server session: its checkout copy, the symbols read so far and the files
 /// held open.
-struct Session<'a> {
-    server: Server,
-    root: &'a Path,
-    root_text: String,
-    symbols: HashMap<String, Vec<Scope>>,
-    open: HashSet<String>,
-    outside: usize,
+pub(crate) struct Session<'a> {
+    pub(crate) server: Server,
+    pub(crate) root: &'a Path,
+    pub(crate) root_text: String,
+    pub(crate) symbols: HashMap<String, Vec<Scope>>,
+    pub(crate) open: HashSet<String>,
+    pub(crate) outside: usize,
 }
 
 impl Session<'_> {
     /// A file's flattened symbols, opening it for the request when it is not open already.
-    fn scopes(&mut self, path: &str) -> Result<&[Scope], String> {
+    pub(crate) fn scopes(&mut self, path: &str) -> Result<&[Scope], String> {
         if !self.symbols.contains_key(path) {
             let opened = self.open.insert(path.to_owned());
             if opened {
@@ -588,6 +590,33 @@ impl Session<'_> {
         Ok(&self.symbols[path])
     }
 
+    /// The references to the definition at `at`, without the declaration: (uri, range) pairs.
+    pub(crate) fn references(
+        &mut self,
+        uri: &str,
+        at: &Value,
+    ) -> Result<Vec<(String, Value)>, String> {
+        let params = json!({
+            "textDocument": { "uri": uri },
+            "position": at,
+            "context": { "includeDeclaration": false },
+        });
+        let found = self
+            .server
+            .request("textDocument/references", params, REQUEST_LIMIT)?;
+        Ok(found
+            .as_array()
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .map(|l| {
+                (
+                    l["uri"].as_str().unwrap_or_default().to_owned(),
+                    l["range"].clone(),
+                )
+            })
+            .collect())
+    }
+
     /// The locations the server gives for one definition: (uri, position) pairs.
     fn locations(
         &mut self,
@@ -595,22 +624,15 @@ impl Session<'_> {
         at: &Value,
         ask: Ask,
     ) -> Result<Vec<(String, Value)>, String> {
+        if ask == Ask::References {
+            let found = self.references(uri, at)?;
+            return Ok(found
+                .into_iter()
+                .map(|(uri, range)| (uri, range["start"].clone()))
+                .collect());
+        }
         let doc = json!({ "textDocument": { "uri": uri }, "position": at });
         let mut out = Vec::new();
-        if ask == Ask::References {
-            let mut params = doc;
-            params["context"] = json!({ "includeDeclaration": false });
-            let found = self
-                .server
-                .request("textDocument/references", params, REQUEST_LIMIT)?;
-            for location in found.as_array().map_or(&[][..], Vec::as_slice) {
-                out.push((
-                    location["uri"].as_str().unwrap_or_default().to_owned(),
-                    location["range"]["start"].clone(),
-                ));
-            }
-            return Ok(out);
-        }
         let items = self
             .server
             .request("textDocument/prepareCallHierarchy", doc, REQUEST_LIMIT)?;
@@ -721,9 +743,9 @@ fn verbose_line(repo: &str, symbol: &str, score: &SymbolScore) {
 
 /// A fresh copy of the pinned checkout, and the path the server is given: on Unix with links
 /// resolved, as servers report locations by their real path.
-fn fresh_copy(opts: &LspOptions, repo: &Repo) -> Result<(PathBuf, PathBuf), String> {
-    let source = fetch_repo(repo, &opts.work)?;
-    let copy = under(&opts.work, &["run", "lsp", &repo.name]);
+pub(crate) fn fresh_copy(work: &Path, repo: &Repo) -> Result<(PathBuf, PathBuf), String> {
+    let source = fetch_repo(repo, work)?;
+    let copy = under(work, &["run", "lsp", &repo.name]);
     remove(&copy)?;
     copy_tree(&source, &copy).map_err(|e| format!("cannot copy {}: {e}", source.display()))?;
     let root = if cfg!(unix) {
@@ -742,7 +764,7 @@ fn score_repo(
     info: &mut Value,
 ) -> Result<(crate::score::Summary, usize), String> {
     let truth = read_truth(&opts.bench, &repo.name)?;
-    let (copy, root) = fresh_copy(opts, repo)?;
+    let (copy, root) = fresh_copy(&opts.work, repo)?;
     let out = under(&opts.work, &["lsp", label(opts.ask)]);
     fs::create_dir_all(&out).map_err(|e| format!("cannot create {}: {e}", out.display()))?;
     let (server, server_info) = Server::start(
