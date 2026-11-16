@@ -15,19 +15,20 @@ import type { Language, WalkCtx } from "./extract.js";
  * extract.ts's own scope stack (`scope.join(".")`, `""` at module level) so a
  * lookup from extract.ts's walk finds exactly what was bound in the same
  * lexical position. */
-/** What a Python instance attribute holds: a type the code names, or what one of the class's
- * own methods returns (`self.config = self.make_config()`). */
-export type PythonField = { type: string } | { returns: string };
+/** What a Python instance attribute holds: a type the code names, what one of the class's
+ * own methods returns (`self.config = self.make_config()`), or a value of no known type. */
+export type PythonField = { type: string } | { returns: string } | { unknown: true };
 
 export class FileBindings {
   private map = new Map<string, string>();
-  /** Python only: class name → its attributes' stated types, one per statement, for other files to read. */
+  /** Python only: class scope path (`build.Worker`) → what each statement assigns its
+   * attributes, for other files to read. */
   readonly fields = new Map<string, Map<string, PythonField[]>>();
 
-  field(owner: string, attr: string, value: PythonField): void {
-    const own = this.fields.get(owner) ?? new Map<string, PythonField[]>();
+  field(classScope: string, attr: string, value: PythonField): void {
+    const own = this.fields.get(classScope) ?? new Map<string, PythonField[]>();
     own.set(attr, [...(own.get(attr) ?? []), value]);
-    this.fields.set(owner, own);
+    this.fields.set(classScope, own);
   }
 
   set(scopePath: string, name: string, type: string): void {
@@ -512,12 +513,11 @@ function handlePy(
   const right = node.childForFieldName("right");
   if (!left) return;
   const typeField = node.childForFieldName("type");
-  const owner = classScope?.split(".").pop();
   if (left.type === "identifier") {
     const typeName = typeField ? pyTypeName(typeField, aliases) : callTypeName(right, aliases);
     if (typeName) bindings.set(scopePath, left.text, typeName);
     // `config: Config` in a class body types its instances' attribute too.
-    if (typeName && typeField && owner && scopePath === classScope) bindings.field(owner, left.text, { type: typeName });
+    if (typeName && typeField && classScope && scopePath === classScope) bindings.field(classScope, left.text, { type: typeName });
   } else if (left.type === "attribute") {
     const obj = left.childForFieldName("object");
     const attr = left.childForFieldName("attribute");
@@ -525,7 +525,7 @@ function handlePy(
       const typeName = typeField ? pyTypeName(typeField, aliases) : callTypeName(right, aliases);
       if (typeName) bindings.set(classScope ?? scopePath, `self.${attr.text}`, typeName);
       const returns = typeName ? null : selfMethodCalled(right);
-      if (owner && (typeName || returns)) bindings.field(owner, attr.text, typeName ? { type: typeName } : { returns: returns! });
+      if (classScope) bindings.field(classScope, attr.text, typeName ? { type: typeName } : returns ? { returns } : { unknown: true });
     }
   }
 }

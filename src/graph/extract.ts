@@ -145,7 +145,7 @@ export interface RawEdge {
   rustImpl?: { trait: string; type: string };
   rustFields?: { owner: string; fields: [string, string][] };
   /** A Python class's instance attributes with a stated type. */
-  pythonFields?: { owner: string; fields: [string, PythonField][] };
+  pythonFields?: { owner: string; scope: string; fields: [string, PythonField][] };
   /** calls with viaMember on `x.attr`, where `x` has a type and `attr` has none here:
    * resolve.ts reads the attribute's type from the class's `pythonFields`. */
   recvAttr?: { type: string; attr: string };
@@ -589,9 +589,9 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   // residual on the file node so a term outside every symbol still surfaces it.
   nodes[0].body_text = fileResidual(source, nodes.slice(1));
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
-  for (const [owner, fields] of bindings.fields) {
+  for (const [scope, fields] of bindings.fields) {
     const each = [...fields].flatMap(([attr, list]) => list.map((field): [string, PythonField] => [attr, field]));
-    rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner, fields: each } });
+    rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner: scope.split(".").pop()!, scope, fields: each } });
   }
   if (tsModule) rawEdges.push({ source: rel, relation: "imports", file: rel, tsModule });
   return { nodes, rawEdges };

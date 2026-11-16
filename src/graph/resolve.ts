@@ -272,9 +272,11 @@ export function resolveEdges(
     const list = rustFieldTypes.get(`${recv.owner}.${recv.field}`);
     return list?.find((f) => f.file === file)?.type ?? (list?.length === 1 ? list[0].type : undefined);
   };
-  const pythonFields = new Map<string, { file: string; field: PythonField }[]>();
+  // Class name and attribute → each statement's field, with the id of the class it sits in.
+  const pythonFields = new Map<string, { classId: string; field: PythonField }[]>();
   for (const e of rawEdges) {
-    for (const [attr, field] of e.pythonFields?.fields ?? []) push(pythonFields, `${e.pythonFields!.owner}.${attr}`, { file: toPosixPath(e.file), field });
+    const at = e.pythonFields;
+    for (const [attr, field] of at?.fields ?? []) push(pythonFields, `${at!.owner}.${attr}`, { classId: `${toPosixPath(e.file)}#${at!.scope}`, field });
   }
   const pythonBasesOf = new Map<string, string[]>(); // class node id → its base names
   for (const e of rawEdges) if (e.relation === "extends" && e.name && /\.pyi?$/.test(e.file)) push(pythonBasesOf, e.source, e.name);
@@ -285,7 +287,8 @@ export function resolveEdges(
   const pythonNamed = (name: string, kind: Kind): number =>
     (globalName.get(name) ?? []).filter((n) => n.kind === kind && /\.pyi?$/.test(n.path)).length;
   // The type a Python attribute holds: what its class, else the nearest base class, states
-  // for it, when every statement there names one type. A method's return annotation counts.
+  // for it, when every statement there names one type. A method's return annotation counts;
+  // an assignment of no known type (`self.config = None`) leaves the attribute untyped.
   const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
     let ownerClass: NodeV1 | undefined;
     if (pythonNamed(owner, "class") > 1) {
@@ -302,9 +305,10 @@ export function resolveEdges(
       if (depth > 0 && frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
       const types = new Set<string | undefined>();
       for (const type of frontier) {
-        for (const { file: at, field } of pythonFields.get(`${type}.${attr}`) ?? []) {
-          if (depth === 0 && ownerClass && at !== toPosixPath(ownerClass.path)) continue;
+        for (const { classId, field } of pythonFields.get(`${type}.${attr}`) ?? []) {
+          if (depth === 0 && ownerClass && classId !== ownerClass.id.replace(/~\d+$/, "")) continue;
           if ("type" in field) types.add(field.type);
+          else if ("unknown" in field) types.add(undefined);
           else {
             const hit = resolveTypedMember(type, field.returns, file, ownerMethod, classParents, classTraits);
             const signature = hit && hit !== "ambiguous" ? byId.get(hit.id)?.signature : undefined;
@@ -528,6 +532,8 @@ export function resolveEdges(
         }
         const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
         if (!recv && !e.rustForm) continue;
+        // `x = factory.Store()` may hold what a function named Store returns, not a Store.
+        if (recv && e.recvType && /\.pyi?$/.test(e.file) && pythonNamed(recv, "function")) continue;
         const real = !recv ? { type: "" } : e.file.endsWith(".rs") ? rustRealType(recv, e.file, e.rustAt ?? 0, e.rustOwnerBrought === true) : { type: recv };
         if (real.root && opts.rustExternalCrates?.has(real.root)) { // an alias of a dependency's type
           rustTraitProvides(e, real.type);
