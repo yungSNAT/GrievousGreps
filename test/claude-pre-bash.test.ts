@@ -16,7 +16,7 @@ import ts from 'typescript';
 import { preBash, preBashOutput } from '../src/claude/pre-bash.js';
 import { hooksShim } from '../src/claude/shim-template.js';
 import { mergeGraftSettings } from '../src/claude/settings-merge.js';
-import { tmpRepo } from './helpers.js';
+import { hookShell, tmpRepo } from './helpers.js';
 import { RELAY_LINE } from '../src/init/relay.js';
 import { timeBar } from './machine-speed.js';
 
@@ -261,13 +261,17 @@ test('with no installed package at all, the shim does nothing, and never runs np
   assert.equal(existsSync(marker), false, 'no `npm root -g` before a shell command');
 });
 
-/** The repo's PreToolUse command for Bash as `trail init` writes it, run through the platform shell from `p.dir`. */
+/** The shell Claude Code runs the command in: sh, or Git Bash on Windows (cmd can't expand `${CLAUDE_PROJECT_DIR:-.}`). */
+const SHELL = hookShell();
+const NO_SHELL = SHELL === null && 'no Git Bash on this Windows machine, the shell Claude Code runs hooks in';
+
+/** The repo's PreToolUse command for Bash as `trail init` writes it, run through that shell from `p.dir`. */
 function hostRun(p: { dir: string; home: string }) {
   const bash = mergeGraftSettings({}, { name: 'trail' }).merged.hooks.PreToolUse.find((h: { matcher: string }) => h.matcher === 'Bash');
   assert.ok(bash, 'trail init writes a PreToolUse entry whose matcher is Bash');
   const command = bash.hooks[0].command as string;
   const env = { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '', ...isolated(p.dir) };
-  return spawn(command, { shell: true, cwd: p.dir, env, stdio: 'pipe' });
+  return spawn(typeof SHELL === 'string' ? SHELL : '/bin/sh', ['-c', command], { cwd: p.dir, env, stdio: 'pipe' });
 }
 
 /** Exit code, stdout and how long it took, for a child whose stdin `feed` writes to and may never close. */
@@ -283,7 +287,7 @@ function settle(child: ReturnType<typeof spawn>, feed: (stdin: NodeJS.WritableSt
   });
 }
 
-test('a payload whose stdin never closes ends the hook with exit 0, inside the host timeout', { skip: process.platform === 'win32' ? 'hostRun uses a POSIX shell command; cmd.exe does not expand CLAUDE_PROJECT_DIR' : false }, async () => {
+test('a payload whose stdin never closes ends the hook with exit 0, inside the host timeout', { skip: NO_SHELL }, async () => {
   const p = project('pre-bash-open-stdin');
   fakePackage(p.dir);
   const child = hostRun(p);
@@ -296,7 +300,7 @@ test('a payload whose stdin never closes ends the hook with exit 0, inside the h
   assert.ok(r.ms < bar, `gave up after ${r.ms} ms: the host allows 5000`);
 });
 
-test('a 5 MB payload is read to its end and lets the command through, quickly and silently', { skip: process.platform === 'win32' ? 'hostRun uses a POSIX shell command; cmd.exe does not expand CLAUDE_PROJECT_DIR' : false }, async () => {
+test('a 5 MB payload is read to its end and lets the command through, quickly and silently', { skip: NO_SHELL }, async () => {
   const p = project('pre-bash-huge-stdin');
   fakePackage(p.dir);
   const huge = JSON.stringify({ ...BASH, tool_input: { command: `cat > /tmp/x/big.txt <<'EOF'\n${'a'.repeat(5 * 1024 * 1024)}\nEOF` } });
