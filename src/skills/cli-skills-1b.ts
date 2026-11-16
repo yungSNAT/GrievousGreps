@@ -11,7 +11,7 @@
  *    skill's `lessons/.forgotten/`.
  */
 import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { flatLine } from '../notes/flatten.js';
 import { repoPlace, shownPath } from '../notes/home.js';
 import { everyRepoDir } from '../notes/every-repo.js';
@@ -19,7 +19,7 @@ import { refuseLinkedIntoCheckout } from '../notes/linked-learnings.js';
 import { repoNotesDir } from '../notes/repo-notes-dir.js';
 import { LEARNING_ID } from '../notes/learning-fields.js';
 import { parseNote, renderNote, type Note } from '../notes/notes.js';
-import { writePrivate } from '../util/private-fs.js';
+import { trailPath, writePrivate } from '../util/private-fs.js';
 import { WALLS } from '../trace/walls.js';
 import { readInitRecord } from '../init/init-record.js';
 import { recompileInitSkill } from '../init/replay-runs.js';
@@ -98,7 +98,7 @@ function retire(n: Note, env: NodeJS.ProcessEnv): CliOut {
   const name = what === 'guardrail' ? basename(path, '.md') : one(n.title, 60);
   return {
     code: 0, lines: [`✓ ${what === 'guardrail' ? 'always-follow learning' : 'learning'} forgotten: ${one(n.title, 80)} · it stops loading; the file stays, marked retired: ${shownPath(path)}`],
-    dropped: { what, name, back: `change status: retired to status: active in ${shownPath(path)}` },
+    dropped: { what, name, back: `change status: retired to status: active in ${relative(trailPath(env), path).split(sep).join('/')} under your Trail home` },
   };
 }
 
@@ -126,7 +126,7 @@ function forgetSkillLesson(id: string, env: NodeJS.ProcessEnv): CliOut | null {
         renameSync(path, join(gone, f));
         return {
           code: 0, lines: [`✓ learning ${id} forgotten · it no longer rides with ${one(skill)}`],
-          dropped: { what: 'lesson', name: id, back: `move ${f} from ${shownPath(gone)}/ back into ${shownPath(dir)}/` },
+          dropped: { what: 'lesson', name: id, back: `in your Trail home, move skills/${skill}/lessons/.forgotten/${f} up one folder` },
         };
       } catch { /* the next one */ }
     }

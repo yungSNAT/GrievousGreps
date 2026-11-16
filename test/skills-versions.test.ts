@@ -306,6 +306,36 @@ test("restore v1 as v3 with v2 kept; its version line says 3", () => {
   assert.equal(getSkillState(ref.id, b.env)!.hash, hashOf(ref));
 });
 
+test("restoring a replaced version brings back missing lessons and preserves a current lesson with the same filename", () => {
+  const { b, ref } = saved();
+  const lessons = join(ref.dir, "lessons");
+  const lesson = (id: string, body: string) => `---\nid: "${id}"\nkind: "lesson"\nskill: "release-npm"\nsrc: "correction"\nat: "2026-11-01"\n---\n${body}\n`;
+  const collision = lesson("ls-1a2b3c", "the archived mirror policy");
+  const missing = lesson("ls-4d5e6f", "wait for the mirror before publishing");
+  writeFileSync(join(lessons, "2026-11-01.md"), collision);
+  writeFileSync(join(lessons, "2026-11-02.md"), missing);
+  assert.deepEqual(write(b, ref, changed(2), "replace"), { ok: true, version: 2 });
+  assert.deepEqual(readLessons(ref.dir), []);
+  const archived = join(versionsDir(ref), "v1", "lessons");
+  assert.equal(readFileSync(join(archived, "2026-11-01.md"), "utf8"), collision);
+  assert.equal(readFileSync(join(archived, "2026-11-02.md"), "utf8"), missing);
+  const current = lesson("ls-777777", "my current mirror policy takes precedence");
+  writeFileSync(join(lessons, "2026-11-01.md"), current);
+  const v2 = readFileSync(ref.file, "utf8");
+
+  assert.deepEqual(restoreVersion(ref, 1, b.env, NOW), { ok: true, version: 3 });
+  assert.equal(readFileSync(join(lessons, "2026-11-01.md"), "utf8"), current);
+  assert.equal(readFileSync(join(lessons, "2026-11-02.md"), "utf8"), missing);
+  assert.deepEqual(readLessons(ref.dir).map((entry) => entry.id).sort(), ["ls-4d5e6f", "ls-777777"]);
+  assert.equal(readFileSync(join(archived, "2026-11-01.md"), "utf8"), collision);
+  assert.equal(readFileSync(join(archived, "2026-11-02.md"), "utf8"), missing);
+  assert.equal(readFileSync(join(versionsDir(ref), "v2", "SKILL.md"), "utf8"), v2);
+  assert.deepEqual(listVersions(ref), [1, 2]);
+  const last = readLedger(ref.id, b.env).filter((entry) => entry.event === "changed").pop();
+  assert.deepEqual(last && last.event === "changed" && [last.op, last.from, last.to], ["restore-version", 2, 3]);
+  assert.equal(getSkillState(ref.id, b.env)!.hash, hashOf(ref));
+});
+
 test("a restore keeps the person's edited file as hand-<date> first (R6); an unknown version is unknown", () => {
   const { b, ref } = saved();
   assert.equal(write(b, ref, changed(2)).ok, true);

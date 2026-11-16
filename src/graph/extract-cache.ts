@@ -204,7 +204,13 @@ export function emptyExtractCache(): ExtractCache {
 /** The cache for `outDir`, or an empty one when it's absent, unparseable, written by
  * a different cache version, or when this graft has no identity to key on (then
  * every build is cold, which is slow but never wrong). The stamp is in the filename,
- * so the `extractor` field is a second check rather than the only one. */
+ * so the `extractor` field is a second check rather than the only one.
+ *
+ * The file sits in the repository's output folder, so a clone can ship one with its
+ * hashes made to match, and every later reader of `node.path` (`build --lsp` reads
+ * and sends each one) trusts that path to be a file the walk listed. So an entry is
+ * kept only when its parse speaks for its own file alone: every node's `path` is the
+ * entry's key. Anything else is dropped and that file is re-parsed. */
 export function readExtractCache(outDir: string): ExtractCache {
   const path = extractCachePath(outDir);
   const stamp = extractorStamp();
@@ -213,7 +219,14 @@ export function readExtractCache(outDir: string): ExtractCache {
   if (!c || c.version !== CACHE_VERSION || c.extractor !== stamp || typeof c.files !== "object") {
     return emptyExtractCache();
   }
-  return { version: c.version, extractor: c.extractor, files: c.files ?? {} };
+  // fromEntries defines each key as its own property, so a `__proto__` key cannot
+  // become the prototype that unchecked entries are looked up through.
+  const files = Object.fromEntries(Object.entries(c.files ?? {}).filter(([rel, e]) => ownParse(rel, e)));
+  return { version: c.version, extractor: c.extractor, files };
+}
+
+function ownParse(rel: string, e: ExtractEntry | null): boolean {
+  return Array.isArray(e?.nodes) && Array.isArray(e.rawEdges) && e.nodes.every((n) => n?.path === rel);
 }
 
 /** Best-effort write — a full graph is already on disk by the time this runs, so an
