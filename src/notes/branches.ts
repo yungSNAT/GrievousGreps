@@ -17,7 +17,7 @@
  */
 import { execFileSync, spawn } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { brand } from "../brand.js";
 import { graftCliPath } from "../claude/paths.js";
 import { cacheDir, readJson, writeJsonAtomic } from "../util/state.js";
@@ -246,10 +246,12 @@ function commonGitDir(repo: string): string | null {
   try {
     if (statSync(dot).isDirectory()) return dot;
     const line = readFileSync(dot, "utf8").split("\n").find((l) => l.startsWith("gitdir:"));
-    const gitDir = line?.slice("gitdir:".length).trim();
-    if (!gitDir) return null;
+    const pointer = line?.slice("gitdir:".length).trim();
+    if (!pointer) return null;
+    // Git writes either pointer relative to the file holding it, or absolute.
+    const gitDir = resolve(repo, pointer);
     try {
-      return join(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim());
+      return resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim());
     } catch {
       return gitDir;
     }
