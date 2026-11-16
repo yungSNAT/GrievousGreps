@@ -606,6 +606,38 @@ test("Rust: under `use super::*`, only a file whose own modules sit beside it is
   assert.deepEqual(calls(graph, "app/tests/own/option.rs#local"), ["app/tests/own/helpers.rs#event"], "the parent's own module");
 });
 
+test("Rust: under `use super::*`, a top-level test file stays a root, a parent's modules must be declared, and module files are followed down", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "app"]\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod expect;\n",
+    "mock/src/expect.rs": "pub fn event() {}\n",
+    "two/Cargo.toml": `[package]\nname = "two"\n`,
+    "two/src/lib.rs": "pub mod expect;\n",
+    "two/src/expect.rs": "pub fn event() {}\n",
+    "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
+    // tests/foo.rs is a test crate whose `mod option;` is tests/option.rs, though bar.rs also
+    // declares it as a module, whose `mod option;` is tests/foo/option.rs.
+    "app/tests/foo.rs": "mod option;\nuse tracing_mock::expect;\n",
+    "app/tests/bar.rs": "mod foo;\n",
+    "app/tests/option.rs": "use super::*;\nfn top() { expect::event(); }\n",
+    "app/tests/foo/option.rs": "use super::*;\nfn below() { expect::event(); }\n",
+    // lib.rs never declares `mod orphan;`, so `orphan` is no module of it.
+    "app/src/lib.rs": "mod child;\n",
+    "app/src/child.rs": "use super::*;\nfn stray() { orphan::event(); }\n",
+    "app/src/orphan.rs": "pub fn event() {}\n",
+    // A module of the parent's own module file.
+    "app/tests/deep/main.rs": "mod option;\nmod helpers;\n",
+    "app/tests/deep/helpers.rs": "pub(crate) mod nested;\n",
+    "app/tests/deep/helpers/nested.rs": "pub fn event() {}\n",
+    "app/tests/deep/option.rs": "use super::*;\nfn deep() { helpers::nested::event(); }\n",
+  });
+  assert.deepEqual(calls(graph, "app/tests/option.rs#top"), ["mock/src/expect.rs#event"], "a top-level test file is a crate root");
+  assert.deepEqual(calls(graph, "app/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"]);
+  assert.deepEqual(calls(graph, "app/src/child.rs#stray"), [], "an undeclared module file");
+  assert.deepEqual(calls(graph, "app/tests/deep/option.rs#deep"), ["app/tests/deep/helpers/nested.rs#event"]);
+});
+
 test("Rust: a repeated name no path settles is stated, and a dependency's stays silent", async (t) => {
   const graph = await build(t, {
     ...tracingLike,
