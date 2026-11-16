@@ -271,7 +271,7 @@ function hostRun(p: { dir: string; home: string }) {
   assert.ok(bash, 'trail init writes a PreToolUse entry whose matcher is Bash');
   const command = bash.hooks[0].command as string;
   const env = { ...process.env, HOME: p.home, USERPROFILE: p.home, TRAIL_HOME: join(p.home, '.trail'), CLAUDE_PROJECT_DIR: p.dir, TRAIL_NO_HOOKS: '', ...isolated(p.dir) };
-  return spawn(command, { shell: SHELL ?? true, cwd: p.dir, env, stdio: 'pipe' });
+  return spawn(typeof SHELL === 'string' ? SHELL : '/bin/sh', ['-c', command], { cwd: p.dir, env, stdio: 'pipe' });
 }
 
 /** Exit code, stdout and how long it took, for a child whose stdin `feed` writes to and may never close. */
