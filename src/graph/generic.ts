@@ -982,10 +982,17 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
  * the items it is given: its matcher holds nothing but attributes and `item` or `tt` captures,
  * and its output names each such capture. An arm that matches an item's tokens otherwise
  * (`pub fn $n:ident() {}`) may drop the item; a dropped attribute, such as `#[doc = $d:expr]`,
- * leaves it. An empty matcher matches no items.
- *
- * shortcut: a capture named only inside `stringify!` counts as passed on. */
+ * leaves it. An empty matcher matches no items. A capture named only in a string, a comment or
+ * `stringify!` is not passed on. */
 function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
+  const emitted = (tree: TsNode, into: Set<string>): Set<string> => {
+    for (let k = 0; k < (tree.childCount ?? 0); k++) {
+      const c = tree.child?.(k);
+      if (c?.type === "metavariable") into.add(c.text.slice(1));
+      else if ((c?.type === "token_tree" || c?.type === "token_repetition") && !(tree.child?.(k - 1)?.type === "!" && tree.child?.(k - 2)?.text === "stringify")) emitted(c, into);
+    }
+    return into;
+  };
   for (const def of root.descendantsOfType?.("macro_definition") ?? []) {
     const name = def?.childForFieldName?.("name")?.text;
     if (!def || !name) continue;
@@ -997,7 +1004,8 @@ function extractRustMacroDefs(root: TsNode, rel: string, rawEdges: RawEdge[]): v
       const captures = [...left.matchAll(/\$(\w+)\s*:\s*(?:item|tt)\b/g)].map((m) => m[1]!);
       // What the matcher holds besides attributes, item or tt captures and repetition marks.
       const rest = left.replace(/#!?\s*\[[^\]]*\]/g, "").replace(/\$\w+\s*:\s*(?:item|tt)\b/g, "").replace(/[\s$()[\]{}*+?,;]/g, "");
-      const named = new Set([...(rule?.childForFieldName?.("right")?.text ?? "").matchAll(/\$(\w+)/g)].map((m) => m[1]!));
+      const right = rule?.childForFieldName?.("right");
+      const named = right ? emitted(right, new Set()) : new Set<string>();
       if (rest || !captures.length || !captures.every((cap) => named.has(cap))) emits = false;
     }
     rawEdges.push({ source: rel, relation: "imports", file: rel, rustMacroDef: { name, emits } });
