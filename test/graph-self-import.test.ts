@@ -640,17 +640,21 @@ test("Rust: under `use super::*`, a top-level test file stays a root, a parent's
 
 test("Rust: under `use super::*`, a test file is a root only when Cargo builds it as a target", async (t) => {
   const files = (crate: string, manifest: string) => ({
-    [`${crate}/Cargo.toml`]: `[package]\nname = "${crate}"\n${manifest}[dependencies]\ntracing-mock = { path = "../mock" }\n`,
+    [`${crate}/Cargo.toml`]: `[package]\nname = "${crate}"\n${manifest}[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
     [`${crate}/tests/foo.rs`]: "mod option;\nuse tracing_mock::expect;\n",
     [`${crate}/tests/bar.rs`]: "mod foo;\n",
     [`${crate}/tests/option.rs`]: "use super::*;\nfn top() { expect::event(); }\n",
     [`${crate}/tests/foo/option.rs`]: "use super::*;\nfn below() { expect::event(); }\n",
   });
   const graph = await build(t, {
-    "Cargo.toml": `[workspace]\nmembers = ["mock", "only_bar", "only_foo"]\n`,
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "only_bar", "only_foo"]\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
     "mock/src/lib.rs": "pub mod expect;\n",
     "mock/src/expect.rs": "pub fn event() {}\n",
+    // A second `expect::event`, so only the parent's `use` can settle which one a call means.
+    "two/Cargo.toml": `[package]\nname = "two"\n`,
+    "two/src/lib.rs": "pub mod expect;\n",
+    "two/src/expect.rs": "pub fn event() {}\n",
     // With `autotests = false` only the listed targets are crates: foo.rs is bar.rs's module.
     // A `path` outside a target table names no target.
     ...files("only_bar", `autotests = false\n\n[[test]]\nname = "bar"\n\n[package.metadata.x]\npath = "tests/foo.rs"\n`),
