@@ -102,6 +102,38 @@ test('outside its own git checkout the build leaves no stamp, not a wrong one', 
   }
 });
 
+test('outside a checkout, a commit an archive wrote into scripts/archive-commit.txt is stamped; the bare placeholder is not', () => {
+  const sha = 'eaa839317b75f3c2d7fc96243a5c046d047a57aa';
+  for (const [archived, stamp] of [[`${sha}\n`, 'eaa839317b75\n'], ['$Format:%H$\n', null], ['not a commit\n', null]] as const) {
+    const pkg = mkdtempSync(join(tmpdir(), 'graft-stamp-archive-'));
+    try {
+      mkdirSync(join(pkg, 'scripts'));
+      mkdirSync(join(pkg, 'dist'));
+      copyFileSync(resolve(process.cwd(), 'scripts', 'stamp-commit.mjs'), join(pkg, 'scripts', 'stamp-commit.mjs'));
+      writeFileSync(join(pkg, 'scripts', 'archive-commit.txt'), archived);
+      writeFileSync(join(pkg, 'dist', 'build-commit.txt'), '0123456789ab\n');
+      const r = spawnSync(process.execPath, [join(pkg, 'scripts', 'stamp-commit.mjs')], { encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      const file = join(pkg, 'dist', 'build-commit.txt');
+      assert.equal(existsSync(file) ? readFileSync(file, 'utf8') : null, stamp, archived);
+    } finally {
+      rmSync(pkg, { recursive: true, force: true });
+    }
+  }
+});
+
+test('git archive, as GitHub serves a commit to npm, writes that commit into scripts/archive-commit.txt', (t) => {
+  const git = (...args: string[]) => spawnSync('git', args, { encoding: 'utf8' });
+  const head = git('rev-parse', 'HEAD');
+  if (head.status !== 0) return t.skip('not a git checkout');
+  const archive = git('archive', '--format=tar', 'HEAD', 'scripts/archive-commit.txt');
+  assert.equal(archive.status, 0, archive.stderr);
+  // A tar member's text follows its 512-byte header, which starts with its name (after git's pax header).
+  const at = archive.stdout.indexOf('scripts/archive-commit.txt');
+  // Only the commit: git archive writes the line ending core.autocrlf asks for, CRLF on Windows.
+  assert.equal(archive.stdout.slice(at + 512, at + 552), head.stdout.trim());
+});
+
 // --- npm launch: a fake npm first on PATH stands in for the real one ---
 //
 // On Windows `npm` is the `npm.cmd` shim, which spawnSync cannot start without a
