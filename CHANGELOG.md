@@ -14,6 +14,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Changed
 
+- **Merged upstream's `main` up to `4198cbb` (16 November 2026)**, so the upstream changes listed under Unreleased below are in this build too: Go, Kotlin, Elixir, PHP and TypeScript interface resolution, `build --strict` and `--include-dir`, `trail share-session` and the Pi host among them. The fork's own rules hold where the two differ: writes stay inside the repository's real folders, network features stay off until asked for, and TypeScript calls through an import still resolve by the fork's import walk rather than upstream's named-import shortcut. Upstream's committed `.claude/settings.json` is left out.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
 - **Usage stats, the update check and workspace background reads are off** until you ask for them.
 - **Writes refuse a symlink** planted in a repository or output folder.
