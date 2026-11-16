@@ -638,6 +638,50 @@ test("Rust: under `use super::*`, a top-level test file stays a root, a parent's
   assert.deepEqual(calls(graph, "app/tests/deep/option.rs#deep"), ["app/tests/deep/helpers/nested.rs#event"]);
 });
 
+test("Rust: under `use super::*`, a test file is a root only when Cargo builds it as a target", async (t) => {
+  const files = (crate: string, manifest: string) => ({
+    [`${crate}/Cargo.toml`]: `[package]\nname = "${crate}"\n${manifest}[dependencies]\ntracing-mock = { path = "../mock" }\n`,
+    [`${crate}/tests/foo.rs`]: "mod option;\nuse tracing_mock::expect;\n",
+    [`${crate}/tests/bar.rs`]: "mod foo;\n",
+    [`${crate}/tests/option.rs`]: "use super::*;\nfn top() { expect::event(); }\n",
+    [`${crate}/tests/foo/option.rs`]: "use super::*;\nfn below() { expect::event(); }\n",
+  });
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "only_bar", "only_foo"]\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod expect;\n",
+    "mock/src/expect.rs": "pub fn event() {}\n",
+    // With `autotests = false` only the listed targets are crates: foo.rs is bar.rs's module.
+    // A `path` outside a target table names no target.
+    ...files("only_bar", `autotests = false\n\n[[test]]\nname = "bar"\n\n[package.metadata.x]\npath = "tests/foo.rs"\n`),
+    // A target named by its path is a crate, whatever its file is called.
+    ...files("only_foo", `autotests = false\n\n[[test]]\nname = "it"\npath = "tests/foo.rs"\n`),
+  });
+  assert.deepEqual(calls(graph, "only_bar/tests/option.rs#top"), [], "foo.rs is no target, so tests/option.rs is no module of it");
+  assert.deepEqual(calls(graph, "only_bar/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"]);
+  assert.deepEqual(calls(graph, "only_foo/tests/option.rs#top"), ["mock/src/expect.rs#event"], "the listed path is a crate root");
+});
+
+test("Rust: under `use super::*`, a module file's function is reached only when the caller can see it", async (t) => {
+  const tree = (dir: string, mod: string, fn: string) => ({
+    [`app/tests/${dir}/main.rs`]: "mod option;\nmod helpers;\n",
+    [`app/tests/${dir}/helpers.rs`]: `${mod} nested;\n${fn} own() {}\n`,
+    [`app/tests/${dir}/helpers/nested.rs`]: `${fn} event() {}\n`,
+    [`app/tests/${dir}/option.rs`]: "use super::*;\nfn deep() { helpers::nested::event(); }\nfn near() { helpers::own(); }\n",
+  });
+  const graph = await build(t, {
+    "app/Cargo.toml": `[package]\nname = "app"\n`,
+    ...tree("open", "pub(crate) mod", "pub fn"),
+    ...tree("private_fn", "pub mod", "fn"),
+    ...tree("private_mod", "mod", "pub fn"),
+  });
+  assert.deepEqual(calls(graph, "app/tests/open/option.rs#deep"), ["app/tests/open/helpers/nested.rs#event"]);
+  assert.deepEqual(calls(graph, "app/tests/open/option.rs#near"), ["app/tests/open/helpers.rs#own"]);
+  assert.deepEqual(calls(graph, "app/tests/private_fn/option.rs#deep"), [], "a private fn is not visible beside its module");
+  assert.deepEqual(calls(graph, "app/tests/private_fn/option.rs#near"), [], "a private fn is not visible beside its module");
+  assert.deepEqual(calls(graph, "app/tests/private_mod/option.rs#deep"), [], "a private module is not visible beside its parent");
+});
+
 test("Rust: a repeated name no path settles is stated, and a dependency's stays silent", async (t) => {
   const graph = await build(t, {
     ...tracingLike,
