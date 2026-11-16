@@ -5,10 +5,13 @@
  * which code is running.
  *
  * Runs at the end of `npm run build`. Outside a git checkout, or without git,
- * it removes any old stamp rather than leave a wrong one.
+ * it takes the commit from `scripts/archive-commit.txt`, which `git archive`
+ * fills in (`export-subst` in .gitattributes): npm installs from GitHub build
+ * such an archive, which has no .git. Failing both, it removes any old stamp
+ * rather than leave a wrong one.
  */
 import { execFileSync } from 'node:child_process';
-import { realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -24,5 +27,8 @@ try {
   const dirty = git('status', '--porcelain', '--untracked-files=no') ? '-dirty' : '';
   writeFileSync(target, `${commit}${dirty}\n`);
 } catch {
-  rmSync(target, { force: true });
+  let archived = '';
+  try { archived = readFileSync(join(root, 'scripts', 'archive-commit.txt'), 'utf8').trim(); } catch { /* none */ }
+  if (/^[0-9a-f]{40}$/.test(archived)) writeFileSync(target, `${archived.slice(0, 12)}\n`);
+  else rmSync(target, { force: true });
 }
