@@ -53,6 +53,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **The note after an agent's `trail forget` keeps its restoration step whole under a long Trail home.** The step named the full path and was cut off at 200 characters; it now names the file's place inside your Trail home.
 - **Teammates' branches refresh after a fetch or push in any linked worktree or submodule.** A `.git` file whose `gitdir:` is relative, as `git worktree add` writes with `worktree.useRelativePaths`, or a worktree whose `commondir` is absolute, was read against the wrong folder, so a fetch or push never refreshed the cached list before it expired.
 - **A Python decorator written without arguments is a call.** `@stream_with_context` or `@rich.repr.auto` above a definition calls the decorator from the scope the definition sits in, as Python does, so the decorator now shows that caller. Only decorators with arguments, such as `@route("/")`, counted before.
+- **`trail build --lsp` asks the language server about the function itself.** It took the first place the name appeared near the definition, even inside another word, so `port` was queried inside `éport` or `portExtra` in a comment before it and its calls were lost. It now takes the first whole identifier.
 
 ## 0.28.0
 

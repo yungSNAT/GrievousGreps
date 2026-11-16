@@ -24,6 +24,11 @@ const DEFN = new Set<NodeV1["kind"]>(["function", "method", "class", "struct", "
 
 const langOf = (path: string): string | null => genericLangOf(path)?.name ?? languageLabelOf(path);
 
+// Each place not preceded by an identifier character, and an identifier character at a
+// place (sticky). Together they find a name standing as a whole identifier.
+const WORD_START = /(?<![\p{ID_Continue}$\u200C\u200D])/gu;
+const IDENT_AT = /[\p{ID_Continue}$\u200C\u200D]/uy;
+
 interface Span { node: NodeV1; from: number; to: number }
 const parseSpan = (s: string): [number, number] | null => {
   const m = /^L(\d+)-L(\d+)$/.exec(s);
@@ -89,13 +94,19 @@ export async function enrichWithLsp(
   };
 
   // The name-token position of a definition (0-indexed), scanning its first few
-  // lines for the name — call hierarchy needs a position ON the symbol.
+  // lines for the name — call hierarchy needs a position ON the symbol. Only a
+  // whole identifier counts: `port` inside `éport`, `$port` or `portExtra` is
+  // another symbol, and querying there loses this one's calls.
   const namePos = (src: NodeV1): { line: number; character: number } | null => {
     const sp = parseSpan(src.span); if (!sp) return null;
     const lines = linesOf(src.path);
     for (let ln = sp[0] - 1; ln < Math.min(sp[0] + 2, lines.length); ln++) {
-      const c = (lines[ln] ?? "").indexOf(src.name);
-      if (c >= 0) return { line: ln, character: c };
+      const text = lines[ln] ?? "";
+      for (const { index } of text.matchAll(WORD_START)) {
+        if (!text.startsWith(src.name, index)) continue;
+        IDENT_AT.lastIndex = index + src.name.length;
+        if (!IDENT_AT.test(text)) return { line: ln, character: index };
+      }
     }
     return null;
   };
