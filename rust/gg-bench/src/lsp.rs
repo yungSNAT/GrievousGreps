@@ -269,6 +269,10 @@ impl Server {
                         }
                     }
                     "experimental/serverStatus" => self.quiescent = params["quiescent"].as_bool(),
+                    // Kept on stderr: which TypeScript or Python the server chose is evidence.
+                    "window/logMessage" | "window/showMessage" => {
+                        eprintln!("server: {}", params["message"].as_str().unwrap_or_default());
+                    }
                     _ => {}
                 }
                 Ok(None)
@@ -475,6 +479,22 @@ pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
     chain
 }
 
+/// The cleaned names of the symbols around one, innermost first.
+fn owners(scopes: &[Scope], scope: &Scope) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut next = scope.parent;
+    while let Some(index) = next {
+        names.push(clean_scope(&scopes[index].name));
+        next = scopes[index].parent;
+    }
+    names
+}
+
+/// A symbol's first and last line, from 1.
+fn lines(scope: &Scope) -> (i64, i64) {
+    (scope.start.0 as i64 + 1, scope.end.0 as i64 + 1)
+}
+
 /// The truth target's definitions among a file's symbols, with the span each is scored at. Under
 /// `span` rules a definition must hold a target line, or be the only one within a few lines of it
 /// (a decorator moves the start), as the other rivals' adapters choose.
@@ -486,20 +506,13 @@ pub fn targets<'a>(
 ) -> Vec<(&'a Scope, String)> {
     let mut parts: Vec<&str> = symbol.split('.').collect();
     let leaf = parts.pop().unwrap_or_default();
-    let owners = |scope: &Scope| {
-        let mut names = Vec::new();
-        let mut next = scope.parent;
-        while let Some(index) = next {
-            names.push(clean_scope(&scopes[index].name));
-            next = scopes[index].parent;
-        }
-        names
-    };
     let cands: Vec<&Scope> = scopes
         .iter()
-        .filter(|s| s.name == leaf && parts.iter().all(|p| owners(s).iter().any(|o| o == p)))
+        .filter(|s| {
+            let owners = owners(scopes, s);
+            s.name == leaf && parts.iter().all(|p| owners.iter().any(|o| o == p))
+        })
         .collect();
-    let lines = |s: &Scope| (s.start.0 as i64 + 1, s.end.0 as i64 + 1);
     let span = |s: &Scope| format!("L{}-L{}", lines(s).0, lines(s).1);
     if !span_rules || entry.target_lines.is_empty() {
         return cands.into_iter().map(|s| (s, span(s))).collect();
@@ -706,14 +719,9 @@ fn verbose_line(repo: &str, symbol: &str, score: &SymbolScore) {
     );
 }
 
-/// One repository: copy the checkout, start the server, open the target files, wait for it to
-/// load, then ask for each symbol. The answers are kept beside the report for `gg-bench score`.
-fn score_repo(
-    opts: &LspOptions,
-    repo: &Repo,
-    info: &mut Value,
-) -> Result<(crate::score::Summary, usize), String> {
-    let truth = read_truth(&opts.bench, &repo.name)?;
+/// A fresh copy of the pinned checkout, and the path the server is given: on Unix with links
+/// resolved, as servers report locations by their real path.
+fn fresh_copy(opts: &LspOptions, repo: &Repo) -> Result<(PathBuf, PathBuf), String> {
     let source = fetch_repo(repo, &opts.work)?;
     let copy = under(&opts.work, &["run", "lsp", &repo.name]);
     remove(&copy)?;
@@ -723,6 +731,18 @@ fn score_repo(
     } else {
         copy.clone()
     };
+    Ok((copy, root))
+}
+
+/// One repository: copy the checkout, start the server, open the target files, wait for it to
+/// load, then ask for each symbol. The answers are kept beside the report for `gg-bench score`.
+fn score_repo(
+    opts: &LspOptions,
+    repo: &Repo,
+    info: &mut Value,
+) -> Result<(crate::score::Summary, usize), String> {
+    let truth = read_truth(&opts.bench, &repo.name)?;
+    let (copy, root) = fresh_copy(opts, repo)?;
     let out = under(&opts.work, &["lsp", label(opts.ask)]);
     fs::create_dir_all(&out).map_err(|e| format!("cannot create {}: {e}", out.display()))?;
     let (server, server_info) = Server::start(
