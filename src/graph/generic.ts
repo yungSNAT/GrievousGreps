@@ -67,6 +67,14 @@ export const GENERIC_LANGS: readonly GenericLang[] = [
   { name: "julia", exts: [".jl"], wasm: "julia" },
   { name: "glsl", exts: [".glsl"], wasm: "glsl" },
   { name: "bash", exts: [".sh", ".bash"], wasm: "bash" },
+  { name: "perl", exts: [".pl", ".pm"], wasm: "perl" },
+  { name: "objc", exts: [".m", ".mm"], wasm: "objc" },
+  { name: "gdscript", exts: [".gd"], wasm: "gdscript" },
+  { name: "rescript", exts: [".res", ".resi"], wasm: "rescript" },
+  { name: "groovy", exts: [".groovy", ".gradle"], wasm: "groovy" },
+  { name: "elm", exts: [".elm"], wasm: "elm" },
+  // Free-form Fortran only: fixed-form `.f`/`.for` files read badly in this grammar.
+  { name: "fortran", exts: [".f90", ".f95", ".f03", ".f08"], wasm: "fortran" },
 ];
 
 /**

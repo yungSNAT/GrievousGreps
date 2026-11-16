@@ -52,13 +52,13 @@ const SWIFT_CTOR_KINDS: Kind[] = ["class", "struct", "enum"];
  * the more confident the old code was that it had found the right target.
  *
  * Only real interop is grouped here. TS/TSX/JS import each other freely; Kotlin,
- * Scala and Clojure compile against Java on one classpath; C and C++ share
- * headers. Everything else stands alone.
+ * Scala, Clojure and Groovy compile against Java on one classpath; C, C++ and
+ * Objective-C share headers. Everything else stands alone.
  */
 const FAMILIES: ReadonlyArray<readonly string[]> = [
   ["typescript", "tsx"],
-  ["java", "kotlin", "scala", "clojure"],
-  ["c", "cpp"],
+  ["java", "kotlin", "scala", "clojure", "groovy"],
+  ["c", "cpp", "objc"],
 ];
 const FAMILY_OF = new Map<string, string>();
 for (const group of FAMILIES) for (const lang of group) FAMILY_OF.set(lang, group[0]);
