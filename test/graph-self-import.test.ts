@@ -426,8 +426,9 @@ pub fn inside() { crate::blocking::get_default(); }
   assert.deepEqual(calls(graph, "core/src/dispatcher.rs#now"), ["core/src/dispatcher.rs#current", "core/src/dispatcher.rs#current~2"], "as are 2 inside item macros");
 });
 
-test("Rust: a path follows a crate that `pub extern crate … as` re-exports", async (t) => {
-  const graph = await build(t, {
+// Each case: test name, workspace files, caller and the one callee its path reaches.
+const externCrateCases: [string, Record<string, string>, string, string][] = [
+  ["a path follows a crate that `pub extern crate … as` re-exports", {
     "Cargo.toml": `[workspace]\nmembers = ["cli", "grep", "core"]\n`,
     "cli/Cargo.toml": `[package]\nname = "grep-cli"\n`,
     "cli/src/lib.rs": "mod hostname;\npub use crate::hostname::hostname;\n",
@@ -436,21 +437,21 @@ test("Rust: a path follows a crate that `pub extern crate … as` re-exports", a
     "grep/src/lib.rs": "pub extern crate grep_cli as cli;\n",
     "core/Cargo.toml": `[package]\nname = "core-app"\n[dependencies]\ngrep = { path = "../grep" }\n`,
     "core/src/lib.rs": "fn hostname() { platform(); }\nfn platform() { grep::cli::hostname(); }\n",
-  });
-  assert.deepEqual(calls(graph, "core/src/lib.rs#platform"), ["cli/src/hostname.rs#hostname"]);
-});
-
-test("Rust: `pub extern crate self as …` in a module names the crate root, not that module", async (t) => {
-  const graph = await build(t, {
+  }, "core/src/lib.rs#platform", "cli/src/hostname.rs#hostname"],
+  ["`pub extern crate self as …` in a module names the crate root, not that module", {
     "Cargo.toml": `[workspace]\nmembers = ["lib", "app"]\n`,
     "lib/Cargo.toml": `[package]\nname = "dep"\n`,
     "lib/src/lib.rs": "pub mod sub;\npub fn target() {}\n",
     "lib/src/sub.rs": "pub extern crate self as root;\npub fn target() {}\n",
     "app/Cargo.toml": `[package]\nname = "app"\n[dependencies]\ndep = { path = "../lib" }\n`,
     "app/src/lib.rs": "pub fn go() { dep::sub::root::target(); }\n",
+  }, "app/src/lib.rs#go", "lib/src/lib.rs#target"],
+];
+for (const [name, files, caller, callee] of externCrateCases) {
+  test(`Rust: ${name}`, async (t) => {
+    assert.deepEqual(calls(await build(t, files), caller), [callee]);
   });
-  assert.deepEqual(calls(graph, "app/src/lib.rs#go"), ["lib/src/lib.rs#target"]);
-});
+}
 
 test("Rust: the items inside an item macro such as `cfg_rt!` are read as items", async (t) => {
   const graph = await build(t, {
