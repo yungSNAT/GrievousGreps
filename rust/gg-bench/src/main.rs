@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use gg_bench::lsp::{Ask, LspOptions};
 use gg_bench::run::{self, Options};
 use gg_bench::score::{Repo, score_symbol, summarise};
 use serde_json::{Map, Value, json};
@@ -37,6 +38,33 @@ enum Command {
         #[arg(long)]
         answers: PathBuf,
     },
+    /// Start a language server in a copy of each pinned repository of one language, ask it for
+    /// the callers of each truth symbol and print recall. Install each checkout's dependencies
+    /// first where the server reads them. The answers are kept under the work folder's `lsp/`.
+    Lsp(LspArgs),
+}
+
+#[derive(Args)]
+struct LspArgs {
+    /// The language whose repositories the server reads: Python, TypeScript or Rust.
+    #[arg(long)]
+    language: String,
+    /// What to ask the server.
+    #[arg(long, value_enum, default_value = "calls")]
+    ask: Ask,
+    /// Comma-separated repository names; all of the language's by default.
+    #[arg(long)]
+    repos: Option<String>,
+    /// Scratch folder for checkouts and answers [default: grievousgreps-benchmark in the
+    /// temporary folder].
+    #[arg(long)]
+    work: Option<PathBuf>,
+    /// Print each symbol's score and its first 10 misses on stderr.
+    #[arg(long)]
+    verbose: bool,
+    /// The server and its arguments, after `--`: `-- pyright-langserver --stdio`.
+    #[arg(last = true, required = true)]
+    server: Vec<OsString>,
 }
 
 #[derive(Args)]
@@ -66,6 +94,36 @@ fn absolute(path: &Path) -> Result<PathBuf, String> {
     run::absolute(path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+fn work_folder(work: Option<PathBuf>) -> Result<PathBuf, String> {
+    let work = absolute(
+        &work
+            // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a scratch folder for clones, as run.mjs used
+            .unwrap_or_else(|| std::env::temp_dir().join("grievousgreps-benchmark")),
+    )?;
+    fs::create_dir_all(&work).map_err(|e| format!("cannot create {}: {e}", work.display()))?;
+    Ok(work)
+}
+
+fn lsp_command(bench: PathBuf, args: LspArgs) -> Result<String, String> {
+    let repos: Vec<Repo> = run::select_repos(&bench, args.repos.as_deref())?
+        .into_iter()
+        .filter(|repo| repo.language == args.language)
+        .collect();
+    if repos.is_empty() {
+        return Err(format!("no {} repositories to ask.", args.language));
+    }
+    let work = work_folder(args.work)?;
+    gg_bench::process::lower_priority();
+    gg_bench::lsp::run(&LspOptions {
+        bench,
+        repos,
+        work,
+        server: args.server,
+        ask: args.ask,
+        verbose: args.verbose,
+    })
+}
+
 fn run_command(bench: PathBuf, args: RunArgs) -> Result<String, String> {
     let tool = absolute(
         &args
@@ -80,13 +138,7 @@ fn run_command(bench: PathBuf, args: RunArgs) -> Result<String, String> {
         return Err(format!("{} does not exist.", missing.display()));
     }
     let repos = run::select_repos(&bench, args.repos.as_deref())?;
-    let work = absolute(
-        &args
-            .work
-            // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a scratch folder for clones, as run.mjs used
-            .unwrap_or_else(|| std::env::temp_dir().join("grievousgreps-benchmark")),
-    )?;
-    fs::create_dir_all(&work).map_err(|e| format!("cannot create {}: {e}", work.display()))?;
+    let work = work_folder(args.work)?;
     gg_bench::process::lower_priority();
     run::run(&Options {
         bench,
@@ -141,6 +193,7 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Command::Run(args) => run_command(cli.bench, args),
         Command::Score { repo, answers } => score_command(&cli.bench, &repo, &answers),
+        Command::Lsp(args) => lsp_command(cli.bench, args),
     };
     match result {
         Ok(out) => {

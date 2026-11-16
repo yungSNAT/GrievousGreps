@@ -42,7 +42,7 @@ pub fn absolute(path: &Path) -> io::Result<PathBuf> {
 
 /// `work` and the names below it, with `.` and `..` resolved by name, as Node's `path.join` gave
 /// the paths run.mjs passed to the tool.
-fn under(work: &Path, names: &[&str]) -> PathBuf {
+pub fn under(work: &Path, names: &[&str]) -> PathBuf {
     normal(
         &names
             .iter()
@@ -121,7 +121,7 @@ fn git(args: &[&str], cwd: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
-fn remove(path: &Path) -> Result<(), String> {
+pub fn remove(path: &Path) -> Result<(), String> {
     match fs::remove_dir_all(path) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => {
             Err(format!("cannot remove {}: {e}", path.display()))
@@ -132,7 +132,7 @@ fn remove(path: &Path) -> Result<(), String> {
 
 /// One shallow fetch of the pinned commit. Line endings stay as committed, so the truth's line
 /// numbers and the checkout agree on every platform.
-fn fetch_repo(repo: &Repo, work: &Path) -> Result<PathBuf, String> {
+pub fn fetch_repo(repo: &Repo, work: &Path) -> Result<PathBuf, String> {
     let dir = under(work, &["repos", &repo.name]);
     if !dir.join(".git").exists() {
         remove(&dir)?;
