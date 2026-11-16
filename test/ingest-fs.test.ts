@@ -375,14 +375,17 @@ test("A5: --include-dir does not override gitignore — an ignored directory sta
   }
 });
 
-test("A5: in a Git repo, --include-dir .kb lifts the built-in skip for git-visible files", () => {
+// In a Git repo the fork walks the dot folders Git lists, so the built-in skip there is
+// DOT_SKIP_DIRS (`.cache`); `.kb` is walked without being named.
+test("A5: in a Git repo, --include-dir .cache lifts the built-in skip for git-visible files", () => {
   const dir = fixture("include-hidden-git");
   try {
     write(dir, "src/app.ts");
-    write(dir, ".kb/engine.ts");
+    write(dir, ".cache/engine.ts");
+    write(dir, ".kb/notes.ts");
 
-    assert.ok(!walked(dir).includes(".kb/engine.ts"), "default: .kb/ is skipped by the built-in list");
-    assert.deepEqual(walked(dir, new Set([".kb"])), [".kb/engine.ts", "src/app.ts"]);
+    assert.deepEqual(walked(dir), [".kb/notes.ts", "src/app.ts"], "default: .cache/ is skipped by the built-in list");
+    assert.deepEqual(walked(dir, new Set([".cache"])), [".cache/engine.ts", ".kb/notes.ts", "src/app.ts"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

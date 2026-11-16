@@ -107,17 +107,17 @@ test('runInit removes legacy footers and preserves foreign entries across refres
   const d = fresh();
   const home = fresh();
   const settings = join(d, '.claude', 'settings.json');
-  runInit(d, { build: false, home });
+  runInit(d, { global: true, build: false, home });
   const stale = JSON.parse(readFileSync(settings, 'utf8'));
   stale.footerLinksRegexes = ['graft/[\\w./-]+\\.md', 'docs/.*'];
   writeFileSync(settings, JSON.stringify(stale));
 
-  runInit(d, { build: false, home });
+  runInit(d, { global: true, build: false, home });
   const refreshed = readFileSync(settings, 'utf8');
   const s = JSON.parse(refreshed);
   assert.deepEqual(s.footerLinksRegexes, ['docs/.*']);
   assert.equal(JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8')).footerLinksRegexes, undefined);
-  runInit(d, { build: false, home });
+  runInit(d, { global: true, build: false, home });
   assert.equal(readFileSync(settings, 'utf8'), refreshed, 'a second refresh changes no settings');
 });
 

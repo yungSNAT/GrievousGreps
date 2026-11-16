@@ -113,10 +113,10 @@ export function runHostsInit(
     opts.hooks === false || !selected.some((h) => h.id === 'cursor')
       ? []
       : installCursorHooks(repo, name);
-  // Pi's hook layer is user-level too (~/.pi/ extension + shim), so --no-global
-  // suppresses it like the Codex hooks.
+  // Pi's hook layer is user-level too (~/.pi/ extension + shim), so it needs
+  // --global like the Codex hooks.
   const piHooks =
-    opts.hooks === false || opts.global === false || !selected.some((h) => h.id === 'pi')
+    opts.hooks === false || !outside('pi') || !selected.some((h) => h.id === 'pi')
       ? []
       : installPiHooks(home, name);
   // All three write the hooks shim, which finds this install through the trail home.

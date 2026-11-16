@@ -61,7 +61,7 @@ test('CLI: init --help warns that agent selection removes user-level wiring', ()
   assert.match(agents, /removes .*wiring for unlisted agents, including user-level files/);
   assert.match(agents, /unless --no-global/);
   assert.match(agents, /pass every agent you use/);
-  assert.match(help, /--no-global\s+skip writes and removals outside this repo/);
+  assert.match(help, /--no-global\s+write nothing outside this repo, which is the default/);
 });
 
 test('CLI: graft init --agents gemini writes GEMINI.md and exits 0', () => {
@@ -174,7 +174,10 @@ test('global: false keeps the instruction file but skips every ~ write', () => {
 test('pi host is detected and writes the AGENTS.md section', () => {
   const home = fresh(); const repo = fresh();
   mkdirSync(join(home, '.pi'), { recursive: true });
-  const r = runHostsInit(repo, { home });
+  // Without global, the user-level hook layer is left out, as it is for Codex.
+  assert.deepEqual(runHostsInit(fresh(), { home }).hooks, []);
+  assert.ok(!existsSync(join(home, '.pi', 'agent')));
+  const r = runHostsInit(repo, { home, global: true });
 
   assert.deepEqual(r.written.map((w) => w.id), ['pi']);
   const agents = readFileSync(join(repo, 'AGENTS.md'), 'utf8');

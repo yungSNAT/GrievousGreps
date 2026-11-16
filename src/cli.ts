@@ -1709,7 +1709,7 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
     // guessing (pre-0.8 this silently wired every agent the machine had ever
     // installed — see --yes to get that back).
     const home = homedir();
-    const plan = planInit(repo, { home, mcp: opts.mcp, hooks: opts.hooks, global: opts.global });
+    const plan = planInit(repo, { home, mcp: opts.mcp, hooks: opts.hooks });
     const detectedIds = plan.filter((p) => p.detected).map((p) => p.id);
     const noAgents = (opts as { agents?: unknown }).agents === false;
 
@@ -1768,7 +1768,7 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
       console.error(formatPlan(laptopOnly(plan, planned), ids, repo, home));
       if (opts.global !== true && selectedWrites(plan, ids).some((w) => w.scope === "global")) console.error(USER_LEVEL_LEFT_OUT);
       for (const child of children)
-        console.error(`\n· ${child}/ (workspace child)\n` + formatPlan(laptopOnly(planInit(join(repo, child), { home, mcp: opts.mcp, hooks: opts.hooks, global: opts.global }), planned), ids, join(repo, child), home));
+        console.error(`\n· ${child}/ (workspace child)\n` + formatPlan(laptopOnly(planInit(join(repo, child), { home, mcp: opts.mcp, hooks: opts.hooks }), planned), ids, join(repo, child), home));
       return null;
     }
     if (ids.length === 0) {

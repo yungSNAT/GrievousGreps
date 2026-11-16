@@ -32,13 +32,13 @@ test('Trail registration migrates both real table families but preserves multili
   const foreign = '[mcp_servers.other.env]\nSCRIPT = """\n[mcp_servers.graft]\n\n\n[mcp_servers.trail.env]\n"""\nKEEP = "yes"\n';
   writeFileSync(path, '[mcp_servers.graft]\ncommand = "old"\n' + foreign
     + '[mcp_servers.trail.env]\nOLD_TRAIL = "remove"\n[mcp_servers.graft.env]\nOLD_GRAFT = "remove"\n');
-  const writes = registerMcpConfigs(repo, ['agents'], { home, name: 'trail' });
+  const writes = registerMcpConfigs(repo, ['agents'], { global: true, home, name: 'trail' });
   assert.deepEqual(writes.map((w) => w.action), ['updated']);
   const result = readFileSync(path, 'utf8');
   assert.ok(result.startsWith(foreign), 'foreign multiline data is byte-identical');
   assert.doesNotMatch(result, /OLD_TRAIL|OLD_GRAFT|command = "old"/);
   assert.match(result, /^\[mcp_servers\.trail\]$/m);
-  assert.deepEqual(registerMcpConfigs(repo, ['agents'], { home, name: 'trail' }).map((w) => w.action), ['unchanged']);
+  assert.deepEqual(registerMcpConfigs(repo, ['agents'], { global: true, home, name: 'trail' }).map((w) => w.action), ['unchanged']);
   assert.equal(readFileSync(path, 'utf8'), result);
 });
 
@@ -306,9 +306,9 @@ test('Codex registration preserves foreign multiline strings across re-registrat
   mkdirSync(join(home, '.codex'), { recursive: true });
   const path = join(home, '.codex', 'config.toml');
   writeFileSync(path, '[mcp_servers.graft]\ncommand = "old"\n' + foreign);
-  assert.deepEqual(registerMcpConfigs(repo, ['agents'], { home }).map((w) => w.action), ['updated']);
+  assert.deepEqual(registerMcpConfigs(repo, ['agents'], { global: true, home }).map((w) => w.action), ['updated']);
   const registered = readFileSync(path, 'utf8');
   assert.ok(registered.startsWith(foreign), 'foreign configuration survives the writer');
-  assert.deepEqual(registerMcpConfigs(repo, ['agents'], { home }).map((w) => w.action), ['unchanged']);
+  assert.deepEqual(registerMcpConfigs(repo, ['agents'], { global: true, home }).map((w) => w.action), ['unchanged']);
   assert.equal(readFileSync(path, 'utf8'), registered);
 });
