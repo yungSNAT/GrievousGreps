@@ -15,8 +15,21 @@ import type { Language, WalkCtx } from "./extract.js";
  * extract.ts's own scope stack (`scope.join(".")`, `""` at module level) so a
  * lookup from extract.ts's walk finds exactly what was bound in the same
  * lexical position. */
+/** What a Python instance attribute holds: a type the code names, what one of the class's
+ * own methods returns (`self.config = self.make_config()`), or a value of no known type. */
+export type PythonField = { type: string } | { returns: string } | { unknown: true };
+
 export class FileBindings {
   private map = new Map<string, string>();
+  /** Python only: class scope path (`build.Worker`) → what each statement assigns its
+   * attributes, for other files to read. */
+  readonly fields = new Map<string, Map<string, PythonField[]>>();
+
+  field(classScope: string, attr: string, value: PythonField): void {
+    const own = this.fields.get(classScope) ?? new Map<string, PythonField[]>();
+    own.set(attr, [...(own.get(attr) ?? []), value]);
+    this.fields.set(classScope, own);
+  }
 
   set(scopePath: string, name: string, type: string): void {
     this.map.set(`${scopePath}|${name}`, type);
@@ -340,8 +353,20 @@ function pyTypeName(node: SyntaxNode | null | undefined, aliases: Map<string, st
 function callTypeName(node: SyntaxNode | null | undefined, aliases: Map<string, string>): string | null {
   if (node?.type !== "call") return null;
   const fn = node.childForFieldName("function");
+  // `flask.Flask(…)`: a capitalised name reached through a module is a class.
+  if (fn?.type === "attribute") {
+    const last = fn.childForFieldName("attribute")?.text;
+    return last && /^[A-Z]/.test(last) ? last : null;
+  }
   if (fn?.type !== "identifier") return null;
   return aliases.get(fn.text) ?? fn.text;
+}
+
+/** `self.make_config(…)` → `make_config`. */
+function selfMethodCalled(node: SyntaxNode | null | undefined): string | null {
+  const fn = node?.type === "call" ? node.childForFieldName("function") : null;
+  const obj = fn?.type === "attribute" ? fn.childForFieldName("object") : null;
+  return obj?.type === "identifier" && obj.text === "self" ? (fn!.childForFieldName("attribute")?.text ?? null) : null;
 }
 
 /** Swift variable->type bindings from the confident, syntax-local clues:
@@ -487,16 +512,20 @@ function handlePy(
   const left = node.childForFieldName("left");
   const right = node.childForFieldName("right");
   if (!left) return;
+  const typeField = node.childForFieldName("type");
   if (left.type === "identifier") {
-    const typeField = node.childForFieldName("type");
     const typeName = typeField ? pyTypeName(typeField, aliases) : callTypeName(right, aliases);
     if (typeName) bindings.set(scopePath, left.text, typeName);
+    // `config: Config` in a class body types its instances' attribute too.
+    if (typeName && typeField && classScope && scopePath === classScope) bindings.field(classScope, left.text, { type: typeName });
   } else if (left.type === "attribute") {
     const obj = left.childForFieldName("object");
     const attr = left.childForFieldName("attribute");
     if (obj?.type === "identifier" && (obj.text === "self" || obj.text === "cls") && attr) {
-      const typeName = callTypeName(right, aliases);
+      const typeName = typeField ? pyTypeName(typeField, aliases) : callTypeName(right, aliases);
       if (typeName) bindings.set(classScope ?? scopePath, `self.${attr.text}`, typeName);
+      const returns = typeName ? null : selfMethodCalled(right);
+      if (classScope) bindings.field(classScope, attr.text, typeName ? { type: typeName } : returns ? { returns } : { unknown: true });
     }
   }
 }
