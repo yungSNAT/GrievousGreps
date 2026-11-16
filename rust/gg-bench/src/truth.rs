@@ -539,7 +539,8 @@ pub fn run(opts: &TruthOptions) -> Result<String, String> {
     deriver.session.server.stop();
     remove(&copy)?;
     let entries = result?;
-    fs::write(&file, format_truth(&entries))
+    fs::create_dir_all(opts.bench.join("truth"))
+        .and_then(|()| fs::write(&file, format_truth(&entries)))
         .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
     report += &format!(
         "{} references outside the checkout were left out. Wrote {}.\n",
