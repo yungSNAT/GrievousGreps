@@ -926,8 +926,9 @@ export interface RustTargets {
   /** The files `[[test]]`, `[[example]]` and `[[bench]]` tables name, by `path` or by `name`. */
   listed: Set<string>;
   /** Folders under which whether Cargo builds a file is unknown: a crate whose manifest is not
-   * read whole (unreadable, not TOML, or a target table of another shape), or a crate's `tests`, `examples` or `benches` whose finding its edition or `auto*` key
-   * leaves unknown (see cargo-targets.ts). */
+   * read whole (unreadable, not TOML, or a target table of another shape), or a crate's `tests`,
+   * `examples` or `benches` when its edition or `auto*` key leaves finding them unknown
+   * (see cargo-targets.ts). */
   unsure: Set<string>;
 }
 
