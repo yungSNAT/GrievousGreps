@@ -1,20 +1,20 @@
 # Caller benchmark
 
-This harness measures how many real calls `callers` finds. It builds a graph of 21 pinned public repositories with the tool you name, asks for the callers of 10 symbols in each and prints recall against committed truth. It needs Node, git and network access to GitHub, and has no dependencies of its own.
+This harness measures how many real calls `callers` finds. It builds a graph of 21 pinned public repositories with the tool you name, asks for the callers of 10 symbols in each and prints recall against committed truth. It is `gg-bench`, a Rust binary in [`rust/gg-bench`](../rust/gg-bench). It needs Rust (`cargo`), Node, git and network access to GitHub.
 
 ## Run it
 
 Build the tool first, then:
 
 ```bash
-node benchmark/run.mjs --tool dist/bin/graft.js
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js
 ```
 
 The README's table has 2 upstream columns, each from its own run with that build as the baseline. For the npm release, install it in another folder; `DO_NOT_TRACK=1` stops its install script sending a usage event:
 
 ```bash
 DO_NOT_TRACK=1 npm install --prefix ../upstream-0.29.0 @trailhq/trail-code@0.29.0
-node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream-0.29.0/node_modules/@trailhq/trail-code/dist/bin/graft.js
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js --baseline ../upstream-0.29.0/node_modules/@trailhq/trail-code/dist/bin/graft.js
 ```
 
 For upstream `main`, build it at the commit the README names:
@@ -23,7 +23,7 @@ For upstream `main`, build it at the commit the README names:
 git clone https://github.com/trailhq/Trail-Code ../upstream
 git -C ../upstream checkout b22055dce3c3ff22722793ed0a5a3be4491a9140
 (cd ../upstream && npm ci)
-node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream/dist/bin/graft.js
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js --baseline ../upstream/dist/bin/graft.js
 ```
 
 | Option | Effect |
@@ -33,12 +33,24 @@ node benchmark/run.mjs --tool dist/bin/graft.js --baseline ../upstream/dist/bin/
 | `--repos httpx,click` | Score only these repositories. |
 | `--work <dir>` | Where clones and graphs go. The default is a folder in the system temp directory. |
 | `--verbose` | Print each symbol's score and first 10 misses to stderr. |
+| `--node <path>` | The Node that runs the tool. The default is `node` on the path. |
+| `--bench <dir>` | The folder with `repos.json` and `truth/`. The default is this folder. |
 
 The harness runs one repository at a time at below normal priority. It keeps the shallow clones for the next run and deletes each graph copy after scoring. It only builds and queries, and never runs the tool's test suite.
 
 Each run points `HOME`, `USERPROFILE`, `TRAIL_HOME`, `CLAUDE_CONFIG_DIR` and `CODEX_HOME` at a scratch folder under the work folder, and `DOTENV_CONFIG_PATH` at a missing file. The tool therefore leaves your graphs, agent settings and hooks alone and loads no `.env` file. Telemetry and the hosted workspace are off for the run.
 
 On Windows with Node 26, httpx took about 40 seconds per build at 60 files. tokio, tracing and the larger TypeScript repositories have not been timed through this harness, so run the full set on a machine that is otherwise idle.
+
+## Score another tool
+
+`gg-bench score` scores one repository's answers from any tool, shaped as `callers --json` gives them: per symbol, a list of `matches`, each with the definition's `symbol` (its `path`, and its `span` under `span` rules) and its `hits` (each with `id`, `path`, `span` and `name`). Put the answers in one JSON object keyed by symbol:
+
+```bash
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- score --repo httpx --answers httpx-answers.json
+```
+
+It prints each symbol's score and the repository's summary as JSON. A symbol with no answer scores as one with no callers, with a warning on stderr; an answer the rules cannot read, such as a hit without a `path`, stops it with an error.
 
 ## What it prints
 
