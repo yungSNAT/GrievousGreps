@@ -668,8 +668,8 @@ test("Rust: under `use super::*`, a test file is a root only when Cargo builds i
     ...files("ed2018", `edition = "2018"\n\n[[test]]\nname = "bar"\n`),
     // An inherited edition is the workspace's, here 2021.
     ...files("inherit", `edition.workspace = true\n\n[[test]]\nname = "bar"\n`),
-    // Tables written inline are not read, so which files are crates is unknown.
-    "inline/Cargo.toml": `package = { name = "inline", autotests = false }\ntest = [{ name = "bar" }]\n\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
+    // Tables written inline are read as any others.
+    "inline/Cargo.toml": `package = { name = "inline", edition = "2018" }\ntest = [{ name = "bar" }]\n\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
     "inline/tests/foo.rs": "mod option;\nuse tracing_mock::expect;\n",
     "inline/tests/bar.rs": "mod foo;\n",
     "inline/tests/option.rs": "use super::*;\nfn top() { expect::event(); }\n",
@@ -683,8 +683,79 @@ test("Rust: under `use super::*`, a test file is a root only when Cargo builds i
   assert.deepEqual(calls(graph, "ed2015/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"]);
   assert.deepEqual(calls(graph, "ed2018/tests/option.rs#top"), ["mock/src/expect.rs#event"], "from 2018 tests/foo.rs is still a target");
   assert.deepEqual(calls(graph, "inherit/tests/option.rs#top"), ["mock/src/expect.rs#event"], "the workspace's 2021 edition");
-  assert.deepEqual(calls(graph, "inline/tests/option.rs#top"), [], "an unread manifest leaves the parent unresolved");
+  assert.deepEqual(calls(graph, "inline/tests/option.rs#top"), ["mock/src/expect.rs#event"], "an inline package's 2018 edition");
   assert.deepEqual(calls(graph, "inline/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"], "foo.rs is this file's parent either way");
+});
+
+test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and what it leaves unknown is unsure", async (t) => {
+  const deps = `\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`;
+  // `top` reaches mock's `event` when Cargo builds tests/foo.rs as a target, and nothing when not.
+  const found = (dir: string, manifest: string) => ({
+    [`${dir}/Cargo.toml`]: manifest + deps,
+    [`${dir}/tests/foo.rs`]: "mod option;\nuse tracing_mock::expect;\n",
+    [`${dir}/tests/bar.rs`]: "mod foo;\n",
+    [`${dir}/tests/option.rs`]: "use super::*;\nfn top() { expect::event(); }\n",
+  });
+  // bar.rs also declares tests/option.rs: `top` reaches two's `event` when tests/foo.rs is no
+  // target, and nothing when it is, as the 2 parents disagree.
+  const notFound = (dir: string, manifest: string) => ({
+    ...found(dir, manifest),
+    [`${dir}/tests/bar.rs`]: "mod foo;\nmod option;\nuse two::expect;\n",
+  });
+  // A manifest that leaves tests/foo.rs unknown, in both layouts: `top` must reach nothing in each.
+  const unknown = (dir: string, rest: string) => ({
+    ...found(dir, `[package]\nname = "${dir.replace("/", "_")}"\n${rest}`),
+    ...notFound(`${dir}_b`, `[package]\nname = "${dir.replace("/", "_")}_b"\n${rest}`),
+  });
+  const table = `\n[[test]]\nname = "bar"\n`;
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "quoted", "dotted", "examples", "override", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b"]\n\n[workspace.package]\nedition = "2021"\n`,
+    "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
+    "mock/src/lib.rs": "pub mod expect;\n",
+    "mock/src/expect.rs": "pub fn event() {}\n",
+    "two/Cargo.toml": `[package]\nname = "two"\n`,
+    "two/src/lib.rs": "pub mod expect;\n",
+    "two/src/expect.rs": "pub fn event() {}\n",
+    // Cargo reads `[project]` as `[package]` before the 2024 edition; with no edition it is 2015.
+    ...found("project", `[project]\nname = "project"\n${table}`),
+    ...found("quoted", `["package"]\nname = "quoted"\n${table}`),
+    ...found("dotted", `package.name = "dotted"\npackage.edition = "2018"\n${table}`),
+    // In 2015 a table of one kind turns off finding only that kind, and an `auto*` key decides.
+    ...found("examples", `[package]\nname = "examples"\n\n[[example]]\nname = "bar"\n`),
+    ...found("override", `[package]\nname = "override"\nautotests = true\n${table}`),
+    // An inherited edition is the workspace root's: the nearest folder above with a `[workspace]`.
+    "inner/Cargo.toml": `[workspace]\nmembers = ["d", "../pointer"]\npackage.edition = "2015"\n`,
+    ...found("inner/d", `[package]\nname = "d"\nedition.workspace = true\n${table}`),
+    // Or the one `package.workspace` names.
+    ...found("pointer", `[package]\nname = "pointer"\nworkspace = "../inner"\nedition.workspace = true\n${table}`),
+    // A duplicate key is not TOML, so nothing in the manifest is read.
+    ...unknown("unparsed", `edition = "2018"\nedition = "2021"\n${table}`),
+    ...unknown("edint", `edition = 2018\n${table}`),
+    ...unknown("autostr", `edition = "2018"\nautotests = "false"\n${table}`),
+    // A root that states no edition leaves the inherited one unknown.
+    "loose/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\n`,
+    ...unknown("loose/d", `edition.workspace = true\n${table}`),
+    // A root with an `exclude` list may pass over the package, so its edition is not assumed.
+    "excl/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ["old"]\n\n[workspace.package]\nedition = "2018"\n`,
+    ...unknown("excl/d", `edition.workspace = true\n${table}`),
+    // A target table of another shape.
+    ...unknown("badname", `edition = "2018"\n\n[[test]]\nname = 1\n`),
+    // What one crate leaves unknown says nothing about a crate inside it.
+    ...found("autostr/inner", `[package]\nname = "autostr_inner"\nedition = "2018"\n${table}`),
+  });
+  const top = (dir: string) => calls(graph, `${dir}/tests/option.rs#top`);
+  assert.deepEqual(top("project"), [], "a 2015 `[project]` with a [[test]] finds no other tests");
+  assert.deepEqual(top("quoted"), [], "a quoted `[\"package\"]` header");
+  assert.deepEqual(top("dotted"), ["mock/src/expect.rs#event"], "a dotted `package.edition`");
+  assert.deepEqual(top("examples"), ["mock/src/expect.rs#event"], "an [[example]] leaves tests found");
+  assert.deepEqual(top("override"), ["mock/src/expect.rs#event"], "`autotests = true` beats the 2015 default");
+  assert.deepEqual(top("inner/d"), [], "the inner workspace's 2015, not the outer one's 2021");
+  assert.deepEqual(top("pointer"), [], "the 2015 of the root `package.workspace` names");
+  for (const dir of ["unparsed", "edint", "autostr", "loose/d", "excl/d", "badname"]) {
+    assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs may be a target`);
+    assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: tests/foo.rs may be no target`);
+  }
+  assert.deepEqual(top("autostr/inner"), ["mock/src/expect.rs#event"], "a crate inside an unsure one");
 });
 
 test("Rust: under `use super::*`, a module file's function is reached only when the caller can see it", async (t) => {

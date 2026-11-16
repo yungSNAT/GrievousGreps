@@ -925,8 +925,9 @@ export interface RustTargets {
   off: Map<string, Set<string>>;
   /** The files `[[test]]`, `[[example]]` and `[[bench]]` tables name, by `path` or by `name`. */
   listed: Set<string>;
-  /** Crate folders whose manifest leaves its targets unknown: a table written inline or as
-   * dotted keys, or an inherited edition no workspace in the repo states. */
+  /** Folders under which whether Cargo builds a file is unknown: a crate whose manifest is not
+   * read whole (unreadable, not TOML, or a target table of another shape), or a crate's `tests`, `examples` or `benches` whose finding its edition or `auto*` key
+   * leaves unknown (see cargo-targets.ts). */
   unsure: Set<string>;
 }
 
@@ -1099,7 +1100,8 @@ function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 |
   // is unknown and another file declares it, which file is the parent is unknown too.
   let unsure = false;
   const declaredBeside = (p: string) => {
-    const root = p.endsWith("/mod.rs") ? false : rustCargoRoot(p, ctx);
+    if (p.endsWith("/mod.rs")) return false;
+    const root = rustCargoRoot(p, ctx);
     if (root) return false;
     const beside = [...ctx.modUses].some(([q, u]) => q !== p && u.mods.includes(stemOf(p)) && (dirOf(q) === dirOf(p) || q === `${dirOf(p)}.rs`));
     if (beside && root === undefined) unsure = true;
