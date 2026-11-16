@@ -83,10 +83,12 @@ jobs:
           package-manager-cache: false
       # Runs the package's prepare script, which is `npm run build`. The grammars
       # are native addons, and the node-gyp devDependency chooses their toolchain,
-      # so keep it at 12.x whilst this matrix holds Node 20.
+      # so keep it at 12.x whilst this matrix holds Node 20. The script retries a
+      # failed install, as node-gyp's download of Node's headers can be cut off.
       - name: Install and build
         if: needs.changes.outputs.docs_only != 'true'
-        run: npm ci # NOSONAR: locked dependencies need native grammar and prepare lifecycle scripts.
+        shell: bash
+        run: bash scripts/ci-install.sh
       - name: Type check
         if: needs.changes.outputs.docs_only != 'true' && matrix.part == 1
         run: |
@@ -172,7 +174,7 @@ jobs:
       # grammars need theirs, and the package's prepare script is the build.
       - name: Install and build
         if: needs.changes.outputs.docs_only != 'true'
-        run: npm ci # NOSONAR: see above
+        run: bash scripts/ci-install.sh
       - name: Run the docs commands on the release build
         if: needs.changes.outputs.docs_only != 'true'
         env:
@@ -264,6 +266,6 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      - run: npm ci # NOSONAR: locked dependencies need native grammar and prepare lifecycle scripts.
+      - run: bash scripts/ci-install.sh
       - name: Exercise every breadth grammar
         run: node --import tsx --test test/generic-node24.test.ts
