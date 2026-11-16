@@ -46,10 +46,15 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 ### Fixed
 
 - **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
+- **A cached parse is replayed only when it describes its own file.** The extraction cache in the output folder could come with a clone, and an entry whose node named a path outside the repository was replayed as it stood, so `trail build --lsp` read that file and sent it to the language server. Such an entry, or a malformed one, is now dropped and its file parsed again.
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
+- **A PHP group `use` no longer imports its functions and constants as class files.** `use App\{Widget, function helper, const READY};` gave imports of `App\function helper` and `App\const READY`; it now gives `App\Widget` alone. Names are read from the syntax tree, so `USE … AS` in any case, comments inside a name and PHP 8 names such as `function\Widget` are read as PHP reads them.
 - **A Python function with `@overload` stubs now has callers.** Each stub followed in its block by the implementation counted as a definition of its own, so every call to the name was dropped as ambiguous, as for flask's `stream_with_context` and click's `prompt`. Python binds the name to the implementation, and the graph now does too. Overloads with no implementation after them, as in a stub file or a Protocol, stay.
+- **Restoring a skill version brings back its lessons when the skill already has a `lessons/` folder.** The restore reported success but copied none of the archived lessons; it now copies each one the skill lacks and leaves a current lesson of the same file name alone.
+- **The note after an agent's `trail forget` keeps its restoration step whole under a long Trail home.** The step named the full path and was cut off at 200 characters; it now names the file's place inside your Trail home.
 - **Teammates' branches refresh after a fetch or push in any linked worktree or submodule.** A `.git` file whose `gitdir:` is relative, as `git worktree add` writes with `worktree.useRelativePaths`, or a worktree whose `commondir` is absolute, was read against the wrong folder, so a fetch or push never refreshed the cached list before it expired.
 - **A Python decorator written without arguments is a call.** `@stream_with_context` or `@rich.repr.auto` above a definition calls the decorator from the scope the definition sits in, as Python does, so the decorator now shows that caller. Only decorators with arguments, such as `@route("/")`, counted before.
+- **`trail build --lsp` asks the language server about the function itself.** It took the first place the name appeared near the definition, even inside another word, so `port` was queried inside `éport` or `portExtra` in a comment before it and its calls were lost. It now takes the first whole identifier.
 
 ## 0.28.0
 
