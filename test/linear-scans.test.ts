@@ -144,5 +144,6 @@ const long: Array<[string, () => unknown]> = [
   ["a long word with no `@`", () => anonymize("a".repeat(50_000), [])],
   ["an email host of many dots", () => anonymize(`a@${"b.".repeat(25_000)}`, [])],
   ["a run of blank lines in a .env read", () => redactEnvValues(`${"\n".repeat(5_000)}x`, () => {})],
+  ["a run of spaces in a .env read", () => redactEnvValues(`${" ".repeat(50_000)}x`, () => {})],
 ];
 for (const [what, run] of long) test(`long input stays quick: ${what}`, () => quick(what, run));

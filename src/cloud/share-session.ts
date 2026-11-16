@@ -49,7 +49,7 @@ function readsEnv(command: string): boolean {
   return false;
 }
 /** `NAME=value` in a `.env` file, as read (`  12→API=…` from Claude's Read) or written (`export API=…`). */
-const ENV_LINE = /^([^\S\n]*(?:\d+(?:→|\t)[^\S\n]*)?(?:export\s+)?)([A-Za-z_][\w.-]*)(\s*=\s*)(\S.*)$/gm;
+const ENV_LINE = /^([^\S\n]*(?:\d+(?:→|\t)[^\S\n]*)?(?:export\s+)?)([A-Za-z_][\w.-]*)(\s*=\s*)(\S.*)$/gm; // NOSONAR: `^` in multiline mode starts only at a line start, so no attempt moves along a run of spaces; test/linear-scans.test.ts times both
 
 /** `text` with each `.env` value redacted; `taken` hears each `NAME=value` that goes. */
 export function redactEnvValues(text: string, taken: (what: string) => void): string {
