@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::lsp::{
-    READY_LIMIT, Scope, Server, Session, caller_chain, clean_scope, fresh_copy, path_to_uri,
-    position, relative, targets, uri_to_path,
+    READY_LIMIT, Server, Session, caller_chain, clean_scope, fresh_copy, path_to_uri, position,
+    relative, targets, uri_to_path,
 };
 use crate::run::{read_truth, remove};
 use crate::score::{Entry, Repo, Rules};
@@ -260,6 +260,25 @@ impl Deriver<'_> {
         found
     }
 
+    /// The named definitions around a position, outermost first: as the column maps a reference,
+    /// but a value counts only when it holds a function.
+    fn named_chain(&mut self, path: &str, at: (u64, u64)) -> Result<Vec<usize>, String> {
+        let around: Vec<(usize, u64, u64)> = {
+            let scopes = self.session.scopes(path)?;
+            caller_chain(scopes, at)
+                .into_iter()
+                .map(|i| (i, scopes[i].kind, scopes[i].start.0))
+                .collect()
+        };
+        let mut chain = Vec::new();
+        for (index, kind, line) in around {
+            if !crate::lsp::LOCAL.contains(&kind) || function_holder(&self.line(path, line)?) {
+                chain.push(index);
+            }
+        }
+        Ok(chain)
+    }
+
     /// One reference: whether it is a call, its group key, file, enclosing names and line. None
     /// for a reference outside the checkout or a module-level reference that is not a call.
     fn classify(
@@ -284,11 +303,8 @@ impl Deriver<'_> {
                 byte_at(&text, start.1),
                 byte_at(&text, end.1),
             );
-        let scopes = self.session.scopes(&path)?;
-        let chain: Vec<usize> = caller_chain(scopes, start)
-            .into_iter()
-            .filter(|&i| !crate::lsp::LOCAL.contains(&scopes[i].kind))
-            .collect();
+        let chain = self.named_chain(&path, start)?;
+        let scopes = &self.session.symbols[&path];
         if !call && chain.is_empty() {
             return Ok(None);
         }
@@ -361,6 +377,35 @@ fn files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), String> 
     Ok(())
 }
 
+/// The receiver type of a method gopls names as `(*Logger).WithFields`: `Logger`.
+fn go_receiver(name: &str) -> Option<String> {
+    let (receiver, _) = name.strip_prefix('(')?.split_once(").")?;
+    let receiver = receiver.trim_start_matches('*');
+    Some(receiver.split('[').next().unwrap_or(receiver).to_owned())
+}
+
+/// Whether a value's first line gives it a function, as `let has = (` or `f = lambda x:`. Such a
+/// value names the calls inside it, as tsc-truth.mjs names an arrow function by its variable.
+///
+/// shortcut: one line is read, so a holder whose function starts on the next line is missed.
+pub fn function_holder(line: &str) -> bool {
+    let Some((_, value)) = line.split_once('=') else {
+        return false;
+    };
+    if value.starts_with(['=', '>']) {
+        return false;
+    }
+    let value = value.trim();
+    let bare_parameter = value.split_once("=>").is_some_and(|(p, _)| {
+        !p.trim().is_empty() && p.trim().chars().all(|c| c.is_alphanumeric() || c == '_')
+    });
+    ["async", "function", "lambda", "func", "|", "move |"]
+        .iter()
+        .any(|start| value.starts_with(start))
+        || (value.starts_with('(') && (value.contains("=>") || value == "("))
+        || bare_parameter
+}
+
 /// The minimum and maximum calls a picked symbol may have.
 pub const PICK_CALLS: (usize, usize) = (3, 300);
 
@@ -383,38 +428,40 @@ struct Picked {
 fn pick(deriver: &mut Deriver, count: usize, seed: u64) -> Result<(Vec<Picked>, usize), String> {
     let mut all = Vec::new();
     files(deriver.session.root, "", &mut all)?;
-    let mut candidates: Vec<(String, Scope, Option<String>)> = Vec::new();
+    let mut candidates: Vec<(String, String, Value, Option<String>)> = Vec::new();
     for path in all.into_iter().filter(|p| pickable(deriver.language, p)) {
         let scopes = deriver.session.scopes(&path)?.to_vec();
         for scope in &scopes {
-            if [6, 12].contains(&scope.kind) && identifier(&scope.name) {
-                let owner = scope.parent.map(|p| clean_scope(&scopes[p].name));
-                candidates.push((path.clone(), scope.clone(), owner));
+            let name = clean_scope(&scope.name);
+            if [6, 12].contains(&scope.kind) && identifier(&name) {
+                let owner = go_receiver(&scope.name)
+                    .or_else(|| scope.parent.map(|p| clean_scope(&scopes[p].name)));
+                candidates.push((path.clone(), name, scope.selection.clone(), owner));
             }
         }
     }
     shuffle(&mut candidates, seed);
     let (mut chosen, mut keys, mut tried) = (Vec::new(), HashSet::new(), 0);
-    for (path, scope, owner) in candidates {
+    for (path, name, selection, owner) in candidates {
         if chosen.len() == count {
             break;
         }
-        let key = if keys.contains(&scope.name) {
+        let key = if keys.contains(&name) {
             match owner {
-                Some(owner) if identifier(&owner) => format!("{owner}.{}", scope.name),
+                Some(owner) if identifier(&owner) => format!("{owner}.{name}"),
                 _ => continue,
             }
         } else {
-            scope.name.clone()
+            name
         };
         if keys.contains(&key) {
             continue;
         }
         tried += 1;
-        let derived = deriver.derive(&path, &scope.selection)?;
+        let derived = deriver.derive(&path, &selection)?;
         if (PICK_CALLS.0..=PICK_CALLS.1).contains(&derived.calls) {
             keys.insert(key.clone());
-            let line = position(&scope.selection).0 as i64 + 1;
+            let line = position(&selection).0 as i64 + 1;
             chosen.push(Picked {
                 symbol: key,
                 target: path,
@@ -560,6 +607,14 @@ fn derive_all(
     let mut entries = Vec::new();
     if let Some(count) = opts.pick {
         let (picked, tried) = pick(deriver, count, opts.seed)?;
+        if picked.len() < count {
+            return Err(format!(
+                "only {} of {count} candidates had {} to {} calls, after deriving {tried}; is the server loading the code?",
+                picked.len(),
+                PICK_CALLS.0,
+                PICK_CALLS.1
+            ));
+        }
         *report += &format!(
             "Picked {} of {count} with seed {} after deriving {tried} candidates.\n",
             picked.len(),
@@ -635,6 +690,31 @@ mod tests {
         assert!(!call(Language::TypeScript, "</Presence>", "Presence"));
         assert!(call(Language::TypeScript, "const q = sql`select`", "sql"));
         assert!(!call(Language::Go, "f := Max", "Max"));
+    }
+
+    #[test]
+    fn values_holding_functions_name_their_calls() {
+        assert!(function_holder("export let has = ("));
+        assert!(function_holder("const f = (a, b) => a + b"));
+        assert!(function_holder("const g = async (x) => {"));
+        assert!(function_holder("const h = x => x"));
+        assert!(function_holder("handler = lambda event: run(event)"));
+        assert!(function_holder("let add = |a, b| a + b;"));
+        assert!(function_holder("\tf := func(x int) int {"));
+        assert!(!function_holder("x = lib.run()"));
+        assert!(!function_holder("const total = (a + b) * 2"));
+        assert!(!function_holder("if a == b {"));
+        assert!(!function_holder("items.map(x => x)"));
+    }
+
+    #[test]
+    fn go_receivers_give_the_owner() {
+        assert_eq!(
+            go_receiver("(*Logger).WithFields").as_deref(),
+            Some("Logger")
+        );
+        assert_eq!(go_receiver("(List[T]).Len").as_deref(), Some("List"));
+        assert_eq!(go_receiver("WithFields"), None);
     }
 
     #[test]

@@ -428,13 +428,25 @@ pub fn flatten(symbols: &Value) -> Result<Vec<Scope>, String> {
 const SCOPE_ONLY: [u64; 4] = [1, 2, 3, 4];
 pub(crate) const LOCAL: [u64; 12] = [7, 8, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 
+/// gopls names a method by its receiver, as `(*Logger).WithFields`; this is the method's own name.
+fn go_method(name: &str) -> Option<&str> {
+    name.strip_prefix('(')?
+        .split_once(").")
+        .map(|(_, method)| method)
+}
+
 /// tsserver names a test callback like `it('x') callback`, and other anonymous scopes `<function>`.
 fn anonymous(name: &str) -> bool {
-    name.ends_with(" callback") || name.starts_with('<') || name.contains('(')
+    name.ends_with(" callback")
+        || name.starts_with('<')
+        || (name.contains('(') && go_method(name).is_none())
 }
 
 /// `impl<T> Trait for Foo<T>` and `impl Foo<T>` become `Foo`, as the graph tools name them.
 pub fn clean_scope(name: &str) -> String {
+    if let Some(method) = go_method(name) {
+        return method.to_owned();
+    }
     let name = if let Some(rest) = name.strip_prefix("impl") {
         match rest.rsplit_once(" for ") {
             Some((_, owner)) => owner.to_owned(),
@@ -916,6 +928,15 @@ mod tests {
         assert_eq!(clean_scope("impl<S> Router<S>"), "Router");
         assert_eq!(clean_scope("impl Builder"), "Builder");
         assert_eq!(clean_scope("render"), "render");
+    }
+
+    #[test]
+    fn go_methods_are_named_and_not_anonymous() {
+        assert_eq!(clean_scope("(*Logger).WithFields"), "WithFields");
+        assert_eq!(clean_scope("(Level).String"), "String");
+        assert!(!anonymous("(*Logger).WithFields"));
+        assert!(anonymous("describe('x') callback"));
+        assert!(anonymous("map(x)"));
     }
 
     #[test]
