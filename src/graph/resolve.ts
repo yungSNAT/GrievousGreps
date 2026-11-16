@@ -109,6 +109,8 @@ export interface ResolveOptions {
   rustExternalCrates?: ReadonlySet<string>;
   /** Each of the repo's crates, `-` as `_`, to its folder. */
   rustCrateDirs?: ReadonlyMap<string, string>;
+  /** The test, example and bench targets the repo's Cargo.toml files state. */
+  rustTargets?: RustTargets;
   /** The Python roots the repo's configuration states (see python-roots.ts). */
   pythonRoots?: string[];
   /** Filled with the Python calls an import names but no edge carries. */
@@ -356,7 +358,10 @@ export function resolveEdges(
   };
   const cfgGated = new Map(rawEdges.flatMap((e) => e.rustCfgItems ?? []));
   const modUses = new Map(rawEdges.flatMap((e) => (e.rustModUses ? [[e.file, e.rustModUses] as const] : [])));
-  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated, modUses };
+  const rustPathCtx: RustPathCtx = {
+    crates: opts.rustCrateDirs ?? new Map(), targets: opts.rustTargets ?? { off: new Map(), listed: new Set() },
+    byId, perFileName, pubUses: rustPubUses, cfgGated, modUses,
+  };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
   // when a step's signature does not say, and the method falls back on its name.
   const rustChainType = (chain: NonNullable<RawEdge["rustChain"]>, e: RawEdge): string | undefined => {
@@ -913,8 +918,18 @@ function rustTextName(text: string): string | undefined {
   return /^[A-Z]\w+$/.test(name) ? name : undefined;
 }
 
+/** What the repo's Cargo.toml files say Cargo builds as test, example and bench crates. */
+export interface RustTargets {
+  /** By crate folder (`.` at the root), the folders among `tests`, `examples` and `benches`
+   * whose files Cargo no longer builds by itself (`autotests = false` and the like). */
+  off: Map<string, Set<string>>;
+  /** The files `[[test]]`, `[[example]]` and `[[bench]]` tables name, by `path` or by `name`. */
+  listed: Set<string>;
+}
+
 interface RustPathCtx {
   crates: ReadonlyMap<string, string>;
+  targets: RustTargets;
   byId: Map<string, NodeV1>;
   perFileName: Map<string, Map<string, NodeV1[]>>;
   pubUses: Map<string, NonNullable<RawEdge["rustPubUses"]>>;
@@ -1067,8 +1082,7 @@ function rustFollowGlobs(path: string, globs: string[] | undefined, file: string
  * shortcut: a file beside this one that declares the module counts as its parent when it is a
  * `mod.rs`, `lib.rs` or `main.rs`, sits outside a `src` folder (a test, example or bench root)
  * or in `src/bin`, and no other file beside it declares it as a module, whose own modules would
- * sit in a folder of its name, unless it sits directly in `tests`, `examples` or `benches`, which
- * Cargo builds as a crate; reading Cargo's targets would settle which files are crate roots.
+ * sit in a folder of its name, unless Cargo builds it as a crate ({@link rustCargoRoot}).
  * A path's first name reaches the parent's module files only through its `mod` lines.
  * A parent's `self::` and `super::` globs are not followed, so a path only they bring in stays
  * unresolved. */
@@ -1078,9 +1092,8 @@ function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 |
   const own = file.endsWith("/mod.rs") ? dirOf(file) : file;
   const stem = stemOf(own);
   const at = dirOf(own);
-  // Cargo builds each file directly in `tests`, `examples` or `benches` as a crate, whatever
-  // else declares it as a module.
-  const declaredBeside = (p: string) => !p.endsWith("/mod.rs") && !/(^|\/)(tests|examples|benches)\/[^/]+$/.test(p)
+  // A file Cargo builds as a crate is a root, whatever else declares it as a module.
+  const declaredBeside = (p: string) => !p.endsWith("/mod.rs") && !rustCargoRoot(p, ctx)
     && [...ctx.modUses].some(([q, u]) => q !== p && u.mods.includes(stemOf(p)) && (dirOf(q) === dirOf(p) || q === `${dirOf(p)}.rs`));
   const declares = (p: string) => (at !== "" && p === `${at}.rs`)
     || (dirOf(p) === at && (/(^|\/)(mod|lib|main)\.rs$/.test(p) || !/(^|\/)src\//.test(p) || /(^|\/)src\/bin\/[^/]+$/.test(p)) && !declaredBeside(p));
@@ -1100,17 +1113,34 @@ function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 |
   return hits.size === 1 ? [...hits][0] : undefined;
 }
 
+/** Whether Cargo builds `file` as a crate: a target a Cargo.toml lists, or a file directly in a
+ * crate's `tests`, `examples` or `benches` unless that crate turned finding them off.
+ *
+ * shortcut: a folder with no Cargo.toml of its own reads as a crate that finds them; the
+ * upgrade is to read each file's crate from the workspace. */
+function rustCargoRoot(file: string, ctx: RustPathCtx): boolean {
+  if (ctx.targets.listed.has(file)) return true;
+  const direct = /^(?:(.+)\/)?(tests|examples|benches)\/[^/]+$/.exec(file);
+  return !!direct && !ctx.targets.off.get(direct[1] ?? ".")?.has(direct[2]!);
+}
+
 /** `helpers::event` where `helpers` is a module file in `dir`, as a test root's own `mod helpers;`
  * declares it: the one free function of that name the file defines, or for `helpers::nested::event`
- * the same in the module file `helpers` declares as `nested`. */
+ * the same in the module file `helpers` declares as `nested`. The caller is a sibling of
+ * `helpers`, so it sees only what is `pub` or `pub(crate)` below it: each module after the
+ * first, and the function.
+ *
+ * shortcut: `pub(super)` and `pub(in …)` count as private, so a call through one stays
+ * unresolved; reading each one's scope would settle it. */
 function rustSiblingModuleFn(dir: string, mod: string, rest: string[], ctx: RustPathCtx, depth = 0): NodeV1 | undefined {
   const base = dir === "" ? mod : `${dir}/${mod}`;
   const file = [`${base}.rs`, `${base}/mod.rs`].find((f) => ctx.byId.has(f));
   if (!file || rest.length === 0 || depth > 5) return undefined;
   if (rest.length > 1) {
-    return ctx.modUses.get(file)?.mods.includes(rest[0]!) ? rustSiblingModuleFn(base, rest[0]!, rest.slice(1), ctx, depth + 1) : undefined;
+    return ctx.modUses.get(file)?.open?.includes(rest[0]!) ? rustSiblingModuleFn(base, rest[0]!, rest.slice(1), ctx, depth + 1) : undefined;
   }
-  const fns = (ctx.perFileName.get(file)?.get(rest[0]!) ?? []).filter((n) => n.kind === "function" && !n.owner && !n.signature?.startsWith("macro_rules!"));
+  const fns = (ctx.perFileName.get(file)?.get(rest[0]!) ?? [])
+    .filter((n) => n.kind === "function" && !n.owner && /^pub(\(crate\))?\s/.test(n.signature ?? ""));
   return fns.length === 1 ? fns[0] : undefined;
 }
 

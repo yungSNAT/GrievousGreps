@@ -159,9 +159,9 @@ export interface RawEdge {
   /** That call's first name may come from the file that declares this one, through a
    * file-level `use super::*`. */
   rustSuperGlob?: boolean;
-  /** A file's module files (`mod option;`) and its top-level `use` lines and globs, which a
-   * `use super::*` in one of those modules brings in. */
-  rustModUses?: { mods: string[]; names: [string, string][]; globs: string[] };
+  /** A file's module files (`mod option;`), those of them declared `pub` or `pub(crate)`, and
+   * its top-level `use` lines and globs, which a `use super::*` in one of those modules brings in. */
+  rustModUses?: { mods: string[]; open: string[]; names: [string, string][]; globs: string[] };
   /** The definitions read from inside one item macro (`cfg_rt! { … }`), by node id. */
   rustMacroItems?: { macro: string; ids: string[] };
   /** The definitions in this file that a `#[cfg(…)]` attribute or an item macro gates: each

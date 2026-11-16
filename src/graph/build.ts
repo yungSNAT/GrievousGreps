@@ -36,7 +36,7 @@ import { writeFingerprint } from "./fingerprint.js";
 import { seedGraph, type SeedResult } from "./seed.js";
 import { filterByOnlyDirs, listSourceStats } from "./source-files.js";
 import { readPythonRoots } from "./python-roots.js";
-import { resolveEdges, type GoModule, type TsPackage, type TsPaths } from "./resolve.js";
+import { resolveEdges, type GoModule, type RustTargets, type TsPackage, type TsPaths } from "./resolve.js";
 import { readFileInside } from "../util/safe-fs.js";
 import { enrichGraph, type EnrichStats } from "./enrich.js";
 import { readGraph, writeGraph, wiringPath } from "./write.js";
@@ -321,8 +321,9 @@ function readTsImports(root: string, repoFiles: string[]): { tsPaths: TsPaths[];
   return { tsPaths, tsPackages, tsUnmanifested };
 }
 
-function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string> } {
+function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string>; rustTargets: RustTargets } {
   const rustCrateDirs = new Map<string, string>();
+  const rustTargets: RustTargets = { off: new Map(), listed: new Set() };
   const deps = new Set<string>();
   const internal = new Set<string>();
   const norm = (name: string) => name.replace(/-/g, "_");
@@ -334,6 +335,8 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
     } catch {
       /* a link out of the repo or an unreadable manifest states nothing */
     }
+    const dir = posix.dirname(relPosix(root, f));
+    const targets: Array<{ kind: string; name?: string; path?: string }> = [];
     let section = "";
     for (const line of (text ?? "").split(/\r?\n/)) {
       const header = /^\s*\[+\s*([^\]]+?)\s*\]+/.exec(line);
@@ -341,6 +344,7 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
         section = header[1];
         const table = /(?:^|\.)(?:dev-|build-)?dependencies\.([\w-]+)$/.exec(section);
         if (table) deps.add(norm(table[1]));
+        if (/^\s*\[\[\s*(test|example|bench)\s*\]\]/.test(line)) targets.push({ kind: section });
         continue;
       }
       const key = /^\s*([\w-]+)\s*=\s*(.*)$/.exec(line);
@@ -348,8 +352,17 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
       if (section === "package" && key[1] === "name") {
         const crate = norm(key[2].replace(/["'\s]/g, ""));
         internal.add(crate);
-        rustCrateDirs.set(crate, posix.dirname(relPosix(root, f)));
+        rustCrateDirs.set(crate, dir);
       }
+      // `autotests = false`: Cargo builds only the listed tests, not every file in `tests`.
+      const auto = /^auto(tests|examples|benches)$/.exec(key[1]);
+      if (section === "package" && auto && /^false\b/.test(key[2])) {
+        rustTargets.off.set(dir, new Set([...(rustTargets.off.get(dir) ?? []), auto[1]]));
+      }
+      const target = /^(test|example|bench)$/.test(section) ? targets.at(-1) : undefined;
+      const quoted = /^["']([^"']*)["']/.exec(key[2])?.[1];
+      if (target && key[1] === "name") target.name = quoted;
+      if (target && key[1] === "path") target.path = quoted;
       if (/(?:^|\.)(?:dev-|build-)?dependencies$/.test(section)) {
         deps.add(norm(key[1]));
         if (/\bpath\s*=/.test(key[2])) internal.add(norm(key[1]));
@@ -357,9 +370,14 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
       const table = /(?:^|\.)(?:dev-|build-)?dependencies\.([\w-]+)$/.exec(section);
       if (table && key[1] === "path") internal.add(norm(table[1]));
     }
+    for (const { kind, name, path } of targets) {
+      const folder = kind === "test" ? "tests" : `${kind}s`;
+      const paths = path ? [path] : name ? [`${folder}/${name}.rs`, `${folder}/${name}/main.rs`] : [];
+      for (const p of paths) rustTargets.listed.add(posix.normalize(posix.join(dir, p)));
+    }
   }
   for (const name of internal) deps.delete(name);
-  return { rustExternalCrates: deps, rustCrateDirs };
+  return { rustExternalCrates: deps, rustCrateDirs, rustTargets };
 }
 
 export async function buildGraph(

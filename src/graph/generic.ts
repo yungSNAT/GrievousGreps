@@ -984,14 +984,17 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
 }
 
 /** For a file that declares module files (`mod option;`), what a `use super::*` in one of them
- * brings in: the file's top-level `use` lines, private ones included, and its globs. */
+ * brings in: the file's top-level `use` lines, private ones included, and its globs. Modules
+ * declared `pub` or `pub(crate)` are also listed as open, as a sibling module can reach them. */
 function extractRustModUses(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
-  const into: NonNullable<RawEdge["rustModUses"]> = { mods: [], names: [], globs: [] };
+  const into: NonNullable<RawEdge["rustModUses"]> = { mods: [], open: [], names: [], globs: [] };
   for (let i = 0; i < (root.namedChildCount ?? 0); i++) {
     const c = root.namedChild?.(i);
     if (c?.type === "mod_item" && !c.childForFieldName?.("body")) {
       const name = c.childForFieldName?.("name")?.text;
       if (name) into.mods.push(name);
+      const vis = c.namedChild?.(0);
+      if (name && vis?.type === "visibility_modifier" && /^pub(\(crate\))?$/.test(vis.text.replace(/\s+/g, ""))) into.open.push(name);
     } else if (c?.type === "use_declaration") {
       for (const [name, { full }] of rustUseBindings(c.text, into.globs)) into.names.push([name, full]);
     }
