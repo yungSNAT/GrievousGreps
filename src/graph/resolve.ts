@@ -1024,7 +1024,7 @@ function rustCfgArms(list: NodeV1[], gated: ReadonlyMap<string, string>): boolea
 /** A free function and its other `cfg` arms. A call reaches whichever arm the build compiles,
  * which the graph cannot tell, so it gets an edge to each. */
 function rustArmsOf(node: NodeV1, ctx: Pick<RustPathCtx, "perFileName" | "cfgGated">): NodeV1[] {
-  const arms = (ctx.perFileName.get(node.path)?.get(node.name) ?? []).filter((n) => n.kind === node.kind && !n.owner);
+  const arms = (ctx.perFileName.get(node.path)?.get(node.name) ?? []).filter((n) => n.kind === node.kind && !n.owner && !n.signature?.startsWith("macro_rules!"));
   return arms.includes(node) && rustCfgArms(arms, ctx.cfgGated) ? arms : [node];
 }
 
