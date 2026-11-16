@@ -19,7 +19,7 @@
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.97, against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d` (all measured 15 November 2026, UTC). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.95 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
+Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.98 (measured 16 November 2026, UTC), against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d` (both measured 15 November 2026). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.95 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
 
 ## Install
 
@@ -100,18 +100,18 @@ cargo build --release --locked --manifest-path rust/gg-docs/Cargo.toml
 
 Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each row is 10 preregistered symbols on one public repository. For 18 rows the truth was written before any build ran on the repository. For hono, radix and trpc it has been derived from the TypeScript compiler since 13 November 2026 (UTC), after builds had run, so those 3 sets were not preregistered; [benchmark/](benchmark/README.md#truth) describes the derivation. Upstream is measured twice, both on 15 November 2026 (UTC): its npm release 0.29.0 (6 November), the version `npm install` gives and still its latest; and `main` at `b22055d` (9 November), still its head.
 
-For the 18, that order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one. No required row changed. A second came on 15 November 2026 (UTC): tokio `channel` lacked 49 calls written with a turbofish, such as `mpsc::channel::<()>(1)`, which [benchmark/](benchmark/README.md#truth) lists with how they were found and checked. They are now required rows, so tokio holds 894 calls and the 21 repositories 4,359.
+For the 18, that order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one. No required row changed. A second came on 15 November 2026 (UTC): tokio `channel` lacked 49 calls written with a turbofish, such as `mpsc::channel::<()>(1)`, which [benchmark/](benchmark/README.md#truth) lists with how they were found and checked. They are now required rows, so tokio holds 894 calls and the 21 repositories 4,359. A third came later that day: attrs `resolve_types` lacked 5 calls that apply it as a decorator without arguments, which [benchmark/](benchmark/README.md#truth) also lists. They are now required rows, so attrs holds 282 calls and the 21 repositories 4,364. The patched column was scored on 4,364 calls; the upstream columns and the rivals below were scored before the third correction, on 4,359.
 
-**Overall, upstream 0.29.0 to patched:** recall 0.32 to 0.97 (21 repositories and 4229 of 4359 calls on the patched build), precision 0.94 to 0.95, silent undercounts 75 to 11. Upstream `main` scored 0.19, with precision 0.91 and 113 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule. On the hand-written truth for all 21, the 13 November runs gave recall 0.31, 0.77 and 0.20 and silent undercounts 74, 14 and 113 (0.29.0, patched at `219b118`, `main`). The 12 November runs, on that truth, counted under an earlier rule, which searched the plain output for words such as 'undercount', and gave 50, 5 and 90 silent undercounts.
+**Overall, upstream 0.29.0 to patched:** recall 0.32 to 0.98 (21 repositories and 4,289 of 4,364 calls on the patched build), precision 0.94 to 0.95, silent undercounts 75 to 7. Upstream `main` scored 0.19, with precision 0.91 and 113 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule. On the hand-written truth for all 21, the 13 November runs gave recall 0.31, 0.77 and 0.20 and silent undercounts 74, 14 and 113 (0.29.0, patched at `219b118`, `main`). The 12 November runs, on that truth, counted under an earlier rule, which searched the plain output for words such as 'undercount', and gave 50, 5 and 90 silent undercounts.
 
 On the hand-written truth, 0.29.0 gave the same figures on all 21 repositories as `a44da3d` (30 October), the `main` commit whose package version is 0.28.0, gave on 31 October. Since 0.29.0, upstream `main`'s Python and Rust rows held or rose (rich 0.57 to 0.80), but 6 of its 7 TypeScript rows fell, from 0.90 to 0.33 on jotai and from 0.73 to 0.02 on radix: `main` no longer finds some symbols, such as radix `FocusScope`, which it reports as not in the graph. A rerun of `a44da3d` on the same machine on 12 November gave its earlier TypeScript figures, so the fall is upstream's change, not the run.
 
 | Repository | Language | Calls in truth | Upstream 0.29.0 | Upstream `main` | Patched |
 | --- | --- | --- | --- | --- | --- |
-| python-attrs/attrs @ c8bb9bf | Python | 277 | 0.05 | 0.05 | 1.00 |
+| python-attrs/attrs @ c8bb9bf | Python | 282 | 0.05 | 0.05 | 1.00 |
 | tokio-rs/axum @ bebe175 | Rust | 127 | 0.48 | 0.48 | 0.99 |
-| pallets/click @ 2247b35 | Python | 401 | 0.03 | 0.03 | 0.97 |
-| pallets/flask @ d086db8 | Python | 33 | 0.33 | 0.33 | 0.70 |
+| pallets/click @ 2247b35 | Python | 401 | 0.03 | 0.03 | 1.00 |
+| pallets/flask @ d086db8 | Python | 33 | 0.33 | 0.33 | 1.00 |
 | honojs/hono @ ee88684 | TypeScript | 40 | 0.70 | 0.75 | 0.85 |
 | encode/httpx @ b5addb6 | Python | 42 | 0.52 | 0.52 | 1.00 |
 | pmndrs/jotai @ e5971ba | TypeScript | 58 | 0.90 | 0.33 | 1.00 |
@@ -119,52 +119,51 @@ On the hand-written truth, 0.29.0 gave the same figures on all 21 repositories a
 | TanStack/query @ 979695d | TypeScript | 73 | 0.95 | 0.49 | 1.00 |
 | radix-ui/primitives @ eb3a2b7 | TypeScript | 252 | 0.73 | 0.02 | 1.00 |
 | rayon-rs/rayon @ 599425d | Rust | 226 | 0.31 | 0.31 | 0.99 |
-| Textualize/rich @ 9d8f9a3 | Python | 132 | 0.57 | 0.80 | 0.97 |
-| BurntSushi/ripgrep @ 91f5d22 | Rust | 45 | 0.56 | 0.56 | 0.98 |
+| Textualize/rich @ 9d8f9a3 | Python | 132 | 0.57 | 0.80 | 1.00 |
+| BurntSushi/ripgrep @ 91f5d22 | Rust | 45 | 0.56 | 0.56 | 1.00 |
 | mwaskom/seaborn @ c1cb287 | Python | 147 | 0.24 | 0.24 | 1.00 |
 | hynek/structlog @ 19c4f21 | Python | 84 | 0.77 | 0.79 | 1.00 |
 | TanStack/table @ c14e022 | TypeScript | 358 | 0.69 | 0.23 | 1.00 |
 | tokio-rs/tokio @ 6470b5e | Rust | 894 | 0.04 | 0.04 | 0.94 |
-| tokio-rs/tracing @ 79b80a9 | Rust | 749 | 0.00 | 0.00 | 0.97 |
-| trpc/trpc @ 708753f | TypeScript | 221 | 0.94 | 0.25 | 0.96 |
+| tokio-rs/tracing @ 79b80a9 | Rust | 749 | 0.00 | 0.00 | 0.99 |
+| trpc/trpc @ 708753f | TypeScript | 221 | 0.94 | 0.25 | 1.00 |
 | vuejs/core @ 24c9d0b | TypeScript | 88 | 0.95 | 0.56 | 0.95 |
 | getzola/zola @ 628926f | Rust | 61 | 0.90 | 0.90 | 0.98 |
 
-Rust recall is partial. tokio is the weakest Rust row at 0.94, and tracing is at 0.97. Together they hold 1,643 of the 4,359 calls, and their symbols were chosen for names repeated across crates and types.
+Rust recall is partial. tokio is the weakest Rust row at 0.94, and tracing is at 0.99. Together they hold 1,643 of the 4,364 calls, and their symbols were chosen for names repeated across crates and types.
 
 About 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 false, 95% interval 11% to 27%), at `e37a764` and `949d829`. An edge with that mark is a lead. `callers`, its JSON and the MCP tool show the mark, and at depth 2 or more they also show it on any hit whose every shortest path crosses such an edge. `blast` shows the mark too, counts those dependents and lists them after the definite ones at each depth. Definite edges: 2 of 80 false over the same 2 samples.
 
-Against 0.29.0, recall did not rise everywhere: vue did not move, and trpc moved little. Silent undercounts remain.
+Against 0.29.0, recall did not rise everywhere: vue did not move. Silent undercounts remain.
 
-All 3 columns were run on Linux with Node 26.13.1 on 15 November 2026 (UTC), on the corrected truth: the patched column at `491b060`, 0.29.0 as the npm package `@trailhq/trail-code@0.29.0` with its install script skipped, and `main` built from source. Against the 13 November runs, only the patched axum, tokio and tracing figures changed, besides tokio's call count. Those runs used the same Node and the same 2 upstream builds, with the patched column at `219b118`. On the hand-written truth every recall figure matched the 12 November runs (patched at `166c2fd` and `eaa8393`). The hono, radix and trpc rows were rerun on the compiler-derived truth later that day, with the same 3 builds. Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matched them. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
+The patched column was run on Linux with Node 26.13.1 on 16 November 2026 (UTC) at `3e066a2`, on the truth with all 3 corrections. Against its 15 November run at `491b060`, recall rose on 6 rows and fell on none; attrs held at 1.00 with 5 more calls. The upstream columns were run on the same machine and Node on 15 November, on the truth corrected for tokio: 0.29.0 as the npm package `@trailhq/trail-code@0.29.0` with its install script skipped, and `main` built from source. Against the 13 November runs, the 15 November patched run changed only the axum, tokio and tracing figures, besides tokio's call count. Those runs used the same Node and the same 2 upstream builds, with the patched column at `219b118`. On the hand-written truth every recall figure matched the 12 November runs (patched at `166c2fd` and `eaa8393`). The hono, radix and trpc rows were rerun on the compiler-derived truth later that day, with the same 3 builds. Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matched them. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
 
 These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
 
 ## Against the alternatives
 
-On this benchmark GrievousGreps has the highest overall recall of 4 tools and the fewest silent undercounts, and it beats Serena on Rust (0.96 to 0.76). code-review-graph matches its TypeScript recall (0.98). codebase-memory-mcp leads on answer size and memory. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories and 210 symbols. Everything in this section was measured on 15 November 2026 (UTC), each tool at its latest release that day and GrievousGreps at `491b060`.
+On this benchmark GrievousGreps has the highest overall recall of 4 tools and the fewest silent undercounts, and it is ahead of Serena on Rust (0.97 to 0.76) and of code-review-graph on TypeScript (0.99 to 0.98). codebase-memory-mcp leads on answer size and memory. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories and 210 symbols. The GrievousGreps column was measured on 16 November 2026 (UTC) at `3e066a2`, on 4,364 calls. The rivals were not rerun: their columns, and the rest of this section, are from 15 November 2026, each tool at its latest release that day, on 4,359 calls, with GrievousGreps at `491b060` where this section names it.
 
-| | GrievousGreps `491b060` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned | code-review-graph v2.4.0 |
+| | GrievousGreps `3e066a2` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned | code-review-graph v2.4.0 |
 | --- | --- | --- | --- | --- | --- |
-| Overall | 0.97 / 0.95 / 11 | 0.62 / 0.93 / 89 | 0.55 / 0.92 / 99 | 0.70 / 0.94 / 70 | 0.62 / 0.86 / 87 |
-| Python | 0.98 / 1.00 / 1 | 0.68 / 0.98 / 22 | 0.37 / 0.95 / 30 | 0.83 / 0.98 / 8 | 0.53 / 0.96 / 35 |
-| TypeScript | 0.98 / 0.97 / 6 | 0.78 / 0.96 / 25 | 0.32 / 0.97 / 46 | 0.47 / 0.98 / 39 | 0.98 / 0.95 / 9 |
-| Rust | 0.96 / 0.91 / 4 | 0.51 / 0.87 / 42 | 0.76 / 0.89 / 23 | 0.76 / 0.89 / 23 | 0.48 / 0.70 / 43 |
+| Overall | 0.98 / 0.95 / 7 | 0.62 / 0.93 / 89 | 0.55 / 0.92 / 99 | 0.70 / 0.94 / 70 | 0.62 / 0.86 / 87 |
+| Python | 1.00 / 1.00 / 0 | 0.68 / 0.98 / 22 | 0.37 / 0.95 / 30 | 0.83 / 0.98 / 8 | 0.53 / 0.96 / 35 |
+| TypeScript | 0.99 / 0.97 / 4 | 0.78 / 0.96 / 25 | 0.32 / 0.97 / 46 | 0.47 / 0.98 / 39 | 0.98 / 0.95 / 9 |
+| Rust | 0.97 / 0.91 / 3 | 0.51 / 0.87 / 42 | 0.76 / 0.89 / 23 | 0.76 / 0.89 / 23 | 0.48 / 0.70 / 43 |
 | Licence | MIT | MIT | GPL-3.0-or-later, SolidLSP MIT | GPL-3.0-or-later, SolidLSP MIT | MIT |
 
 Licences were checked against each project's LICENSE file at its latest release, which is the version tested: [codebase-memory-mcp v0.12.1](https://github.com/DeusData/codebase-memory-mcp/blob/v0.12.1/LICENSE) and [Serena v2.1.0](https://github.com/oraios/serena/blob/v2.1.0/LICENSE) and [code-review-graph v2.4.0](https://github.com/tirth8205/code-review-graph/blob/v2.4.0/LICENSE), on 15 November 2026. Serena's application has been GPL-3.0-or-later since commit `6707cd9b` (14 September 2026), and its `serena-agent` package declares that licence; its SolidLSP library stays MIT, as do Serena releases up to v1.7.0.
 
-Repositories where a competitor's recall beat this tool's:
+No competitor's recall beat this tool's on any repository. Those that led on 15 November, against `491b060`, are now level or behind:
 
-- **codebase-memory-mcp:** none.
-- **Serena, defaults:** flask (0.97 to 0.70), rich (1.00 to 0.97), ripgrep (1.00 to 0.98) and tracing (0.99 to 0.97).
-- **Serena, tuned:** the same 4, plus click (1.00 to 0.97).
-- **code-review-graph:** trpc (1.00 to 0.96).
+- **Serena, defaults:** flask is behind (0.97 to 1.00); rich, ripgrep and tracing are level (1.00, 1.00 and 0.99).
+- **Serena, tuned:** the same 4, plus click, level at 1.00.
+- **code-review-graph:** trpc, level at 1.00.
 
 **Read the table with these limits:**
 
 - The truth was written alongside this tool and all 21 repositories have been seen in development, so the table does not predict recall on other code.
-- A silent undercount is a symbol whose answer misses a caller and whose JSON does not say it may be short. The scorer reads the 2 fields this tool writes, `unresolved` and a shared-name `note`, and no rival field, so each rival's count is every symbol it missed. The earlier rule, which searched the plain output for words such as 'undercount', gives 5, 89, 94, 66 and 86 on these answers.
+- A silent undercount is a symbol whose answer misses a caller and whose JSON does not say it may be short. The scorer reads the 2 fields this tool writes, `unresolved` and a shared-name `note`, and no rival field, so each rival's count is every symbol it missed. The earlier rule, which searched the plain output for words such as 'undercount', gives 5, 89, 94, 66 and 86 on the 15 November answers, with this tool at `491b060`.
 - codebase-memory-mcp used documented non-default settings because the truth counts test callers: `depth=1`, `include_tests=true`, `limit=5000` and `max_output_tokens=1000000`. At its defaults its overall recall is 0.28.
 - code-review-graph was asked through its MCP server's `query_graph_tool` with `callers_of` and `max_results=100000`, as its default of 100 would cut long answers, after a `code-review-graph build`. Each target came from the tool's `file_summary` of the target file. Its `file_summary` listed no matching definition for 4 targets: hono `createFactory`, an arrow function, and tokio `spawn`, `spawn_blocking` and `block_in_place`, which sit inside `cfg_rt!` and `cfg_rt_multi_thread!` macros.
 - Serena's tuned row was chosen after seeing its scores. It removes the `[tool.pyright]` table on attrs, click and structlog, and adds generated TypeScript project references on radix and trpc. Serena's Pyright, typescript-language-server and rust-analyzer ran at their documented defaults, with dependencies fetched first.
