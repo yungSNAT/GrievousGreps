@@ -2664,7 +2664,6 @@ async function signInToShare(dir: string): Promise<boolean> {
   console.error("· waiting for you to sign in · ctrl-c stops");
   const got = await waitForConnect({ waitMs: 10 * 60 * 1000 });
   if (got && "cloud" in got) {
-    addAgentEntries();
     console.error(`✓ signed in to workspace ${got.cloud.workspace.name}`);
     return true;
   }
