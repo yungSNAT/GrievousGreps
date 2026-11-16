@@ -48,6 +48,7 @@ test("genericLangOf routes .rs to the breadth tier (and not depth-tier extension
   assert.equal(genericLangOf("src/main.rs")?.name, "rust");
   assert.equal(genericLangOf("src/init.lua")?.name, "lua");
   assert.equal(genericLangOf("src/app.gleam")?.name, "gleam");
+  assert.equal(genericLangOf("src/DRM.jl")?.name, "julia");
   assert.equal(genericLangOf("src/app.ts"), null); // depth tier owns .ts
   assert.equal(genericLangOf("README.md"), null);
 });
@@ -422,6 +423,16 @@ const SNIPPETS: Array<{ lang: string; file: string; src: string; defs: string[];
     defs: ["function:assigned", "function:draw", "function:helper", "function:launch", "method:run"], call: ["launch", "run"],
   },
   {
+    // Julia: long-form `function f(x) ... end`, short-form `f(x) = ...`, a
+    // qualified `Base.show(...)` method (last path segment), a `where` clause,
+    // a macro-annotated one-liner (`@inline`), structs / abstract types with a
+    // supertype, and `const`. A call on the LEFT of `=` is a definition; on the
+    // right it is a reference.
+    lang: "julia", file: "a.jl",
+    src: `module Foo\nabstract type AbstractModel end\nstruct Bar{T} <: AbstractModel\n  x::T\nend\nconst K = 3\nfunction fit(m::Bar, y)\n  helper(y) .+ K\nend\nhelper(y) = sum(y)\nBase.show(io::IO, b::Bar) = print(io, "Bar")\nf(x::T) where {T} = x\n@inline g(x) = f(x)\nend\n`,
+    defs: ["constant:K", "function:f", "function:fit", "function:g", "function:helper", "function:show", "module:Foo", "struct:Bar", "type:AbstractModel"], call: ["fit", "helper"],
+  },
+  {
     // Nix: a binding whose value is a lambda (let-bound or attrset field) becomes
     // a function def; a non-function binding (`version`) is not emitted, and an
     // application of one binding by another resolves as a call.
@@ -445,6 +456,15 @@ pub fn run() { helper() }
 `,
     defs: ["constant:limit", "function:Ready", "function:helper", "function:run", "type:State"],
     call: ["run", "helper"],
+  },
+  {
+    // PowerShell: function/filter statements name via the function_name leaf
+    // token; bare command invocations (cmdlets, script functions) are calls.
+    // Bodies must put statements on their own lines — single-line
+    // `function f { param($x) ... }` hits a grammar ERROR region.
+    lang: "powershell", file: "a.ps1",
+    src: `function Get-Greeting {\n    param([string]$Name)\n    return "hi $Name"\n}\n\nfunction Show-All {\n    Get-Greeting -Name "world"\n}\n`,
+    defs: ["function:Get-Greeting", "function:Show-All"], call: ["Show-All", "Get-Greeting"],
   },
 ];
 
@@ -926,6 +946,53 @@ test("Dart file-level skeleton lists the API, not function-body locals (#134)", 
     !r.entries.some((e) => e.kind === "class" && e.name === "int"),
     "skeleton has no bogus class int",
   );
+});
+
+// #293 remainder: .glsl is in tree-sitter-wasm; no tags.scm, so the walker
+// fallback must still mint struct/function symbols so skeleton is not empty.
+// .gd is #299 — do not register gdscript here.
+const GLSL = `struct Probe {
+  vec3 origin;
+  float radius;
+};
+
+float march(vec3 p) {
+  return length(p);
+}
+
+void main() {
+  float d = march(vec3(0.0));
+}
+`;
+
+test("genericLangOf routes .glsl to the breadth tier (#293)", () => {
+  assert.equal(genericLangOf("shaders/cell.glsl")?.name, "glsl");
+});
+
+test("GLSL struct and functions become symbols without a tags query (#293)", async () => {
+  await warmGenericGrammars(["glsl"]);
+  assert.ok(isWarm("glsl"), "glsl grammar should warm");
+  const { nodes, rawEdges } = extractGeneric("shaders/cell.glsl", GLSL, "glsl");
+  const symbols = nodes.filter((n) => n.kind !== "file");
+  const byName = new Map(symbols.map((n) => [n.name, n]));
+
+  assert.equal(byName.get("Probe")?.kind, "struct", "Probe is a struct");
+  assert.equal(byName.get("march")?.kind, "function", "march is a function");
+  assert.equal(byName.get("main")?.kind, "function", "main is a function");
+  assert.equal(rawEdges.length, 0, "no tags.scm → symbols only, no call edges");
+});
+
+test("GLSL file-level skeleton lists the shader API (#293)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "graft-glsl-"));
+  mkdirSync(join(dir, "shaders"));
+  writeFileSync(join(dir, "shaders", "cell.glsl"), GLSL);
+
+  await buildGraph(dir, { reuse: false });
+  const r = skeleton(dir, "shaders/cell.glsl");
+  const names = r.entries.map((e) => e.name);
+  for (const want of ["Probe", "march", "main"]) {
+    assert.ok(names.includes(want), `skeleton includes ${want} (got ${names.join(", ")})`);
+  }
 });
 
 // #139: tree-sitter-wasm 1.1.4's PHP grammar throws `memory access out of bounds`
