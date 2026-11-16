@@ -2,3 +2,5 @@ README.md merge=ours
 SECURITY.md merge=ours
 .github/workflows/* merge=ours
 scripts/archive-commit.txt export-subst
+# Bash reads a CRLF script as commands ending in , and Windows checkouts convert to CRLF.
+*.sh text eol=lf
