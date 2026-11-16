@@ -384,7 +384,9 @@ test("the EXISTING resolver resolves generic-tier Rust calls by name", async () 
 // One inline snippet per breadth language, each exercising a definition + a call
 // that must resolve. Java/Ruby/C# calls target METHODS — proving the generic-origin
 // call-kind widening (resolve.ts) works, not just function-target languages.
-const SNIPPETS: Array<{ lang: string; file: string; src: string; defs: string[]; call: [string, string] }> = [
+// `call` names one caller and its resolved target; `calls` instead lists every
+// resolved call edge (caller->target), so a guessed edge fails the test too.
+const SNIPPETS: Array<{ lang: string; file: string; src: string; defs: string[]; call?: [string, string]; calls?: string[] }> = [
   {
     lang: "java", file: "A.java",
     src: `class A {\n  int run() { return helper(); }\n  int helper() { return 1; }\n}\n`,
@@ -466,6 +468,59 @@ pub fn run() { helper() }
     src: `function Get-Greeting {\n    param([string]$Name)\n    return "hi $Name"\n}\n\nfunction Show-All {\n    Get-Greeting -Name "world"\n}\n`,
     defs: ["function:Get-Greeting", "function:Show-All"], call: ["Show-All", "Get-Greeting"],
   },
+  {
+    // Perl: a call with parentheses, with or without `&`, or a method call on a
+    // variable names its sub. A package-qualified call, a class method (here
+    // `Foo->new` beside this file's own `sub new`) and a code reference call
+    // name nothing here.
+    lang: "perl", file: "a.pl",
+    src: `package Foo::Bar;\nsub new { 1 }\nsub helper { 1 }\nsub go { 1 }\nsub run { my $self = shift; &helper(); $self->go(); my $f = \\&helper; $f->(); &$f(); return Foo::Bar::helper() + Foo->new() + __PACKAGE__->new(); }\n`,
+    defs: ["function:go", "function:helper", "function:new", "function:run", "module:Foo::Bar"], calls: ["run->go", "run->helper"],
+  },
+  {
+    // Objective-C: a method and a message are named by the whole selector, so
+    // `setValue:forHTTPHeaderField:` is not `setValue:forKey:`, and `setX:1 y:2`
+    // calls `setX:y:`. `[super draw]` is the parent's draw, not this one. The
+    // @interface's declarations are not definitions.
+    lang: "objc", file: "a.m",
+    src: `@interface Widget : NSObject\n- (void)setX:(int)x y:(int)y;\n@end\n@protocol Drawing\n- (void)draw;\n@end\n@implementation Widget\n- (void)setX:(int)x y:(int)y { [self draw]; }\n- (void)draw { [super draw]; [self setX:1 y:2]; [[Widget alloc] init]; helper(3); }\n- (void)setValue:(id)v forKey:(id)k {}\n- (void)setValue:(id)v forHTTPHeaderField:(id)f {}\n- (void)send { [self setValue:@"a" forHTTPHeaderField:@"b"]; }\n@end\nstatic int helper(int v) { return v; }\n`,
+    defs: ["class:Widget", "function:helper", "interface:Drawing", "method:draw", "method:send", "method:setValue:forHTTPHeaderField:", "method:setValue:forKey:", "method:setX:y:"],
+    calls: ["draw->helper", "draw->setX:y:", "send->setValue:forHTTPHeaderField:", "setX:y:->draw"],
+  },
+  {
+    // GDScript: `super._ready()` is the parent class's, not a call of itself.
+    lang: "gdscript", file: "a.gd",
+    src: `extends Node\nclass_name Player\nclass Inner:\n\tfunc go():\n\t\tpass\nfunc helper():\n\treturn 1\nfunc run(node):\n\tnode.go()\n\treturn helper()\nfunc _ready():\n\tsuper._ready()\n`,
+    defs: ["class:Inner", "class:Player", "function:_ready", "function:go", "function:helper", "function:run"], calls: ["run->go", "run->helper"],
+  },
+  {
+    // ReScript: a direct call and a pipe call; a function passed as a value and
+    // a module-qualified call are not calls of it.
+    lang: "rescript", file: "a.res",
+    src: `let helper = x => x\nlet run = () => helper(1)->helper\nlet other = () => Belt.Array.map([1], helper)\nmodule M = {\n  let inner = x => Js.log(x)\n}\n`,
+    defs: ["function:helper", "function:inner", "function:other", "function:run", "module:M"], calls: ["run->helper"],
+  },
+  {
+    // Groovy: a method on a variable, `this` or a new object is called; one
+    // through a class or a package path is no call of this file's `sort`.
+    lang: "groovy", file: "a.groovy",
+    src: `class Widget {\n  int helper() { return 1 }\n  int run() { return this.helper() }\n  def sort(x) { x }\n  int go() { 0 }\n}\ndef top() {\n  println "hi"\n  new Widget().run()\n  obj.go()\n  java.util.Collections.sort(xs)\n  Collections.sort(xs)\n}\n`,
+    defs: ["class:Widget", "function:go", "function:helper", "function:run", "function:sort", "function:top"], calls: ["run->helper", "top->go", "top->run"],
+  },
+  {
+    // Elm: `helper 2` calls helper; `List.map helper` passes it, and is no call.
+    lang: "elm", file: "a.elm",
+    src: `module Main exposing (run)\n\nimport List\n\nhelper : Int -> Int\nhelper x = x + 1\n\nrun : Int\nrun = List.sum (List.map helper [ helper 2 ])\n\ntype Shape = Circle | Square\n\ntype alias Point = { x : Int }\n`,
+    defs: ["function:helper", "function:run", "type:Point", "type:Shape"], calls: ["run->helper"],
+  },
+  {
+    // Fortran: `arr(1)` and `b(2)` index arrays that the procedure and its
+    // module declare, so they are no calls of the functions `arr` and `b`; names
+    // ignore case.
+    lang: "fortran", file: "a.f90",
+    src: `module n\ncontains\n  integer function arr()\n    arr = 2\n  end function arr\n  integer function b()\n    b = 3\n  end function b\n  integer function v()\n    v = 4\n  end function v\n  integer function w()\n    w = 5\n  end function w\nend module n\nmodule m\n  integer :: b(3)\ncontains\n  integer function helper()\n    helper = 1\n  end function helper\n  subroutine run()\n    integer :: x, ARR(3)\n    real, dimension(:), allocatable :: v\n    dimension w(3)\n    x = helper() + arr(1) + b(2) + v(1) + w(1)\n    call other()\n  end subroutine run\n  subroutine other()\n  end subroutine other\nend module m\n`,
+    defs: ["function:arr", "function:b", "function:helper", "function:other", "function:run", "function:v", "function:w", "module:m", "module:n"], calls: ["run->helper", "run->other"],
+  },
 ];
 
 for (const s of SNIPPETS) {
@@ -476,9 +531,17 @@ for (const s of SNIPPETS) {
     const kinds = nodes.filter((n) => n.kind !== "file").map((n) => `${n.kind}:${n.name}`).sort();
     assert.deepEqual(kinds, s.defs, `${s.lang} definitions`);
     const edges = resolveEdges(nodes, rawEdges);
-    const call = edges.find((e) => e.relation === "calls" && e.source.endsWith(`#${s.call[0]}`));
-    assert.ok(call, `${s.lang}: ${s.call[0]}'s call edge exists and is attributed to the caller`);
-    assert.equal(call?.target, `${s.file}#${s.call[1]}`, `${s.lang}: resolved ${s.call[0]}→${s.call[1]}`);
+    if (s.calls) {
+      const at = (id: string) => id.slice(id.indexOf("#") + 1);
+      const calls = edges.filter((e) => e.relation === "calls").map((e) => `${at(e.source)}->${at(e.target)}`);
+      assert.deepEqual([...new Set(calls)].sort(), s.calls, `${s.lang} resolved calls`);
+    }
+    if (s.call) {
+      const [caller, callee] = s.call;
+      const call = edges.find((e) => e.relation === "calls" && e.source.endsWith(`#${caller}`));
+      assert.ok(call, `${s.lang}: ${caller}'s call edge exists and is attributed to the caller`);
+      assert.equal(call?.target, `${s.file}#${callee}`, `${s.lang}: resolved ${caller}→${callee}`);
+    }
   });
 }
 

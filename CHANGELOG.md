@@ -9,6 +9,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **Caller resolution** for Python, TypeScript and Rust, with fixes ported from upstream pull requests and other forks. The README's Credits section names their authors.
 - **`benchmark/`**, which measures `callers` recall on 21 pinned public repositories. Its runner and scorer are `gg-bench`, a Rust binary in `rust/gg-bench`.
 - **Julia, PowerShell, GLSL and Bash files, and Svelte and Astro components**, ported from upstream pull requests, so the graph covers the 28 languages upstream's `main` does. Bash gives function symbols only. Calls into and out of a Vue, Svelte or Astro component now resolve only within TypeScript and JavaScript, the language of its script blocks; a call from Python could reach a component's function before.
+- **Perl, Objective-C, GDScript, ReScript, Groovy, Elm and Fortran files**, with definitions and the calls between them, so the graph covers 35 languages. Groovy calls can reach Java, Kotlin, Scala and Clojure, and Objective-C calls C and C++. A call that names a module or package (`List.map`, `Foo::bar()`) or a code reference stays unresolved rather than guessed.
 - **`trail docs`** (`search`, `get`, `status` and `update`): ranked search over a repository's Markdown and text, showing each file's best section, refreshed before every answer. The new `gg-docs` Rust binary in `rust/gg-docs` answers it; build it with cargo, as no release exists yet. Its `--json` answers carry a protocol number the CLI checks.
 
 ### Changed
@@ -43,6 +44,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
 - **A Python function with `@overload` stubs now has callers.** Each stub followed in its block by the implementation counted as a definition of its own, so every call to the name was dropped as ambiguous, as for flask's `stream_with_context` and click's `prompt`. Python binds the name to the implementation, and the graph now does too. Overloads with no implementation after them, as in a stub file or a Protocol, stay.
 - **A Python decorator written without arguments is a call.** `@stream_with_context` or `@rich.repr.auto` above a definition calls the decorator from the scope the definition sits in, as Python does, so the decorator now shows that caller. Only decorators with arguments, such as `@route("/")`, counted before.

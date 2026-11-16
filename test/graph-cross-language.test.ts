@@ -92,6 +92,25 @@ test("cross-language: families that really do interoperate still resolve", () =>
     [{ source: "src/main.cpp#run", relation: "calls", name: "checksum", file: "src/main.cpp" }],
   );
   assert.deepEqual(calls(c), ["src/util.h#checksum"], "C++ calls a function declared in a C header");
+
+  const objc = resolveEdges(
+    [
+      n("src/View.m", "file"), n("src/View.m#draw", "method"),
+      n("src/util.c", "file"), n("src/util.c#checksum", "function"),
+    ],
+    [{ source: "src/View.m#draw", relation: "calls", name: "checksum", file: "src/View.m" }],
+  );
+  assert.deepEqual(calls(objc), ["src/util.c#checksum"], "Objective-C calls a C function");
+
+  const groovy = resolveEdges(
+    [
+      n("build.gradle", "file"), n("build.gradle#configure", "function"),
+      n("src/tasks.kt", "file"), n("src/tasks.kt#register", "function"),
+      n("tools/register.py", "file"), n("tools/register.py#register", "function"),
+    ],
+    [{ source: "build.gradle#configure", relation: "calls", name: "register", file: "build.gradle" }],
+  );
+  assert.deepEqual(calls(groovy), ["src/tasks.kt#register"], "a Gradle script calls a Kotlin function, not the Python one");
 });
 
 test("cross-language: an unclaimed extension never filters", () => {
