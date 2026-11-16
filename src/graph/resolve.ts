@@ -534,8 +534,12 @@ export function resolveEdges(
         }
         const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
         if (!recv && !e.rustForm) continue;
-        // `x = factory.Store()` may hold what a function named Store returns, not a Store.
-        if (recv && e.recvType && /\.pyi?$/.test(e.file) && pythonNamed(recv, "function")) continue;
+        // `x = factory.Store()` may hold what a function named Store returns, not a Store,
+        // unless the calling file's own definitions and imports name Store as a class.
+        if (recv && e.recvType && /\.pyi?$/.test(e.file) && pythonNamed(recv, "function")) {
+          const named = followPythonName(recv, toPosixPath(e.file), pythonCtx);
+          if (typeof named === "string" || !("id" in named) || named.kind !== "class") continue;
+        }
         const real = !recv ? { type: "" } : e.file.endsWith(".rs") ? rustRealType(recv, e.file, e.rustAt ?? 0, e.rustOwnerBrought === true) : { type: recv };
         if (real.root && opts.rustExternalCrates?.has(real.root)) { // an alias of a dependency's type
           rustTraitProvides(e, real.type);
