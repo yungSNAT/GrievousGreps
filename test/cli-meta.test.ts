@@ -130,7 +130,8 @@ test('git archive, as GitHub serves a commit to npm, writes that commit into scr
   assert.equal(archive.status, 0, archive.stderr);
   // A tar member's text follows its 512-byte header, which starts with its name (after git's pax header).
   const at = archive.stdout.indexOf('scripts/archive-commit.txt');
-  assert.equal(archive.stdout.slice(at + 512, at + 553), `${head.stdout.trim()}\n`);
+  // Only the commit: git archive writes the line ending core.autocrlf asks for, CRLF on Windows.
+  assert.equal(archive.stdout.slice(at + 512, at + 552), head.stdout.trim());
 });
 
 // --- npm launch: a fake npm first on PATH stands in for the real one ---
