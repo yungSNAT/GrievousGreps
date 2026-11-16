@@ -24,6 +24,11 @@ const DEFN = new Set<NodeV1["kind"]>(["function", "method", "class", "struct", "
 
 const langOf = (path: string): string | null => genericLangOf(path)?.name ?? languageLabelOf(path);
 
+// Each place not preceded by an identifier character, and an identifier character at a
+// place (sticky). Together they find a name standing as a whole identifier.
+const WORD_START = /(?<![\p{ID_Continue}$\u200C\u200D])/gu;
+const IDENT_AT = /[\p{ID_Continue}$\u200C\u200D]/uy;
+
 interface Span { node: NodeV1; from: number; to: number }
 const parseSpan = (s: string): [number, number] | null => {
   const m = /^L(\d+)-L(\d+)$/.exec(s);
@@ -95,14 +100,13 @@ export async function enrichWithLsp(
   const namePos = (src: NodeV1): { line: number; character: number } | null => {
     const sp = parseSpan(src.span); if (!sp) return null;
     const lines = linesOf(src.path);
-    const escaped = src.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(
-      `(^|[^\\p{ID_Continue}$\\u200C\\u200D])${escaped}(?![\\p{ID_Continue}$\\u200C\\u200D])`,
-      "u",
-    );
     for (let ln = sp[0] - 1; ln < Math.min(sp[0] + 2, lines.length); ln++) {
-      const match = pattern.exec(lines[ln] ?? "");
-      if (match) return { line: ln, character: match.index + match[1].length };
+      const text = lines[ln] ?? "";
+      for (const { index } of text.matchAll(WORD_START)) {
+        if (!text.startsWith(src.name, index)) continue;
+        IDENT_AT.lastIndex = index + src.name.length;
+        if (!IDENT_AT.test(text)) return { line: ln, character: index };
+      }
     }
     return null;
   };
