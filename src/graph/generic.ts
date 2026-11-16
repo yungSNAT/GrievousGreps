@@ -442,7 +442,7 @@ function rustUnwrapItemMacros<T extends { rootNode: unknown; delete(): void }>(s
 function extractPhpUses(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
   const visit = (n: TsNode): void => {
     if (n.type === "namespace_use_declaration") {
-      for (const fqn of phpUseNames(n.text)) rawEdges.push({ source: rel, relation: "imports", specifier: fqn, file: rel });
+      for (const fqn of phpUseNames(n)) rawEdges.push({ source: rel, relation: "imports", specifier: fqn, file: rel });
     }
     for (let i = 0; i < (n.namedChildCount ?? 0); i++) {
       const c = n.namedChild?.(i);
@@ -454,18 +454,56 @@ function extractPhpUses(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
 
 /** The fully-qualified class names a PHP `use` declaration imports. Handles a plain
  * `use A\B\C;`, a comma list `use A\B, C\D;`, a group `use A\B\{C, D};`, and `as` aliases;
- * returns [] for `use function`/`use const` (symbol imports, not class files). */
-function phpUseNames(text: string): string[] {
-  let s = text.replace(/^\s*use\s+/, "").replace(/;\s*$/, "").trim();
-  if (/^(function|const)\b/.test(s)) return [];
-  const brace = s.indexOf("{");
-  if (brace >= 0) {
-    const prefix = s.slice(0, brace).replace(/\\\s*$/, "");
-    const inner = s.slice(brace + 1, s.lastIndexOf("}"));
-    return inner.split(",").map((m) => m.trim().replace(/\s+as\s+\w+$/i, "").trim()).filter(Boolean)
-      .map((m) => `${prefix}\\${m}`);
+ * leaves out `use function`/`use const` and those entries of a mixed group (symbol imports, not class files). */
+function phpUseNames(decl: TsNode): string[] {
+  const type = decl.childForFieldName?.("type");
+  if (type && !phpKeywordNamespace(decl, type)) return [];
+  const prefix = (type?.text ?? "") + phpImportPath(decl).replace(/\\$/, "");
+  const body = decl.childForFieldName?.("body") ?? decl;
+  // Outside a group, the first clause's import kind applies to the whole list.
+  if (body === decl) {
+    for (let i = 0; i < (decl.namedChildCount ?? 0); i++) {
+      const first = decl.namedChild?.(i);
+      if (first?.type !== "namespace_use_clause") continue;
+      const kind = first.childForFieldName?.("type");
+      if (kind && !phpKeywordNamespace(first, kind)) return [];
+      break;
+    }
   }
-  return s.split(",").map((c) => c.trim().replace(/\s+as\s+\w+$/i, "").trim()).filter(Boolean);
+  const names: string[] = [];
+  for (let i = 0; i < (body.namedChildCount ?? 0); i++) {
+    const clause = body.namedChild?.(i);
+    if (clause?.type !== "namespace_use_clause") continue;
+    const kind = clause.childForFieldName?.("type");
+    if (kind && !phpKeywordNamespace(clause, kind)) continue;
+    for (let j = 0; j < (clause.namedChildCount ?? 0); j++) {
+      const target = clause.namedChild?.(j);
+      if (target?.type !== "name" && target?.type !== "qualified_name") continue;
+      const name = (kind?.text ?? "") + phpImportPath(target);
+      names.push(prefix ? `${prefix}\\${name}` : name);
+      break; // The alias, when present, is another direct name child.
+    }
+  }
+  return names;
+}
+
+// The breadth grammar labels PHP 8's `function\Widget` as an import type and
+// a rooted name. Only an adjoining separator makes that keyword a name segment;
+// `function \Widget` and `function /* comment */ \Widget` import a function.
+function phpKeywordNamespace(node: TsNode, keyword: TsNode): boolean {
+  return node.text.charAt(keyword.endIndex - node.startIndex) === "\\";
+}
+
+/** Reconstruct a name from syntax tokens, leaving comments and aliases out. */
+function phpImportPath(node: TsNode): string {
+  if (node.type === "name") return node.text;
+  let path = "";
+  for (let i = 0; i < (node.childCount ?? 0); i++) {
+    const child = node.child?.(i);
+    if (child?.type === "\\") path += "\\";
+    else if (child?.type === "name" || child?.type === "qualified_name" || child?.type === "namespace_name") path += phpImportPath(child);
+  }
+  return path;
 }
 
 /** The type a Rust `impl` or `trait` block's item belongs to, with its generics off. */
