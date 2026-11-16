@@ -321,12 +321,19 @@ function readTsImports(root: string, repoFiles: string[]): { tsPaths: TsPaths[];
   return { tsPaths, tsPackages, tsUnmanifested };
 }
 
+/** The folder Cargo finds `test`, `example` or `bench` targets in. */
+const folderOf = (kind: string) => (kind === "bench" ? "benches" : `${kind}s`);
+
 function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string>; rustTargets: RustTargets } {
   const rustCrateDirs = new Map<string, string>();
-  const rustTargets: RustTargets = { off: new Map(), listed: new Set() };
+  const rustTargets: RustTargets = { off: new Map(), listed: new Set(), unsure: new Set() };
   const deps = new Set<string>();
   const internal = new Set<string>();
   const norm = (name: string) => name.replace(/-/g, "_");
+  // What each package says about finding its tests, examples and benches, settled once every
+  // workspace's edition is known.
+  const packages: Array<{ dir: string; edition?: string; autos: Map<string, boolean>; tabled: Set<string> }> = [];
+  const workspaceEditions = new Map<string, string>();
   for (const f of repoFiles) {
     if (basename(f) !== "Cargo.toml") continue;
     let text: string | null = null;
@@ -337,6 +344,7 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
     }
     const dir = posix.dirname(relPosix(root, f));
     const targets: Array<{ kind: string; name?: string; path?: string }> = [];
+    const pkg = { dir, edition: undefined as string | undefined, autos: new Map<string, boolean>(), tabled: new Set<string>() };
     let section = "";
     for (const line of (text ?? "").split(/\r?\n/)) {
       const header = /^\s*\[+\s*([^\]]+?)\s*\]+/.exec(line);
@@ -344,9 +352,16 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
         section = header[1];
         const table = /(?:^|\.)(?:dev-|build-)?dependencies\.([\w-]+)$/.exec(section);
         if (table) deps.add(norm(table[1]));
-        if (/^\s*\[\[\s*(test|example|bench)\s*\]\]/.test(line)) targets.push({ kind: section });
+        if (section === "package") packages.push(pkg);
+        if (/^\s*\[\[\s*(test|example|bench)\s*\]\]/.test(line)) {
+          targets.push({ kind: section });
+          pkg.tabled.add(folderOf(section));
+        }
         continue;
       }
+      // A package or target table written inline, or as dotted keys, is not read here.
+      if (section === "" && /^\s*["']?(package|test|example|bench)["']?\s*[=.]/.test(line)) rustTargets.unsure.add(dir);
+      if (section === "package" && /^\s*edition\s*(\.\s*workspace\s*=|=\s*\{)/.test(line)) pkg.edition = "workspace";
       const key = /^\s*([\w-]+)\s*=\s*(.*)$/.exec(line);
       if (!key) continue;
       if (section === "package" && key[1] === "name") {
@@ -354,10 +369,15 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
         internal.add(crate);
         rustCrateDirs.set(crate, dir);
       }
+      const edition = /^["'](\d+)["']/.exec(key[2])?.[1];
+      if (key[1] === "edition" && edition && section === "package") pkg.edition = edition;
+      if (key[1] === "edition" && edition && section === "workspace.package") workspaceEditions.set(dir, edition);
       // `autotests = false`: Cargo builds only the listed tests, not every file in `tests`.
       const auto = /^auto(tests|examples|benches)$/.exec(key[1]);
-      if (section === "package" && auto && /^false\b/.test(key[2])) {
-        rustTargets.off.set(dir, new Set([...(rustTargets.off.get(dir) ?? []), auto[1]]));
+      const flag = /^(true|false)\b/.exec(key[2])?.[1];
+      if (section === "package" && auto) {
+        if (flag) pkg.autos.set(auto[1], flag === "true");
+        else rustTargets.unsure.add(dir);
       }
       const target = /^(test|example|bench)$/.test(section) ? targets.at(-1) : undefined;
       const quoted = /^["']([^"']*)["']/.exec(key[2])?.[1];
@@ -371,10 +391,27 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
       if (table && key[1] === "path") internal.add(norm(table[1]));
     }
     for (const { kind, name, path } of targets) {
-      const folder = kind === "test" ? "tests" : `${kind}s`;
+      const folder = folderOf(kind);
       const paths = path ? [path] : name ? [`${folder}/${name}.rs`, `${folder}/${name}/main.rs`] : [];
       for (const p of paths) rustTargets.listed.add(posix.normalize(posix.join(dir, p)));
     }
+  }
+  // Unset, a kind is found by Cargo unless the package is 2015 (also when it names no edition)
+  // and has a table of that kind. An inherited edition is the nearest workspace's.
+  for (const { dir, edition, autos, tabled } of packages) {
+    let ws: string | undefined;
+    for (let d = dir; ws === undefined; d = posix.dirname(d)) {
+      ws = workspaceEditions.get(d);
+      if (d === "." || d === "/") break;
+    }
+    const resolved = edition === "workspace" ? ws : edition ?? "2015";
+    for (const folder of tabled) {
+      if (autos.has(folder)) continue;
+      if (resolved === undefined) rustTargets.unsure.add(dir);
+      else if (resolved === "2015") autos.set(folder, false);
+    }
+    const off = [...autos].filter(([, on]) => !on).map(([folder]) => folder);
+    if (off.length) rustTargets.off.set(dir, new Set(off));
   }
   for (const name of internal) deps.delete(name);
   return { rustExternalCrates: deps, rustCrateDirs, rustTargets };

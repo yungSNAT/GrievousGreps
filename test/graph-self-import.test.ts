@@ -639,15 +639,15 @@ test("Rust: under `use super::*`, a top-level test file stays a root, a parent's
 });
 
 test("Rust: under `use super::*`, a test file is a root only when Cargo builds it as a target", async (t) => {
-  const files = (crate: string, manifest: string) => ({
+  const files = (crate: string, manifest: string, folder = "tests") => ({
     [`${crate}/Cargo.toml`]: `[package]\nname = "${crate}"\n${manifest}[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
-    [`${crate}/tests/foo.rs`]: "mod option;\nuse tracing_mock::expect;\n",
-    [`${crate}/tests/bar.rs`]: "mod foo;\n",
-    [`${crate}/tests/option.rs`]: "use super::*;\nfn top() { expect::event(); }\n",
-    [`${crate}/tests/foo/option.rs`]: "use super::*;\nfn below() { expect::event(); }\n",
+    [`${crate}/${folder}/foo.rs`]: "mod option;\nuse tracing_mock::expect;\n",
+    [`${crate}/${folder}/bar.rs`]: "mod foo;\n",
+    [`${crate}/${folder}/option.rs`]: "use super::*;\nfn top() { expect::event(); }\n",
+    [`${crate}/${folder}/foo/option.rs`]: "use super::*;\nfn below() { expect::event(); }\n",
   });
   const graph = await build(t, {
-    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "only_bar", "only_foo"]\n`,
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "only_bar", "only_foo", "ed2015", "ed2018", "inherit", "inline", "bench"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
     "mock/src/lib.rs": "pub mod expect;\n",
     "mock/src/expect.rs": "pub fn event() {}\n",
@@ -660,10 +660,31 @@ test("Rust: under `use super::*`, a test file is a root only when Cargo builds i
     ...files("only_bar", `autotests = false\n\n[[test]]\nname = "bar"\n\n[package.metadata.x]\npath = "tests/foo.rs"\n`),
     // A target named by its path is a crate, whatever its file is called.
     ...files("only_foo", `autotests = false\n\n[[test]]\nname = "it"\npath = "tests/foo.rs"\n`),
+    // A `[[bench]]` named by `name` is found in `benches`.
+    ...files("bench", `autobenches = false\n\n[[bench]]\nname = "foo"\n`, "benches"),
+    // With no `edition` a package is 2015, where a `[[test]]` table turns finding tests off, as
+    // `autotests = false` would; from 2018 on it does not.
+    ...files("ed2015", `\n[[test]]\nname = "bar"\n`),
+    ...files("ed2018", `edition = "2018"\n\n[[test]]\nname = "bar"\n`),
+    // An inherited edition is the workspace's, here 2021.
+    ...files("inherit", `edition.workspace = true\n\n[[test]]\nname = "bar"\n`),
+    // Tables written inline are not read, so which files are crates is unknown.
+    "inline/Cargo.toml": `package = { name = "inline", autotests = false }\ntest = [{ name = "bar" }]\n\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`,
+    "inline/tests/foo.rs": "mod option;\nuse tracing_mock::expect;\n",
+    "inline/tests/bar.rs": "mod foo;\n",
+    "inline/tests/option.rs": "use super::*;\nfn top() { expect::event(); }\n",
+    "inline/tests/foo/option.rs": "use super::*;\nfn below() { expect::event(); }\n",
   });
   assert.deepEqual(calls(graph, "only_bar/tests/option.rs#top"), [], "foo.rs is no target, so tests/option.rs is no module of it");
   assert.deepEqual(calls(graph, "only_bar/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"]);
   assert.deepEqual(calls(graph, "only_foo/tests/option.rs#top"), ["mock/src/expect.rs#event"], "the listed path is a crate root");
+  assert.deepEqual(calls(graph, "bench/benches/option.rs#top"), ["mock/src/expect.rs#event"], "the named bench is a crate root");
+  assert.deepEqual(calls(graph, "ed2015/tests/option.rs#top"), [], "a 2015 package with a [[test]] finds no other tests");
+  assert.deepEqual(calls(graph, "ed2015/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"]);
+  assert.deepEqual(calls(graph, "ed2018/tests/option.rs#top"), ["mock/src/expect.rs#event"], "from 2018 tests/foo.rs is still a target");
+  assert.deepEqual(calls(graph, "inherit/tests/option.rs#top"), ["mock/src/expect.rs#event"], "the workspace's 2021 edition");
+  assert.deepEqual(calls(graph, "inline/tests/option.rs#top"), [], "an unread manifest leaves the parent unresolved");
+  assert.deepEqual(calls(graph, "inline/tests/foo/option.rs#below"), ["mock/src/expect.rs#event"], "foo.rs is this file's parent either way");
 });
 
 test("Rust: under `use super::*`, a module file's function is reached only when the caller can see it", async (t) => {
