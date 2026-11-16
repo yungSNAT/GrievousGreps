@@ -67,13 +67,18 @@ trail callers <symbol>               # who calls it
 trail callers <symbol> --direction out   # what it calls
 trail map                            # directory clusters, hubs and hotspots
 trail grep <pattern>                 # every occurrence, grouped by enclosing symbol
+trail viz                            # an interactive viewer of the graph, served on localhost
 ```
+
+`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx's 1,301 code nodes it was 993 kB, with no script or style loaded from elsewhere.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
 `trail init --global` closes that gap by adding hooks to `~/.claude`, and to `~/.codex` for Codex, which run in every project on the machine. `trail uninstall -y` removes what either form wrote except the `.trail/` folder, which keeps your learnings; without `-y` it is a dry run.
 
 The map lives in `.trail/cache` in a repository on trail and in `graft/` elsewhere: a local cache to keep out of git.
+
+In a folder of separate git repositories, `trail build` builds one graph per repository and a federated index beside them, and a query from the folder searches them all, each hit labelled with its repository. On 16 November 2026 (UTC), on Linux at `88c214e`, a folder holding click, flask and httpx built in 10.5 s, and `trail ask` from it ranked click's and flask's definitions together. Calls between the repositories are not linked: `trail callers get_current_context` there listed click's own 16 callers, not flask's call in its tests. [docs/upstream-guide.md](docs/upstream-guide.md#monorepos-submodules--multi-repo-folders) covers this and the other layouts.
 
 ## Docs search
 
