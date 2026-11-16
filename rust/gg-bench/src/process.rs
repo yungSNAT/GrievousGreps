@@ -34,6 +34,7 @@ fn below_normal(_: &mut Command) {}
 #[cfg(unix)]
 pub fn lower_priority() {
     // SAFETY: setpriority reads only its integer arguments, and who = 0 names this process.
+    // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage -- one FFI call on integers, above
     unsafe {
         libc::setpriority(libc::PRIO_PROCESS, 0, 10);
     }

@@ -83,6 +83,7 @@ fn run_command(bench: PathBuf, args: RunArgs) -> Result<String, String> {
     let work = absolute(
         &args
             .work
+            // nosemgrep: rust.lang.security.temp-dir.temp-dir -- a scratch folder for clones, as run.mjs used
             .unwrap_or_else(|| std::env::temp_dir().join("grievousgreps-benchmark")),
     )?;
     fs::create_dir_all(&work).map_err(|e| format!("cannot create {}: {e}", work.display()))?;
