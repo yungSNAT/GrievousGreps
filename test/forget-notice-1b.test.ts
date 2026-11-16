@@ -6,8 +6,8 @@
 process.env.TZ = "UTC";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Command, CommanderError } from "commander";
 import { registerSkillCommands } from "../src/skills/cli-skills.js";
 import type { PersonDeps, PsRow } from "../src/skills/person.js";
@@ -15,7 +15,7 @@ import { savePersonal } from "../src/skills/store.js";
 import { writeLesson } from "../src/skills/lessons.js";
 import { writeEveryRepo } from "../src/notes/every-repo.js";
 import { guardrailLearning } from "../src/notes/guardrails.js";
-import { forgetLine, forgotPath, takeForgets } from "../src/skills/forget-notice.js";
+import { forgetLine, forgotPath, takeForgets, withForgetNotice } from "../src/skills/forget-notice.js";
 import { tmpRepo } from "./helpers.js";
 import { compiled, SHOP } from "./skills-store-fixtures.js";
 import { at, box, done, one, session, stopHook } from "./claude-skills-journey-fixtures.js";
@@ -73,6 +73,32 @@ test("D117 (2): an agent's trail forget is noted for the next Stop, a skill, a s
   assert.equal(ds[2]!.back, "trail skills restore release-npm");
   assert.equal(takeForgets(h.env, new Date(NOW)).length, 0, "taken once");
   assert.ok(!existsSync(forgotPath(h.env)));
+});
+
+test("D117 (2): restoration stays complete under a long custom Trail home", async () => {
+  const h = sandbox("long-home");
+  h.env.TRAIL_HOME = join(h.cwd, "trail-home-" + "x".repeat(70), "nested-" + "y".repeat(70));
+  mkdirSync(h.env.TRAIL_HOME, { recursive: true });
+  saveSkill(h.env, "release-npm");
+  const lesson = writeLesson({ id: "ls-4f2e1a", skill: "release-npm", at: "2026-10-28", text: "bump the version before npm publish", kind: "lesson", src: "correction", wall: null }, SHOP, h.env);
+  const lessonText = readFileSync(lesson, "utf8");
+  const guardrail = writeEveryRepo(guardrailLearning("timeout-missing", "every repo", "\"timeout: command not found\" on 6 days", new Date(NOW)), "no-timeout.md", h.env);
+  for (const arg of ["ls-4f2e1a", "no-timeout"]) assert.equal((await trail(h, ["forget", arg], AGENT)).code, 0, arg);
+  assert.equal(existsSync(lesson), false);
+  assert.equal(readFileSync(join(dirname(lesson), ".forgotten", basename(lesson)), "utf8"), lessonText);
+  assert.match(readFileSync(guardrail, "utf8"), /^status: retired$/m);
+  const expectedLesson = `in your Trail home, move skills/release-npm/lessons/.forgotten/${basename(lesson)} up one folder`;
+  const expectedGuardrail = "change status: retired to status: active in learnings/no-timeout.md under your Trail home";
+  const records = readFileSync(forgotPath(h.env), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { back: string });
+  assert.deepEqual(records.map((row) => row.back), [expectedLesson, expectedGuardrail]);
+  assert.ok(records.every((row) => row.back.length <= 200));
+  const opts = { env: h.env, now: new Date(NOW), active: false, stopNotice: true };
+  const first = withForgetNotice({}, opts);
+  assert.ok(first.notice?.includes(expectedLesson));
+  assert.ok(first.notice?.includes(expectedGuardrail));
+  assert.ok(!first.notice?.includes("…"));
+  assert.ok(first.notice!.length <= 900);
+  assert.deepEqual(withForgetNotice({}, opts), {}, "the next Stop has nothing more to say");
 });
 
 test("D117 (2): the person's own forget, at their terminal or from their script, notes nothing; a failed forget notes nothing", async () => {
