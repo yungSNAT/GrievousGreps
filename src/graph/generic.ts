@@ -1357,14 +1357,14 @@ function objcSelector(n: TsNode | undefined): string | undefined {
 }
 
 /** Fortran writes an array element as it writes a call, `name(i)`: a name that a
- * declaration in an enclosing unit makes a variable is not a call. Fortran names
- * ignore case. */
+ * declaration in an enclosing unit makes a variable, or a `dimension` statement an
+ * array, is not a call. Fortran names ignore case. */
 function fortranDeclared(n: TsNode, name: string): boolean {
   const lower = name.toLowerCase();
   for (let at = n.parent; at; at = at.parent) {
     for (let i = 0; i < (at.namedChildCount ?? 0); i++) {
       const decl = at.namedChild!(i)!;
-      if (decl.type !== "variable_declaration") continue;
+      if (decl.type !== "variable_declaration" && decl.type !== "variable_modification") continue;
       for (let j = 0; j < (decl.namedChildCount ?? 0); j++) {
         const d = decl.namedChild!(j)!;
         const id = d.type.endsWith("declarator") ? d.namedChild?.(0) : d;

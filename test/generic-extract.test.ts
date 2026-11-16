@@ -474,8 +474,8 @@ pub fn run() { helper() }
     // `Foo->new` beside this file's own `sub new`) and a code reference call
     // name nothing here.
     lang: "perl", file: "a.pl",
-    src: `package Foo::Bar;\nsub new { 1 }\nsub helper { 1 }\nsub run { my $self = shift; &helper(); $self->helper(); my $f = \\&helper; $f->(); &$f(); return Foo::Bar::helper() + Foo->new() + __PACKAGE__->new(); }\n`,
-    defs: ["function:helper", "function:new", "function:run", "module:Foo::Bar"], calls: ["run->helper"],
+    src: `package Foo::Bar;\nsub new { 1 }\nsub helper { 1 }\nsub go { 1 }\nsub run { my $self = shift; &helper(); $self->go(); my $f = \\&helper; $f->(); &$f(); return Foo::Bar::helper() + Foo->new() + __PACKAGE__->new(); }\n`,
+    defs: ["function:go", "function:helper", "function:new", "function:run", "module:Foo::Bar"], calls: ["run->go", "run->helper"],
   },
   {
     // Objective-C: a method and a message are named by the whole selector, so
@@ -504,8 +504,8 @@ pub fn run() { helper() }
     // Groovy: a method on a variable, `this` or a new object is called; one
     // through a class or a package path is no call of this file's `sort`.
     lang: "groovy", file: "a.groovy",
-    src: `class Widget {\n  int helper() { return 1 }\n  int run() { return this.helper() }\n  def sort(x) { x }\n}\ndef top() {\n  println "hi"\n  new Widget().run()\n  obj.go()\n  java.util.Collections.sort(xs)\n  Collections.sort(xs)\n}\n`,
-    defs: ["class:Widget", "function:helper", "function:run", "function:sort", "function:top"], calls: ["run->helper", "top->run"],
+    src: `class Widget {\n  int helper() { return 1 }\n  int run() { return this.helper() }\n  def sort(x) { x }\n  int go() { 0 }\n}\ndef top() {\n  println "hi"\n  new Widget().run()\n  obj.go()\n  java.util.Collections.sort(xs)\n  Collections.sort(xs)\n}\n`,
+    defs: ["class:Widget", "function:go", "function:helper", "function:run", "function:sort", "function:top"], calls: ["run->helper", "top->go", "top->run"],
   },
   {
     // Elm: `helper 2` calls helper; `List.map helper` passes it, and is no call.
@@ -518,8 +518,8 @@ pub fn run() { helper() }
     // module declare, so they are no calls of the functions `arr` and `b`; names
     // ignore case.
     lang: "fortran", file: "a.f90",
-    src: `module n\ncontains\n  integer function arr()\n    arr = 2\n  end function arr\n  integer function b()\n    b = 3\n  end function b\nend module n\nmodule m\n  integer :: b(3)\ncontains\n  integer function helper()\n    helper = 1\n  end function helper\n  subroutine run()\n    integer :: x, ARR(3)\n    x = helper() + arr(1) + b(2)\n    call other()\n  end subroutine run\n  subroutine other()\n  end subroutine other\nend module m\n`,
-    defs: ["function:arr", "function:b", "function:helper", "function:other", "function:run", "module:m", "module:n"], calls: ["run->helper", "run->other"],
+    src: `module n\ncontains\n  integer function arr()\n    arr = 2\n  end function arr\n  integer function b()\n    b = 3\n  end function b\n  integer function v()\n    v = 4\n  end function v\n  integer function w()\n    w = 5\n  end function w\nend module n\nmodule m\n  integer :: b(3)\ncontains\n  integer function helper()\n    helper = 1\n  end function helper\n  subroutine run()\n    integer :: x, ARR(3)\n    real, dimension(:), allocatable :: v\n    dimension w(3)\n    x = helper() + arr(1) + b(2) + v(1) + w(1)\n    call other()\n  end subroutine run\n  subroutine other()\n  end subroutine other\nend module m\n`,
+    defs: ["function:arr", "function:b", "function:helper", "function:other", "function:run", "function:v", "function:w", "module:m", "module:n"], calls: ["run->helper", "run->other"],
   },
 ];
 
