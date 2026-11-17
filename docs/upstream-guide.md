@@ -43,9 +43,10 @@ compiler-grade layer, all `$0` and deterministic (no model, no key):
   call edges via a generic tree-sitter extractor, one grammar per language:
   **Rust, C, C++, C#, Ruby, Scala, Elixir, Solidity,
   Dart, Clojure, Nix, Lua, Gleam, Julia, PowerShell, Perl, Objective-C,
-  GDScript, ReScript, Groovy, Elm, Fortran**, and **OCaml, Zig, GLSL** (symbols only for now, no call edges).
+  GDScript, ReScript, Groovy, Elm, Fortran, Haskell**, and **OCaml, Zig, GLSL** (symbols only for now, no call edges).
   Fortran reads free-form files (`.f90`, `.f95`, `.f03`, `.f08`) only. Groovy
-  covers `.gradle` build scripts, and Objective-C `.m` and `.mm` files.
+  covers `.gradle` build scripts, Objective-C `.m` and `.mm` files, and Haskell
+  `.hs` files.
   **Bash** (`.sh`, `.bash`) also uses this tier for function symbols;
   Bash call edges and extensionless shell scripts are not yet supported.
 
@@ -62,7 +63,7 @@ compiler-grade layer, all `$0` and deterministic (no model, no key):
   **gopls** (Go), **pyright** (Python), **typescript-language-server** (TS/JS).
   It's best-effort: with no server installed the graph is unchanged.
 
-Thirty-five languages, plus Vue, Svelte and Astro single-file components. A file whose language isn't listed is skipped, not
+Thirty-six languages, plus Vue, Svelte and Astro single-file components. A file whose language isn't listed is skipped, not
 indexed. Adding a broad-tier language is a small contribution; see
 [CREDITS.md](../CREDITS.md) for the folks who added the current set.
 
