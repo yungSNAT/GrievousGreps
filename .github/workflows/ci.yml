@@ -58,16 +58,17 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         # A released major, not "current": setup-node resolves that to the first entry of
         # Node's index, which can be a pre-release (v27.0.0-alpha from 29 October 2026).
-        node: ["20", "26"]
+        # Node 20 reached end of life on 30 April 2026; 22 is the oldest line still maintained.
+        node: ["22", "26"]
         # Windows splits the suite across 2 jobs (scripts/run-tests.mjs, TEST_PART):
         # whole, its test step took about 11.5 minutes and set every pull request's wait.
         part: [1, 2]
-        # Windows on Node 20 was the slowest leg and set every pull request's wait.
-        # Pull requests test Node 20 on ubuntu and Windows on Node 26; pushes
-        # to main and manual runs still test Windows on Node 20.
+        # Windows on the older Node was the slowest leg and set every pull request's wait.
+        # Pull requests test Node 22 on ubuntu and Windows on Node 26; pushes
+        # to main and manual runs still test Windows on Node 22.
         exclude:
           - os: ${{ github.event_name == 'pull_request' && 'windows-latest' || 'none' }}
-            node: "20"
+            node: "22"
           - os: ubuntu-latest
             part: 2
     runs-on: ${{ matrix.os }}
@@ -83,7 +84,7 @@ jobs:
           package-manager-cache: false
       # Runs the package's prepare script, which is `npm run build`. The grammars
       # are native addons, and the node-gyp devDependency chooses their toolchain,
-      # so keep it at 12.x whilst this matrix holds Node 20. The script retries a
+      # so keep it at 12.x: 13.x needs Node 22.22.2 or later on the 22 line. The script retries a
       # failed install, as node-gyp's download of Node's headers can be cut off.
       - name: Install and build
         if: needs.changes.outputs.docs_only != 'true'
@@ -168,7 +169,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.changes.outputs.docs_only != 'true'
         with:
-          node-version: "20"
+          node-version: "22"
           package-manager-cache: false
       # Install scripts stay on, as in the test job: esbuild and the tree-sitter
       # grammars need theirs, and the package's prepare script is the build.
@@ -214,7 +215,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.changes.outputs.docs_only != 'true'
         with:
-          node-version: "20"
+          node-version: "22"
           package-manager-cache: false
       - name: Check the crate
         if: needs.changes.outputs.docs_only != 'true'
