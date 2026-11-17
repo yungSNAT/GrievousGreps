@@ -62,6 +62,26 @@ test("a planted cache entry whose node points outside its file is re-parsed, not
   assert.deepEqual(graph.nodes.filter((n) => !(n.path in FILES)), [], "no node names a path the walk did not list");
 });
 
+test("a planted node naming its own file by absolute path, or no path, is re-parsed", async (t) => {
+  const d = repo(t);
+  await buildGraph(d);
+  const path = cacheOf(d);
+  const cache = JSON.parse(readFileSync(path, "utf8"));
+  const math = cache.files["src/math.ts"];
+  math.nodes.push({ ...math.nodes[0], id: `${join(d, "src", "math.ts")}#add`, path: join(d, "src", "math.ts") });
+  const tool = cache.files["py/tool.py"];
+  const noPath = { ...tool.nodes[0] };
+  delete noPath.path;
+  tool.nodes.push(noPath);
+  writeFileSync(path, JSON.stringify(cache));
+
+  const built = await buildGraph(d);
+  assert.equal(built.parsed, 2, "both forged files are parsed again");
+  assert.equal(built.reused, Object.keys(FILES).length - 2);
+  const graph = graphOf(built.graphPath);
+  assert.deepEqual(graph.nodes.filter((n) => !(n.path in FILES)), [], "no node names a path the walk did not list");
+});
+
 test("malformed entries and a __proto__ key are dropped, not replayed or thrown on", async (t) => {
   const d = repo(t);
   await buildGraph(d);
