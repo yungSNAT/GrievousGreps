@@ -36,7 +36,8 @@ import { writeFingerprint } from "./fingerprint.js";
 import { seedGraph, type SeedResult } from "./seed.js";
 import { filterByOnlyDirs, listSourceStats, normalizeExtensions } from "./source-files.js";
 import { readPythonRoots } from "./python-roots.js";
-import { resolveEdges, type GoModule, type TsPackage, type TsPaths } from "./resolve.js";
+import { readCargoTargets } from "./cargo-targets.js";
+import { resolveEdges, type GoModule, type RustTargets, type TsPackage, type TsPaths } from "./resolve.js";
 import { readFileInside } from "../util/safe-fs.js";
 import { enrichGraph, type EnrichStats } from "./enrich.js";
 import { readGraph, writeGraph, wiringPath } from "./write.js";
@@ -326,8 +327,9 @@ function readTsImports(root: string, repoFiles: string[]): { tsPaths: TsPaths[];
   return { tsPaths, tsPackages, tsUnmanifested };
 }
 
-function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string> } {
+function readRustCrates(root: string, repoFiles: string[], errors: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string>; rustTargets: RustTargets } {
   const rustCrateDirs = new Map<string, string>();
+  const manifests = new Map<string, string | null>();
   const deps = new Set<string>();
   const internal = new Set<string>();
   const norm = (name: string) => name.replace(/-/g, "_");
@@ -337,8 +339,10 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
     try {
       text = readFileInside(root, f);
     } catch {
-      /* a link out of the repo or an unreadable manifest states nothing */
+      /* a link out of the repo or an unreadable manifest states no crates, and its targets are unsure */
     }
+    const dir = posix.dirname(relPosix(root, f));
+    manifests.set(dir, text);
     let section = "";
     for (const line of (text ?? "").split(/\r?\n/)) {
       const header = /^\s*\[+\s*([^\]]+?)\s*\]+/.exec(line);
@@ -353,7 +357,7 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
       if (section === "package" && key[1] === "name") {
         const crate = norm(key[2].replace(/["'\s]/g, ""));
         internal.add(crate);
-        rustCrateDirs.set(crate, posix.dirname(relPosix(root, f)));
+        rustCrateDirs.set(crate, dir);
       }
       if (/(?:^|\.)(?:dev-|build-)?dependencies$/.test(section)) {
         deps.add(norm(key[1]));
@@ -364,7 +368,7 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
     }
   }
   for (const name of internal) deps.delete(name);
-  return { rustExternalCrates: deps, rustCrateDirs };
+  return { rustExternalCrates: deps, rustCrateDirs, rustTargets: readCargoTargets(manifests, errors) };
 }
 
 export async function buildGraph(
@@ -535,7 +539,7 @@ export async function buildGraph(
   const edges = resolveEdges(nodes, rawEdges, {
     goModules: readGoModules(root, repoFiles),
     pythonRoots: readPythonRoots(root, repoFiles),
-    ...readRustCrates(root, repoFiles),
+    ...readRustCrates(root, repoFiles, errors),
     ...readTsImports(root, repoFiles),
     unresolvedCalls,
   });

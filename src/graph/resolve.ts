@@ -139,6 +139,8 @@ export interface ResolveOptions {
   rustExternalCrates?: ReadonlySet<string>;
   /** Each of the repo's crates, `-` as `_`, to its folder. */
   rustCrateDirs?: ReadonlyMap<string, string>;
+  /** The test, example and bench targets the repo's Cargo.toml files state. */
+  rustTargets?: RustTargets;
   /** The Python roots the repo's configuration states (see python-roots.ts). */
   pythonRoots?: string[];
   /** Filled with the Python calls an import names but no edge carries. */
@@ -394,7 +396,11 @@ export function resolveEdges(
     }
   };
   const cfgGated = new Map(rawEdges.flatMap((e) => e.rustCfgItems ?? []));
-  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated };
+  const modUses = new Map(rawEdges.flatMap((e) => (e.rustModUses ? [[e.file, e.rustModUses] as const] : [])));
+  const rustPathCtx: RustPathCtx = {
+    crates: opts.rustCrateDirs ?? new Map(), targets: opts.rustTargets ?? { off: new Map(), unknown: new Map(), listed: new Set(), dropped: new Set(), unsure: new Set() },
+    byId, perFileName, pubUses: rustPubUses, cfgGated, modUses,
+  };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
   // when a step's signature does not say, and the method falls back on its name.
   const rustChainType = (chain: NonNullable<RawEdge["rustChain"]>, e: RawEdge): string | undefined => {
@@ -700,7 +706,8 @@ export function resolveEdges(
             : ["function"]);
       if (e.rustForm) {
         if (e.rustPath && e.rustForm !== "macro") {
-          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx);
+          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx)
+            ?? (e.rustSuperGlob ? rustFollowSuper(e.rustPath, e.file, rustPathCtx) : undefined);
           if (reached) {
             for (const arm of rustArmsOf(reached, rustPathCtx)) if (arm.id !== e.source) add(e.source, arm.id, "calls", stated("extracted"));
             continue;
@@ -1006,13 +1013,32 @@ function rustTextName(text: string): string | undefined {
   return /^[A-Z]\w+$/.test(name) ? name : undefined;
 }
 
+/** What the repo's Cargo.toml files say Cargo builds as crates (see cargo-targets.ts). */
+export interface RustTargets {
+  /** By crate folder (`.` at the root), the folders among `tests`, `examples` and `benches`
+   * whose files Cargo no longer builds by itself (`autotests = false` and the like). */
+  off: Map<string, Set<string>>;
+  /** The same, for the folders where the manifest leaves that unknown. */
+  unknown: Map<string, Set<string>>;
+  /** The files target tables name, by `path` or by `name`, and `[lib]` and `[[bin]]` paths. */
+  listed: Set<string>;
+  /** Files Cargo would find but does not build, as a table gives their name another path. */
+  dropped: Set<string>;
+  /** Crate folders whose manifest is not read whole (unreadable, not TOML, or a target table of
+   * another shape), so whether Cargo builds any file below is unknown. */
+  unsure: Set<string>;
+}
+
 interface RustPathCtx {
   crates: ReadonlyMap<string, string>;
+  targets: RustTargets;
   byId: Map<string, NodeV1>;
   perFileName: Map<string, Map<string, NodeV1[]>>;
   pubUses: Map<string, NonNullable<RawEdge["rustPubUses"]>>;
   /** Functions a `cfg` attribute or an item macro gates: node id → the inline module path it sits in. */
   cfgGated: ReadonlyMap<string, string>;
+  /** Files that declare module files, by path: those modules and the file's top-level `use` lines. */
+  modUses: ReadonlyMap<string, NonNullable<RawEdge["rustModUses"]>>;
 }
 
 /** The crate folder a file sits in: the deepest one above it. */
@@ -1148,6 +1174,89 @@ function rustFollowGlobs(path: string, globs: string[] | undefined, file: string
     if (hit) hits.add(hit);
   }
   return hits.size === 1 ? [...hits][0] : undefined;
+}
+
+/** A path under a file-level `use super::*`, such as `expect::event()` in tracing's
+ * `tests/layer_filters/option.rs`, read where the file that declares this module reads it:
+ * through its `use` lines, its own modules, then its globs. Undefined unless every such file,
+ * and every `use` that binds the path's first name, reaches the same one function.
+ *
+ * shortcut: a file beside this one that declares the module counts as its parent when it is a
+ * `mod.rs`, `lib.rs` or `main.rs`, sits outside a `src` folder (a test, example or bench root)
+ * or in `src/bin`, and no other file beside it declares it as a module, whose own modules would
+ * sit in a folder of its name, unless Cargo builds it as a crate ({@link rustCargoRoot}).
+ * A path's first name reaches the parent's module files only through its `mod` lines.
+ * A parent's `self::` and `super::` globs are not followed, so a path only they bring in stays
+ * unresolved. */
+function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 | undefined {
+  const dirOf = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
+  const stemOf = (p: string) => p.slice(p.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const own = file.endsWith("/mod.rs") ? dirOf(file) : file;
+  const stem = stemOf(own);
+  const at = dirOf(own);
+  // A file Cargo builds as a crate is a root, whatever else declares it as a module. When that
+  // is unknown and another file declares it, which file is the parent is unknown too.
+  let unsure = false;
+  const declaredBeside = (p: string) => {
+    if (p.endsWith("/mod.rs")) return false;
+    const root = rustCargoRoot(p, ctx);
+    if (root) return false;
+    const beside = [...ctx.modUses].some(([q, u]) => q !== p && u.mods.includes(stemOf(p)) && (dirOf(q) === dirOf(p) || q === `${dirOf(p)}.rs`));
+    if (beside && root === undefined) unsure = true;
+    return beside;
+  };
+  const declares = (p: string) => (at !== "" && p === `${at}.rs`)
+    || (dirOf(p) === at && (/(^|\/)(mod|lib|main)\.rs$/.test(p) || !/(^|\/)src\//.test(p) || /(^|\/)src\/bin\/[^/]+$/.test(p)) && !declaredBeside(p));
+  const [first = "", ...rest] = path.split("::");
+  const hits = new Set<NodeV1 | undefined>();
+  for (const [parent, uses] of ctx.modUses) {
+    if (parent === file || !uses.mods.includes(stem) || !declares(parent)) continue;
+    const bound = uses.names.filter(([n]) => n === first);
+    for (const [, full] of bound) hits.add(rustFollowPath([full, ...rest].join("::"), parent, ctx));
+    if (!bound.length) {
+      const ownMod = uses.mods.includes(first);
+      hits.add(rustFollowPath(path, parent, ctx, 0, ownMod)
+        ?? (ownMod ? rustSiblingModuleFn(at, first, rest, ctx) : undefined)
+        ?? rustFollowGlobs(path, uses.globs, parent, ctx));
+    }
+  }
+  return hits.size === 1 && !unsure ? [...hits][0] : undefined;
+}
+
+/** Whether Cargo builds `file` as a crate: a target a Cargo.toml lists, or a file directly in a
+ * crate's `tests`, `examples` or `benches` unless that crate turned finding them off or a table
+ * gave its name another path; undefined when its crate's manifest leaves that unknown.
+ *
+ * shortcut: a folder with no Cargo.toml of its own reads as a crate that finds them; the
+ * upgrade is to read each file's crate from the workspace. */
+function rustCargoRoot(file: string, ctx: RustPathCtx): boolean | undefined {
+  const { listed, unsure, dropped, unknown, off } = ctx.targets;
+  if (listed.has(file)) return true;
+  if ([...unsure].some((d) => d === "." || file.startsWith(`${d}/`))) return undefined;
+  const direct = /^(?:(.+)\/)?(tests|examples|benches)\/[^/]+$/.exec(file);
+  if (!direct || dropped.has(file)) return false;
+  const [crate, folder] = [direct[1] ?? ".", direct[2]!];
+  return unknown.get(crate)?.has(folder) ? undefined : !off.get(crate)?.has(folder);
+}
+
+/** `helpers::event` where `helpers` is a module file in `dir`, as a test root's own `mod helpers;`
+ * declares it: the one free function of that name the file defines, or for `helpers::nested::event`
+ * the same in the module file `helpers` declares as `nested`. The caller is a sibling of
+ * `helpers`, so it sees only what is `pub` or `pub(crate)` below it: each module after the
+ * first, and the function.
+ *
+ * shortcut: `pub(super)` and `pub(in …)` count as private, so a call through one stays
+ * unresolved; reading each one's scope would settle it. */
+function rustSiblingModuleFn(dir: string, mod: string, rest: string[], ctx: RustPathCtx, depth = 0): NodeV1 | undefined {
+  const base = dir === "" ? mod : `${dir}/${mod}`;
+  const file = [`${base}.rs`, `${base}/mod.rs`].find((f) => ctx.byId.has(f));
+  if (!file || rest.length === 0 || depth > 5) return undefined;
+  if (rest.length > 1) {
+    return ctx.modUses.get(file)?.open?.includes(rest[0]!) ? rustSiblingModuleFn(base, rest[0]!, rest.slice(1), ctx, depth + 1) : undefined;
+  }
+  const fns = (ctx.perFileName.get(file)?.get(rest[0]!) ?? [])
+    .filter((n) => n.kind === "function" && !n.owner && /^pub(\(crate\))?\s/.test(n.signature ?? ""));
+  return fns.length === 1 ? fns[0] : undefined;
 }
 
 /** Path aliases for the files under `dir`, whose targets read from `base`. */
