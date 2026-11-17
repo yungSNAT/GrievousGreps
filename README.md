@@ -67,13 +67,18 @@ trail callers <symbol>               # who calls it
 trail callers <symbol> --direction out   # what it calls
 trail map                            # directory clusters, hubs and hotspots
 trail grep <pattern>                 # every occurrence, grouped by enclosing symbol
+trail viz                            # an interactive viewer of the graph, served on localhost
 ```
+
+`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx's 1,301 code nodes it was 993 kB, with no script or style loaded from elsewhere.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
 `trail init --global` closes that gap by adding hooks to `~/.claude`, and to `~/.codex` for Codex, which run in every project on the machine. `trail uninstall -y` removes what either form wrote except the `.trail/` folder, which keeps your learnings; without `-y` it is a dry run.
 
 The map lives in `.trail/cache` in a repository on trail and in `graft/` elsewhere: a local cache to keep out of git.
+
+In a folder of separate git repositories, `trail build` builds one graph per repository and a federated index beside them, and a query from the folder searches them all, each hit labelled with its repository. On 16 November 2026 (UTC), on Linux at `88c214e`, a folder holding click, flask and httpx built in 10.5 s, and `trail ask` from it ranked click's and flask's definitions together. Calls between the repositories are not linked: `trail callers get_current_context` there listed click's own 16 callers, not flask's call in its tests. [docs/upstream-guide.md](docs/upstream-guide.md#monorepos-submodules--multi-repo-folders) covers this and the other layouts.
 
 ## Docs search
 
@@ -103,6 +108,8 @@ Recall is the share of real calls that `callers` found, pooled across the symbol
 For the 18, that order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one. No required row changed. A second came on 15 November 2026 (UTC): tokio `channel` lacked 49 calls written with a turbofish, such as `mpsc::channel::<()>(1)`, which [benchmark/](benchmark/README.md#truth) lists with how they were found and checked. They are now required rows, so tokio holds 894 calls and the 21 repositories 4,359. A third came later that day: attrs `resolve_types` lacked 5 calls that apply it as a decorator without arguments, which [benchmark/](benchmark/README.md#truth) also lists. They are now required rows, so attrs holds 282 calls and the 21 repositories 4,364. A fourth came on 16 November: table lacked 39 calls in Svelte and Vue components, which [benchmark/](benchmark/README.md#truth) lists too. They are now required rows, so table holds 397 calls and the 21 repositories 4,403. Every column below was scored on these 4,403 calls.
 
 **Overall, upstream 0.29.0 to patched:** recall 0.32 to 0.98 (21 repositories and 4,328 of 4,403 calls on the patched build), precision 0.94 to 0.95, silent undercounts 77 to 7. Upstream `main` scored 0.19, with precision 0.91 and 113 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule. On the hand-written truth for all 21, the 13 November runs gave recall 0.31, 0.77 and 0.20 and silent undercounts 74, 14 and 113 (0.29.0, patched at `219b118`, `main`). The 12 November runs, on that truth, counted under an earlier rule, which searched the plain output for words such as 'undercount', and gave 50, 5 and 90 silent undercounts.
+
+**On 5 repositories no build had seen, recall was 0.41, not 0.98.** The 5, in Python, TypeScript, Rust, Go and C#, were preregistered with truth that language servers derived before any build ran on them. On 17 November 2026 (UTC), at `0df7dcc`, this tool found 231 of their 564 required rows, with precision 0.98 and 18 silent undercounts; upstream 0.29.0 gave recall 0.38, precision 0.98 and 21. By repository: marshmallow 0.57, immer 0.57, serde_json 0.27, logrus (Go) 0.08 and serilog (C#) 0.53. The 21 repositories below shaped the fixes, so 0.98 is recall on code the build was tuned on. [benchmark/unseen/](benchmark/unseen/README.md) has the set, how its truth was derived and the faults found in that derivation.
 
 On the hand-written truth, 0.29.0 gave the same figures on all 21 repositories as `a44da3d` (30 October), the `main` commit whose package version is 0.28.0, gave on 31 October. Since 0.29.0, upstream `main`'s Python and Rust rows held or rose (rich 0.57 to 0.80), but 6 of its 7 TypeScript rows fell, from 0.90 to 0.33 on jotai and from 0.73 to 0.02 on radix: `main` no longer finds some symbols, such as radix `FocusScope`, which it reports as not in the graph. A rerun of `a44da3d` on the same machine on 12 November gave its earlier TypeScript figures, so the fall is upstream's change, not the run.
 
@@ -138,7 +145,7 @@ Against 0.29.0, recall did not rise everywhere: vue did not move. Silent underco
 
 All 3 columns were run on Linux with Node 26.13.1 on 16 November 2026 (UTC) and scored on the truth with all 4 corrections: the patched column at `88c214e`, whose code is that of `3e066a2`, 0.29.0 as the npm package `@trailhq/trail-code@0.29.0` with its install script skipped, and `main` built from source. Against the 15 November runs, only the table row of the 2 upstream columns changed, for its 39 new calls, and the patched figures matched those of `3e066a2` on every row. On the hand-written truth every recall figure matched the 12 November runs (patched at `166c2fd` and `eaa8393`). Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matched them. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
 
-These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
+These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results; the unseen set above measures that. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
 
 ## Against the alternatives
 
@@ -189,6 +196,23 @@ No competitor's recall beat this tool's on any repository. Where one matched it,
 - The scorer's precision understates the first 3 tools. On 15 November, with this tool at `491b060`, 22, 16 and 21 of 25 edges the scorer called false were judged true by reading the source (this tool, codebase-memory-mcp, Serena), and 25, 23 and 25 of 25 random edges per tool were true; a sample that size does not separate them. The check of 31 October, with this tool at `e37a764`, gave 25, 19 and 24, and 23, 24 and 25. code-review-graph was not in the sample.
 
 **Cost, as medians across the 21 repositories** (this tool, codebase-memory-mcp, Serena, code-review-graph): index time 4.24, 4.33, 10.92 and 5.92 s, with Serena's first query adding 4.18 s; peak memory when querying 100, 41, 1,123 and 101 MiB. Answers across all queries came to 719,535, 291,999, 1,488,043 and 4,650,547 bytes, before target lookups of 178,457 bytes for codebase-memory-mcp, 37,086 for Serena and 1,954,645 for code-review-graph. codebase-memory-mcp and code-review-graph name each caller with the checkout's path, so their byte counts grow with that path. 3 runs each on httpx, mdbook and hono gave the same recall every time; index times varied by up to 1.55 s for this tool (hono), 0.71 s for codebase-memory-mcp (mdbook), 7.90 s for Serena (hono) and 7.87 s for code-review-graph (hono). These runs do not rank latency, because a CLI process per query and an MCP server are not like for like.
+
+**What an agent reads, in tokens.** On 17 November 2026 (UTC) the plain answers of the 16 November runs, as each tool prints them, were counted with tiktoken's `o200k_base` encoding. This tool's 210 callers answers came to 203,627 tokens, against 1,098,195 for `rg -n -w <name>` on the same names. codebase-memory-mcp and CodeGraph spent fewer tokens on each call they found; this tool found more calls.
+
+| Tool | Answers | Tokens | Median tokens an answer | Calls found | Tokens a call found |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GrievousGreps `88c214e` | 210 | 203,627 | 290 | 4,328 | 47.0 |
+| codebase-memory-mcp, tests on | 210 | 92,944 | 219 | 2,733 | 34.0 |
+| Serena, defaults | 210 | 441,692 | 703 | 2,397 | 184.3 |
+| code-review-graph | 210 | 1,472,912 | 2,378 | 2,735 | 538.5 |
+| CodeGraph | 210 | 75,450 | 137 | 2,381 | 31.7 |
+| CodeGraphContext | 210 | 721,235 | 966 | 2,353 | 306.5 |
+| repowise | 210 | 290,159 | 844 | 2,087 | 139.0 |
+| tokensave | 210 | 290,917 | 775 | 1,243 | 234.0 |
+| Graphify | 210 | 112,845 | 300 | 1,156 | 97.6 |
+| AxiomCode Graph | 133 | 181,552 | 1,374 | 307 | 591.4 |
+
+AxiomCode Graph printed answers for 133 of the 210 symbols. This tool's other views cost less than the files they stand for: `skeleton` of the 145 target files came to 90,849 tokens against 498,559 for the files, and `map` of the 21 repositories to 70,501 tokens against 24,877,541 for [Repomix](https://github.com/yamadashy/repomix) 1.19.0 packs of the same checkouts in its XML style.
 
 **Network:** in a separate pass on 15 November on httpx, mdbook and hono, in a namespace with only loopback, Serena made DNS lookups at its default settings on all 3, for `pypi.org` and `oraios-software.de`, and it documents an opt-out. This tool and codebase-memory-mcp made none. code-review-graph was not in that pass.
 
