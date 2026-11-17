@@ -556,8 +556,7 @@ pub fn targets<'a>(
         .iter()
         .filter(|s| {
             let owners = owners(scopes, s);
-            clean_scope(&s.name) == leaf
-                && parts.iter().all(|p| owners.iter().any(|o| o == p))
+            clean_scope(&s.name) == leaf && parts.iter().all(|p| owners.iter().any(|o| o == p))
         })
         .collect();
     let span = |s: &Scope| format!("L{}-L{}", lines(s).0, lines(s).1);
@@ -975,7 +974,10 @@ mod tests {
         assert_eq!(clean_scope("(Level).String"), "String");
         assert_eq!(clean_scope("implementation"), "implementation");
         assert_eq!(csharp_name("Write(LogEventLevel level)"), "Write");
-        assert_eq!(clean_scope(&csharp_name("ForContext<TSource>()")), "ForContext");
+        assert_eq!(
+            clean_scope(&csharp_name("ForContext<TSource>()")),
+            "ForContext"
+        );
         assert_eq!(csharp_name("LoggerTests"), "LoggerTests");
         assert_eq!(clean_scope("impl<T> Iterator for Iter<T>"), "Iter");
         assert!(!anonymous("(*Logger).WithFields"));

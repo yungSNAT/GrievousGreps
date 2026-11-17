@@ -60,7 +60,9 @@ impl Language {
                 [".ts", ".tsx", ".mts", ".cts"]
                     .iter()
                     .any(|e| file.ends_with(e))
-                    && ![".d.ts", ".d.mts", ".d.cts"].iter().any(|e| file.ends_with(e))
+                    && ![".d.ts", ".d.mts", ".d.cts"]
+                        .iter()
+                        .any(|e| file.ends_with(e))
             }
             Self::Rust => file.ends_with(".rs"),
             Self::Go => file.ends_with(".go"),
@@ -708,7 +710,11 @@ mod tests {
             "Presence"
         ));
         assert!(!call(Language::TypeScript, "</Presence>", "Presence"));
-        assert!(call(Language::TypeScript, "<UI.Button size={2} />", "Button"));
+        assert!(call(
+            Language::TypeScript,
+            "<UI.Button size={2} />",
+            "Button"
+        ));
         assert!(!call(Language::TypeScript, "</UI.Button>", "Button"));
         assert!(call(Language::TypeScript, "const q = sql`select`", "sql"));
         assert!(!call(Language::Go, "f := Max", "Max"));
