@@ -263,6 +263,11 @@ test("openBrowser with no opener on PATH: the URL printed is the fallback, nothi
   await new Promise((done) => setTimeout(done, 200)); // an 'error' event from a child would land here
 });
 
+test("(Windows) a path with no drive, which the child would take on its own folder's drive, is refused", { skip: !win }, () => {
+  const noDrive = process.execPath.replace(/^[a-zA-Z]:/, "");
+  assert.equal((spawnSync(noDrive, ["-e", "process.exit(3)"]).error as NodeJS.ErrnoException | undefined)?.code, "ENOENT");
+});
+
 test("an absolute path and a shell command line pass through as given", () => {
   assert.equal(spawnSync(process.execPath, ["-e", "process.exit(3)"]).status, 3);
   const r = spawnSync(`"${process.execPath}" -e "process.exit(4)"`, [], { shell: true });
