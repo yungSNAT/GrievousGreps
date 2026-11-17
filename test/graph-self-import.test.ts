@@ -710,6 +710,9 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const both = (dir: string, manifest: (name: string) => string) => ({ ...found(dir, manifest), ...notFound(`${dir}_b`, manifest) });
   const pkg = (rest: string) => (name: string) => `[package]\nname = "${name}"\n${rest}`;
   const table = `\n[[test]]\nname = "bar"\n`;
+  // A package that inherits its edition and has a [[test]], and a workspace root that states one.
+  const inherits = pkg(`edition.workspace = true\n${table}`);
+  const workspace = (lists: string, edition: string) => `[workspace]\n${lists}\n\n[workspace.package]\nedition = "${edition}"\n`;
   const graph = await build(t, {
     "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "blankname", "blankname_b", "nelname", "nelname_b", "bomname", "barebin", "barebin_b", "pathbin", "pathbin_b", "emptylib", "emptylib_b", "blanklib", "blanklib_b", "hyphenlib", "hyphenlib_b"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
@@ -730,7 +733,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     // An inherited edition is the workspace root's: the nearest folder above with a `[workspace]`,
     // or the one `package.workspace` names.
     "inner/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", "../pointer", "../pointer_b"]\npackage.edition = "2015"\n`,
-    ...both("inner/d", pkg(`edition.workspace = true\n${table}`)),
+    ...both("inner/d", inherits),
     ...both("pointer", pkg(`workspace = "../inner"\nedition.workspace = true\n${table}`)),
     // A table that gives the name `foo` another path: Cargo builds no tests/foo.rs.
     ...both("renamed", pkg(`edition = "2021"\n\n[[test]]\nname = "foo"\npath = "tests/it/main.rs"\n`)),
@@ -746,41 +749,41 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     ...both("autostr", pkg(`edition = "2018"\nautotests = "false"\n${table}`)),
     // A root that states no edition.
     "loose/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\n`,
-    ...both("loose/d", pkg(`edition.workspace = true\n${table}`)),
+    ...both("loose/d", inherits),
     // An `exclude` list passes over only the packages under it that no `members` entry names, as
     // Cargo's `is_excluded` reads it: `excl/d` is not under it; `third/gone` is, so the root above
     // decides (2021); `third/back` is named again.
-    "excl/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ["old"]\n\n[workspace.package]\nedition = "2018"\n`,
-    ...both("excl/d", pkg(`edition.workspace = true\n${table}`)),
-    "excl15/Cargo.toml": `[workspace]\nmembers = ["third/back", "third/back_b"]\nexclude = ["third"]\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("excl15/third/gone", pkg(`edition.workspace = true\n${table}`)),
-    ...both("excl15/third/back", pkg(`edition.workspace = true\n${table}`)),
+    "excl/Cargo.toml": workspace(`members = ["d", "d_b"]\nexclude = ["old"]`, "2018"),
+    ...both("excl/d", inherits),
+    "excl15/Cargo.toml": workspace(`members = ["third/back", "third/back_b"]\nexclude = ["third"]`, "2015"),
+    ...both("excl15/third/gone", inherits),
+    ...both("excl15/third/back", inherits),
     // `members` entries are read literally, as `is_excluded` reads them: `third/*` names no
     // package, so `third/d` stays excluded and the root above decides (2021).
-    "glob/Cargo.toml": `[workspace]\nmembers = ["third/*"]\nexclude = ["third"]\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("glob/third/d", pkg(`edition.workspace = true\n${table}`)),
+    "glob/Cargo.toml": workspace(`members = ["third/*"]\nexclude = ["third"]`, "2015"),
+    ...both("glob/third/d", inherits),
     // A drive letter makes an entry absolute on Windows only, and a backslash is a separator there
     // only. That matters only where it decides: an explicit member, or a package no reading of the
     // entry reaches, is placed alike everywhere (2018) ...
-    "drive/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ["C:/x"]\n\n[workspace.package]\nedition = "2018"\n`,
-    ...both("drive/d", pkg(`edition.workspace = true\n${table}`)),
-    "bs/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ['third\\x']\n\n[workspace.package]\nedition = "2018"\n`,
-    ...both("bs/d", pkg(`edition.workspace = true\n${table}`)),
-    "bsm/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", 'third\\x', "c:foo/x"]\n\n[workspace.package]\nedition = "2018"\n`,
-    ...both("bsm/d", pkg(`edition.workspace = true\n${table}`)),
+    "drive/Cargo.toml": workspace(`members = ["d", "d_b"]\nexclude = ["C:/x"]`, "2018"),
+    ...both("drive/d", inherits),
+    "bs/Cargo.toml": workspace(`members = ["d", "d_b"]\nexclude = ['third\\x']`, "2018"),
+    ...both("bs/d", inherits),
+    "bsm/Cargo.toml": workspace(`members = ["d", "d_b", 'third\\x', "c:foo/x"]`, "2018"),
+    ...both("bsm/d", inherits),
     // ... as is one under a drive-relative entry: on Windows `c:foo` has no root, so it never holds
     // the absolute manifest path, and on Linux it is a folder name (2015).
-    "driverel/Cargo.toml": `[workspace]\nexclude = ["c:foo"]\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("driverel/d", pkg(`edition.workspace = true\n${table}`)),
+    "driverel/Cargo.toml": workspace(`exclude = ["c:foo"]`, "2015"),
+    ...both("driverel/d", inherits),
     // But a package that Windows excludes and Linux does not takes 2015 on Linux and the root's
     // 2021 on Windows, and `C:/x` holds any package on Windows whose checkout sits under it.
-    "split/Cargo.toml": `[workspace]\nexclude = ['third\\x', 'third\\x_b']\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("split/third/x", pkg(`edition.workspace = true\n${table}`)),
-    "driveabs/Cargo.toml": `[workspace]\nexclude = ["C:/x"]\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("driveabs/d", pkg(`edition.workspace = true\n${table}`)),
+    "split/Cargo.toml": workspace(`exclude = ['third\\x', 'third\\x_b']`, "2015"),
+    ...both("split/third/x", inherits),
+    "driveabs/Cargo.toml": workspace(`exclude = ["C:/x"]`, "2015"),
+    ...both("driveabs/d", inherits),
     // A bare `c:` holds every package on drive C.
-    "drivebare/Cargo.toml": `[workspace]\nexclude = ["c:"]\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("drivebare/d", pkg(`edition.workspace = true\n${table}`)),
+    "drivebare/Cargo.toml": workspace(`exclude = ["c:"]`, "2015"),
+    ...both("drivebare/d", inherits),
     // Target tables Cargo refuses: a name that is no string, no name, an empty or blank name, a
     // `[[bin]]` with no name (Cargo takes none from its path), and a `[lib]` name that is empty,
     // blank or has a hyphen.
