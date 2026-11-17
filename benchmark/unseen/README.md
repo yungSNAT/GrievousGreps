@@ -11,6 +11,8 @@ This set tests `callers` on 5 repositories that no build of this tool or its ben
 
 3. Only then do the tools run, and the scorer is unchanged: `span` rules, as for 14 of the 21.
 
+The order is visible in pull request #90's commits, which the squash merge `27f8489` folded into one on `main`: this file and `repos.json` in `01fdfc8` (21:32 UTC on 16 November 2026), the truth in `31d6442` (00:22 on 17 November) and immer's truth derived again in `79ccd63` (02:05). These are author dates. The tools first ran at 02:08.
+
 | Repository | Language | Server |
 | --- | --- | --- |
 | marshmallow-code/marshmallow @ 777ff66 | Python | pyright 1.1.414 (`pyright-langserver --stdio`) |
@@ -31,11 +33,11 @@ serilog's project lists its target frameworks with a leading empty entry when no
 
 A first derivation on 16 November 2026 (UTC), before any tool had run on the 5, had 3 faults, which were fixed before the truth was derived again: gopls names a method by its receiver, as `(*Logger).WithFields`, so Go methods were neither picked nor named as callers; a TypeScript arrow function held in a variable, as `let has = (...) =>`, was not named as a caller; and csharp-ls loaded no serilog project, as above, so no C# symbol was picked. A pick now fails rather than write fewer than 10 symbols.
 
-The second derivation, committed on 17 November 2026 at about 00:25 (UTC), had a fourth fault, found before any tool had run on the 5 by deriving truth again for 7 of the 21 repositories and comparing it with their committed truth. immer's `tsconfig.json` lists only its source files, and only the target files were open, so the TypeScript server searched no other file and immer's truth had no row outside `src/`. With every file open, the same derivation found 255 of the 261 call lines in hono's compiler-derived truth, against 31 before, and 348 of radix's 395, against 14. immer's truth was derived again; the other 4 languages' servers search the whole workspace, so their truth is unchanged.
+The second derivation, committed on 17 November 2026 at 00:22 (UTC), had a fourth fault, found before any tool had run on the 5 by deriving truth again for 7 of the 21 repositories and comparing it with their committed truth. immer's `tsconfig.json` lists only its source files, and only the target files were open, so the TypeScript server searched no other file and immer's truth had no row outside `src/`. With every file open, the same derivation found 255 of the 261 call lines in hono's compiler-derived truth, against 31 before, and 348 of radix's 395, against 14. immer's truth was derived again; the other 4 languages' servers search the whole workspace, so their truth is unchanged.
 
 The truth in `truth/` was derived on Linux with the servers above, on 16 November 2026 (UTC) and, for immer, on 17 November; gopls was v0.24.0 and rust-analyzer reported 0.3.3121.
 
-| Repository | Candidates derived | Required rows | Calls | Optional rows |
+| Repository | Candidates derived | Required rows | Call lines | Optional rows |
 | --- | ---: | ---: | ---: | ---: |
 | marshmallow | 32 | 228 | 272 | 0 |
 | immer | 28 | 42 | 56 | 0 |

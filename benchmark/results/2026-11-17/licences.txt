@@ -1,0 +1,8 @@
+GitHub licence API (/repos/{owner}/{repo}/license), read 2026-11-17T05:29Z
+Ataraxy-Labs/sem Apache-2.0
+CodeBendKit/codeseek MIT
+Graphicle-AI/graphicle Apache-2.0
+jahala/tilth MIT (its README, read 16 November; the API answered Not Found for the repository at this reading)
+justrach/codedb BSD-3-Clause
+redhat-et/ripwire Apache-2.0
+yoanbernabeu/grepai MIT

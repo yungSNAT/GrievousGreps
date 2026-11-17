@@ -1,0 +1,20 @@
+[graft] tokens saved ≈ 17,765 (99%) at most, against reading the 5 file(s) whole
+
+## click/
+get_current_context · function · src/click/globals.py:L20-L41
+  calls ← new_func (src/click/decorators.py:L77-L93)
+  calls ← new_func (src/click/decorators.py:L33-L34)
+  calls ← new_func (src/click/decorators.py:L116-L119)
+  calls ← new_func (src/click/decorators.py:L45-L46)
+  calls ← resolve_color_default (src/click/globals.py:L54-L67)
+  calls ← debug (tests/test_chain.py:L8-L12)
+  calls ← foo (tests/test_context.py:L366-L368)
+  calls ← foo (tests/test_context.py:L345-L347)
+  calls ← get_language (tests/test_context.py:L149-L150)
+  calls ← set_language (tests/test_context.py:L146-L147)
+  calls ← test_global_context_object (tests/test_context.py:L130-L140)
+  calls ← cli (tests/test_context.py:L133-L136)
+  calls ← change_other_params (tests/test_context.py:L220-L235)
+  calls ← inspect_other_params (tests/test_context.py:L187-L197)
+  calls ← process_value (tests/test_context.py:L202-L218)
+  calls ← cli (tests/test_defaults.py:L336-L338)
