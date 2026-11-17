@@ -1,0 +1,176 @@
+{
+  "Information": {
+    "target": "src/Serilog/Core/Pipeline/SilentLogger.cs",
+    "target_lines": [159],
+    "required": [
+      {"file":"test/Serilog.PerformanceTests/AllocationsBenchmark.cs","chain":"AllocationsBenchmark","lines":[86]},
+      {"file":"test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs","chain":"LoggerConfigurationTests","lines":[110,128,177,199,618]},
+      {"file":"test/Serilog.Tests/Core/AuditSinkTests.cs","chain":"AuditSinkTests","lines":[46,56,67]},
+      {"file":"test/Serilog.Tests/Core/LoggerTests.cs","chain":"LoggerTests","lines":[430,469]},
+      {"file":"test/Serilog.Tests/Debugging/SelfLogTests.cs","chain":"SelfLogTests","lines":[42,62]},
+      {"file":"test/Serilog.Tests/Filters/MatchingTests.cs","chain":"MatchingTests","lines":[32,33,34]},
+      {"file":"test/Serilog.Tests/Formatting/Display/MessageTemplateTextFormatterTests.cs","chain":"MessageTemplateTextFormatterTests","lines":[15,25,35,45,58,200,210,220,245,259,348]},
+      {"file":"test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs","chain":"JsonFormatterTests","lines":[186,202,219]},
+      {"file":"test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs","chain":"KeyValuePairSettingsTests","lines":[393,413,433,454,473,492,512]}
+    ]
+  },
+  "Write": {
+    "target": "src/Serilog/Core/Pipeline/SilentLogger.cs",
+    "target_lines": [57],
+    "required": [
+      {"file":"src/Serilog/Core/Logger.cs","chain":"Logger","lines":[588,737,886,1035,1184,1333]},
+      {"file":"src/Serilog/ILogger.cs","chain":"ILogger","lines":[469,628,787,946,1105,1264]},
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[215]}
+    ],
+    "optional": [
+      {"file":"test/Serilog.Tests/MethodOverloadConventionTests.cs","chain":"MethodOverloadConventionTests","lines":[45]}
+    ]
+  },
+  "Logger.Write": {
+    "target": "src/Serilog/Core/Logger.cs",
+    "target_lines": [331],
+    "required": [
+      {"file":"src/Serilog/Core/Logger.cs","chain":"Logger","lines":[588,737,886,1035,1184,1333]},
+      {"file":"src/Serilog/ILogger.cs","chain":"ILogger","lines":[469,628,787,946,1105,1264]},
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[215]}
+    ],
+    "optional": [
+      {"file":"test/Serilog.Tests/MethodOverloadConventionTests.cs","chain":"MethodOverloadConventionTests","lines":[45]}
+    ]
+  },
+  "SilentLogger.Write": {
+    "target": "src/Serilog/Core/Pipeline/SilentLogger.cs",
+    "target_lines": [61],
+    "required": [
+      {"file":"src/Serilog/Core/Logger.cs","chain":"Logger","lines":[604,753,902,1051,1200,1349]},
+      {"file":"src/Serilog/ILogger.cs","chain":"ILogger","lines":[486,645,804,963,1122,1281]},
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[229]},
+      {"file":"test/Serilog.Tests/Core/LoggerTests.cs","chain":"LoggerTests","lines":[196]}
+    ],
+    "optional": [
+      {"file":"test/Serilog.Tests/MethodOverloadConventionTests.cs","chain":"MethodOverloadConventionTests","lines":[45]}
+    ]
+  },
+  "Log.Write": {
+    "target": "src/Serilog/Log.cs",
+    "target_lines": [242],
+    "required": [
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[399,548,697,846,995,1144]}
+    ]
+  },
+  "ForContext": {
+    "target": "src/Serilog/ILogger.cs",
+    "target_lines": [105],
+    "required": [
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[112]},
+      {"file":"test/Serilog.PerformanceTests/NestedLoggerCreationBenchmark.cs","chain":"NestedLoggerCreationBenchmark","lines":[34]},
+      {"file":"test/Serilog.PerformanceTests/NestedLoggerLatencyBenchmark.cs","chain":"NestedLoggerLatencyBenchmark","lines":[18]},
+      {"file":"test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs","chain":"LoggerConfigurationTests","lines":[65,548,566]},
+      {"file":"test/Serilog.Tests/Core/AuditSinkTests.cs","chain":"AuditSinkTests","lines":[34]},
+      {"file":"test/Serilog.Tests/Core/LoggerTests.cs","chain":"LoggerTests","lines":[43,88]},
+      {"file":"test/Serilog.Tests/Filters/MatchingTests.cs","chain":"MatchingTests","lines":[15,47]},
+      {"file":"test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs","chain":"KeyValuePairSettingsTests","lines":[149]}
+    ]
+  },
+  "Logger.ForContext": {
+    "target": "src/Serilog/Core/Logger.cs",
+    "target_lines": [181],
+    "required": [
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[112]},
+      {"file":"test/Serilog.PerformanceTests/NestedLoggerCreationBenchmark.cs","chain":"NestedLoggerCreationBenchmark","lines":[34]},
+      {"file":"test/Serilog.PerformanceTests/NestedLoggerLatencyBenchmark.cs","chain":"NestedLoggerLatencyBenchmark","lines":[18]},
+      {"file":"test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs","chain":"LoggerConfigurationTests","lines":[65,548,566]},
+      {"file":"test/Serilog.Tests/Core/AuditSinkTests.cs","chain":"AuditSinkTests","lines":[34]},
+      {"file":"test/Serilog.Tests/Core/LoggerTests.cs","chain":"LoggerTests","lines":[43,88]},
+      {"file":"test/Serilog.Tests/Filters/MatchingTests.cs","chain":"MatchingTests","lines":[15,47]},
+      {"file":"test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs","chain":"KeyValuePairSettingsTests","lines":[149]}
+    ]
+  },
+  "Logger.Information": {
+    "target": "src/Serilog/Core/Logger.cs",
+    "target_lines": [810],
+    "required": [
+      {"file":"test/Serilog.PerformanceTests/AllocationsBenchmark.cs","chain":"AllocationsBenchmark","lines":[86]},
+      {"file":"test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs","chain":"LoggerConfigurationTests","lines":[110,128,177,199,618]},
+      {"file":"test/Serilog.Tests/Core/AuditSinkTests.cs","chain":"AuditSinkTests","lines":[46,56,67]},
+      {"file":"test/Serilog.Tests/Core/LoggerTests.cs","chain":"LoggerTests","lines":[430,469]},
+      {"file":"test/Serilog.Tests/Debugging/SelfLogTests.cs","chain":"SelfLogTests","lines":[42,62]},
+      {"file":"test/Serilog.Tests/Filters/MatchingTests.cs","chain":"MatchingTests","lines":[32,33,34]},
+      {"file":"test/Serilog.Tests/Formatting/Display/MessageTemplateTextFormatterTests.cs","chain":"MessageTemplateTextFormatterTests","lines":[15,25,35,45,58,200,210,220,245,259,348]},
+      {"file":"test/Serilog.Tests/Formatting/Json/JsonFormatterTests.cs","chain":"JsonFormatterTests","lines":[186,202,219]},
+      {"file":"test/Serilog.Tests/Settings/KeyValuePairSettingsTests.cs","chain":"KeyValuePairSettingsTests","lines":[393,413,433,454,473,492,512]}
+    ]
+  },
+  "AgainstNull": {
+    "target": "src/Serilog/Guard.cs",
+    "target_lines": [13],
+    "required": [
+      {"file":"src/Serilog/Capturing/PropertyValueConverter.cs","chain":"PropertyValueConverter","lines":[51,52]},
+      {"file":"src/Serilog/Configuration/LoggerDestructuringConfiguration.cs","chain":"LoggerDestructuringConfiguration","lines":[39,40,41,42,43,44,45,57,81,127,151,152]},
+      {"file":"src/Serilog/Configuration/LoggerEnrichmentConfiguration.cs","chain":"LoggerEnrichmentConfiguration","lines":[29,30,44,48,99,100,116,132,153,154,155]},
+      {"file":"src/Serilog/Configuration/LoggerFilterConfiguration.cs","chain":"LoggerFilterConfiguration","lines":[29,30,42]},
+      {"file":"src/Serilog/Configuration/LoggerMinimumLevelConfiguration.cs","chain":"LoggerMinimumLevelConfiguration","lines":[30,31,33,56,116,117]},
+      {"file":"src/Serilog/Configuration/LoggerSettingsConfiguration.cs","chain":"LoggerSettingsConfiguration","lines":[26,36,53]},
+      {"file":"src/Serilog/Configuration/LoggerSinkConfiguration.cs","chain":"LoggerSinkConfiguration","lines":[31,32,69,130,131,175,230,253,254,280,281,282,313,314,363,364,387]},
+      {"file":"src/Serilog/Context/EnricherStack.cs","chain":"EnricherStack","lines":[34]},
+      {"file":"src/Serilog/Context/LogContext.cs","chain":"LogContext","lines":[72,95,138]},
+      {"file":"src/Serilog/Core/Enrichers/ConditionalEnricher.cs","chain":"ConditionalEnricher","lines":[24,25]},
+      {"file":"src/Serilog/Core/Enrichers/FixedPropertyEnricher.cs","chain":"FixedPropertyEnricher","lines":[30]},
+      {"file":"src/Serilog/Core/Enrichers/PropertyEnricher.cs","chain":"PropertyEnricher","lines":[54,55]},
+      {"file":"src/Serilog/Core/Enrichers/SafeAggregateEnricher.cs","chain":"SafeAggregateEnricher","lines":[23]},
+      {"file":"src/Serilog/Core/Filters/DelegateFilter.cs","chain":"DelegateFilter","lines":[23,28]},
+      {"file":"src/Serilog/Core/LevelOverrideMap.cs","chain":"LevelOverrideMap","lines":[48]},
+      {"file":"src/Serilog/Core/Logger.cs","chain":"Logger","lines":[464]},
+      {"file":"src/Serilog/Core/Pipeline/MessageTemplateCache.cs","chain":"MessageTemplateCache","lines":[37,42]},
+      {"file":"src/Serilog/Core/Sinks/AggregateSink.cs","chain":"AggregateSink","lines":[23]},
+      {"file":"src/Serilog/Core/Sinks/Batching/BatchingSink.cs","chain":"BatchingSink","lines":[295]},
+      {"file":"src/Serilog/Core/Sinks/ConditionalSink.cs","chain":"ConditionalSink","lines":[27,28]},
+      {"file":"src/Serilog/Core/Sinks/DisposingAggregateSink.cs","chain":"DisposingAggregateSink","lines":[26]},
+      {"file":"src/Serilog/Core/Sinks/FilteringSink.cs","chain":"FilteringSink","lines":[25,26]},
+      {"file":"src/Serilog/Core/Sinks/RestrictedSink.cs","chain":"RestrictedSink","lines":[24,25,30]},
+      {"file":"src/Serilog/Core/Sinks/SafeAggregateSink.cs","chain":"SafeAggregateSink","lines":[23]},
+      {"file":"src/Serilog/Core/Sinks/SecondaryLoggerSink.cs","chain":"SecondaryLoggerSink","lines":[34,40]},
+      {"file":"src/Serilog/Data/LogEventPropertyValueRewriter.cs","chain":"LogEventPropertyValueRewriter","lines":[34,46,83,121]},
+      {"file":"src/Serilog/Data/LogEventPropertyValueVisitor.cs","chain":"LogEventPropertyValueVisitor","lines":[47,107]},
+      {"file":"src/Serilog/Debugging/SelfLog.cs","chain":"SelfLog","lines":[36,53]},
+      {"file":"src/Serilog/Events/DictionaryValue.cs","chain":"DictionaryValue","lines":[29,49]},
+      {"file":"src/Serilog/Events/EventProperty.cs","chain":"EventProperty","lines":[49]},
+      {"file":"src/Serilog/Events/LogEvent.cs","chain":"LogEvent","lines":[43,44,78,85,156,180,219]},
+      {"file":"src/Serilog/Events/LogEventProperty.cs","chain":"LogEventProperty","lines":[32,74]},
+      {"file":"src/Serilog/Events/MessageTemplate.cs","chain":"MessageTemplate","lines":[50,51,149,150]},
+      {"file":"src/Serilog/Events/ScalarValue.cs","chain":"ScalarValue","lines":[58,101]},
+      {"file":"src/Serilog/Events/SequenceValue.cs","chain":"SequenceValue","lines":[36,43,63]},
+      {"file":"src/Serilog/Events/StructureValue.cs","chain":"StructureValue","lines":[34,70]},
+      {"file":"src/Serilog/Filters/Matching.cs","chain":"Matching","lines":[41,61,76,94,95]},
+      {"file":"src/Serilog/Formatting/Display/MessageTemplateTextFormatter.cs","chain":"MessageTemplateTextFormatter","lines":[42,57,58]},
+      {"file":"src/Serilog/Formatting/Json/JsonFormatter.cs","chain":"JsonFormatter","lines":[57,58]},
+      {"file":"src/Serilog/Formatting/Json/JsonValueFormatter.cs","chain":"JsonValueFormatter","lines":[60,75,550]},
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[45]},
+      {"file":"src/Serilog/LoggerExtensions.cs","chain":"LoggerExtensions","lines":[27]},
+      {"file":"src/Serilog/Parsing/MessageTemplateParser.cs","chain":"MessageTemplateParser","lines":[43]},
+      {"file":"src/Serilog/Parsing/PropertyToken.cs","chain":"PropertyToken","lines":[36,39,64,65]},
+      {"file":"src/Serilog/Parsing/TextToken.cs","chain":"TextToken","lines":[29,46]},
+      {"file":"src/Serilog/Policies/ProjectedDestructuringPolicy.cs","chain":"ProjectedDestructuringPolicy","lines":[24,25,30]},
+      {"file":"src/Serilog/Settings/KeyValuePairs/KeyValuePairSettings.cs","chain":"KeyValuePairSettings","lines":[80,85]},
+      {"file":"test/Serilog.PerformanceTests/Support/ConcurrentDictionaryTemplateCache.cs","chain":"ConcurrentDictionaryMessageTemplateCache","lines":[14,19]},
+      {"file":"test/Serilog.PerformanceTests/Support/DictionaryMessageTemplateCache.cs","chain":"DictionaryMessageTemplateCache","lines":[15,20]},
+      {"file":"test/Serilog.Tests/Configuration/LoggerConfigurationTests.cs","chain":"LoggerConfigurationTests::ProjectedDestructuringPolicy","lines":[143,144,149]},
+      {"file":"test/Serilog.Tests/Formatting/Display/MessageTemplateTextFormatterTests.cs","chain":"MessageTemplateTextFormatterTests::SizeFormatter","lines":[184]},
+      {"file":"test/Serilog.Tests/Support/DelegatingEnricher.cs","chain":"DelegatingEnricher","lines":[9]},
+      {"file":"test/Serilog.Tests/Support/DelegatingSink.cs","chain":"DelegatingSink","lines":[9]},
+      {"file":"test/Serilog.Tests/Support/TemporarySelfLog.cs","chain":"TemporarySelfLog","lines":[17]}
+    ]
+  },
+  "ILogger.Write": {
+    "target": "src/Serilog/ILogger.cs",
+    "target_lines": [161],
+    "required": [
+      {"file":"src/Serilog/Core/Logger.cs","chain":"Logger","lines":[514,663,812,961,1110,1259]},
+      {"file":"src/Serilog/ILogger.cs","chain":"ILogger","lines":[390,549,708,867,1026,1185]},
+      {"file":"src/Serilog/Log.cs","chain":"Log","lines":[151]}
+    ],
+    "optional": [
+      {"file":"test/Serilog.Tests/MethodOverloadConventionTests.cs","chain":"MethodOverloadConventionTests","lines":[45]}
+    ]
+  }
+}

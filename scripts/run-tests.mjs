@@ -70,6 +70,20 @@ const gitEnv = {
   GIT_CONFIG_KEY_1: "tag.gpgsign", GIT_CONFIG_VALUE_1: "false",
 };
 
+// Node runs one process per test file, `availableParallelism() - 1` at a time, and
+// each starts tsx — enough to pin every core of a shared dev box for minutes.
+// GRAFT_TEST_CONCURRENCY caps that; unset keeps Node's default (CI is unchanged).
+// A bad value stops the run rather than silently falling back to all cores.
+const concurrencyArgs = [];
+const rawConcurrency = process.env.GRAFT_TEST_CONCURRENCY;
+if (rawConcurrency !== undefined && rawConcurrency !== "") {
+  if (!/^[1-9]\d*$/.test(rawConcurrency)) {
+    console.error(`✗ GRAFT_TEST_CONCURRENCY must be a positive integer, got '${rawConcurrency}'`);
+    process.exit(1);
+  }
+  concurrencyArgs.push(`--test-concurrency=${rawConcurrency}`);
+}
+
 // Tests make thousands of scratch repos and homes under the temp folder and
 // don't all remove them: a day of runs left over 50,000 folders (6 GB). Give the
 // run its own temp folder and remove it at the end, whatever the outcome.
@@ -106,7 +120,7 @@ const homeEnv = {
 // command, so a contributor who has trail installed would see test repos move.
 // Off for the run; the tests of the move turn it back on.
 const runFiles = (list, ...flags) =>
-  spawnSync(process.execPath, ["--import", "tsx", "--test", ...flags, ...list], {
+  spawnSync(process.execPath, ["--import", "tsx", "--test", ...concurrencyArgs, ...flags, ...list], {
     cwd: repoRoot,
     stdio: "inherit",
     env: { ...process.env, ...gitEnv, ...tmpEnv, ...homeEnv, GRAFT_NO_TRAIL_SWITCH: "1" },

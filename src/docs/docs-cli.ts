@@ -156,6 +156,7 @@ export function runDocs(c: DocsCommand, opts: { root?: string; pkgRoot: string }
   const result = spawnSync(found.bin, docsArgs(c, root), {
     stdio: ["ignore", json ? "pipe" : "inherit", "inherit"],
     maxBuffer: 256 * 1024 * 1024,
+    windowsHide: true,
   });
   if (result.error) {
     console.error(`✗ could not run ${found.bin}: ${result.error.message}`);

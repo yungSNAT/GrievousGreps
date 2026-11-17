@@ -126,9 +126,10 @@ export function writeStats(d: string, s: Stats): void { writeJsonAtomic(statsPat
  * Missing fields always retain backwards-compatible defaults.
  */
 export interface BuildConfig {
-  /** SKIP_DIRS names to include in this repo's walks, persisted so a LATER
-   * no-flag build — and the fingerprint/refresh path, which never sees CLI
-   * flags at all — behave identically to the invocation that set it. */
+  /** SKIP_DIRS names and named hidden directories (except `.git`, `.trail`, `.graft`) to include
+   * in this repo's walks, persisted so a LATER no-flag build — and the
+   * fingerprint/refresh path, which never sees CLI flags at all — behave
+   * identically to the invocation that set it. */
   includeDirs?: string[];
   /** Whether initialized Git submodules (gitlinks) are folded into this repo's
    * graph. Absent/false keeps the historical boundary at the superproject. */
@@ -277,9 +278,8 @@ function lockStale(cache: string): boolean {
   try { age = Date.now() - statSync(p).mtimeMs; } catch { return true; }
   if (age < LOCK_STALE_MS) return false;
   if (age >= LOCK_MAX_MS) return true;
-  // Based as acquireLockIn is, so a link planted at the lock's path names no owner.
-  const pid = readJson<{ pid?: unknown }>(p, dirname(dirname(cache)))?.pid;
-  return !(typeof pid === 'number' && Number.isInteger(pid) && pid > 0 && pidAlive(pid));
+  const pid = lockPid(cache);
+  return pid === null || !pidAlive(pid);
 }
 
 /** Whether a process with this pid is running. Signal 0 only tests for it, on Windows too. */
@@ -291,4 +291,22 @@ export function pidAlive(pid: number): boolean {
     // EPERM: it's there, owned by someone else.
     return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
+}
+
+/**
+ * Whether another live process holds the lock in `cache`: a build or sync of this map
+ * is already running. Our own pid and our parent's don't count: `sync-run` holds the
+ * lock for the `build` it starts.
+ */
+export function lockHeldByOther(cache: string): boolean {
+  if (!lockHeldIn(cache)) return false;
+  const pid = lockPid(resolve(cache));
+  return pid !== null && pid !== process.pid && pid !== process.ppid;
+}
+
+/** The pid a lock in `cache` names. Based as acquireLockIn is, so a link planted at
+ * the lock's path names no owner. */
+function lockPid(cache: string): number | null {
+  const pid = readJson<{ pid?: unknown }>(join(cache, LOCK_FILE), dirname(dirname(cache)))?.pid;
+  return typeof pid === 'number' && Number.isInteger(pid) && pid > 0 ? pid : null;
 }

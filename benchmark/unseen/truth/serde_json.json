@@ -1,0 +1,114 @@
+{
+  "new": {
+    "target": "src/de.rs",
+    "target_lines": [59],
+    "required": [
+      {"file":"src/de.rs","chain":"from_reader","lines":[83]},
+      {"file":"src/de.rs","chain":"from_slice","lines":[90]},
+      {"file":"src/de.rs","chain":"from_str","lines":[97]},
+      {"file":"src/de.rs","chain":"new","lines":[2385]},
+      {"file":"src/de.rs","chain":"from_trait","lines":[2512]}
+    ]
+  },
+  "classify": {
+    "target": "src/error.rs",
+    "target_lines": [54],
+    "required": [
+      {"file":"src/error.rs","chain":"is_io","lines":[87]},
+      {"file":"src/error.rs","chain":"is_syntax","lines":[93]},
+      {"file":"src/error.rs","chain":"is_data","lines":[102]},
+      {"file":"src/error.rs","chain":"is_eof","lines":[111]},
+      {"file":"src/error.rs","chain":"from","lines":[221]}
+    ]
+  },
+  "decode_hex_escape": {
+    "target": "src/read.rs",
+    "target_lines": [89],
+    "required": [
+      {"file":"src/read.rs","chain":"decode_hex_escape","lines":[372]},
+      {"file":"src/read.rs","chain":"decode_hex_escape","lines":[648]},
+      {"file":"src/read.rs","chain":"decode_hex_escape","lines":[764,765]},
+      {"file":"src/read.rs","chain":"decode_hex_escape","lines":[840,841]},
+      {"file":"src/read.rs","chain":"parse_unicode_escape","lines":[956,1006]},
+      {"file":"src/read.rs","chain":"ignore_escape","lines":[1091]}
+    ]
+  },
+  "deserialize_str": {
+    "target": "src/de.rs",
+    "target_lines": [1524],
+    "required": [
+      {"file":"src/de.rs","chain":"deserialize_char","lines":[1521]},
+      {"file":"src/de.rs","chain":"deserialize_string","lines":[1557]},
+      {"file":"src/de.rs","chain":"deserialize_identifier","lines":[1907]}
+    ]
+  },
+  "round_downward": {
+    "target": "src/lexical/rounding.rs",
+    "target_lines": [134],
+    "required": [
+      {"file":"tests/lexical/rounding.rs","chain":"round_downward_test","lines":[82,87,92,97]}
+    ],
+    "optional": [
+      {"file":"src/lexical/float.rs","chain":"into_downward_float","lines":[134]}
+    ]
+  },
+  "mul": {
+    "target": "src/lexical/float.rs",
+    "target_lines": [36],
+    "required": [
+      {"file":"src/lexical/float.rs","chain":"imul","lines":[67]},
+      {"file":"tests/lexical/float.rs","chain":"check_mul","lines":[474]},
+      {"file":"tests/lexical/float.rs","chain":"mul_test","lines":[501,512,523]}
+    ]
+  },
+  "begin_string": {
+    "target": "src/ser.rs",
+    "target_lines": [1737],
+    "required": [
+      {"file":"src/ser.rs","chain":"collect_str","lines":[441]},
+      {"file":"src/ser.rs","chain":"serialize_bool","lines":[838]},
+      {"file":"src/ser.rs","chain":"serialize_i8","lines":[855]},
+      {"file":"src/ser.rs","chain":"serialize_i16","lines":[872]},
+      {"file":"src/ser.rs","chain":"serialize_i32","lines":[889]},
+      {"file":"src/ser.rs","chain":"serialize_i64","lines":[906]},
+      {"file":"src/ser.rs","chain":"serialize_i128","lines":[923]},
+      {"file":"src/ser.rs","chain":"serialize_u8","lines":[940]},
+      {"file":"src/ser.rs","chain":"serialize_u16","lines":[957]},
+      {"file":"src/ser.rs","chain":"serialize_u32","lines":[974]},
+      {"file":"src/ser.rs","chain":"serialize_u64","lines":[991]},
+      {"file":"src/ser.rs","chain":"serialize_u128","lines":[1008]},
+      {"file":"src/ser.rs","chain":"serialize_f32","lines":[1029]},
+      {"file":"src/ser.rs","chain":"serialize_f64","lines":[1050]},
+      {"file":"src/ser.rs","chain":"format_escaped_str","lines":[2074]}
+    ]
+  },
+  "is_eof": {
+    "target": "src/error.rs",
+    "target_lines": [110],
+    "required": [
+      {"file":"tests/stream.rs","chain":"test_json_stream_truncated","lines":[74]},
+      {"file":"tests/stream.rs","chain":"test_json_stream_truncated_decimal","lines":[84]},
+      {"file":"tests/stream.rs","chain":"test_json_stream_truncated_negative","lines":[94]},
+      {"file":"tests/stream.rs","chain":"test_json_stream_truncated_exponent","lines":[104]},
+      {"file":"tests/test.rs","chain":"test_parse_ok","lines":[640,641]},
+      {"file":"tests/test.rs","chain":"test_category","lines":[2257,2258,2259,2260,2261,2262,2263,2265,2266,2267,2271,2274,2277,2280,2283]}
+    ]
+  },
+  "pointer": {
+    "target": "src/value/mod.rs",
+    "target_lines": [779],
+    "required": [
+      {"file":"tests/test.rs","chain":"test_json_pointer","lines":[1858,1859,1860,1861,1862,1863,1864,1865,1866,1867,1868,1869,1871,1872,1873,1874]},
+      {"file":"tests/test.rs","chain":"test_json_pointer_mut","lines":[1917,1919,1928]}
+    ]
+  },
+  "deserialize_string": {
+    "target": "src/value/de.rs",
+    "target_lines": [396],
+    "required": [
+      {"file":"src/value/de.rs","chain":"deserialize_char","lines":[386]},
+      {"file":"src/value/de.rs","chain":"deserialize_str","lines":[393]},
+      {"file":"src/value/de.rs","chain":"deserialize_identifier","lines":[502]}
+    ]
+  }
+}

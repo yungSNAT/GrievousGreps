@@ -101,7 +101,7 @@ export function savingsTallyOff(): boolean {
 /** The default savings line: the number the hooks sum, marked as the upper bound
  * it is, since nobody reads every file a lookup covers. */
 export function shortSavingsLine(savedTokens: number, pct: number, files: number): string {
-  return `${tag()} tokens saved ≈ ${savedTokens.toLocaleString()} (${pct}%) at most, against reading the ${files} file(s) whole`;
+  return `${tag()} tokens saved ≈ ${groupDigits(savedTokens)} (${pct}%) at most, against reading the ${files} file(s) whole`;
 }
 
 /** Appended to every retrieval footer so the agent reports the turn's running
@@ -134,6 +134,25 @@ export function savingsTurnNudge(savedTokens: number): string {
   );
 }
 
+/**
+ * Digits grouped for display, pinned to en-US.
+ *
+ * Not a style choice: the `[graft] tokens saved ≈ N` line below is read back by
+ * {@link sumSavingsFooters}, whose regex knows `,` and nothing else. Rendered
+ * with the machine's locale instead, a de-DE or tr-TR box wrote `1.990` and
+ * graft parsed its own footer as `1` — every savings total downstream, and the
+ * dollar value beside it, off by a factor of a thousand (#338). fr-FR and ru-RU
+ * group with a narrow no-break space and lost it the same way.
+ *
+ * Every number graft renders goes through here, not only the parsed one: a
+ * statusline that grouped differently from the footer right above it would be
+ * its own small bug. `src/cli-epilogue.ts` pins the same way, for the same
+ * reason.
+ */
+export function groupDigits(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
 /** The one-line savings estimate for a command's text output, so the agent gets
  * the number for free — no extra tool call. `body` is the exact rendered output
  * the agent reads (the pack). Returns "" when there's nothing honest to claim:
@@ -148,9 +167,9 @@ export function savingsLine(body: string, saved: Savings | undefined): string {
   const pct = Math.round((delta / base) * 100);
   if (!savingsDetail()) return shortSavingsLine(delta, pct, saved.files);
   return (
-    `${tag()} tokens saved ≈ ${delta.toLocaleString()} (${pct}%) — this output ≈ ` +
-    `${pack.toLocaleString()} tok vs reading the ${saved.files} file(s) it covers whole ≈ ` +
-    `${base.toLocaleString()} tok (estimate).` +
+    `${tag()} tokens saved ≈ ${groupDigits(delta)} (${pct}%) — this output ≈ ` +
+    `${groupDigits(pack)} tok vs reading the ${saved.files} file(s) it covers whole ≈ ` +
+    `${groupDigits(base)} tok (estimate).` +
     savingsTurnNudge(delta)
   );
 }
