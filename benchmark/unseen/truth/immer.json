@@ -1,0 +1,104 @@
+{
+  "deepClonePatchValue": {
+    "target": "src/plugins/patches.ts",
+    "target_lines": [415],
+    "required": [
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::applyPatches_","lines":[362]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::deepClonePatchValue","lines":[420,424]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::clonePatchValueIfNeeded","lines":[431]}
+    ]
+  },
+  "clonePatchValueIfNeeded": {
+    "target": "src/plugins/patches.ts",
+    "target_lines": [429],
+    "required": [
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::generateArrayPatches","lines":[216,221,234]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::generatePatchesFromAssigned","lines":[263,269,270]}
+    ]
+  },
+  "next": {
+    "target": "src/plugins/mapset.ts",
+    "target_lines": [150],
+    "required": [
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::values::next","lines":[151]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::entries::next","lines":[167]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftSet::forEach","lines":[318,321]}
+    ]
+  },
+  "getArchtype": {
+    "target": "src/utils/common.ts",
+    "target_lines": [116],
+    "required": [
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::applyPatches_","lines":[343,361]},
+      {"file":"src/utils/common.ts","chain":"each","lines":[103]},
+      {"file":"src/utils/common.ts","chain":"has","lines":[133]},
+      {"file":"src/utils/common.ts","chain":"get","lines":[143]},
+      {"file":"src/utils/common.ts","chain":"set","lines":[153]},
+      {"file":"src/utils/common.ts","chain":"freeze","lines":[269]}
+    ]
+  },
+  "handleInsertedValues": {
+    "target": "src/plugins/arrayMethods.ts",
+    "target_lines": [223],
+    "required": [
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::handleSimpleOperation","lines":[279,281]},
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::createMethodInterceptor::interceptedMethod","lines":[399]}
+    ]
+  },
+  "each": {
+    "target": "src/utils/common.ts",
+    "target_lines": [102],
+    "required": [
+      {"file":"src/core/current.ts","chain":"currentImpl","lines":[40]},
+      {"file":"src/core/finalize.ts","chain":"updateDraftInParent","lines":[147]},
+      {"file":"src/core/finalize.ts","chain":"handleValue","lines":[299]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::clear","lines":[107]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::generatePatchesFromAssigned","lines":[254]},
+      {"file":"src/utils/common.ts","chain":"freeze","lines":[281]}
+    ]
+  },
+  "shallowCopy": {
+    "target": "src/utils/common.ts",
+    "target_lines": [213],
+    "required": [
+      {"file":"src/core/current.ts","chain":"currentImpl","lines":[31,34]},
+      {"file":"src/core/proxy.ts","chain":"prepareCopy","lines":[361]}
+    ]
+  },
+  "loadPlugin": {
+    "target": "src/utils/plugins.ts",
+    "target_lines": [72],
+    "required": [
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods","lines":[507]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet","lines":[366]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches","lines":[435]}
+    ]
+  },
+  "delete": {
+    "target": "src/plugins/mapset.ts",
+    "target_lines": [82],
+    "required": [
+      {"file":"__tests__/empty.ts","chain":"<file>","lines":[71]},
+      {"file":"src/core/proxy.ts","chain":"set","lines":[191]},
+      {"file":"src/core/proxy.ts","chain":"deleteProperty","lines":[227]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::delete","lines":[94,96]}
+    ]
+  },
+  "set": {
+    "target": "src/plugins/mapset.ts",
+    "target_lines": [68],
+    "required": [
+      {"file":"__tests__/empty.ts","chain":"<file>","lines":[22,56,85]},
+      {"file":"src/core/finalize.ts","chain":"updateDraftInParent","lines":[151]},
+      {"file":"src/core/proxy.ts","chain":"set","lines":[214]},
+      {"file":"src/core/proxy.ts","chain":"deleteProperty","lines":[223]},
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::markArrayChanged","lines":[191]},
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::handleInsertedValues","lines":[230]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::set","lines":[74,75,76]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::delete","lines":[92]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::clear","lines":[108]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::get","lines":[136]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::prepareSetCopy","lines":[341]}
+    ]
+  }
+}

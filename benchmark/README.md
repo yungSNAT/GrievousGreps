@@ -52,6 +52,16 @@ cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- score --repo htt
 
 It prints each symbol's score and the repository's summary as JSON. A symbol with no answer scores as one with no callers, with a warning on stderr; an answer the rules cannot read, such as a hit without a `path`, stops it with an error.
 
+## Ask a language server
+
+`gg-bench lsp` asks a language server instead of a tool, for a column to set beside the graph tools. It starts the server in a copy of each pinned repository of one language, opens the target files, waits until the server reports no work in progress, finds each target among the server's document symbols and asks for its callers:
+
+```bash
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- lsp --language Python --ask calls -- pyright-langserver --stdio
+```
+
+`--ask calls`, the default, uses call hierarchy: `textDocument/prepareCallHierarchy`, then `callHierarchy/incomingCalls`. `--ask references` uses `textDocument/references` without the declaration, which also returns imports and other references that are not calls. A server gives locations, not callers, so each location is named by the innermost definition around it in the server's own document symbols, as Serena's column is mapped: modules and anonymous callbacks drop out, and a value inside a definition gives way to the definition. The answers go to the work folder's `lsp/<ask>/<repository>.json` in `callers --json` shape, with the server's stderr beside them. Install each checkout's dependencies first where the server reads them, as rust-analyzer and the TypeScript server do. `--repos`, `--work` and `--verbose` work as they do for `run`.
+
 ## What it prints
 
 The overall line and first table are what the README carries. Recall is required calls found divided by required calls, pooled across the repository's 10 symbols, so a symbol with many callers weighs more. The overall line pools every repository the same way, so tokio and tracing hold more than a third of its weight. The detail tables add:
@@ -110,7 +120,7 @@ Limits of the truth:
 - A third came later that day: attrs `resolve_types` lacked 5 tests in `tests/test_annotations.py` that apply it as a decorator without arguments (`@attr.resolve_types`), which calls it with the class. A build that reads that form returned them and the scorer counted them false. A scan of the checkout for every decorator without arguments naming one of attrs' 10 symbols found these 7 uses in 5 tests and no others, and each was read. They were added as required rows, so attrs holds 282 calls and the 21 repositories 4,364.
 - A fourth came on 16 November 2026 (UTC): table lacked 39 calls in Svelte and Vue components. A build that reads Svelte returned one of them, an `isFunction` call in `packages/svelte-table/src/FlexRender.svelte`, and the scorer counted it false. A scan of every `.svelte`, `.vue` and `.astro` file in the 7 TypeScript checkouts for calls of their 10 symbols found 37 `createColumnHelper` calls through `@tanstack/svelte-table` and `@tanstack/vue-table`, which re-export it from table-core, and 2 `isFunction` calls, and each was read. Calls that reach another package's own function of the same name, such as svelte-table's `createTable`, are not calls of the target. query, trpc and vue had none, and hono, jotai and radix have no component files. They were added as required rows, so table holds 397 calls and the 21 repositories 4,403.
 - Two symbols were replaced before any run, because the first choice had no call rows or no longer existed: click `get_app_dir` and table `getMemoOptions`.
-- Earlier builds have run on all 21 repositories, so fixes made in between may have been shaped by their results. None is an unseen holdout any more.
+- Earlier builds have run on all 21 repositories, so fixes made in between may have been shaped by their results. None is an unseen holdout any more. [unseen/](unseen/README.md) holds 5 repositories that no build had run on, preregistered on 16 November 2026 (UTC), with truth that `gg-bench lsp-truth` derived from their language servers.
 - The tracing and tokio symbols were chosen for repeated names and cross-crate calls, so those rows test the known weak spot on purpose.
 - It is 210 symbols on 21 repositories. It does not estimate recall on your code.
 
