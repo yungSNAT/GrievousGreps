@@ -959,7 +959,11 @@ program
     console.log(`${cmd("graft viz")} → ${srv.url}  (ctrl-c to stop)`);
     if (opts.open) {
       const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      spawn(opener, [srv.url], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+      try {
+        spawn(opener, [srv.url], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+      } catch {
+        /* no opener on PATH: the printed URL is the fallback */
+      }
     }
   });
 

@@ -53,6 +53,8 @@ trail --version
 
 `npm link` points the commands at this folder, so keep it. The folder measured about 610 MB with its development dependencies. Installing writes nothing to your agents' settings.
 
+Trail starts git, gh and the other programs it uses by their absolute paths from your `PATH`, never from the repository it works in, its subfolders or a `node_modules/.bin` folder. Running `trail` itself through `npx` or a package script inside a repository you don't trust lets that repository choose what runs before trail starts, so install it as above and call it as `trail`, or by its absolute path.
+
 A repository already wired to upstream with `npx` keeps starting upstream's package until you run `trail init` there, which replaces those entries in `.cursor/mcp.json` with the installed command and removes them from `.mcp.json`. `~/.codex/config.toml` changes only with `--global`.
 
 To update a clone, run `git pull`, `npm ci` and `npm run build` in the folder. `trail upgrade` refuses on this build, because the package on npm is upstream's.

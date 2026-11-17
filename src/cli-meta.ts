@@ -5,9 +5,8 @@
  * injected results instead of hitting the network from tests.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { findProgram, spawnSync } from "./util/program.js";
+import { findProgram, notFound, spawnSync } from "./util/program.js";
 import type { SpawnSyncOptions } from "node:child_process";
-import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brand, PACKAGE_FOR } from "./brand.js";
@@ -70,18 +69,19 @@ export function versionLine(moduleUrl: string): string {
 }
 
 /** Runs `npm <args>` by npm's absolute path from PATH (util/program.ts); throws when there is none.
- * On Windows `npm` is the `npm.cmd` shim, which only a shell can start: spawned directly it fails,
- * so the update check stored nothing. The shell gets one joined command line because Node 24 warns
- * (DEP0190) when it has to join args for a shell; every arg here is a fixed token, never user input.
- * It runs in the home folder, not the checkout trail was started in: the shim falls back to a bare
- * `node`, which cmd.exe looks for in the working folder first, and a checkout's .npmrc has no say
- * in trail's own update check. */
+ * On Windows `npm` is the `npm.cmd` shim, which Node can start only through cmd.exe, where `%NAME%`
+ * in its path would expand and the shim's fallback to a bare `node` would be looked for in the
+ * working folder first. So the shim's own JavaScript entry, node_modules/npm/bin/npm-cli.js beside
+ * it (as Node's installer, nvm-windows and `npm i -g npm` lay it out), runs with the node.exe
+ * beside the shim, else this Node, and no shell. */
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
   const npm = findProgram("npm", { cmd: true });
-  if (!npm) throw new Error("npm was not found on PATH");
-  if (process.platform !== "win32") return spawnSync(npm, args, { ...options, cwd: homedir() });
-  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- npm's absolute path and fixed tokens only
-  return spawnSync([`"${npm}"`, ...args].join(" "), [], { ...options, cwd: homedir(), shell: true });
+  if (!npm) throw new Error(notFound("npm"));
+  if (!npm.toLowerCase().endsWith(".cmd")) return spawnSync(npm, args, options);
+  const entry = join(dirname(npm), "node_modules", "npm", "bin", "npm-cli.js");
+  if (!existsSync(entry)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);
+  const node = join(dirname(npm), "node.exe");
+  return spawnSync(existsSync(node) ? node : process.execPath, [entry, ...args], options);
 }
 
 export interface NpmViewResult {

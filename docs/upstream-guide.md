@@ -60,7 +60,10 @@ compiler-grade layer, all `$0` and deterministic (no model, no key):
   language server is on your `PATH`. It uses the first one installed, in this
   order, one server per build: **rust-analyzer** (Rust), **clangd** (C/C++),
   **gopls** (Go), **pyright** (Python), **typescript-language-server** (TS/JS).
-  It's best-effort: with no server installed the graph is unchanged.
+  It's best-effort: with no server installed the graph is unchanged. Trail never
+  starts a server from the checkout or a `node_modules/.bin` folder, so a server
+  installed only as the project's dependency is named in the build's output and
+  skipped: install it globally, or anywhere outside both, to use it.
 
 Thirty-five languages, plus Vue, Svelte and Astro single-file components. A file whose language isn't listed is skipped, not
 indexed. Adding a broad-tier language is a small contribution; see
