@@ -9,11 +9,15 @@ const optionalString = (v: unknown) => v === undefined || typeof v === "string";
 /** The kinds of target Cargo can find by itself, and the folder it finds each in. */
 const KINDS = [["test", "tests"], ["example", "examples"], ["bench", "benches"]] as const;
 
+/** A string that Rust's `str::trim` empties: only characters with the Unicode `White_Space`
+ * property, which differs from JavaScript's `trim` in U+0085 (white space) and U+FEFF (not). */
+const BLANK = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/;
+
 /** Whether a manifest's target tables have the shapes Cargo accepts: a `[lib]` table, whose name,
  * if given, has no hyphen, and `[[bin]]`, `[[test]]`, `[[example]]` and `[[bench]]` tables that
  * each name their target; every name not blank, every `path` a string. */
 function targetTablesShaped(doc: Table): boolean {
-  const named = (name: unknown): name is string => typeof name === "string" && name.trim() !== "";
+  const named = (name: unknown): name is string => typeof name === "string" && !BLANK.test(name);
   const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((t) => isTable(t) && optionalString(t.path) && named(t.name)));
   const lib = doc.lib;
   const libShaped = lib === undefined || (isTable(lib) && optionalString(lib.path) && (lib.name === undefined || (named(lib.name) && !lib.name.includes("-"))));
@@ -133,15 +137,27 @@ function inheritedEdition(dir: string, pkg: Table, docs: ReadonlyMap<string, Tab
 /** Whether the workspace at `root` excludes the package at `dir`, as Cargo's `is_excluded` reads
  * it: the package's manifest path starts with `root` joined to an `exclude` entry and with no
  * `members` entry, compared component by component as written, globs included, `.` dropped.
- * Undefined when either list is not strings, or an entry is absolute (on any platform) or has a
- * backslash, which Windows reads as a separator. */
+ * It is read as Linux and macOS read it, and as Windows does, where a backslash separates and a
+ * drive letter makes an entry absolute. An absolute entry may or may not hold the package, as
+ * where the repository sits is unknown. Undefined when the 2 readings differ or either is unsure,
+ * or when either list is not strings. */
 function excludes(root: string, dir: string, ws: Table): boolean | undefined {
   const [exclude, members] = [ws.exclude ?? [], ws.members ?? []];
-  const relative = (s: unknown) => typeof s === "string" && !/^\/|^[A-Za-z]:|\\/.test(s);
-  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(relative);
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === "string");
   if (!strings(exclude) || !strings(members)) return undefined;
   const parts = (p: string) => p.split("/").filter((c) => c !== "" && c !== ".");
   const manifest = parts(posix.join(dir, "Cargo.toml"));
-  const under = (entry: string) => [...parts(root), ...parts(entry)].every((c, i) => manifest[i] === c);
-  return exclude.some(under) && !members.some(under);
+  const under = (entry: string, absolute: RegExp) => (absolute.test(entry) ? undefined : [...parts(root), ...parts(entry)].every((c, i) => manifest[i] === c));
+  // Whether some entry holds the package: one that does decides, else one that may leaves it unsure.
+  const any = (list: string[], read: (entry: string) => boolean | undefined) => {
+    const held = list.map(read);
+    return held.includes(true) || (held.includes(undefined) ? undefined : false);
+  };
+  const reading = (read: (entry: string) => boolean | undefined) => {
+    const [excluded, member] = [any(exclude, read), any(members, read)];
+    return excluded === false || member === true ? false : excluded === true && member === false ? true : undefined;
+  };
+  const unix = reading((entry) => under(entry, /^\//));
+  const windows = reading((entry) => under(entry.replaceAll("\\", "/"), /^\/|^[A-Za-z]:/));
+  return unix === windows ? unix : undefined;
 }

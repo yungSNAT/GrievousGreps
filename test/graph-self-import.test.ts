@@ -710,7 +710,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const pkg = (rest: string) => (name: string) => `[package]\nname = "${name}"\n${rest}`;
   const table = `\n[[test]]\nname = "bar"\n`;
   const graph = await build(t, {
-    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "blankname", "blankname_b", "barebin", "barebin_b", "pathbin", "pathbin_b", "emptylib", "emptylib_b", "blanklib", "blanklib_b", "hyphenlib", "hyphenlib_b"]\n\n[workspace.package]\nedition = "2021"\n`,
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "blankname", "blankname_b", "nelname", "nelname_b", "bomname", "barebin", "barebin_b", "pathbin", "pathbin_b", "emptylib", "emptylib_b", "blanklib", "blanklib_b", "hyphenlib", "hyphenlib_b"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
     "mock/src/lib.rs": "pub mod expect;\n",
     "mock/src/expect.rs": "pub fn event() {}\n",
@@ -758,14 +758,21 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     // package, so `third/d` stays excluded and the root above decides (2021).
     "glob/Cargo.toml": `[workspace]\nmembers = ["third/*"]\nexclude = ["third"]\n\n[workspace.package]\nedition = "2015"\n`,
     ...both("glob/third/d", pkg(`edition.workspace = true\n${table}`)),
-    // A drive letter makes an entry absolute on Windows only, and a backslash in an `exclude` or
-    // `members` entry is a separator there only.
+    // A drive letter makes an entry absolute on Windows only, and a backslash is a separator there
+    // only. That matters only where it decides: an explicit member, or a package no reading of the
+    // entry reaches, is placed alike everywhere (2018) ...
     "drive/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ["C:/x"]\n\n[workspace.package]\nedition = "2018"\n`,
     ...both("drive/d", pkg(`edition.workspace = true\n${table}`)),
     "bs/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ['third\\x']\n\n[workspace.package]\nedition = "2018"\n`,
     ...both("bs/d", pkg(`edition.workspace = true\n${table}`)),
-    "bsm/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", 'third\\x']\n\n[workspace.package]\nedition = "2018"\n`,
+    "bsm/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", 'third\\x', "c:foo/x"]\n\n[workspace.package]\nedition = "2018"\n`,
     ...both("bsm/d", pkg(`edition.workspace = true\n${table}`)),
+    // ... but a package that Windows excludes and Linux does not takes 2015 on Linux and the root's
+    // 2021 on Windows, and `c:foo` is relative to the current folder on drive C.
+    "split/Cargo.toml": `[workspace]\nexclude = ['third\\x', 'third\\x_b']\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("split/third/x", pkg(`edition.workspace = true\n${table}`)),
+    "driverel/Cargo.toml": `[workspace]\nexclude = ["c:foo"]\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("driverel/d", pkg(`edition.workspace = true\n${table}`)),
     // Target tables Cargo refuses: a name that is no string, no name, an empty or blank name, a
     // `[[bin]]` with no name (Cargo takes none from its path), and a `[lib]` name that is empty,
     // blank or has a hyphen.
@@ -773,6 +780,9 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     ...both("noname", pkg(`edition = "2018"\n\n[[test]]\nharness = false\n`)),
     ...both("emptyname", pkg(`edition = "2018"\n\n[[test]]\nname = ""\n`)),
     ...both("blankname", pkg(`edition = "2018"\n\n[[test]]\nname = " "\n`)),
+    // Blank as Rust's `trim` reads it: U+0085 is white space; U+FEFF (below) is not.
+    ...both("nelname", pkg(`edition = "2018"\n\n[[test]]\nname = "\\u0085"\n`)),
+    ...found("bomname", pkg(`edition = "2018"\n\n[[bin]]\nname = "\\uFEFF"\npath = "src/main.rs"\n`)),
     ...both("barebin", pkg(`edition = "2018"\n${table}\n[[bin]]\ntest = false\n`)),
     ...both("pathbin", pkg(`edition = "2018"\n${table}\n[[bin]]\npath = "src/main.rs"\n`)),
     ...both("emptylib", pkg(`edition = "2018"\n${table}\n[lib]\nname = ""\n`)),
@@ -792,7 +802,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs is no target`);
     assert.deepEqual(top(`${dir}_b`), two, `${dir}_b: and that is read for certain`);
   }
-  for (const dir of ["excl/d", "excl15/third/gone", "glob/third/d"]) {
+  for (const dir of ["excl/d", "excl15/third/gone", "glob/third/d", "drive/d", "bs/d", "bsm/d"]) {
     assert.deepEqual(top(dir), mock, `${dir}: tests/foo.rs is a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: so 2 parents disagree`);
   }
@@ -802,7 +812,8 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   assert.deepEqual(top("override"), mock, "`autotests = true` beats the 2015 default");
   assert.deepEqual(top("binpath"), mock, "a [[bin]] path");
   assert.deepEqual(top("libpath"), mock, "a [lib] path");
-  const unknown = ["unparsed", "edint", "autostr", "loose/d", "drive/d", "bs/d", "bsm/d", "badname", "noname", "emptyname", "blankname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
+  assert.deepEqual(top("bomname"), mock, "a U+FEFF name is not blank");
+  const unknown = ["unparsed", "edint", "autostr", "loose/d", "split/third/x", "driverel/d", "badname", "noname", "emptyname", "blankname", "nelname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
   for (const dir of unknown) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs may be a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: tests/foo.rs may be no target`);
