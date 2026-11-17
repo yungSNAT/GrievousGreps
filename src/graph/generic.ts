@@ -364,6 +364,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     extractRustMacroCalls(tree.rootNode as TsNode, rel, defs, rawEdges);
     extractRustAliases(tree.rootNode as TsNode, rel, rawEdges);
     extractRustPubUses(tree.rootNode as TsNode, rel, rawEdges, macroRegions);
+    extractRustModUses(tree.rootNode as TsNode, rel, rawEdges);
     extractRustMacroDefs(tree.rootNode as TsNode, rel, rawEdges);
     extractRustFields(tree.rootNode as TsNode, rel, rawEdges);
     const cfgItems = rustItems
@@ -728,7 +729,8 @@ function rustWholePath(path: string | undefined, name: string, scopes: RustUseSc
 
 /** For a path call whose first name no `use` in scope binds, such as `subscriber::mock()`,
  * the globs in scope at `at` that could bring that name in, walking out until a `mod`.
- * `self` and `super` globs name this file, whose own modules the path already reaches.
+ * `self` and `super` globs name this file, whose own modules the path already reaches, except
+ * a file-level `use super::*`, which names the file that declares this one (`rustSuperGlob`).
  * `rustInMod` marks a call whose walk stopped at an inline `mod`, where the file's own child
  * modules are out of sight. A `mod` of that name declared in scope shadows every glob. */
 function rustGlobsFor(path: string | undefined, scopes: RustUseScope[], at: number): Partial<RawEdge> {
@@ -739,15 +741,18 @@ function rustGlobsFor(path: string | undefined, scopes: RustUseScope[], at: numb
   const around = scopes.filter((s) => s.start <= at && at < s.end).sort((a, b) => b.start - a.start);
   let inMod = false;
   let declared = false;
+  let parent = false;
   for (const scope of around) {
     declared ||= scope.mods.has(first);
     for (const g of scope.globs) if (!/^(self|super)(::|$)/.test(g)) out.push(g);
+    if (scope.start === 0 && scope.end === Number.POSITIVE_INFINITY && scope.globs.includes("super")) parent = true;
     if (scope.closed) {
       inMod = scope.start > 0 || scope.end !== Number.POSITIVE_INFINITY;
       break;
     }
   }
-  return { ...(out.length && !declared ? { rustGlobs: out } : {}), ...(inMod ? { rustInMod: true } : {}) };
+  if (declared) return inMod ? { rustInMod: true } : {};
+  return { ...(out.length ? { rustGlobs: out } : {}), ...(parent ? { rustSuperGlob: true } : {}), ...(inMod ? { rustInMod: true } : {}) };
 }
 
 /** Whether the name a call's path starts with could be brought in from another file: a path
@@ -1014,6 +1019,26 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
   for (const pub of byMacros.values()) {
     if (pub.names.length || pub.globs.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustPubUses: pub });
   }
+}
+
+/** For a file that declares module files (`mod option;`), what a `use super::*` in one of them
+ * brings in: the file's top-level `use` lines, private ones included, and its globs. Modules
+ * declared `pub` or `pub(crate)` are also listed as open, as a sibling module can reach them. */
+function extractRustModUses(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
+  const into: NonNullable<RawEdge["rustModUses"]> = { mods: [], open: [], names: [], globs: [] };
+  for (let i = 0; i < (root.namedChildCount ?? 0); i++) {
+    const c = root.namedChild?.(i);
+    if (c?.type === "mod_item" && !c.childForFieldName?.("body")) {
+      const name = c.childForFieldName?.("name")?.text;
+      if (name) into.mods.push(name);
+      const vis = c.namedChild?.(0);
+      if (name && vis?.type === "visibility_modifier" && /^pub(\(crate\))?$/.test(vis.text.replace(/\s+/g, ""))) into.open.push(name);
+    } else if (c?.type === "use_declaration") {
+      for (const [name, { full }] of rustUseBindings(c.text, into.globs)) into.names.push([name, full]);
+    }
+  }
+  into.globs = into.globs.filter((g) => !/^(self|super)(::|$)/.test(g));
+  if (into.mods.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustModUses: into });
 }
 
 /** Each `macro_rules!` in the file, function bodies included, and whether every arm passes on
