@@ -447,6 +447,15 @@ pub(crate) fn go_receiver(name: &str) -> Option<String> {
     Some(receiver.split('[').next().unwrap_or(receiver).to_owned())
 }
 
+/// csharp-ls names a method with its parameters, as `Write(LogEventLevel level)`; this is the
+/// name without them, which would otherwise read as an anonymous scope.
+fn csharp_name(name: &str) -> String {
+    match name.split_once('(') {
+        Some((head, _)) if name.ends_with(')') && !head.is_empty() => head.trim_end().to_owned(),
+        _ => name.to_owned(),
+    }
+}
+
 /// tsserver names a test callback like `it('x') callback`, and other anonymous scopes `<function>`.
 fn anonymous(name: &str) -> bool {
     name.ends_with(" callback")
@@ -547,7 +556,7 @@ pub fn targets<'a>(
         .iter()
         .filter(|s| {
             let owners = owners(scopes, s);
-            go_method(&s.name).unwrap_or(&s.name) == leaf
+            clean_scope(&s.name) == leaf
                 && parts.iter().all(|p| owners.iter().any(|o| o == p))
         })
         .collect();
@@ -621,7 +630,13 @@ impl Session<'_> {
                 self.server.close(self.root, path)?;
                 self.open.remove(path);
             }
-            self.symbols.insert(path.to_owned(), flatten(&answer)?);
+            let mut scopes = flatten(&answer)?;
+            if path.ends_with(".cs") {
+                for scope in &mut scopes {
+                    scope.name = csharp_name(&scope.name);
+                }
+            }
+            self.symbols.insert(path.to_owned(), scopes);
         }
         Ok(&self.symbols[path])
     }
@@ -959,6 +974,9 @@ mod tests {
         assert_eq!(clean_scope("(*Logger).WithFields"), "WithFields");
         assert_eq!(clean_scope("(Level).String"), "String");
         assert_eq!(clean_scope("implementation"), "implementation");
+        assert_eq!(csharp_name("Write(LogEventLevel level)"), "Write");
+        assert_eq!(clean_scope(&csharp_name("ForContext<TSource>()")), "ForContext");
+        assert_eq!(csharp_name("LoggerTests"), "LoggerTests");
         assert_eq!(clean_scope("impl<T> Iterator for Iter<T>"), "Iter");
         assert!(!anonymous("(*Logger).WithFields"));
         assert!(anonymous("describe('x') callback"));
