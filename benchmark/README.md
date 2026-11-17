@@ -52,6 +52,16 @@ cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- score --repo htt
 
 It prints each symbol's score and the repository's summary as JSON. A symbol with no answer scores as one with no callers, with a warning on stderr; an answer the rules cannot read, such as a hit without a `path`, stops it with an error.
 
+## Ask a language server
+
+`gg-bench lsp` asks a language server instead of a tool, for a column to set beside the graph tools. It starts the server in a copy of each pinned repository of one language, opens the target files, waits until the server reports no work in progress, finds each target among the server's document symbols and asks for its callers:
+
+```bash
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- lsp --language Python --ask calls -- pyright-langserver --stdio
+```
+
+`--ask calls`, the default, uses call hierarchy: `textDocument/prepareCallHierarchy`, then `callHierarchy/incomingCalls`. `--ask references` uses `textDocument/references` without the declaration, which also returns imports and other references that are not calls. A server gives locations, not callers, so each location is named by the innermost definition around it in the server's own document symbols, as Serena's column is mapped: modules and anonymous callbacks drop out, and a value inside a definition gives way to the definition. The answers go to the work folder's `lsp/<ask>/<repository>.json` in `callers --json` shape, with the server's stderr beside them. Install each checkout's dependencies first where the server reads them, as rust-analyzer and the TypeScript server do. `--repos`, `--work` and `--verbose` work as they do for `run`.
+
 ## What it prints
 
 The overall line and first table are what the README carries. Recall is required calls found divided by required calls, pooled across the repository's 10 symbols, so a symbol with many callers weighs more. The overall line pools every repository the same way, so tokio and tracing hold more than a third of its weight. The detail tables add:
