@@ -4,60 +4,83 @@ import type { RustTargets } from "./resolve.js";
 
 type Table = Record<string, unknown>;
 const isTable = (v: unknown): v is Table => typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Date);
+const optionalString = (v: unknown) => v === undefined || typeof v === "string";
 
-/** An array of `[[test]]`-style tables, each `name` and `path` a string where present. */
-const isTargetList = (v: unknown): v is Array<{ name?: string; path?: string }> =>
-  Array.isArray(v) && v.every((t) => isTable(t) && [t.name, t.path].every((s) => s === undefined || typeof s === "string"));
+/** The kinds of target Cargo can find by itself, and the folder it finds each in. */
+const KINDS = [["test", "tests"], ["example", "examples"], ["bench", "benches"]] as const;
+
+/** Whether a manifest's target tables have the shapes Cargo accepts: `[lib]` a table, `[[bin]]`
+ * tables (whose `name` Cargo may take from the `path`), and `[[test]]`, `[[example]]` and
+ * `[[bench]]` tables that each name their target; every `path` a string. */
+function targetTablesShaped(doc: Table): boolean {
+  const list = (v: unknown, named: boolean) => v === undefined
+    || (Array.isArray(v) && v.every((t) => isTable(t) && (named ? typeof t.name === "string" : optionalString(t.name)) && optionalString(t.path)));
+  return (doc.lib === undefined || (isTable(doc.lib) && optionalString(doc.lib.path))) && list(doc.bin, false) && KINDS.every(([kind]) => list(doc[kind], true));
+}
 
 /** An edition as Cargo states one, such as "2018"; undefined for anything else. */
 const year = (v: unknown) => (typeof v === "string" && /^\d{4}$/.test(v) ? v : undefined);
 
 /**
- * Which files Cargo builds as test, example and bench crates, from each Cargo.toml's text by
- * folder (`.` at the root; null when unreadable), parsed as TOML. Whatever a manifest leaves
- * unknown is unsure, never assumed:
- * - a manifest that is unreadable or not TOML, or a target table of another shape: its folder,
- *   as it could list any file below;
+ * Which files Cargo builds as crates, from each Cargo.toml's text by folder (`.` at the root;
+ * null when unreadable), parsed as TOML. Whatever a manifest leaves unknown is unsure, never
+ * assumed, and reported in `errors`:
+ * - a manifest that is unreadable or not TOML, or a target table of another shape: its folder
+ *   in `unsure`, as it could list any file below;
  * - whether Cargo finds a kind's files by itself, when the `auto*` key is not true or false, or
- *   when the answer turns on an edition not read or inherited for certain: that kind's folder.
+ *   when the answer turns on an edition not read or inherited for certain: that kind in `unknown`.
  */
-export function readCargoTargets(manifests: ReadonlyMap<string, string | null>): RustTargets {
-  const targets: RustTargets = { off: new Map(), listed: new Set(), unsure: new Set() };
+export function readCargoTargets(manifests: ReadonlyMap<string, string | null>, errors: string[]): RustTargets {
+  const targets: RustTargets = { off: new Map(), unknown: new Map(), listed: new Set(), dropped: new Set(), unsure: new Set() };
+  const where = (dir: string) => posix.join(dir, "Cargo.toml");
+  const unsure = (dir: string, why: string) => {
+    targets.unsure.add(dir);
+    errors.push(`${where(dir)}: ${why}, so which files below it Cargo builds is unknown`);
+  };
   const docs = new Map<string, Table | undefined>();
   for (const [dir, text] of manifests) {
+    docs.set(dir, undefined);
+    if (text === null) {
+      unsure(dir, "unreadable");
+      continue;
+    }
     try {
-      docs.set(dir, text === null ? undefined : parse(text));
-    } catch {
-      docs.set(dir, undefined);
+      docs.set(dir, parse(text));
+    } catch (err) {
+      unsure(dir, `not TOML (${err instanceof Error ? err.message.split("\n")[0] : String(err)})`);
     }
   }
   for (const [dir, doc] of docs) {
-    if (!doc) {
-      targets.unsure.add(dir);
-      continue;
-    }
+    if (!doc) continue;
     // Cargo reads `[project]` as `[package]` before the 2024 edition. With neither, the manifest
     // is a virtual one, which builds no targets.
     const pkg = doc.package ?? doc.project;
     if (pkg === undefined) continue;
-    if (!isTable(pkg)) {
-      targets.unsure.add(dir);
+    if (!isTable(pkg) || !targetTablesShaped(doc)) {
+      unsure(dir, "a package or target table of another shape");
       continue;
     }
+    const at = (p: string) => posix.normalize(posix.join(dir, p));
+    for (const t of [doc.lib, ...((doc.bin as Table[] | undefined) ?? [])]) if (isTable(t) && typeof t.path === "string") targets.listed.add(at(t.path));
     const edition = packageEdition(dir, pkg, docs);
-    for (const [kind, folder] of [["test", "tests"], ["example", "examples"], ["bench", "benches"]] as const) {
-      const tables = doc[kind];
-      if (tables !== undefined && !isTargetList(tables)) {
-        targets.unsure.add(dir);
-        continue;
-      }
+    for (const [kind, folder] of KINDS) {
+      const tables = doc[kind] as Array<{ name: string; path?: string }> | undefined;
       for (const { name, path } of tables ?? []) {
-        const paths = path ? [path] : [`${folder}/${name}.rs`, `${folder}/${name}/main.rs`];
-        if (path || name) for (const p of paths) targets.listed.add(posix.normalize(posix.join(dir, p)));
+        const named = [`${folder}/${name}.rs`, `${folder}/${name}/main.rs`].map(at);
+        // Given another path, the name's own files are no target: Cargo drops a found file whose
+        // name a table already uses.
+        if (path === undefined) named.forEach((p) => targets.listed.add(p));
+        else {
+          targets.listed.add(at(path));
+          named.forEach((p) => targets.dropped.add(p));
+        }
       }
       const finds = findsByItself(pkg[`auto${folder}`], tables !== undefined, edition);
-      if (finds === undefined) targets.unsure.add(posix.join(dir, folder));
-      else if (!finds) targets.off.set(dir, (targets.off.get(dir) ?? new Set()).add(folder));
+      if (finds === false) targets.off.set(dir, (targets.off.get(dir) ?? new Set()).add(folder));
+      if (finds === undefined) {
+        targets.unknown.set(dir, (targets.unknown.get(dir) ?? new Set()).add(folder));
+        errors.push(`${where(dir)}: \`auto${folder}\` or the edition is not read for certain, so whether Cargo builds each file in ${folder}/ is unknown`);
+      }
     }
   }
   return targets;

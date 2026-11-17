@@ -322,7 +322,7 @@ function readTsImports(root: string, repoFiles: string[]): { tsPaths: TsPaths[];
   return { tsPaths, tsPackages, tsUnmanifested };
 }
 
-function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string>; rustTargets: RustTargets } {
+function readRustCrates(root: string, repoFiles: string[], errors: string[]): { rustExternalCrates: Set<string>; rustCrateDirs: Map<string, string>; rustTargets: RustTargets } {
   const rustCrateDirs = new Map<string, string>();
   const manifests = new Map<string, string | null>();
   const deps = new Set<string>();
@@ -363,7 +363,7 @@ function readRustCrates(root: string, repoFiles: string[]): { rustExternalCrates
     }
   }
   for (const name of internal) deps.delete(name);
-  return { rustExternalCrates: deps, rustCrateDirs, rustTargets: readCargoTargets(manifests) };
+  return { rustExternalCrates: deps, rustCrateDirs, rustTargets: readCargoTargets(manifests, errors) };
 }
 
 export async function buildGraph(
@@ -533,7 +533,7 @@ export async function buildGraph(
   const edges = resolveEdges(nodes, rawEdges, {
     goModules: readGoModules(root, repoFiles),
     pythonRoots: readPythonRoots(root, repoFiles),
-    ...readRustCrates(root, repoFiles),
+    ...readRustCrates(root, repoFiles, errors),
     ...readTsImports(root, repoFiles),
     unresolvedCalls,
   });

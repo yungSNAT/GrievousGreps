@@ -359,7 +359,7 @@ export function resolveEdges(
   const cfgGated = new Map(rawEdges.flatMap((e) => e.rustCfgItems ?? []));
   const modUses = new Map(rawEdges.flatMap((e) => (e.rustModUses ? [[e.file, e.rustModUses] as const] : [])));
   const rustPathCtx: RustPathCtx = {
-    crates: opts.rustCrateDirs ?? new Map(), targets: opts.rustTargets ?? { off: new Map(), listed: new Set(), unsure: new Set() },
+    crates: opts.rustCrateDirs ?? new Map(), targets: opts.rustTargets ?? { off: new Map(), unknown: new Map(), listed: new Set(), dropped: new Set(), unsure: new Set() },
     byId, perFileName, pubUses: rustPubUses, cfgGated, modUses,
   };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
@@ -918,17 +918,19 @@ function rustTextName(text: string): string | undefined {
   return /^[A-Z]\w+$/.test(name) ? name : undefined;
 }
 
-/** What the repo's Cargo.toml files say Cargo builds as test, example and bench crates. */
+/** What the repo's Cargo.toml files say Cargo builds as crates (see cargo-targets.ts). */
 export interface RustTargets {
   /** By crate folder (`.` at the root), the folders among `tests`, `examples` and `benches`
    * whose files Cargo no longer builds by itself (`autotests = false` and the like). */
   off: Map<string, Set<string>>;
-  /** The files `[[test]]`, `[[example]]` and `[[bench]]` tables name, by `path` or by `name`. */
+  /** The same, for the folders where the manifest leaves that unknown. */
+  unknown: Map<string, Set<string>>;
+  /** The files target tables name, by `path` or by `name`, and `[lib]` and `[[bin]]` paths. */
   listed: Set<string>;
-  /** Folders under which whether Cargo builds a file is unknown: a crate whose manifest is not
-   * read whole (unreadable, not TOML, or a target table of another shape), or a crate's `tests`,
-   * `examples` or `benches` when its edition or `auto*` key leaves finding them unknown
-   * (see cargo-targets.ts). */
+  /** Files Cargo would find but does not build, as a table gives their name another path. */
+  dropped: Set<string>;
+  /** Crate folders whose manifest is not read whole (unreadable, not TOML, or a target table of
+   * another shape), so whether Cargo builds any file below is unknown. */
   unsure: Set<string>;
 }
 
@@ -1127,16 +1129,19 @@ function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 |
 }
 
 /** Whether Cargo builds `file` as a crate: a target a Cargo.toml lists, or a file directly in a
- * crate's `tests`, `examples` or `benches` unless that crate turned finding them off; undefined
- * when its crate's manifest leaves that unknown.
+ * crate's `tests`, `examples` or `benches` unless that crate turned finding them off or a table
+ * gave its name another path; undefined when its crate's manifest leaves that unknown.
  *
  * shortcut: a folder with no Cargo.toml of its own reads as a crate that finds them; the
  * upgrade is to read each file's crate from the workspace. */
 function rustCargoRoot(file: string, ctx: RustPathCtx): boolean | undefined {
-  if (ctx.targets.listed.has(file)) return true;
-  if ([...ctx.targets.unsure].some((d) => d === "." || file.startsWith(`${d}/`))) return undefined;
+  const { listed, unsure, dropped, unknown, off } = ctx.targets;
+  if (listed.has(file)) return true;
+  if ([...unsure].some((d) => d === "." || file.startsWith(`${d}/`))) return undefined;
   const direct = /^(?:(.+)\/)?(tests|examples|benches)\/[^/]+$/.exec(file);
-  return !!direct && !ctx.targets.off.get(direct[1] ?? ".")?.has(direct[2]!);
+  if (!direct || dropped.has(file)) return false;
+  const [crate, folder] = [direct[1] ?? ".", direct[2]!];
+  return unknown.get(crate)?.has(folder) ? undefined : !off.get(crate)?.has(folder);
 }
 
 /** `helpers::event` where `helpers` is a module file in `dir`, as a test root's own `mod helpers;`
