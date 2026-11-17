@@ -71,10 +71,12 @@ export function versionLine(moduleUrl: string): string {
 /** Runs `npm <args>` by npm's absolute path from PATH (util/program.ts); throws when there is none.
  * On Windows `npm` is the `npm.cmd` shim, which Node can start only through cmd.exe, where `%NAME%`
  * in its path would expand and the shim's fallback to a bare `node` would be looked for in the
- * working folder first. So trail makes the shim's own choice without a shell, for the layout
+ * working folder first. So trail makes the shim's choice itself, without a shell, for the layout
  * Node's installer, nvm-windows and `npm i -g npm` make: Node is the node.exe beside the shim, else
  * `node` from PATH, and npm is node_modules/npm/bin/npm-cli.js under the global prefix the shim's
- * npm-prefix.js prints, when that file exists, else the one beside the shim. Each must keep to
+ * npm-prefix.js prints, when that file exists, else the one beside the shim. Unlike the shim,
+ * npm-prefix.js runs in npm's own folder, so the working folder's .npmrc does not name the prefix;
+ * an older npm with no npm-prefix.js gets the npm-cli.js beside the shim. Each must keep to
  * util/program.ts's rules, or nothing runs. A `.cmd` with no npm-cli.js beside it, such as mise's
  * shims, which hand on to another program through cmd.exe, is not run. */
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
@@ -92,7 +94,8 @@ function npmSync(args: readonly string[], options: SpawnSyncOptions) {
   let cli = join(bin(dirname(npm)), "npm-cli.js");
   const prefixScript = join(bin(dirname(npm)), "npm-prefix.js");
   if (existsSync(prefixScript)) {
-    const prefix = run(prefixScript, [], { ...options, encoding: "utf8" }).stdout?.toString().trim().split(/\r?\n/).pop();
+    // In npm's own folder, not the working folder, whose .npmrc would otherwise name the prefix.
+    const prefix = run(prefixScript, [], { ...options, cwd: dirname(npm), encoding: "utf8" }).stdout?.toString().trim().split(/\r?\n/).pop();
     if (prefix && existsSync(join(bin(prefix), "npm-cli.js"))) cli = join(bin(prefix), "npm-cli.js");
   }
   if (!existsSync(cli)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);

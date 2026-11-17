@@ -14,7 +14,7 @@
 import * as cp from "node:child_process";
 import { accessSync, constants, lstatSync, readlinkSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, posix, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export { fork } from "node:child_process";
@@ -53,6 +53,9 @@ function envValue(env: NodeJS.ProcessEnv, name: string, win: boolean): string | 
   const key = Object.keys(env).filter((k) => k.toUpperCase() === name).sort()[0];
   return key === undefined ? undefined : env[key];
 }
+
+/** An absolute path, with its drive or share on Windows (the child would take `\x` on its own folder's drive). */
+const absolute = (path: string, win: boolean) => (win ? /^([a-zA-Z]:[\\/]|\\\\)/.test(path) : path.startsWith("/"));
 
 function realPath(path: string): string | null {
   try {
@@ -133,11 +136,14 @@ function rules(opts: FindOptions) {
     const d = fold(dir);
     return packageBin(d) || yarnBin.includes(d) || inTree(d);
   };
-  /** Whether the file at absolute path `file`, reached as written, keeps out of every folder passed over. */
-  const allows = (file: string, also: string[] = []) => {
+  /** Whether the file at absolute path `file`, reached as written, may start: none of the folders
+   * it is named from (`entry`) is passed over, and no folder on the way to it is a working folder's.
+   * The node_modules/.bin and Yarn tests stay on the folders named, as a package runner names them
+   * (Yarn classic's global bin links through a node_modules/.bin of its own). */
+  const allows = (file: string, entry: string[]) => {
     const traced = (opts.folders ?? ((f: string) => linkFolders(p, f)))(file);
     const realFile = real(file);
-    return traced !== null && realFile !== null && ![...also, p.dirname(p.resolve(file)), p.dirname(realFile), ...traced].some(passedOver);
+    return traced !== null && realFile !== null && !entry.some(passedOver) && ![p.dirname(realFile), ...traced].some((d) => inTree(fold(d)));
   };
   return { win, p, env, real, allows };
 }
@@ -149,10 +155,10 @@ function rules(opts: FindOptions) {
  * (this process's or `cwd`) or is under one, is a node_modules/.bin folder, or is the folder Yarn
  * names in BERRY_BIN_FOLDER. A filesystem root or the home folder as the working folder passes
  * over only itself, as every folder the person installs to is under one of them. Each test is
- * made on the entry as listed (made absolute), on its real path, on where each link on the way to
- * the program stands (a link to the program file included) and on the program's real folder, with
- * each working folder taken both ways too, so a link in either direction does not bring a tree's
- * folder back; letter case is ignored on Windows.
+ * made on the entry as listed (made absolute) and on its real path; the working-folder test is
+ * also made on where each link on the way to the program stands (a link to the program file
+ * included) and on the program's real folder, with each working folder taken both ways too, so a
+ * link in either direction does not bring a tree's folder back; letter case is ignored on Windows.
  * On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
  * unset), keeping those Node can start without a shell: `.com` and `.exe`, and `.cmd` when `cmd`
  * is set; a name already ending in one of those (`cmd.exe`) is tried as it is. A `git.cmd` is
@@ -171,7 +177,7 @@ export function locateProgram(name: string, opts: FindOptions = {}): Located {
   let skipped: string | null = null;
   for (const entry of path.split(win ? ";" : ":")) {
     const listed = win ? entry.trim().replace(/^"(.*)"$/, "$1") : entry;
-    if (win ? !/^([a-zA-Z]:[\\/]|\\\\)/.test(listed) : !listed.startsWith("/")) continue;
+    if (!absolute(listed, win)) continue;
     // The real folder first: on POSIX `link/..` is the link target's parent, not the folder written before it.
     const dir = real(listed);
     if (dir === null) continue;
@@ -180,7 +186,7 @@ export function locateProgram(name: string, opts: FindOptions = {}): Located {
       if (!isFile(file)) continue;
       // As written, so the links on the way are seen (Windows drops `..` first; POSIX takes it as it comes).
       const written = win ? p.join(listed, name + ending) : `${listed}/${name}${ending}`;
-      if (allows(written, [p.resolve(listed), dir])) return { path: file, skipped };
+      if (allows(written, [p.resolve(listed), dir, p.dirname(p.resolve(written))])) return { path: file, skipped };
       skipped ??= file;
       break;
     }
@@ -193,8 +199,8 @@ export const findProgram = (name: string, opts: FindOptions = {}): string | null
 
 /** Whether `file` is an absolute path that keeps to locateProgram's rules, links followed. */
 export function admitted(file: string, opts: FindOptions = {}): boolean {
-  const { p, allows } = rules(opts);
-  return p.isAbsolute(file) && allows(file);
+  const { win, p, allows } = rules(opts);
+  return absolute(file, win) && allows(file, [p.dirname(p.resolve(file))]);
 }
 
 const isBare = (name: string) => !name.includes("/") && !(process.platform === "win32" && name.includes("\\"));
@@ -213,7 +219,7 @@ function program(file: string, rest: unknown[]): unknown[] | Error {
   const cwd = options?.cwd instanceof URL ? fileURLToPath(options.cwd) : options?.cwd;
   const find = { env: options?.env, cwd };
   if (!options?.shell) {
-    if (!isBare(file)) return isAbsolute(file) ? [file, ...rest] : missing(refused(file), file);
+    if (!isBare(file)) return absolute(file, process.platform === "win32") ? [file, ...rest] : missing(refused(file), file);
     const found = findProgram(file, find);
     return found === null ? missing(notFound(file), file) : [found, ...rest];
   }
