@@ -23,13 +23,14 @@
  * extraction code itself, caught by content-hashing it — see
  * {@link extractorStamp}. Neither asks anyone to remember to bump anything.
  */
-import { lstatSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, rmSync, writeSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, extname, join } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
-import { resolveInside } from "../util/safe-fs.js";
-import { readJson, writeJsonAtomic } from "../util/state.js";
+import { resolveInside, streamFileInside } from "../util/safe-fs.js";
+import { readJson } from "../util/state.js";
+import { asciiJson } from "./write.js";
 import type { RawEdge } from "./extract.js";
 import type { NodeV1 } from "./types.js";
 
@@ -237,10 +238,39 @@ export function writeExtractCache(outDir: string, cache: ExtractCache): boolean 
   const path = extractCachePath(outDir);
   if (path === null) return false;
   try {
-    writeJsonAtomic(path, cache, true, undefined, dirname(outDir));
+    writeCacheAtomic(dirname(outDir), path, cache);
     pruneSidecars(outDir, EXTRACT_CACHE_PREFIX);
     return true;
   } catch {
     return false;
   }
+}
+
+/**
+ * `writeJsonAtomic(path, cache, true)`, one file's entry at a time and in plain ASCII.
+ * The cache holds every parsed file's code, so as one string plus its Buffer it was
+ * a ~1 GB spike on assign (a 255 MB cache): the top of every build, the end-of-turn
+ * one included. And a single non-ASCII character in that code made V8 hold the whole
+ * file, read back, as a two-byte string; written as `\uXXXX` escapes, the next build
+ * reads it in ~300 MB less, with the same values. Written inside `base` as
+ * `writeJsonAtomic` writes, so a symlinked `graft/` or `.cache` is refused.
+ */
+function writeCacheAtomic(base: string, path: string, cache: ExtractCache): void {
+  streamFileInside(base, path, (fd) => {
+    const { files, ...head } = cache;
+    // `{"version":…,"extractor":…}` with its closing brace swapped for the files object.
+    let chunk = `${JSON.stringify(head).slice(0, -1)},"files":{`;
+    let first = true;
+    for (const [rel, entry] of Object.entries(files)) {
+      chunk += `${first ? "" : ","}${asciiJson(JSON.stringify(rel))}:${asciiJson(JSON.stringify(entry))}`;
+      first = false;
+      if (chunk.length >= 1 << 20) { writeAll(fd, chunk); chunk = ""; }
+    }
+    writeAll(fd, `${chunk}}}`);
+  });
+}
+
+function writeAll(fd: number, text: string): void {
+  const buf = Buffer.from(text, "utf8");
+  for (let off = 0; off < buf.length; ) off += writeSync(fd, buf, off, buf.length - off);
 }

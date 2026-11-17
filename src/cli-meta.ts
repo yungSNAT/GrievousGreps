@@ -75,7 +75,7 @@ export function versionLine(moduleUrl: string): string {
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
   const win = process.platform === "win32";
   // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- fixed npm tokens only
-  return spawnSync(win ? ["npm", ...args].join(" ") : "npm", win ? [] : args, { ...options, shell: win }); // NOSONAR: npm from PATH is intended
+  return spawnSync(win ? ["npm", ...args].join(" ") : "npm", win ? [] : args, { ...options, shell: win, windowsHide: true }); // NOSONAR: npm from PATH is intended
 }
 
 export interface NpmViewResult {

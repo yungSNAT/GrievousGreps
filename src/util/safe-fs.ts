@@ -19,7 +19,7 @@
  */
 /* eslint-disable security/detect-non-literal-fs-filename -- this module is the path
    validator: every path it hands to fs is the one being checked, or one it built. */
-import { type BigIntStats, constants, copyFileSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { type BigIntStats, closeSync, constants, copyFileSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -134,6 +134,23 @@ export function writeFileInside(base: string, path: string, data: string | Uint8
   }
   if (isSymlink(abs)) rmSync(abs);
   writeFileSync(abs, data);
+  return abs;
+}
+
+/** An atomic {@link writeFileInside} for content too large to hold as one string:
+ * `fill` writes it in pieces to the open exclusive temp file. */
+// eslint-disable-next-line no-unused-vars -- a parameter name inside a function type
+export function streamFileInside(base: string, path: string, fill: (fd: number) => void): string {
+  const abs = resolve(base, path);
+  ensureDirInside(base, dirname(abs));
+  replaceAtomically(abs, (tmp) => {
+    const fd = openSync(tmp, "wx");
+    try {
+      fill(fd);
+    } finally {
+      closeSync(fd);
+    }
+  });
   return abs;
 }
 

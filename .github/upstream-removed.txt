@@ -16,3 +16,4 @@ scripts/pack-trail.mjs
 .github/workflows/npm-downloads-badge.yml
 .github/scripts/npm-downloads-badge.mjs
 .github/actions/graft-blast
+.trail/hook.cjs

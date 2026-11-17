@@ -56,7 +56,7 @@ function scratch(cwd: string, top: string): boolean {
 }
 
 function git(dir: string, args: string[]): string {
-  const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000 }); // NOSONAR: the person's own git, found through PATH on purpose
+  const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000, windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
   return r.status === 0 ? r.stdout.trim() : "";
 }
 

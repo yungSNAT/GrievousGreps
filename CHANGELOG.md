@@ -14,6 +14,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Changed
 
+- **Merged upstream's `main` up to `ca672c1` (16 November 2026)**, so the upstream changes listed under Unreleased below are in this build too: Go, Kotlin, Elixir, PHP and TypeScript interface resolution, `build --strict` and `--include-dir`, `trail share-session` and the Pi host among them. The fork's own rules hold where the two differ: writes stay inside the repository's real folders, `share-session` adds its hook to `~/.claude/settings.json` only with `--global`, network features stay off until asked for, and TypeScript calls through an import still resolve by the fork's import walk rather than upstream's named-import shortcut. Upstream's committed `.claude/settings.json` and `.trail/hook.cjs` are left out.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
 - **Usage stats, the update check and workspace background reads are off** until you ask for them.
 - **Writes refuse a symlink** planted in a repository or output folder.
@@ -55,6 +56,43 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **Teammates' branches refresh after a fetch or push in any linked worktree or submodule.** A `.git` file whose `gitdir:` is relative, as `git worktree add` writes with `worktree.useRelativePaths`, or a worktree whose `commondir` is absolute, was read against the wrong folder, so a fetch or push never refreshed the cached list before it expired.
 - **A Python decorator written without arguments is a call.** `@stream_with_context` or `@rich.repr.auto` above a definition calls the decorator from the scope the definition sits in, as Python does, so the decorator now shows that caller. Only decorators with arguments, such as `@route("/")`, counted before.
 - **`trail build --lsp` asks the language server about the function itself.** It took the first place the name appeared near the definition, even inside another word, so `port` was queried inside `éport` or `portExtra` in a comment before it and its calls were lost. It now takes the first whole identifier.
+
+## Unreleased
+
+### Added
+
+- **Structural graph failures can now fail the build command with `--strict`**
+  instead of printing a successful wiring banner. Partial graph artifacts remain
+  available, workspace builds report failed children, and `--allow-partial`
+  continues to waive only incomplete LLM meaning passes.
+
+- **`graft build --include-dir` can opt a named hidden directory into the
+  repo-root walk** (#221). Default is unchanged: `.github`, `.vscode`, `.kb`
+  and every other dot-directory stay skipped. Pass `--include-dir .kb` (a
+  bare name, same switch as `build/` / `vendor/`) and the walk descends into
+  that directory so its nodes land on the same root graph the MCP server and
+  hooks already point at. The choice persists in `.graft/config.json`, so a
+  later no-flag build still includes it. `.git`, `.trail` and `.graft` are
+  never overridable: the CLI rejects them with a non-zero exit. Git's ignore
+  rules stay authoritative; the flag only lifts graft's own skip.
+
+### Fixed
+
+- Prevent telemetry helpers from repeatedly starting new copies when a sandbox
+  blocks writes to the telemetry state. Internal flush commands skip startup
+  upkeep, and background flushes require a saved timestamp before spawning.
+
+- **Elixir remote calls resolve through `alias`** (#351) in the generic tree-sitter tier, so
+  `graft callers` and `graft_trace_calls` work on Elixir. `Cart.total(x)` used to be
+  captured as a bare `total` and dropped as ambiguous the moment another `total` existed
+  anywhere in the repo — which in Elixir is always. A per-file `defmodule`/`alias` scope
+  pass now emits the call receiver-typed (`alias A.B.C`, `as:`, `alias A.{B, C}`,
+  `__MODULE__`, nested-module auto-aliases, `defmodule` under an aliased prefix,
+  `&Mod.fun/N`, pipes), stamps defs with their module and arity, and resolves through the
+  existing owner-qualified index. A bare `foo()` in Elixir is same-file only; a call to a
+  macro-generated function (`use Ecto.Repo`) lands on the module node instead of vanishing;
+  multi-clause heads collapse to one target. Measured on a 219-file app against
+  `mix xref graph`: cross-file call-edge precision 0.38 → 0.93, recall 0.41 → 0.64.
 
 ## 0.28.0
 
