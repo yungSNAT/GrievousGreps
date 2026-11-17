@@ -84,12 +84,15 @@ function trailHomeOf(root: string): string { return join(root, 'trail-home'); }
 
 /**
  * Runs the shim in `projectDir`, after `rememberInstall` records `remembered`
- * (if given) as this machine's install, with `pathDirs` on PATH. Returns the
- * version of the install that actually got loaded (or null if none did).
+ * (if given) as this machine's install, with `pathDirs` on PATH. The shim is the
+ * project's own copy in `.claude/helpers`, or with `userLevel` a copy outside the
+ * project, as `~/.claude`, `~/.codex` and `~/.pi` hold. Returns the version of the
+ * install that actually got loaded (or null if none did).
  */
-function runShim(root: string, projectDir: string, opts: { remembered?: string; pathDirs?: string[] } = {}): string | null {
-  const shimPath = join(root, 'graft-hooks.cjs');
+function runShim(root: string, projectDir: string, opts: { remembered?: string; pathDirs?: string[]; userLevel?: boolean } = {}): string | null {
+  const shimPath = opts.userLevel ? join(root, 'user-helpers', 'graft-hooks.cjs') : join(projectDir, '.claude', 'helpers', 'graft-hooks.cjs');
   const marker = join(root, 'loaded.txt');
+  mkdirSync(dirname(shimPath), { recursive: true });
   writeFileSync(shimPath, hooksShim());
   const { preload, env } = isolate(root, opts.pathDirs);
   if (opts.remembered) rememberInstall(join(root, 'home'), env, opts.remembered);
@@ -434,4 +437,42 @@ test('upstream is still the fallback when this distribution is absent', () => {
   fakeInstall(join(p, 'node_modules', '@trailhq'), 'trail-code', '0.99.0', '@trailhq/trail-code');
   fakeInstall(join(p, 'node_modules', '@nanonets'), 'graft', '0.21.0', '@nanonets/graft');
   assert.equal(runShim(root, p), '0.99.0');
+});
+
+// A user-level shim (Claude Code's ~/.claude, Codex's and Pi's) runs in every project the agent
+// opens, trusted or not, so it must import nothing that project supplies: a checkout could commit
+// a node_modules copy of this package with a high version, or a dist/claude of its own, and have
+// the person's hook run its code. The project's own shim may: that file is the repository's anyway.
+test('a user-level shim never imports the project\'s own copy, however new', () => {
+  const root = tmpRepo('shim-user-level-modules');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  assert.equal(runShim(root, p, { remembered: own, userLevel: true }), '0.28.0+gg');
+});
+
+test('a user-level shim never imports the project\'s dist folder, even with nothing else found', () => {
+  const root = tmpRepo('shim-user-level-dist');
+  const p = project(root);
+  fakeInstall(root, 'project', '99.0.0', '@equitybot/grievousgreps');
+  assert.equal(runShim(root, p, { userLevel: true }), null);
+});
+
+test('a user-level shim never follows a trail command inside the project or a node_modules/.bin', () => {
+  const root = tmpRepo('shim-user-level-path');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const bin = join(p, 'node_modules', '.bin');
+  mkdirSync(bin, { recursive: true });
+  for (const d of [bin, p]) for (const b of ['trail', 'trail.cmd']) writeFileSync(join(d, b), '');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [bin, p] }), '0.28.0+gg');
+});
+
+test('the project\'s own shim still uses the project\'s own copy, as a dev dependency installs it', () => {
+  const root = tmpRepo('shim-repo-copy-modules');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.1+gg', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  assert.equal(runShim(root, p, { remembered: own }), '0.28.1+gg');
 });
