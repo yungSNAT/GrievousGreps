@@ -175,7 +175,7 @@ AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool
 | TypeScript | 0.30 / 1.00 / 46 | 0.29 / 0.96 / 50 |
 | Rust | 0.70 / 0.88 / 24 | 0.74 / 0.89 / 22 |
 
-Call hierarchy matched this tool's recall on 6 repositories and references on 7; neither beat it on any. Their lowest rows, radix, structlog, attrs and click (0.02 to 0.10 by call hierarchy), are 4 of the 5 that Serena's tuned row reconfigures; these servers ran at defaults only.
+Call hierarchy matched this tool's recall on 6 repositories and references on 7; neither beat it on any. Their lowest rows, radix, structlog, attrs and click (0.02 to 0.10 by call hierarchy), are 4 of the 5 that Serena's tuned row reconfigures; these servers ran at defaults only. The column opens only the target files, and the TypeScript server searches only the projects of open files: asked for references by `gg-bench lsp-truth` on 17 November, the same server found 255 of the 261 call lines in hono's compiler-derived truth with every file open, against 31 with only the targets open.
 
 No competitor's recall beat this tool's on any repository. Where one matched it, both found every call, except on hono (34 of 40, with code-review-graph and CodeGraph), vue (84 of 88, with code-review-graph), rayon (224 of 226, with both language-server asks) and zola (60 of 61, with Serena and both language-server asks).
 

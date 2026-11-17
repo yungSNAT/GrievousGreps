@@ -25,18 +25,20 @@ This set tests `callers` on 5 repositories that no build of this tool or its ben
 
 ## How truth is derived
 
-For each kept definition the server is asked for every reference, without the declaration. A reference is a call when the line continues with `(`, after any generic arguments (`::<T>` in Rust, `[T]` in Go, `<T>` in C# and TypeScript), or when it is a Python or TypeScript decorator, a JSX element or a tagged template. Calls become required rows, grouped by file and by the named definition around them, or by file (`<file>`) at module level. Any other reference inside a named definition is an optional row; one at module level, such as an import, gets no row. This follows `tsc-truth.mjs`, with 2 differences: the call test reads the line rather than a syntax tree, so a call whose `(` starts the next line counts as a reference, and a calling definition is any symbol the server reports other than a module, namespace or package or a value such as a variable, field or constant whose line does not assign a function, rather than the compiler's syntax kinds.
+For each kept definition the server is asked for every reference, without the declaration. A reference is a call when the line continues with `(`, after any generic arguments (`::<T>` in Rust, `[T]` in Go, `<T>` in C# and TypeScript), or when it is a Python or TypeScript decorator, a JSX element or a tagged template. Calls become required rows, grouped by file and by the named definition around them, or by file (`<file>`) at module level. Any other reference inside a named definition is an optional row; one at module level, such as an import, gets no row. This follows `tsc-truth.mjs`, with 2 differences: the call test reads the line rather than a syntax tree, so a call whose `(` starts the next line counts as a reference, and a calling definition is any symbol the server reports other than a module, namespace or package or a value such as a variable, field or constant whose line does not assign a function, rather than the compiler's syntax kinds. For TypeScript every `.ts`, `.tsx`, `.mts` and `.cts` file outside `dist` and `coverage` is opened first, as `tsc-truth.mjs` reads them all, because the TypeScript server searches only the projects of open files.
 
 serilog's project lists its target frameworks with a leading empty entry when not on Windows, which Roslyn's MSBuild workspace cannot load ([dotnet/vscode-csharp#5786](https://github.com/dotnet/vscode-csharp/issues/5786)), so csharp-ls runs with `TargetFramework=net10.0` in its environment.
 
 A first derivation on 16 November 2026 (UTC), before any tool had run on the 5, had 3 faults, which were fixed before the truth was derived again: gopls names a method by its receiver, as `(*Logger).WithFields`, so Go methods were neither picked nor named as callers; a TypeScript arrow function held in a variable, as `let has = (...) =>`, was not named as a caller; and csharp-ls loaded no serilog project, as above, so no C# symbol was picked. A pick now fails rather than write fewer than 10 symbols.
 
-The truth in `truth/` was derived on 16 November 2026 (UTC), on Linux, with the servers above; gopls was v0.24.0 and rust-analyzer reported 0.3.3121.
+The second derivation, committed on 17 November 2026 at about 00:25 (UTC), had a fourth fault, found before any tool had run on the 5 by deriving truth again for 7 of the 21 repositories and comparing it with their committed truth. immer's `tsconfig.json` lists only its source files, and only the target files were open, so the TypeScript server searched no other file and immer's truth had no row outside `src/`. With every file open, the same derivation found 255 of the 261 call lines in hono's compiler-derived truth, against 31 before, and 348 of radix's 395, against 14. immer's truth was derived again; the other 4 languages' servers search the whole workspace, so their truth is unchanged.
+
+The truth in `truth/` was derived on Linux with the servers above, on 16 November 2026 (UTC) and, for immer, on 17 November; gopls was v0.24.0 and rust-analyzer reported 0.3.3121.
 
 | Repository | Candidates derived | Required rows | Calls | Optional rows |
 | --- | ---: | ---: | ---: | ---: |
 | marshmallow | 32 | 228 | 272 | 0 |
-| immer | 53 | 30 | 37 | 0 |
+| immer | 28 | 42 | 56 | 0 |
 | serde_json | 42 | 49 | 89 | 1 |
 | logrus | 29 | 143 | 195 | 2 |
 | serilog | 55 | 102 | 309 | 4 |
@@ -44,5 +46,7 @@ The truth in `truth/` was derived on 16 November 2026 (UTC), on Linux, with the 
 ## Limits
 
 - The truth is the server's. A call the server cannot resolve, such as one through Python's dynamic attributes, is missing from it, so a tool that finds such a call is charged a false positive.
+- The TypeScript truth reads TypeScript files only, as `tsc-truth.mjs` does. 17 of the 25 JavaScript and TypeScript files in immer's `__tests__` are JavaScript, so a call from them is charged as a false positive.
+- Opening every file can exhaust the TypeScript server on a large monorepo: on trpc it exited before answering.
 - The language-server column of the main benchmark is not run here, because these servers wrote the truth.
 - 5 repositories with 10 symbols each estimate nothing about recall on other code; they only test whether the 21-repository figures hold on code no build has seen.
