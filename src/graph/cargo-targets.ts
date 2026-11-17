@@ -11,10 +11,12 @@ const KINDS = [["test", "tests"], ["example", "examples"], ["bench", "benches"]]
 
 /** Whether a manifest's target tables have the shapes Cargo accepts: `[lib]` a table, `[[bin]]`
  * tables (whose `name` Cargo may take from the `path`), and `[[test]]`, `[[example]]` and
- * `[[bench]]` tables that each name their target; every `path` a string. */
+ * `[[bench]]` tables that each name their target; every name non-empty, every `path` a string. */
 function targetTablesShaped(doc: Table): boolean {
-  const list = (v: unknown, named: boolean) => v === undefined
-    || (Array.isArray(v) && v.every((t) => isTable(t) && (named ? typeof t.name === "string" : optionalString(t.name)) && optionalString(t.path)));
+  const named = (t: Table) => typeof t.name === "string" && t.name !== "";
+  const list = (v: unknown, nameRequired: boolean) => v === undefined
+    || (Array.isArray(v) && v.every((t) => isTable(t) && optionalString(t.path)
+      && (named(t) || (!nameRequired && t.name === undefined && t.path !== undefined))));
   return (doc.lib === undefined || (isTable(doc.lib) && optionalString(doc.lib.path))) && list(doc.bin, false) && KINDS.every(([kind]) => list(doc[kind], true));
 }
 
@@ -103,9 +105,10 @@ function packageEdition(dir: string, pkg: Table, docs: ReadonlyMap<string, Table
 
 /** The `[workspace.package]` edition of the package's workspace root, found as Cargo does: its
  * own `[workspace]`, the folder its `package.workspace` names, else the nearest folder above whose
- * manifest has a `[workspace]`. Undefined when that root or its edition is uncertain: the walk
- * meets a manifest that is not TOML, a root with an `exclude` list (which Cargo passes over when
- * it names the package), or another package's `package.workspace`, or finds no root in the repo. */
+ * manifest has a `[workspace]` and does not exclude the package ({@link excludes}). Undefined when
+ * that root or its edition is uncertain: the walk meets a manifest that is not TOML, a root whose
+ * `exclude` or `members` it cannot read, or another package's `package.workspace`, or finds no
+ * root in the repo. */
 function inheritedEdition(dir: string, pkg: Table, docs: ReadonlyMap<string, Table | undefined>): string | undefined {
   const editionOf = (ws: unknown) => (isTable(ws) && isTable(ws.package) ? year(ws.package.edition) : undefined);
   const own = docs.get(dir)?.workspace;
@@ -115,9 +118,28 @@ function inheritedEdition(dir: string, pkg: Table, docs: ReadonlyMap<string, Tab
     d = posix.dirname(d);
     if (!docs.has(d)) continue;
     const doc = docs.get(d);
-    if (doc?.workspace !== undefined) return isTable(doc.workspace) && doc.workspace.exclude === undefined ? editionOf(doc.workspace) : undefined;
+    if (doc?.workspace !== undefined) {
+      const excluded = isTable(doc.workspace) ? excludes(d, dir, doc.workspace) : undefined;
+      if (excluded === undefined) return undefined;
+      if (!excluded) return editionOf(doc.workspace);
+      continue;
+    }
     const member = doc && (doc.package ?? doc.project);
     if (!isTable(member) || member.workspace !== undefined) return undefined;
   }
   return undefined;
+}
+
+/** Whether the workspace at `root` excludes the package at `dir`, as Cargo's `is_excluded` reads
+ * it: the package's manifest path starts with `root` joined to an `exclude` entry and with no
+ * `members` entry, compared component by component as written, globs included, `.` dropped.
+ * Undefined when either list is not strings, or an entry is absolute. */
+function excludes(root: string, dir: string, ws: Table): boolean | undefined {
+  const [exclude, members] = [ws.exclude ?? [], ws.members ?? []];
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === "string" && !s.startsWith("/"));
+  if (!strings(exclude) || !strings(members)) return undefined;
+  const parts = (p: string) => p.split("/").filter((c) => c !== "" && c !== ".");
+  const manifest = parts(posix.join(dir, "Cargo.toml"));
+  const under = (entry: string) => [...parts(root), ...parts(entry)].every((c, i) => manifest[i] === c);
+  return exclude.some(under) && !members.some(under);
 }

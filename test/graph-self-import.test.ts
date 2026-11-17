@@ -690,7 +690,7 @@ test("Rust: under `use super::*`, a test file is a root only when Cargo builds i
 
 test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and what it leaves unknown is unsure and reported", async (t) => {
   const deps = `\n[dependencies]\ntracing-mock = { path = "../mock" }\ntwo = { path = "../two" }\n`;
-  const nameOf = (dir: string) => dir.replace("/", "_");
+  const nameOf = (dir: string) => dir.replaceAll("/", "_");
   // `top` reaches mock's `event` when Cargo builds tests/foo.rs as a target, and nothing when not.
   const found = (dir: string, manifest: (name: string) => string) => ({
     [`${dir}/Cargo.toml`]: manifest(nameOf(dir)) + deps,
@@ -710,7 +710,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const pkg = (rest: string) => (name: string) => `[package]\nname = "${name}"\n${rest}`;
   const table = `\n[[test]]\nname = "bar"\n`;
   const graph = await build(t, {
-    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b"]\n\n[workspace.package]\nedition = "2021"\n`,
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "barebin", "barebin_b"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
     "mock/src/lib.rs": "pub mod expect;\n",
     "mock/src/expect.rs": "pub fn event() {}\n",
@@ -743,14 +743,23 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     ...both("unparsed", pkg(`edition = "2018"\nedition = "2021"\n${table}`)),
     ...both("edint", pkg(`edition = 2018\n${table}`)),
     ...both("autostr", pkg(`edition = "2018"\nautotests = "false"\n${table}`)),
-    // A root that states no edition, or has an `exclude` list that may pass over the package.
+    // A root that states no edition.
     "loose/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\n`,
     ...both("loose/d", pkg(`edition.workspace = true\n${table}`)),
+    // An `exclude` list passes over only the packages under it that no `members` entry names, as
+    // Cargo's `is_excluded` reads it: `excl/d` is not under it; `third/gone` is, so the root above
+    // decides (2021); `third/back` is named again.
     "excl/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ["old"]\n\n[workspace.package]\nedition = "2018"\n`,
     ...both("excl/d", pkg(`edition.workspace = true\n${table}`)),
-    // Target tables of another shape: a name that is no string, and no name.
+    "excl15/Cargo.toml": `[workspace]\nmembers = ["third/back", "third/back_b"]\nexclude = ["third"]\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("excl15/third/gone", pkg(`edition.workspace = true\n${table}`)),
+    ...both("excl15/third/back", pkg(`edition.workspace = true\n${table}`)),
+    // Target tables of another shape: a name that is no string, no name, an empty name, and a
+    // `[[bin]]` with neither name nor path.
     ...both("badname", pkg(`edition = "2018"\n\n[[test]]\nname = 1\n`)),
     ...both("noname", pkg(`edition = "2018"\n\n[[test]]\nharness = false\n`)),
+    ...both("emptyname", pkg(`edition = "2018"\n\n[[test]]\nname = ""\n`)),
+    ...both("barebin", pkg(`edition = "2018"\n${table}\n[[bin]]\ntest = false\n`)),
     // What one crate leaves unknown says nothing about a crate inside it, nor about a file that is
     // only ever a module: inner.rs is no parent of tests/nest/option.rs.
     ...found("autostr/inner", pkg(`edition = "2018"\n${table}`)),
@@ -761,9 +770,13 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const top = (dir: string) => calls(graph, `${dir}/tests/option.rs#top`);
   const mock = ["mock/src/expect.rs#event"];
   const two = ["two/src/expect.rs#event"];
-  for (const dir of ["project", "quoted", "dotted", "inline", "inner/d", "pointer", "renamed"]) {
+  for (const dir of ["project", "quoted", "dotted", "inline", "inner/d", "pointer", "renamed", "excl15/third/back"]) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs is no target`);
     assert.deepEqual(top(`${dir}_b`), two, `${dir}_b: and that is read for certain`);
+  }
+  for (const dir of ["excl/d", "excl15/third/gone"]) {
+    assert.deepEqual(top(dir), mock, `${dir}: tests/foo.rs is a target`);
+    assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: so 2 parents disagree`);
   }
   assert.deepEqual(top("dotted18"), mock, "a dotted `package.edition = \"2018\"`");
   assert.deepEqual(top("inline18"), mock, "an inline package's 2018 edition");
@@ -771,7 +784,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   assert.deepEqual(top("override"), mock, "`autotests = true` beats the 2015 default");
   assert.deepEqual(top("binpath"), mock, "a [[bin]] path");
   assert.deepEqual(top("libpath"), mock, "a [lib] path");
-  const unknown = ["unparsed", "edint", "autostr", "loose/d", "excl/d", "badname", "noname"];
+  const unknown = ["unparsed", "edint", "autostr", "loose/d", "badname", "noname", "emptyname", "barebin"];
   for (const dir of unknown) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs may be a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: tests/foo.rs may be no target`);
