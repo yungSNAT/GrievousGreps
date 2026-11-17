@@ -265,7 +265,7 @@ test("openBrowser with no opener on PATH: the URL printed is the fallback, nothi
 
 test("(Windows) a path with no drive, which the child would take on its own folder's drive, is refused", { skip: !win }, () => {
   const noDrive = process.execPath.replace(/^[a-zA-Z]:/, "");
-  assert.equal((spawnSync(noDrive, ["-e", "process.exit(3)"]).error as NodeJS.ErrnoException | undefined)?.code, "ENOENT");
+  assert.match(String(spawnSync(noDrive, ["-e", "process.exit(3)"]).error?.message), /was not started/);
 });
 
 test("an absolute path and a shell command line pass through as given", () => {
