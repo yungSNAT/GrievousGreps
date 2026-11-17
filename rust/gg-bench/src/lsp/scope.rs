@@ -118,11 +118,11 @@ pub fn clean_scope(name: &str) -> String {
 }
 
 /// The names of the definition around a position, outermost first, as Serena's column maps a
-/// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value inside
-/// a definition gives way to the definition. Empty at module level.
+/// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value gives
+/// way to the definition around it. Empty at module level, a module-level value's included.
 pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
     let mut chain = enclosing(scopes, at);
-    while chain.len() > 1 && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
+    while chain.last().is_some_and(|&inner| LOCAL.contains(&scopes[inner].kind)) {
         chain.pop();
     }
     chain
