@@ -98,7 +98,7 @@ process.stdin.on('data', (chunk) => {
 });
 "#;
 
-const MAIN: &str ="import lib\n\ndef main():\n    x = lib.run()\n    f = lib.run\n\ndef other():\n    return lib.run\nlib.run()\nfrom lib import run\nlib.run()\n";
+const MAIN: &str = "import lib\n\ndef main():\n    x = lib.run()\n    f = lib.run\n\ndef other():\n    return lib.run\nlib.run()\nfrom lib import run\nlib.run()\n";
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
