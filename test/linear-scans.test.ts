@@ -87,6 +87,7 @@ test("redactEnvValues: each value goes, wherever the line's lead or `=` puts it"
     ["FOO = bar # comment", `FOO = ${R}`, ["FOO=bar # comment"]],
     ["\u00a0FOO=bar", `\u00a0FOO=${R}`, ["FOO=bar"]],
     ["A=1\r\nB=2\r\n", `A=${R}\r\nB=${R}\r\n`, ["A=1", "B=2"]],
+    ["\rFOO=bar\r\r  12→\rBAR=baz", `\rFOO=${R}\r\r  12→\rBAR=${R}`, ["FOO=bar", "BAR=baz"]],
   ];
   for (const [text, want, wantTaken] of cases) {
     const taken: string[] = [];
@@ -145,5 +146,10 @@ const long: Array<[string, () => unknown]> = [
   ["an email host of many dots", () => anonymize(`a@${"b.".repeat(25_000)}`, [])],
   ["a run of blank lines in a .env read", () => redactEnvValues(`${"\n".repeat(5_000)}x`, () => {})],
   ["a run of spaces in a .env read", () => redactEnvValues(`${" ".repeat(50_000)}x`, () => {})],
+  // `^` in multiline mode also starts after a carriage return and the 2 Unicode line separators.
+  ...[0x0d, 0x2028, 0x2029].map((code): [string, () => unknown] => [
+    `a run of U+${code.toString(16).padStart(4, "0")} in a .env read`,
+    () => redactEnvValues(`${String.fromCharCode(code).repeat(50_000)}x`, () => {}),
+  ]),
 ];
 for (const [what, run] of long) test(`long input stays quick: ${what}`, () => quick(what, run));
