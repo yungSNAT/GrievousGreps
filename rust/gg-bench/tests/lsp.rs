@@ -13,7 +13,8 @@ use serde_json::{Value, json};
 /// Speaks just enough LSP: it asks the client for configuration and reports progress before it
 /// is ready, then answers for `lib.py`'s `run`, called from `main` on line 4 and at module level
 /// on line 6 of `main.py`, and once from a file outside the checkout. With `die` it exits after
-/// the handshake.
+/// the handshake; with `fail` it answers call hierarchy with an error and, until it is stopped,
+/// appends to `beat` beside it.
 const FAKE_SERVER: &str = r#"
 const fs = require('node:fs');
 const path = require('node:path');
@@ -47,6 +48,7 @@ function handle(m) {
   log(m);
   if (m.method === 'initialized') {
     if (process.argv[2] === 'die') process.exit(0);
+    if (process.argv[2] === 'fail') setInterval(() => fs.appendFileSync(path.join(__dirname, 'beat'), '.'), 50);
     send({ id: 'c1', method: 'workspace/configuration', params: { items: [{ section: 'a' }, { section: 'b' }] } });
     send({ method: '$/progress', params: { token: 7, value: { kind: 'begin', title: 'indexing' } } });
     setTimeout(() => send({ method: '$/progress', params: { token: 7, value: { kind: 'end' } } }), 500);
@@ -56,6 +58,10 @@ function handle(m) {
     mainUri = m.params.textDocument.uri.replace(/lib\.py$/, 'main.py');
   }
   if (m.method === 'exit') process.exit(0);
+  if (process.argv[2] === 'fail' && m.method === 'textDocument/prepareCallHierarchy') {
+    send({ id: m.id, error: { code: -32603, message: 'broken' } });
+    return;
+  }
   if (m.id !== undefined && m.method) send({ id: m.id, result: answer(m) });
 }
 process.stdin.on('data', (chunk) => {
@@ -231,4 +237,17 @@ fn a_server_that_exits_stops_the_run() {
         err.contains("closed its output") || err.contains("cannot write to the server"),
         "{err}"
     );
+}
+
+#[test]
+fn a_server_that_answers_with_an_error_is_stopped() {
+    let f = fixture();
+    let err = run(&f.options(Ask::Calls, &["fail"])).err().unwrap();
+    assert!(err.contains("broken"), "{err}");
+    let beat = f.server.with_file_name("beat");
+    let size = || fs::metadata(&beat).map_or(0, |m| m.len());
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let before = size();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    assert_eq!(size(), before, "the server still runs");
 }

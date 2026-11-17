@@ -55,14 +55,15 @@ process.stdin.on('data', (chunk) => {
 "#;
 
 /// A TypeScript server that, as typescript-language-server does, finds a reference only in a file
-/// whose project is loaded: here, only once the test file has been opened.
+/// whose project is loaded: here, only once the test file has been opened. The test file's
+/// `check` holds a value `go` on line 3, and the reference is the `run(` on that line.
 const FAKE_TS_SERVER: &str = r#"
 const send = (m) => { const b = JSON.stringify({ jsonrpc: '2.0', ...m }); process.stdout.write(`Content-Length: ${Buffer.byteLength(b)}\r\n\r\n${b}`); };
 const at = (line, a, b) => ({ start: { line, character: a }, end: { line, character: b } });
 const span = (a, b, c, d) => ({ start: { line: a, character: b }, end: { line: c, character: d } });
 let buffer = Buffer.alloc(0);
 let root = null;
-const open = new Set();
+const open = new Map();
 function answer(m) {
   const p = m.params || {};
   const uri = p.textDocument && p.textDocument.uri;
@@ -70,18 +71,21 @@ function answer(m) {
     case 'initialize': root = p.rootUri; return { capabilities: {} };
     case 'textDocument/documentSymbol':
       if (uri.endsWith('lib.ts')) return [{ name: 'run', kind: 12, range: span(0, 0, 0, 36), selectionRange: at(0, 16, 19) }];
-      return [{ name: 'check', kind: 12, range: span(1, 0, 3, 1), selectionRange: at(1, 9, 14) }];
+      return [{ name: 'check', kind: 12, range: span(1, 0, 3, 1), selectionRange: at(1, 9, 14),
+        children: [{ name: 'go', kind: 13, range: span(2, 2, 2, 30), selectionRange: at(2, 8, 10) }] }];
     case 'textDocument/references': {
       const test = root + '/__tests__/lib.test.ts';
-      const loaded = [...open].some((u) => u.endsWith('/__tests__/lib.test.ts'));
-      return loaded ? [{ uri: test, range: at(2, 2, 5) }] : [];
+      const text = [...open].find(([u]) => u.endsWith('/__tests__/lib.test.ts'));
+      if (!text) return [];
+      const column = text[1].split('\n')[2].indexOf('run(');
+      return [{ uri: test, range: at(2, column, column + 3) }];
     }
     default: return null;
   }
 }
 function handle(m) {
   if (m.method === 'exit') process.exit(0);
-  if (m.method === 'textDocument/didOpen') open.add(m.params.textDocument.uri);
+  if (m.method === 'textDocument/didOpen') open.set(m.params.textDocument.uri, m.params.textDocument.text);
   if (m.method === 'textDocument/didClose') open.delete(m.params.textDocument.uri);
   if (m.id !== undefined && m.method) send({ id: m.id, result: answer(m) });
 }
@@ -233,22 +237,33 @@ fn pick_chooses_symbols_with_enough_calls_and_refuses_to_replace_truth() {
 
 #[test]
 fn every_typescript_file_is_opened_so_tests_outside_the_project_count() {
+    assert_eq!(
+        typescript_rows("  run();"),
+        json!([{ "file": "__tests__/lib.test.ts", "chain": "check", "lines": [3] }])
+    );
+}
+
+#[test]
+fn a_value_holding_a_function_inside_a_definition_names_its_calls() {
+    assert_eq!(
+        typescript_rows("  const go = () => run();"),
+        json!([{ "file": "__tests__/lib.test.ts", "chain": "check::go", "lines": [3] }])
+    );
+}
+
+/// The required rows derived for `run` when line 3 of the test file, inside `check`, is `line`.
+fn typescript_rows(line: &str) -> Value {
+    let test = format!("import {{ run }} from '../src/lib';\nfunction check() {{\n{line}\n}}\n");
     let f = fixture_of(
         "TypeScript",
         &[
             ("src/lib.ts", "export function run() { return 1; }\n"),
-            (
-                "__tests__/lib.test.ts",
-                "import { run } from '../src/lib';\nfunction check() {\n  run();\n}\n",
-            ),
+            ("__tests__/lib.test.ts", &test),
         ],
         FAKE_TS_SERVER,
     );
     let truth = json!({ "run": { "target": "src/lib.ts", "target_lines": [1], "required": [] } });
     fs::write(f.bench.join("truth").join("demo.json"), truth.to_string()).unwrap();
     run(&f.options(None)).unwrap();
-    assert_eq!(
-        f.truth()["run"]["required"],
-        json!([{ "file": "__tests__/lib.test.ts", "chain": "check", "lines": [3] }])
-    );
+    f.truth()["run"]["required"].clone()
 }

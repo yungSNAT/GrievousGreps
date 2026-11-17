@@ -352,19 +352,24 @@ impl Server {
         )
     }
 
-    /// Asks the server to shut down, then stops it.
+    /// Asks the server to shut down, and gives it 5 seconds before it is killed on drop.
     pub fn stop(mut self) {
         let _ = self.request("shutdown", Value::Null, Duration::from_secs(10));
         let _ = self.notify("exit", Value::Null);
         let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            if matches!(self.child.try_wait(), Ok(Some(_))) {
-                return;
-            }
+        while Instant::now() < deadline && !matches!(self.child.try_wait(), Ok(Some(_))) {
             thread::sleep(Duration::from_millis(50));
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+    }
+}
+
+/// A server is killed when dropped, so a run that stops on an error does not leave it running.
+impl Drop for Server {
+    fn drop(&mut self) {
+        if !matches!(self.child.try_wait(), Ok(Some(_))) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
     }
 }
 
@@ -435,6 +440,13 @@ fn go_method(name: &str) -> Option<&str> {
         .map(|(_, method)| method)
 }
 
+/// The receiver type of a method gopls names as `(*Logger).WithFields`: `Logger`.
+pub(crate) fn go_receiver(name: &str) -> Option<String> {
+    let (receiver, _) = name.strip_prefix('(')?.split_once(").")?;
+    let receiver = receiver.trim_start_matches('*');
+    Some(receiver.split('[').next().unwrap_or(receiver).to_owned())
+}
+
 /// tsserver names a test callback like `it('x') callback`, and other anonymous scopes `<function>`.
 fn anonymous(name: &str) -> bool {
     name.ends_with(" callback")
@@ -447,7 +459,10 @@ pub fn clean_scope(name: &str) -> String {
     if let Some(method) = go_method(name) {
         return method.to_owned();
     }
-    let name = if let Some(rest) = name.strip_prefix("impl") {
+    let name = if let Some(rest) = name
+        .strip_prefix("impl")
+        .filter(|rest| rest.starts_with(['<', ' ']))
+    {
         match rest.rsplit_once(" for ") {
             Some((_, owner)) => owner.to_owned(),
             None if rest.starts_with('<') => {
@@ -466,6 +481,16 @@ pub fn clean_scope(name: &str) -> String {
 /// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value inside
 /// a definition gives way to the definition. Empty at module level.
 pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
+    let mut chain = enclosing(scopes, at);
+    while chain.len() > 1 && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
+        chain.pop();
+    }
+    chain
+}
+
+/// The symbols around a position, outermost first, without scope-only symbols and anonymous
+/// callbacks.
+pub(crate) fn enclosing(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
     let depth = |mut index: usize| {
         let mut depth = 0;
         while let Some(parent) = scopes[index].parent {
@@ -486,16 +511,14 @@ pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
         }
         next = scope.parent;
     }
-    while chain.len() > 1 && LOCAL.contains(&scopes[chain[0]].kind) {
-        chain.remove(0);
-    }
     chain.reverse();
     chain
 }
 
-/// The cleaned names of the symbols around one, innermost first.
+/// The cleaned names of the symbols around one, innermost first, starting with a Go method's
+/// receiver.
 fn owners(scopes: &[Scope], scope: &Scope) -> Vec<String> {
-    let mut names = Vec::new();
+    let mut names: Vec<String> = go_receiver(&scope.name).into_iter().collect();
     let mut next = scope.parent;
     while let Some(index) = next {
         names.push(clean_scope(&scopes[index].name));
@@ -524,7 +547,8 @@ pub fn targets<'a>(
         .iter()
         .filter(|s| {
             let owners = owners(scopes, s);
-            s.name == leaf && parts.iter().all(|p| owners.iter().any(|o| o == p))
+            go_method(&s.name).unwrap_or(&s.name) == leaf
+                && parts.iter().all(|p| owners.iter().any(|o| o == p))
         })
         .collect();
     let span = |s: &Scope| format!("L{}-L{}", lines(s).0, lines(s).1);
@@ -934,6 +958,8 @@ mod tests {
     fn go_methods_are_named_and_not_anonymous() {
         assert_eq!(clean_scope("(*Logger).WithFields"), "WithFields");
         assert_eq!(clean_scope("(Level).String"), "String");
+        assert_eq!(clean_scope("implementation"), "implementation");
+        assert_eq!(clean_scope("impl<T> Iterator for Iter<T>"), "Iter");
         assert!(!anonymous("(*Logger).WithFields"));
         assert!(anonymous("describe('x') callback"));
         assert!(anonymous("map(x)"));
@@ -969,5 +995,11 @@ mod tests {
         assert!(targets(&scopes, "run", &entry(vec![20]), true).is_empty());
         assert_eq!(targets(&scopes, "run", &entry(vec![]), false).len(), 2);
         assert!(targets(&scopes, "Bar.run", &entry(vec![]), false).is_empty());
+        let go = vec![scope("(*Logger).WithField", 6, (10, 12), None)];
+        assert_eq!(
+            names(targets(&go, "Logger.WithField", &entry(vec![11]), true)),
+            ["10@L11-L13"]
+        );
+        assert!(targets(&go, "Entry.WithField", &entry(vec![11]), true).is_empty());
     }
 }

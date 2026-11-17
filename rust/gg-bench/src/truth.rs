@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::lsp::{
-    READY_LIMIT, Server, Session, caller_chain, clean_scope, fresh_copy, path_to_uri, position,
-    relative, targets, uri_to_path,
+    READY_LIMIT, Server, Session, clean_scope, enclosing, fresh_copy, go_receiver, path_to_uri,
+    position, relative, targets, uri_to_path,
 };
 use crate::run::{read_truth, remove};
 use crate::score::{Entry, Repo, Rules};
@@ -60,7 +60,7 @@ impl Language {
                 [".ts", ".tsx", ".mts", ".cts"]
                     .iter()
                     .any(|e| file.ends_with(e))
-                    && !file.ends_with(".d.ts")
+                    && ![".d.ts", ".d.mts", ".d.cts"].iter().any(|e| file.ends_with(e))
             }
             Self::Rust => file.ends_with(".rs"),
             Self::Go => file.ends_with(".go"),
@@ -158,7 +158,8 @@ pub fn is_call(language: Language, line: &str, start: usize, end: usize) -> bool
     let decorator = before
         .trim_end_matches(|c: char| c.is_alphanumeric() || c == '_' || c == '.')
         .ends_with('@');
-    let jsx = language == Language::TypeScript && before.ends_with('<') && !before.ends_with("</");
+    let tag = before.trim_end_matches(|c: char| c.is_alphanumeric() || c == '_' || c == '.');
+    let jsx = language == Language::TypeScript && tag.ends_with('<') && !tag.ends_with("</");
     (decorator && matches!(language, Language::Python | Language::TypeScript)) || jsx
 }
 
@@ -261,11 +262,11 @@ impl Deriver<'_> {
     }
 
     /// The named definitions around a position, outermost first: as the column maps a reference,
-    /// but a value counts only when it holds a function.
+    /// except that a value at any depth counts when, and only when, its line assigns a function.
     fn named_chain(&mut self, path: &str, at: (u64, u64)) -> Result<Vec<usize>, String> {
         let around: Vec<(usize, u64, u64)> = {
             let scopes = self.session.scopes(path)?;
-            caller_chain(scopes, at)
+            enclosing(scopes, at)
                 .into_iter()
                 .map(|i| (i, scopes[i].kind, scopes[i].start.0))
                 .collect()
@@ -309,7 +310,7 @@ impl Deriver<'_> {
             return Ok(None);
         }
         let key = match chain.last() {
-            Some(&inner) => format!("{path}#{}", scopes[inner].start.0),
+            Some(&inner) => format!("{path}#{:?}", scopes[inner].start),
             None => format!("{path}#file"),
         };
         let names = (!chain.is_empty()).then(|| {
@@ -360,9 +361,8 @@ impl Deriver<'_> {
 /// Every file under `dir`, relative and with `/` separators, skipping `.git` and `node_modules`.
 fn files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), String> {
     let mut entries: Vec<_> = fs::read_dir(dir)
-        .map_err(|e| format!("cannot list {}: {e}", dir.display()))?
-        .filter_map(Result::ok)
-        .collect();
+        .and_then(Iterator::collect)
+        .map_err(|e| format!("cannot list {}: {e}", dir.display()))?;
     entries.sort_by_key(fs::DirEntry::file_name);
     for entry in entries {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -403,13 +403,6 @@ fn open_files(
     Ok(())
 }
 
-/// The receiver type of a method gopls names as `(*Logger).WithFields`: `Logger`.
-fn go_receiver(name: &str) -> Option<String> {
-    let (receiver, _) = name.strip_prefix('(')?.split_once(").")?;
-    let receiver = receiver.trim_start_matches('*');
-    Some(receiver.split('[').next().unwrap_or(receiver).to_owned())
-}
-
 /// Whether a value's first line gives it a function, as `let has = (` or `f = lambda x:`. Such a
 /// value names the calls inside it, as tsc-truth.mjs names an arrow function by its variable.
 ///
@@ -425,9 +418,14 @@ pub fn function_holder(line: &str) -> bool {
     let bare_parameter = value.split_once("=>").is_some_and(|(p, _)| {
         !p.trim().is_empty() && p.trim().chars().all(|c| c.is_alphanumeric() || c == '_')
     });
-    ["async", "function", "lambda", "func", "|", "move |"]
-        .iter()
-        .any(|start| value.starts_with(start))
+    let keyword = ["async", "function", "lambda", "func"].iter().any(|word| {
+        value
+            .strip_prefix(word)
+            .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+    });
+    keyword
+        || value.starts_with('|')
+        || value.starts_with("move |")
         || (value.starts_with('(') && (value.contains("=>") || value == "("))
         || bare_parameter
 }
@@ -710,6 +708,8 @@ mod tests {
             "Presence"
         ));
         assert!(!call(Language::TypeScript, "</Presence>", "Presence"));
+        assert!(call(Language::TypeScript, "<UI.Button size={2} />", "Button"));
+        assert!(!call(Language::TypeScript, "</UI.Button>", "Button"));
         assert!(call(Language::TypeScript, "const q = sql`select`", "sql"));
         assert!(!call(Language::Go, "f := Max", "Max"));
     }
@@ -727,6 +727,8 @@ mod tests {
         assert!(!function_holder("const total = (a + b) * 2"));
         assert!(!function_holder("if a == b {"));
         assert!(!function_holder("items.map(x => x)"));
+        assert!(!function_holder("const data = asyncFetch(url)"));
+        assert!(!function_holder("f = functools.partial(run, 1)"));
     }
 
     #[test]
@@ -770,6 +772,7 @@ mod tests {
             "test/Serilog.Tests/LoggerTests.cs"
         ));
         assert!(!pickable(Language::TypeScript, "src/types.d.ts"));
+        assert!(!pickable(Language::TypeScript, "src/types.d.mts"));
         assert!(!pickable(Language::Rust, "benches/bench.rs"));
         assert!(!pickable(Language::Rust, ".github/x.rs"));
     }
