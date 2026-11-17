@@ -22,8 +22,8 @@ use crate::score::{Entry, Repo, Rules};
 mod derive;
 mod syntax;
 
-use derive::{Deriver, open_files, pick};
 pub use derive::{Derived, PICK_CALLS, shuffle};
+use derive::{Deriver, open_files, pick};
 pub use syntax::{Language, function_holder, is_call, pickable};
 
 pub struct TruthOptions {
