@@ -79,10 +79,13 @@ function runnable(path: string, win: boolean): boolean {
  * The folders the system passes through to reach `file`: where each link on the way stands (the
  * link itself when it stands for a folder, the folder holding it when it stands for the file) and
  * the real folder at the end; null when the path does not resolve. A `..` steps back from the
- * folder reached so far, as POSIX takes it; Windows has already removed `..` from the path as written.
+ * folder reached so far, as POSIX takes it; Windows removes `..` from the path as written, and from
+ * a link's target put in its place, before it follows any link.
  */
 function linkFolders(p: typeof posix, file: string): string[] | null {
-  const split = (path: string) => path.split(p === win32 ? /[\\/]+/ : /\/+/).filter((part) => part !== "" && part !== ".");
+  const win = p === win32;
+  const split = (path: string) => path.split(win ? /[\\/]+/ : /\/+/).filter((part) => part !== "" && part !== ".");
+  if (win) file = p.resolve(file);
   let at = p.parse(file).root;
   let todo = split(file.slice(at.length));
   const found: string[] = [];
@@ -105,6 +108,12 @@ function linkFolders(p: typeof posix, file: string): string[] | null {
     }
     if (++links > 40) return null;
     found.push(todo.length > 0 ? next : at);
+    if (win) {
+      const rest = p.resolve(at, target, ...todo);
+      at = p.parse(rest).root;
+      todo = split(rest.slice(at.length));
+      continue;
+    }
     const root = p.parse(target).root;
     if (root) at = root;
     todo = [...split(target.slice(root.length)), ...todo];
@@ -143,7 +152,13 @@ function rules(opts: FindOptions) {
   const allows = (file: string, entry: string[]) => {
     const traced = (opts.folders ?? ((f: string) => linkFolders(p, f)))(file);
     const realFile = real(file);
-    return traced !== null && realFile !== null && !entry.some(passedOver) && ![p.dirname(realFile), ...traced].some((d) => inTree(fold(d)));
+    if (traced === null || realFile === null || entry.some(passedOver)) return false;
+    // Each link also where it really stands (its folder's real path), so `\\?\` and 8.3 spellings match the working folder.
+    const stands = traced.map((d) => {
+      const parent = real(p.dirname(d));
+      return parent === null ? d : p.join(parent, p.basename(d));
+    });
+    return ![p.dirname(realFile), ...traced, ...stands].some((d) => inTree(fold(d)));
   };
   return { win, p, env, real, allows };
 }
@@ -188,7 +203,6 @@ export function locateProgram(name: string, opts: FindOptions = {}): Located {
       const written = win ? p.join(listed, name + ending) : `${listed}/${name}${ending}`;
       if (allows(written, [p.resolve(listed), dir, p.dirname(p.resolve(written))])) return { path: file, skipped };
       skipped ??= file;
-      break;
     }
   }
   return { path: null, skipped };
@@ -199,8 +213,9 @@ export const findProgram = (name: string, opts: FindOptions = {}): string | null
 
 /** Whether `file` is an absolute path that keeps to locateProgram's rules, links followed. */
 export function admitted(file: string, opts: FindOptions = {}): boolean {
-  const { win, p, allows } = rules(opts);
-  return absolute(file, win) && allows(file, [p.dirname(p.resolve(file))]);
+  const { win, p, real, allows } = rules(opts);
+  const dir = p.dirname(p.resolve(file));
+  return absolute(file, win) && allows(file, [dir, real(dir) ?? dir]);
 }
 
 const isBare = (name: string) => !name.includes("/") && !(process.platform === "win32" && name.includes("\\"));
