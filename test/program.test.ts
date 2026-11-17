@@ -207,6 +207,21 @@ test("findProgram: a folder reached through a link into the working folder is pa
   assert.notEqual(find(join(top, "outside-bin"), repo), null, "the folder it links to, named as itself, is used");
 });
 
+test("findProgram: a program linked through a node_modules/.bin elsewhere, as Yarn classic installs globally, is used", (t) => {
+  const top = scratch(t);
+  const name = parse(tool(join(top, "yg", "node_modules", "pkg", "bin"))).base;
+  mkdirSync(join(top, "yg", "node_modules", ".bin"));
+  mkdirSync(join(top, "yp", "bin"), { recursive: true });
+  try {
+    symlinkSync(join("..", "pkg", "bin", name), join(top, "yg", "node_modules", ".bin", name), "file");
+    symlinkSync(join("..", "..", "yg", "node_modules", ".bin", name), join(top, "yp", "bin", name), "file");
+  } catch (e) {
+    if (win && (e as NodeJS.ErrnoException).code === "EPERM") return t.skip("this Windows account cannot make file links");
+    throw e;
+  }
+  assert.equal(find(join(top, "yp", "bin"), join(top, "elsewhere")), join(top, "yp", "bin", name));
+});
+
 test("findProgram (POSIX): .. after a link is taken from the link's target, as the system takes it", { skip: win }, (t) => {
   const top = scratch(t);
   mkdirSync(join(top, "a"));

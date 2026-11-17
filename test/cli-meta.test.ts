@@ -203,7 +203,8 @@ test('getNpmViewVersion runs npm in the working folder, so a project .npmrc stil
 const onWindows = { skip: process.platform !== 'win32' };
 
 /** npm in `dir` as Node's installer lays it out: npm.cmd (which fails if run), an npm-cli.js that
- * answers `version` and leaves the file `mark` when given, and an npm-prefix.js printing `prefix`. */
+ * answers `version` and leaves the file `mark` when given, and an npm-prefix.js printing `prefix`,
+ * unless a `.npmrc` in the folder it runs in names another, as npm's project configuration would. */
 function npmAt(dir: string, version: string, opts: { prefix?: string; mark?: string } = {}): void {
   const bin = join(dir, 'node_modules', 'npm', 'bin');
   mkdirSync(bin, { recursive: true });
@@ -212,7 +213,11 @@ function npmAt(dir: string, version: string, opts: { prefix?: string; mark?: str
     ...(opts.mark ? [`require('fs').writeFileSync(${JSON.stringify(opts.mark)}, '');`] : []),
     `if (process.argv[2] === 'view') console.log(${JSON.stringify(version)});`,
   ].join('\n'));
-  if (opts.prefix !== undefined) writeFileSync(join(bin, 'npm-prefix.js'), `console.log(${JSON.stringify(opts.prefix)});`);
+  if (opts.prefix !== undefined) writeFileSync(join(bin, 'npm-prefix.js'), [
+    "const fs = require('fs');",
+    "const rc = fs.existsSync('.npmrc') ? /^prefix=(.*)$/m.exec(fs.readFileSync('.npmrc', 'utf8')) : null;",
+    `console.log(rc ? rc[1].trim() : ${JSON.stringify(opts.prefix)});`,
+  ].join('\n'));
 }
 
 /** A scratch folder, and the working folder `here` (made current), both removed afterwards; npm's folder `top\npm` goes first on PATH. */
@@ -252,6 +257,16 @@ test('getNpmViewVersion (Windows): a prefix inside the working folder is never r
   npmAt(join(here, 'prefix'), '7.7.7', { mark });
   assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
   assert.equal(existsSync(mark), false, "the working folder's npm ran");
+});
+
+test("getNpmViewVersion (Windows): the working folder's .npmrc does not choose the npm that runs", onWindows, (t) => {
+  const { top, here } = npmScene(t);
+  const mark = join(top, 'ran');
+  npmAt(join(top, 'npm'), '9.9.9', { prefix: join(top, 'empty') });
+  npmAt(join(top, 'vendor'), '7.7.7', { mark }); // outside the working folder: only its .npmrc names it
+  writeFileSync(join(here, '.npmrc'), `prefix=${join(top, 'vendor')}\n`);
+  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+  assert.equal(existsSync(mark), false, "the npm the working folder's .npmrc named ran");
 });
 
 test("getNpmViewVersion (Windows): npm's files reached through a link into the working folder are never run", onWindows, (t) => {
