@@ -265,6 +265,16 @@ mod tests {
     }
 
     #[test]
+    fn a_module_level_value_is_no_caller() {
+        // module > variable CONFIG, whose value calls the target: the call is at module level.
+        let scopes = vec![
+            scope("mod.py", 2, (0, 100), None),
+            scope("CONFIG", 13, (5, 7), Some(0)),
+        ];
+        assert!(caller_chain(&scopes, (6, 4)).is_empty());
+    }
+
+    #[test]
     fn rust_impl_blocks_are_named_by_their_type() {
         assert_eq!(clean_scope("impl<T> Service<T> for Router<S>"), "Router");
         assert_eq!(clean_scope("impl<S> Router<S>"), "Router");
