@@ -70,7 +70,7 @@ trail grep <pattern>                 # every occurrence, grouped by enclosing sy
 trail viz                            # an interactive viewer of the graph, served on localhost
 ```
 
-`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx it was 1,016,743 bytes, with no script or style loaded from elsewhere.
+`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx it was 1,016,743 bytes (16 November, at `88c214e`), with no script or style loaded from elsewhere.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
@@ -173,7 +173,7 @@ The 6 further tools, run the same day on the same calls:
 
 AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool built its index with its documented command and answered its documented callers question: CodeGraph `codegraph callers`, CodeGraphContext's MCP `find_callers`, repowise `context --include callers`, tokensave's MCP symbol lookup and callers, Graphify `explain`, and AxiomCode Graph `impact`. These 6 licences are GitHub's reading of each repository's licence on 16 November 2026, and AxiomCode Graph's from its npm package; they were not checked file by file at each release.
 
-**11 more call-graph tools.** Between 21:04 (UTC) on 16 November 2026 and 04:53 on 17 November these tools answered the same 210 questions, each at the version installed that day, and the same scorer counted their answers at 04:53. 7 have complete runs:
+**11 more call-graph tools.** Between 21:04 (UTC) on 16 November 2026 and 04:53 on 17 November the 7 scored tools answered the same 210 questions, each at the version installed that day, and the same scorer counted their answers at 04:53. 7 have complete runs:
 
 | | codeseek 0.1.33 | grepai 1.2.0 | sem 0.30.1 | tilth 0.15.0 | ripwire 0.6.10 | codedb 0.2.5864 | Graphicle 0.1.18 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -183,9 +183,9 @@ AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool
 | Rust | 0.73 / 0.51 / 52 | 0.75 / 0.48 / 53 | 0.50 / 0.85 / 11 | 0.47 / 0.58 / 15 | 0.26 / 0.94 / 3 | 0.24 / 0.61 / 31 | 0.12 / 0.78 / 54 |
 | Licence | MIT | MIT | Apache-2.0 | MIT | Apache-2.0 | BSD-3-Clause | Apache-2.0 |
 
-Graphicle timed out on table after 517 s, so its figures pool the other 20 repositories. sem's index command exited with an error on tokio and tracing, and its answers there are scored as it gave them. grepai builds its symbol index only with an embedding endpoint; a local stand-in that returns one fixed vector served it, as its `trace callers` reads the symbol index, not the vectors. These licences are GitHub's reading of each repository's licence on 17 November 2026.
+Graphicle timed out on table after 517 s, so its figures pool the other 20 repositories. sem's index command exited with an error on tokio and tracing, and its answers there are scored as it gave them. grepai builds its symbol index only with an embedding endpoint; a local stand-in that returns one fixed vector served it, as its `trace callers` reads the symbol index, not the vectors. These licences are GitHub's reading of each repository's licence on 17 November 2026, except tilth's, from its README of 16 November, as GitHub no longer finds the repository.
 
-4 are not scored yet. gortex v0.64.11 marked 176 of its 237 answers `coverage_incomplete`, and the run did not establish whether its daemon had finished loading. trace-mcp 3.44.1 found 33 of the 1,129 TypeScript rows and none of the 2,153 Rust rows, and Auryn 0.1.0 none of either, although both list those languages; the harness finds Auryn's files through Python module paths, so for Auryn at least the fault may be the harness's. Axon 1.0.1 timed out on attrs after 1,058 s; its runs on the other repositories were not complete when the table was scored.
+4 are not scored yet. gortex v0.64.11 marked 176 of the 237 definitions it answered for `coverage_incomplete`, and the run did not establish whether its daemon had finished loading. trace-mcp 3.44.1 found 33 of the 1,129 TypeScript rows and none of the 2,153 Rust rows, and Auryn 0.1.0 none of either, although both list those languages; the harness finds Auryn's files through Python module paths, so for Auryn at least the fault may be the harness's. Axon 1.0.1 timed out on attrs after 1,058 s, and only its httpx answers were in the scoring at 04:53.
 
 **Language servers, asked directly.** On 16 November 2026 (UTC), from 21:40, `gg-bench lsp` at `8f297cb` put the same 210 questions to the servers Serena wraps, at their defaults and with each checkout's dependencies installed: Pyright 1.1.414, typescript-language-server 6.1.0 with each checkout's TypeScript, and rust-analyzer 0.3.3121. Each location was named by the definition around it, as for Serena's column; [benchmark/](benchmark/README.md#ask-a-language-server) has the command.
 

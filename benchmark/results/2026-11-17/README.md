@@ -16,6 +16,15 @@ The figures that pull requests #90, #91 and #92 added to the README, and where e
 | Licences of the 7 tools | [licences.txt](licences.txt), read again at 05:29 UTC on 17 November |
 | Tool versions | [versions.txt](versions.txt) |
 
+## Times kept on the benchmark machine only
+
+These README times rest on records that were not copied here:
+
+- 21:04 UTC on 16 November, the start of the 7 scored tools' window: the earliest of their runner's done markers (the httpx runs).
+- 21:40 UTC on 16 November, the language-server column's start: its job's start record.
+- 00:23 UTC on 17 November, the column's pooling: the modification time of its pooled table, copied here as `language-servers.md`.
+- 02:08, 04:10 and 04:47 UTC on 17 November and 21:11 on 16 November in the table above: the job logs and output files of those runs.
+
 ## No surviving output
 
 These figures were in the README, but no output of their runs was kept, so they are now out of it:
