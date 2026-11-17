@@ -18,6 +18,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
 - **Usage stats, the update check and workspace background reads are off** until you ask for them.
 - **Writes refuse a symlink** planted in a repository or output folder.
+- **CI tests Node 22 and 26.** Node 20 reached end of life on 30 April 2026 and is no longer tested.
 - **In a Git repository, the graph indexes folders whose names start with a dot**, such as `.storybook` or trpc's `examples/.test`, when Git lists their files. Caches, environments and tool state such as `.venv`, `.next`, `.cache` and `.trail` are still skipped, as are files whose names start with a dot. Outside Git every dot folder is still skipped.
 - **`trail mcp` and `graft mcp`** are what agents' MCP entries run. Nothing launches through `npx`.
 - **`trail version`** prints the local version and compares nothing.
