@@ -43,6 +43,8 @@ The truth in `truth/` was derived on Linux with the servers above, on 16 Novembe
 | logrus | 29 | 143 | 195 | 2 |
 | serilog | 55 | 102 | 309 | 4 |
 
+This committed truth is the one the tools ran against, from 02:08 (UTC) on 17 November, so it is not changed. A review of the code afterwards found further faults, which are fixed in `lsp-truth`. Derived again with the fixed code, the truth of marshmallow, immer, serde_json and logrus is identical, row for row. serilog's is not: csharp-ls names a method with its parameters, as `Write(LogEventLevel level)`, which the derivation took for an anonymous scope. So serilog's committed rows name the class around each call, not the method, and only generic methods, whose names were cut at `<`, could be picked. The fixed derivation picks 10 other symbols from 29 candidates and groups their 166 calls into 130 rows by method. Read serilog's figures with that in mind.
+
 ## Limits
 
 - The truth is the server's. A call the server cannot resolve, such as one through Python's dynamic attributes, is missing from it, so a tool that finds such a call is charged a false positive.
