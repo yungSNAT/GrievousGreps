@@ -185,7 +185,7 @@ AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool
 
 Graphicle timed out on table after 517 s, so its figures pool the other 20 repositories. sem's index command exited with an error on tokio and tracing, and its answers there are scored as it gave them. grepai builds its symbol index only with an embedding endpoint; a local stand-in that returns one fixed vector served it, as its `trace callers` reads the symbol index, not the vectors. These licences are GitHub's reading of each repository's licence on 17 November 2026, except tilth's, from its README of 16 November, as GitHub no longer finds the repository.
 
-The other 4 ran again on 17 November 2026 (UTC), after fixes to how the harness ran them: trace-mcp from 07:37 to 07:42, Axon from 07:53 to 08:29, Auryn from 08:13 to 08:22 and gortex from 19:54 to 20:12. The same scorer, built at `fc50a01`, counted all 4 at 20:12:
+The other 4 ran again on 17 November 2026 (UTC), after fixes to how the harness ran them: trace-mcp from 07:37 to 07:42, Axon from 07:52 to 08:29, Auryn from 08:13 to 08:22 and gortex from 19:54 to 20:12. The same scorer, built at `fc50a01`, counted all 4 at 20:12:
 
 | | Auryn 0.1.0 | gortex v0.64.11 | Axon 1.0.1 | trace-mcp 3.44.1 |
 | --- | --- | --- | --- | --- |
