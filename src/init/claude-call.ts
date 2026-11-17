@@ -8,9 +8,10 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { flatLine } from "../notes/flatten.js";
 
-/** `claude` (Claude Code) on PATH by its absolute path (util/program.ts), when it answers `--version`. */
+/** `claude` (Claude Code) on PATH by its absolute path (util/program.ts), when it answers `--version`.
+ * The temp folder, where callClaude runs it, counts as a working folder in the lookup too. */
 function claudeOnPath(): string | null {
-  const claude = findProgram("claude");
+  const claude = findProgram("claude", { cwd: tmpdir() });
   return claude && spawnSync(claude, ["--version"], { stdio: "ignore", timeout: 10_000, windowsHide: true }).status === 0 ? claude : null;
 }
 

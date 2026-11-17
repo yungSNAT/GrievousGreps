@@ -5,7 +5,7 @@
  * injected results instead of hitting the network from tests.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { findProgram, notFound, spawnSync } from "./util/program.js";
+import { admitted, findProgram, notFound, refused, spawnSync } from "./util/program.js";
 import type { SpawnSyncOptions } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,17 +71,32 @@ export function versionLine(moduleUrl: string): string {
 /** Runs `npm <args>` by npm's absolute path from PATH (util/program.ts); throws when there is none.
  * On Windows `npm` is the `npm.cmd` shim, which Node can start only through cmd.exe, where `%NAME%`
  * in its path would expand and the shim's fallback to a bare `node` would be looked for in the
- * working folder first. So the shim's own JavaScript entry, node_modules/npm/bin/npm-cli.js beside
- * it (as Node's installer, nvm-windows and `npm i -g npm` lay it out), runs with the node.exe
- * beside the shim, else this Node, and no shell. */
+ * working folder first. So trail makes the shim's own choice without a shell, for the layout
+ * Node's installer, nvm-windows and `npm i -g npm` make: Node is the node.exe beside the shim, else
+ * `node` from PATH, and npm is node_modules/npm/bin/npm-cli.js under the global prefix the shim's
+ * npm-prefix.js prints, when that file exists, else the one beside the shim. Each must keep to
+ * util/program.ts's rules, or nothing runs. A `.cmd` with no npm-cli.js beside it, such as mise's
+ * shims, which hand on to another program through cmd.exe, is not run. */
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
   const npm = findProgram("npm", { cmd: true });
   if (!npm) throw new Error(notFound("npm"));
   if (!npm.toLowerCase().endsWith(".cmd")) return spawnSync(npm, args, { ...options, windowsHide: true });
-  const entry = join(dirname(npm), "node_modules", "npm", "bin", "npm-cli.js");
-  if (!existsSync(entry)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);
-  const node = join(dirname(npm), "node.exe");
-  return spawnSync(existsSync(node) ? node : process.execPath, [entry, ...args], { ...options, windowsHide: true });
+  const bin = (prefix: string) => join(prefix, "node_modules", "npm", "bin");
+  const beside = join(dirname(npm), "node.exe");
+  const node = existsSync(beside) ? beside : findProgram("node");
+  if (!node) throw new Error(notFound("node"));
+  const run = (script: string, more: readonly string[], opts: SpawnSyncOptions) => {
+    for (const file of [node, script]) if (!admitted(file)) throw new Error(refused(file));
+    return spawnSync(node, [script, ...more], { ...opts, windowsHide: true });
+  };
+  let cli = join(bin(dirname(npm)), "npm-cli.js");
+  const prefixScript = join(bin(dirname(npm)), "npm-prefix.js");
+  if (existsSync(prefixScript)) {
+    const prefix = run(prefixScript, [], { ...options, encoding: "utf8" }).stdout?.toString().trim().split(/\r?\n/).pop();
+    if (prefix && existsSync(join(bin(prefix), "npm-cli.js"))) cli = join(bin(prefix), "npm-cli.js");
+  }
+  if (!existsSync(cli)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);
+  return run(cli, args, options);
 }
 
 export interface NpmViewResult {

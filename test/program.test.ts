@@ -13,10 +13,10 @@ import { openBrowser } from "../src/util/browser.js";
 import { execFileSync, findProgram, spawn, spawnSync } from "../src/util/program.js";
 
 const has = (...files: string[]) => (p: string) => files.includes(p);
-/** Folders as given: these cases name folders that need not exist. */
-const asGiven = (dir: string) => dir;
+/** Folders as given, with no links: these cases name folders that need not exist. */
+const asGiven = { realpath: (dir: string) => dir, folders: () => [] };
 const onWindows = (path: string, isFile: (p: string) => boolean, extra: NodeJS.ProcessEnv = {}, cmd = false) =>
-  findProgram("git", { platform: "win32", env: { PATH: path, ...extra }, isFile, realpath: asGiven, cmd });
+  findProgram("git", { platform: "win32", env: { PATH: path, ...extra }, isFile, ...asGiven, cmd });
 
 test("findProgram (Windows): PATH order, then PATHEXT's order, .com and .exe only", () => {
   assert.equal(onWindows("C:\\a;C:\\b", has("C:\\a\\git.exe", "C:\\b\\git.exe")), "C:\\a\\git.exe");
@@ -24,9 +24,9 @@ test("findProgram (Windows): PATH order, then PATHEXT's order, .com and .exe onl
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.com", "C:\\a\\git.exe"), { PATHEXT: ".EXE;.COM" }), "C:\\a\\git.exe", "the person's PATHEXT order");
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.exe"), { PATHEXT: ".COM;.BAT" }), null, "an ending PATHEXT leaves out is not tried");
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.exe"), { Pathext: ".BAT" }), null, "PATHEXT by any spelling");
-  assert.equal(findProgram("git", { platform: "win32", env: { Path: "C:\\a" }, isFile: has("C:\\a\\git.exe"), realpath: asGiven }), "C:\\a\\git.exe", "a copied environment's Path");
+  assert.equal(findProgram("git", { platform: "win32", env: { Path: "C:\\a" }, isFile: has("C:\\a\\git.exe"), ...asGiven }), "C:\\a\\git.exe", "a copied environment's Path");
   const both = { Path: "C:\\a", PATH: "C:\\b" }; // { ...process.env, PATH } on Windows: Node keeps PATH
-  assert.equal(findProgram("git", { platform: "win32", env: both, isFile: has("C:\\a\\git.exe", "C:\\b\\git.exe"), realpath: asGiven }), "C:\\b\\git.exe");
+  assert.equal(findProgram("git", { platform: "win32", env: both, isFile: has("C:\\a\\git.exe", "C:\\b\\git.exe"), ...asGiven }), "C:\\b\\git.exe");
 });
 
 test("findProgram (Windows): a git.cmd first on PATH is passed over for a later git.exe, and alone is not found", () => {
@@ -34,7 +34,7 @@ test("findProgram (Windows): a git.cmd first on PATH is passed over for a later 
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.cmd", "C:\\a\\git.bat")), null);
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.cmd"), {}, true), "C:\\a\\git.cmd", "unless the caller runs .cmd through a shell");
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.bat"), {}, true), null, "never a .bat");
-  const named = (name: string) => findProgram(name, { platform: "win32", env: { PATH: "C:\\a" }, isFile: has("C:\\a\\cmd.exe"), realpath: asGiven });
+  const named = (name: string) => findProgram(name, { platform: "win32", env: { PATH: "C:\\a" }, isFile: has("C:\\a\\cmd.exe"), ...asGiven });
   assert.equal(named("cmd.exe"), "C:\\a\\cmd.exe", "a name that already has its ending");
   assert.equal(named("cmd"), "C:\\a\\cmd.exe");
 });
@@ -43,15 +43,15 @@ test("findProgram: empty and relative PATH entries are never looked in", () => {
   const seen: string[] = [];
   const any = (p: string) => { seen.push(p); return true; };
   assert.equal(onWindows('.;;tools;bin\\x;C:relative;"."', any), null);
-  assert.equal(findProgram("git", { platform: "linux", env: { PATH: ".::bin:./x" }, isFile: any, realpath: asGiven }), null);
+  assert.equal(findProgram("git", { platform: "linux", env: { PATH: ".::bin:./x" }, isFile: any, ...asGiven }), null);
   assert.deepEqual(seen, []);
   assert.equal(onWindows('"C:\\Program Files\\Git\\cmd"', has("C:\\Program Files\\Git\\cmd\\git.exe")), "C:\\Program Files\\Git\\cmd\\git.exe", "a quoted entry");
 });
 
 test("findProgram (POSIX): PATH order; with no PATH, /usr/bin then /bin, as libuv", () => {
-  assert.equal(findProgram("git", { platform: "linux", env: { PATH: "/opt/x:/usr/bin" }, isFile: has("/opt/x/git", "/usr/bin/git"), realpath: asGiven }), "/opt/x/git");
-  assert.equal(findProgram("git", { platform: "linux", env: {}, isFile: has("/bin/git"), realpath: asGiven }), "/bin/git");
-  assert.equal(findProgram("git", { platform: "linux", env: { PATH: "" }, isFile: has("/bin/git"), realpath: asGiven }), null, "an empty PATH is no PATH entry at all");
+  assert.equal(findProgram("git", { platform: "linux", env: { PATH: "/opt/x:/usr/bin" }, isFile: has("/opt/x/git", "/usr/bin/git"), ...asGiven }), "/opt/x/git");
+  assert.equal(findProgram("git", { platform: "linux", env: {}, isFile: has("/bin/git"), ...asGiven }), "/bin/git");
+  assert.equal(findProgram("git", { platform: "linux", env: { PATH: "" }, isFile: has("/bin/git"), ...asGiven }), null, "an empty PATH is no PATH entry at all");
 });
 
 test("findProgram (POSIX): a file that is not executable is passed over", { skip: process.platform === "win32" }, (t) => {
@@ -158,7 +158,7 @@ test("findProgram: a node_modules/.bin folder is passed over wherever it is, a l
   assert.equal(find([nm, join(top, "later")].join(win ? ";" : ":"), other), later, "a later entry is still found");
 });
 
-test("findProgram: a filesystem root or the home folder as the working folder skips nothing", (t) => {
+test("findProgram: a filesystem root or the home folder as the working folder passes over only itself: folders under it are used", (t) => {
   const top = scratch(t);
   const bin = tool(join(top, "tools"));
   assert.equal(find(join(top, "tools"), parse(top).root), bin, "a service started in / or C:\\");
@@ -177,7 +177,7 @@ test("findProgram: a PATH entry that is the working folder is passed over, even 
   process.env[home] = top;
   t.after(() => { if (was === undefined) delete process.env[home]; else process.env[home] = was; });
   assert.equal(find(top, top), null, "trail run in the home folder, with the home folder itself on PATH");
-  const atRoot = (path: string, file: string) => findProgram("git", { platform: "linux", env: { PATH: path }, cwd: "/", isFile: has(file), realpath: asGiven });
+  const atRoot = (path: string, file: string) => findProgram("git", { platform: "linux", env: { PATH: path }, cwd: "/", isFile: has(file), ...asGiven });
   assert.equal(atRoot("/", "/git"), null, "a service started in /, with / on PATH");
   assert.equal(atRoot("/usr/bin", "/usr/bin/git"), "/usr/bin/git", "a folder under the root is still used");
 });
