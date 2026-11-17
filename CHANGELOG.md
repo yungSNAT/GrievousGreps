@@ -44,6 +44,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **Trail never runs a program the checkout holds.** On Windows, Node looks for a program named without a path, such as `git`, in the working folder before PATH, so a `git.exe` committed to a repository ran in place of your git whenever trail or one of its hooks started git there; `gh`, `claude` and `npm` were open the same way. A relative PATH entry such as `.` did the same on any system. Trail now starts each program by its absolute path from PATH's absolute folders, and the update check runs `npm` from your home folder.
 - **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
 - **A cached parse is replayed only when it describes its own file.** The extraction cache in the output folder could come with a clone, and an entry whose node named a path outside the repository was replayed as it stood, so `trail build --lsp` read that file and sent it to the language server. Such an entry, or a malformed one, is now dropped and its file parsed again.
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.

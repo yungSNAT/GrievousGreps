@@ -8,7 +8,7 @@
  * spinner's `1,204 of 1,942 files`, its totals become init's one summary line,
  * and any warning or error it printed is passed on whole.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "../util/program.js";
 import { hasGraftIndex } from "../graph/root.js";
 import { startSpinner } from "../util/spinner.js";
 

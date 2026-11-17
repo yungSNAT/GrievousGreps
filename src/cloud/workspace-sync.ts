@@ -22,7 +22,7 @@
  * `_trail-sync` child does it.
  */
 import { createHash } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "../util/program.js";
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { isUtf8 } from "node:buffer";
@@ -130,7 +130,7 @@ function skillTitle(name: string): string {
 function trackedAmong(root: string, paths: string[]): Set<string> {
   if (paths.length === 0) return new Set();
   try {
-    const out = execFileSync("git", ["--literal-pathspecs", "ls-files", "-z", "--", ...paths], { // NOSONAR: the person's own git, found through PATH on purpose
+    const out = execFileSync("git", ["--literal-pathspecs", "ls-files", "-z", "--", ...paths], {
       cwd: root,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -317,7 +317,7 @@ interface SyncState {
 /** The checkout's branch, or "" when git can't say (detached HEAD, no git). */
 function currentBranch(checkout: string): string {
   try {
-    const b = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: checkout, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }).trim(); // NOSONAR: the person's own git, found through PATH on purpose
+    const b = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: checkout, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5000 }).trim();
     return b === "HEAD" ? "" : b;
   } catch {
     return "";

@@ -18,7 +18,7 @@
  * Trail opens signed in, and the person picks the workspace it goes to (one
  * of theirs, a teammate's, or a new one).
  */
-import { spawn } from "node:child_process";
+import { spawn } from "../util/program.js";
 import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
 import { brand } from "../brand.js";

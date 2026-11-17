@@ -7,7 +7,7 @@
  * learning, say) stay on this machine: what goes up is what anyone who clones
  * the repo would read.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../util/program.js";
 import { LEARNINGS_DIR } from "../notes/repo-trail.js";
 
 /** Regular files only: a committed link (120000) or a submodule is no learning. */
@@ -16,7 +16,7 @@ const FILE_MODES = new Set(["100644", "100755"]);
 function git(checkout: string, args: string[], input?: string): Buffer | null {
   try {
     // Never a credential prompt: this runs detached, where nobody could answer it.
-    return execFileSync("git", args, { // NOSONAR: the person's own git, found through PATH on purpose
+    return execFileSync("git", args, {
       cwd: checkout,
       input,
       stdio: ["pipe", "pipe", "ignore"],

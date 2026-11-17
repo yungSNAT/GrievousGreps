@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn } from '../util/program.js';
 import { claudeScriptPath } from './paths.js';
 import { emitHook, payloadSessionId } from './hook-io.js';
 import { stopPart } from './skills-wiring.js';

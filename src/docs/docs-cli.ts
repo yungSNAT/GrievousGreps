@@ -9,7 +9,7 @@
  * it reads anything. Nothing here touches the network: the binary is the one
  * TRAIL_DOCS_BIN names, a prebuilt copy in the checkout or a local cargo build.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/program.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";

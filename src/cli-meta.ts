@@ -5,7 +5,9 @@
  * injected results instead of hitting the network from tests.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { spawnSync, type SpawnSyncOptions } from "node:child_process";
+import { findProgram, spawnSync } from "./util/program.js";
+import type { SpawnSyncOptions } from "node:child_process";
+import { homedir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brand, PACKAGE_FOR } from "./brand.js";
@@ -67,15 +69,19 @@ export function versionLine(moduleUrl: string): string {
   }
 }
 
-/** Runs `npm <args>`. On Windows `npm` is the `npm.cmd` shim, which only a shell
- * can start: spawned directly it fails with ENOENT, so the update check stored nothing.
- * The shell gets one joined command line because Node 24 warns (DEP0190) when it
- * has to join args for a shell. Every arg here is a fixed token, never user input,
- * and `npm` is found on PATH exactly as when the user runs it. */
+/** Runs `npm <args>` by npm's absolute path from PATH (util/program.ts); throws when there is none.
+ * On Windows `npm` is the `npm.cmd` shim, which only a shell can start: spawned directly it fails,
+ * so the update check stored nothing. The shell gets one joined command line because Node 24 warns
+ * (DEP0190) when it has to join args for a shell; every arg here is a fixed token, never user input.
+ * It runs in the home folder, not the checkout trail was started in: the shim falls back to a bare
+ * `node`, which cmd.exe looks for in the working folder first, and a checkout's .npmrc has no say
+ * in trail's own update check. */
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
-  const win = process.platform === "win32";
-  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- fixed npm tokens only
-  return spawnSync(win ? ["npm", ...args].join(" ") : "npm", win ? [] : args, { ...options, shell: win }); // NOSONAR: npm from PATH is intended
+  const npm = findProgram("npm", { cmd: true });
+  if (!npm) throw new Error("npm was not found on PATH");
+  if (process.platform !== "win32") return spawnSync(npm, args, { ...options, cwd: homedir() });
+  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- npm's absolute path and fixed tokens only
+  return spawnSync([`"${npm}"`, ...args].join(" "), [], { ...options, cwd: homedir(), shell: true });
 }
 
 export interface NpmViewResult {

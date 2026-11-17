@@ -11,7 +11,7 @@
  * "publish"); a cluster counts on 2+ local days that are not one 8 h
  * sitting (phase 0's rule, D46).
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../util/program.js';
 import { createHash } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -268,7 +268,7 @@ export function repoWordsOf(checkout: string, programs: Iterable<string> = []): 
       for (const m of (readPlain(join(checkout, file), REPO_FILE_MAX) ?? '').matchAll(/^([A-Za-z0-9][\w.-]*)\s*:(?!=)/gm)) add(m[1]);
     } catch { /* none */ }
   }
-  const r = spawnSync('git', ['-C', checkout, 'for-each-ref', '--format=%(refname:short)', '--count=200', 'refs/heads'], { encoding: 'utf8', timeout: 5000 }); // NOSONAR: the person's own git, found through PATH on purpose
+  const r = spawnSync('git', ['-C', checkout, 'for-each-ref', '--format=%(refname:short)', '--count=200', 'refs/heads'], { encoding: 'utf8', timeout: 5000 });
   if (r.status === 0) for (const b of r.stdout.split('\n')) add(b);
   // A program the sessions ran names the repo only when it is a script file of its own (`seed.sh`), never a program
   // every machine has (D102).

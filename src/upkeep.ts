@@ -25,7 +25,7 @@
  *   • Cursor/Codex  — MCP server boot (src/mcp/server.ts), and any CLI command
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn } from './util/program.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readJson, writeJsonAtomic, cacheDir } from './util/state.js';

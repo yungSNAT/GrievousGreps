@@ -37,7 +37,7 @@
  * session. So the first query there starts a full build in the background and
  * waits a while for it (`buildMissingMap`).
  */
-import { spawn } from "node:child_process";
+import { spawn } from "../util/program.js";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

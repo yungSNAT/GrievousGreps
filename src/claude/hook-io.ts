@@ -4,7 +4,7 @@
  * its time budget. Kept apart from hooks.ts so each event's handler can live in
  * its own file.
  */
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from '../util/program.js';
 import { createHash } from 'node:crypto';
 import { resolveContextDir } from './state.js';
 import { graftCliPath } from './paths.js';

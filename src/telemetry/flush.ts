@@ -11,7 +11,7 @@
  * are asking ("how many repos activated this week") do not get better answers
  * from lower latency.
  */
-import { spawn } from 'node:child_process';
+import { spawn } from '../util/program.js';
 import { statSync } from 'node:fs';
 import { graftCliPath } from '../claude/paths.js';
 import { drain, queuePath, requeue } from './queue.js';

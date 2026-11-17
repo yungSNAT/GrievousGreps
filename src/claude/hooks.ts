@@ -1,6 +1,6 @@
 import { cloudEnabled } from "../cloud/workspace.js";
 import { readFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../util/program.js';
 import { join, basename, isAbsolute, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { readWiring } from './stats.js';
@@ -307,7 +307,7 @@ export function trackRepoSeen(dir: string, now = Date.now()): void {
     const mark = join(cacheDir(place.checkout), 'trail-repo-seen.json');
     if (now - (readJson<{ at?: number }>(mark)?.at ?? 0) < DAY_MS) return;
     writeJsonAtomic(mark, { at: now }, true);
-    const tracked = execFileSync('git', ['ls-files', '--', '.trail'], { cwd: place.checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+    const tracked = execFileSync('git', ['ls-files', '--', '.trail'], { cwd: place.checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true });
     track(
       'repo_seen',
       { trail_committed: String(tracked.trim().length > 0), learnings_bucket: countBucket(learningFiles(place.checkout).length), workspace: String(inWorkspace(place.checkout)) },
@@ -329,7 +329,7 @@ export function trackLearningsCommitted(dir: string): void {
   try {
     const place = repoPlace(dir);
     if (!place.git) return;
-    const listed = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD', '--', '.trail/learnings'], { // NOSONAR: the person's own git, found through PATH on purpose
+    const listed = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD', '--', '.trail/learnings'], {
       cwd: place.checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true,
     });
     const count = listed.split('\n').filter((f) => f.endsWith('.md')).length;
@@ -358,7 +358,7 @@ export function uncommittedDirective(dir: string, now = Date.now()): string {
   try {
     const place = repoPlace(dir);
     if (!place.git) return '';
-    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.trail/learnings'], { // NOSONAR: the person's own git, found through PATH on purpose
+    const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all', '--', '.trail/learnings'], {
       cwd: place.checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true,
     });
     const n = status.split('\n').filter((l) => l.trimEnd().endsWith('.md')).length;
@@ -386,7 +386,7 @@ export function uncommittedDirective(dir: string, now = Date.now()): string {
  */
 export function setupUncommitted(checkout: string): boolean {
   if (!existsSync(join(checkout, '.trail', 'hook.cjs'))) return false;
-  const git = (args: string[]) => execFileSync('git', args, { cwd: checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+  const git = (args: string[]) => execFileSync('git', args, { cwd: checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000, windowsHide: true });
   try {
     git(['ls-files', '--error-unmatch', '--', '.trail/hook.cjs']);
   } catch {

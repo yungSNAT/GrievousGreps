@@ -18,7 +18,7 @@
  * Counts are session-days: a months-long session typed into on 30 days is 30,
  * two restarts on one morning are two sessions on one day.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/program.js";
 import { closeSync, existsSync, lstatSync, readdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -56,7 +56,7 @@ function scratch(cwd: string, top: string): boolean {
 }
 
 function git(dir: string, args: string[]): string {
-  const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000 }); // NOSONAR: the person's own git, found through PATH on purpose
+  const r = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000 });
   return r.status === 0 ? r.stdout.trim() : "";
 }
 

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../util/program.js';
 import { pathToFileURL } from 'node:url';
 import { readWiring, computeStats } from './stats.js';
 import { claimLock, patchStats, releaseLock, resolveContextDir } from './state.js';

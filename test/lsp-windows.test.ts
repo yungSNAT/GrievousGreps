@@ -11,12 +11,15 @@ import { spawn } from "node:child_process";
 import { copyFileSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findOnWindowsPath } from "../src/graph/lsp/registry.js";
+import { findProgram } from "../src/util/program.js";
 import { npmShimEntry, spawnSpec, LspClient } from "../src/graph/lsp/client.js";
 import { enrichWithLsp } from "../src/graph/lsp/enrich.js";
 import type { GraphV1 } from "../src/graph/types.js";
 
 const onWindows = { skip: process.platform !== "win32" };
+/** How the LSP registry looks a server up on Windows, with PATH and the files given. */
+const findOnWindowsPath = (cmd: string, path: string, isFile: (p: string) => boolean) =>
+  findProgram(cmd, { platform: "win32", env: { PATH: path }, cmd: true, isFile });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Windows keeps a just-killed process's hold on its cwd for a moment: retry the cleanup. */
 async function removeDir(dir: string): Promise<void> {

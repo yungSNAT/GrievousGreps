@@ -6,7 +6,8 @@
  * a server that is missing, slow, or errors degrades to "no enrichment", never a
  * crash — the AST graph stands on its own.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "../../util/program.js";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { win32 } from "node:path";

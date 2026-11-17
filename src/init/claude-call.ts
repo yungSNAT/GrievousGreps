@@ -2,7 +2,7 @@
  * Asking the person's own Claude Code, headless, for `trail init`: finding a
  * copy to run and making the one call.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "../util/program.js";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +10,7 @@ import { flatLine } from "../notes/flatten.js";
 
 /** Whether `claude` (Claude Code) is on PATH. */
 function claudeOnPath(): boolean {
-  const r = spawnSync("claude", ["--version"], { stdio: "ignore", timeout: 10_000 }); // NOSONAR: the person's own claude, found through PATH on purpose
+  const r = spawnSync("claude", ["--version"], { stdio: "ignore", timeout: 10_000 });
   return r.status === 0;
 }
 
