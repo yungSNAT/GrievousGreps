@@ -3,7 +3,7 @@
  * copy to run and making the one call.
  */
 import { findProgram, spawn, spawnSync } from "../util/program.js";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { flatLine } from "../notes/flatten.js";
@@ -183,17 +183,21 @@ export function callClaude<T>(
       "--disable-slash-commands",
     ];
     let finished = false;
+    // A new empty folder of its own to run in, so the folder it runs in never holds the program.
+    let room: string | undefined;
     const finish = (answer: ClaudeAnswer<T>) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
+      if (room) try { rmSync(room, { recursive: true, force: true }); } catch { /* still in use: the temp folder keeps it */ }
       done(answer);
     };
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let child;
     try {
-      child = spawn(bin, args, { cwd: tmpdir(), env: { ...process.env, TRAIL_NO_HOOKS: "1" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      room = mkdtempSync(join(tmpdir(), "trail-claude-"));
+      child = spawn(bin, args, { cwd: room, env: { ...process.env, TRAIL_NO_HOOKS: "1" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       finish({ ok: false, why: (e as NodeJS.ErrnoException)?.code === "ENOENT" ? "not_installed" : "failed" });
       return;
