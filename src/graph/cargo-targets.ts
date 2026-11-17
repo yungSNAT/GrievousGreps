@@ -9,15 +9,15 @@ const optionalString = (v: unknown) => v === undefined || typeof v === "string";
 /** The kinds of target Cargo can find by itself, and the folder it finds each in. */
 const KINDS = [["test", "tests"], ["example", "examples"], ["bench", "benches"]] as const;
 
-/** Whether a manifest's target tables have the shapes Cargo accepts: `[lib]` a table, `[[bin]]`
- * tables (whose `name` Cargo may take from the `path`), and `[[test]]`, `[[example]]` and
- * `[[bench]]` tables that each name their target; every name non-empty, every `path` a string. */
+/** Whether a manifest's target tables have the shapes Cargo accepts: a `[lib]` table, whose name,
+ * if given, has no hyphen, and `[[bin]]`, `[[test]]`, `[[example]]` and `[[bench]]` tables that
+ * each name their target; every name not blank, every `path` a string. */
 function targetTablesShaped(doc: Table): boolean {
-  const named = (t: Table) => typeof t.name === "string" && t.name !== "";
-  const list = (v: unknown, nameRequired: boolean) => v === undefined
-    || (Array.isArray(v) && v.every((t) => isTable(t) && optionalString(t.path)
-      && (named(t) || (!nameRequired && t.name === undefined && t.path !== undefined))));
-  return (doc.lib === undefined || (isTable(doc.lib) && optionalString(doc.lib.path))) && list(doc.bin, false) && KINDS.every(([kind]) => list(doc[kind], true));
+  const named = (name: unknown): name is string => typeof name === "string" && name.trim() !== "";
+  const list = (v: unknown) => v === undefined || (Array.isArray(v) && v.every((t) => isTable(t) && optionalString(t.path) && named(t.name)));
+  const lib = doc.lib;
+  const libShaped = lib === undefined || (isTable(lib) && optionalString(lib.path) && (lib.name === undefined || (named(lib.name) && !lib.name.includes("-"))));
+  return libShaped && list(doc.bin) && KINDS.every(([kind]) => list(doc[kind]));
 }
 
 /** An edition as Cargo states one, such as "2018"; undefined for anything else. */
@@ -133,10 +133,12 @@ function inheritedEdition(dir: string, pkg: Table, docs: ReadonlyMap<string, Tab
 /** Whether the workspace at `root` excludes the package at `dir`, as Cargo's `is_excluded` reads
  * it: the package's manifest path starts with `root` joined to an `exclude` entry and with no
  * `members` entry, compared component by component as written, globs included, `.` dropped.
- * Undefined when either list is not strings, or an entry is absolute. */
+ * Undefined when either list is not strings, or an entry is absolute (on any platform) or has a
+ * backslash, which Windows reads as a separator. */
 function excludes(root: string, dir: string, ws: Table): boolean | undefined {
   const [exclude, members] = [ws.exclude ?? [], ws.members ?? []];
-  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === "string" && !s.startsWith("/"));
+  const relative = (s: unknown) => typeof s === "string" && !/^\/|^[A-Za-z]:|\\/.test(s);
+  const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every(relative);
   if (!strings(exclude) || !strings(members)) return undefined;
   const parts = (p: string) => p.split("/").filter((c) => c !== "" && c !== ".");
   const manifest = parts(posix.join(dir, "Cargo.toml"));

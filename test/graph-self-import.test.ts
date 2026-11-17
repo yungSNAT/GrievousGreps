@@ -710,7 +710,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const pkg = (rest: string) => (name: string) => `[package]\nname = "${name}"\n${rest}`;
   const table = `\n[[test]]\nname = "bar"\n`;
   const graph = await build(t, {
-    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "barebin", "barebin_b"]\n\n[workspace.package]\nedition = "2021"\n`,
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "blankname", "blankname_b", "barebin", "barebin_b", "pathbin", "pathbin_b", "emptylib", "emptylib_b", "blanklib", "blanklib_b", "hyphenlib", "hyphenlib_b"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
     "mock/src/lib.rs": "pub mod expect;\n",
     "mock/src/expect.rs": "pub fn event() {}\n",
@@ -754,12 +754,30 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     "excl15/Cargo.toml": `[workspace]\nmembers = ["third/back", "third/back_b"]\nexclude = ["third"]\n\n[workspace.package]\nedition = "2015"\n`,
     ...both("excl15/third/gone", pkg(`edition.workspace = true\n${table}`)),
     ...both("excl15/third/back", pkg(`edition.workspace = true\n${table}`)),
-    // Target tables of another shape: a name that is no string, no name, an empty name, and a
-    // `[[bin]]` with neither name nor path.
+    // `members` entries are read literally, as `is_excluded` reads them: `third/*` names no
+    // package, so `third/d` stays excluded and the root above decides (2021).
+    "glob/Cargo.toml": `[workspace]\nmembers = ["third/*"]\nexclude = ["third"]\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("glob/third/d", pkg(`edition.workspace = true\n${table}`)),
+    // A drive letter makes an entry absolute on Windows only, and a backslash in an `exclude` or
+    // `members` entry is a separator there only.
+    "drive/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ["C:/x"]\n\n[workspace.package]\nedition = "2018"\n`,
+    ...both("drive/d", pkg(`edition.workspace = true\n${table}`)),
+    "bs/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\nexclude = ['third\\x']\n\n[workspace.package]\nedition = "2018"\n`,
+    ...both("bs/d", pkg(`edition.workspace = true\n${table}`)),
+    "bsm/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", 'third\\x']\n\n[workspace.package]\nedition = "2018"\n`,
+    ...both("bsm/d", pkg(`edition.workspace = true\n${table}`)),
+    // Target tables Cargo refuses: a name that is no string, no name, an empty or blank name, a
+    // `[[bin]]` with no name (Cargo takes none from its path), and a `[lib]` name that is empty,
+    // blank or has a hyphen.
     ...both("badname", pkg(`edition = "2018"\n\n[[test]]\nname = 1\n`)),
     ...both("noname", pkg(`edition = "2018"\n\n[[test]]\nharness = false\n`)),
     ...both("emptyname", pkg(`edition = "2018"\n\n[[test]]\nname = ""\n`)),
+    ...both("blankname", pkg(`edition = "2018"\n\n[[test]]\nname = " "\n`)),
     ...both("barebin", pkg(`edition = "2018"\n${table}\n[[bin]]\ntest = false\n`)),
+    ...both("pathbin", pkg(`edition = "2018"\n${table}\n[[bin]]\npath = "src/main.rs"\n`)),
+    ...both("emptylib", pkg(`edition = "2018"\n${table}\n[lib]\nname = ""\n`)),
+    ...both("blanklib", pkg(`edition = "2018"\n${table}\n[lib]\nname = " "\n`)),
+    ...both("hyphenlib", pkg(`edition = "2018"\n${table}\n[lib]\nname = "a-b"\n`)),
     // What one crate leaves unknown says nothing about a crate inside it, nor about a file that is
     // only ever a module: inner.rs is no parent of tests/nest/option.rs.
     ...found("autostr/inner", pkg(`edition = "2018"\n${table}`)),
@@ -774,7 +792,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs is no target`);
     assert.deepEqual(top(`${dir}_b`), two, `${dir}_b: and that is read for certain`);
   }
-  for (const dir of ["excl/d", "excl15/third/gone"]) {
+  for (const dir of ["excl/d", "excl15/third/gone", "glob/third/d"]) {
     assert.deepEqual(top(dir), mock, `${dir}: tests/foo.rs is a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: so 2 parents disagree`);
   }
@@ -784,7 +802,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   assert.deepEqual(top("override"), mock, "`autotests = true` beats the 2015 default");
   assert.deepEqual(top("binpath"), mock, "a [[bin]] path");
   assert.deepEqual(top("libpath"), mock, "a [lib] path");
-  const unknown = ["unparsed", "edint", "autostr", "loose/d", "badname", "noname", "emptyname", "barebin"];
+  const unknown = ["unparsed", "edint", "autostr", "loose/d", "drive/d", "bs/d", "bsm/d", "badname", "noname", "emptyname", "blankname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
   for (const dir of unknown) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs may be a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: tests/foo.rs may be no target`);
