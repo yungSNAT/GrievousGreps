@@ -1,12 +1,21 @@
-# OSV-Scanner reads this file next to Cargo.lock. Remove the entry when turso_core allows tantivy 0.27
-# or later, which takes lru 0.18.2.
+# OSV-Scanner reads this file next to Cargo.lock. Each entry below names what must change upstream
+# before it can go.
 #
-# The ignore lapses on ignoreUntil (OSV-Scanner stops ignoring at midnight on that date in the
+# An ignore lapses on ignoreUntil (OSV-Scanner stops ignoring at midnight on that date in the
 # runner's time zone, which is UTC on GitHub-hosted runners), so the weekly scan fails again then.
-# Extend the date only after checking that turso_core still blocks tantivy 0.27; Dependabot proposes
-# a turso bump when a release lands.
+# Extend a date only after checking that turso still holds the advisory; Dependabot proposes a turso
+# bump when a release lands.
 
+# Remove when turso_core allows tantivy 0.27 or later, which takes lru 0.18.2.
 [[IgnoredVulns]]
 id = "RUSTSEC-2026-0253"
 ignoreUntil = 2026-12-01
 reason = "lru 0.16.4 via tantivy 0.26 <- turso_core, which pins ^0.26.2 up to 0.9.0-pre.2, so no fixed path exists. The bug needs a panicking key Drop; tantivy's only cache keys are usize (src/store/reader.rs)."
+
+# Remove when turso_core and turso_ext drop chrono or make it optional. Both require it, with no
+# feature to turn it off, in every turso release up to 0.9.0-pre.5 and on turso's main at c3321ac
+# (17 November 2026). turso's tracker had no issue for this advisory on that date.
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0543"
+ignoreUntil = 2026-12-01
+reason = "chrono is unmaintained (no vulnerability); chrono 0.4.45 is a required dependency of turso_core and turso_ext, so no release without it exists. gg-docs itself does not use chrono."
