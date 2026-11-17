@@ -7,13 +7,13 @@ The figures that pull requests #90, #91 and #92 added to the README, and where e
 | Unseen repositories: recall 0.41 and 0.38, precision, silent undercounts, the per-repository rows, and 0.52 (166 of 319) and 0.47 (150 of 319) on the 3 shared languages | [unseen-callers.txt](unseen-callers.txt), the `gg-bench` run of 02:08 UTC on 17 November |
 | The 7 further call-graph tools' table, the 3 repositories where one beat this tool and the ties on vue and zola | [call-graph-tools.md](call-graph-tools.md), scored at 04:53 UTC on 17 November (`cs` codeseek, `sm` sem, `tl` tilth, `rp` ripwire, `cd` codedb, `gx` Graphicle, `ga` grepai) |
 | Graphicle's timeout on table (517 s) and sem's index errors on tokio and tracing | The runner's records on the benchmark machine; not copied |
-| The 4 unscored tools: gortex's 176 of 237 answers marked incomplete, trace-mcp's 33 TypeScript rows, Auryn's none | [unscored-tools.md](unscored-tools.md), read from the same scorer output and answers |
+| The table of the other 4 call-graph tools, and gortex's 67 of 236 answered definitions marked `coverage_incomplete` | [call-graph-tools-4.md](call-graph-tools-4.md), scored at 20:12 UTC on 17 November (`tm` trace-mcp, `au` Auryn, `axn` Axon, `gt` gortex); the `coverage_incomplete` count is read from the runner's records on the benchmark machine |
 | Language-server column (recall, precision and silent undercounts) | [language-servers.md](language-servers.md), pooled at 00:23 UTC on 17 November |
 | Tokens a callers answer, `rg`, `skeleton`, `map` and Repomix | [answer-tokens.md](answer-tokens.md), counted at 04:10 UTC on 17 November |
 | `trail ask` on semble's benchmark: NDCG@10, hit@1, hit@3, hit@10, 0 on Haskell | [ask-on-semble.md](ask-on-semble.md), 04:47 UTC on 17 November |
 | Federation: click's 16 callers of `get_current_context` | [federation-callers.txt](federation-callers.txt) |
 | `trail viz --export` on httpx: 1,016,743 bytes | the exported `index.html` on the benchmark machine (21:11 UTC on 16 November); not copied |
-| Licences of the 7 tools | [licences.txt](licences.txt), read again at 05:29 UTC on 17 November |
+| Licences of the 11 tools | [licences.txt](licences.txt), read again at 05:29 UTC on 17 November for 7 and at 20:15 UTC for the other 4 |
 | Tool versions | [versions.txt](versions.txt) |
 
 ## Times kept on the benchmark machine only
