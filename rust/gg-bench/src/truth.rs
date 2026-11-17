@@ -516,10 +516,10 @@ pub fn format_truth(entries: &[(String, Value)]) -> String {
             if let Some(category) = entry.get("category") {
                 fields.push(format!("\"category\": {category}"));
             }
-            let rows = |name: &str| entry[name].as_array().cloned().unwrap_or_default();
-            fields.push(format!("\"required\": {}", list(&rows("required"))));
+            let rows = |name: &str| entry[name].as_array().map_or(&[][..], Vec::as_slice);
+            fields.push(format!("\"required\": {}", list(rows("required"))));
             if !rows("optional").is_empty() {
-                fields.push(format!("\"optional\": {}", list(&rows("optional"))));
+                fields.push(format!("\"optional\": {}", list(rows("optional"))));
             }
             let body: Vec<String> = fields.iter().map(|f| format!("    {f}")).collect();
             format!(
