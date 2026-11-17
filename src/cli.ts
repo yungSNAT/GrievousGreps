@@ -9,7 +9,6 @@
  * meaning; under `trail` the layout changes (see `TRAIL` below and brand.ts).
  */
 import { spawnSync } from "node:child_process";
-import "dotenv/config";
 import { Command, Option } from "commander";
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";

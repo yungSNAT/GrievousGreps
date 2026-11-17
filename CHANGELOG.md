@@ -18,6 +18,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
 - **Usage stats, the update check and workspace background reads are off** until you ask for them.
 - **Writes refuse a symlink** planted in a repository or output folder.
+- **Trail no longer reads the working folder's `.env`.** Upstream loaded it into trail's environment, so a checkout's `.env` could set `GIT_CONFIG_*` and make your git run the checkout's script, or set `NODE_OPTIONS` for the Node programs trail starts. Set `trail ask`'s provider and key (`GRAFT_PROVIDER`, `GRAFT_API_KEY`, `OPENROUTER_API_KEY` and the rest) in your shell's environment instead.
 - **In a Git repository, the graph indexes folders whose names start with a dot**, such as `.storybook` or trpc's `examples/.test`, when Git lists their files. Caches, environments and tool state such as `.venv`, `.next`, `.cache` and `.trail` are still skipped, as are files whose names start with a dot. Outside Git every dot folder is still skipped.
 - **`trail mcp` and `graft mcp`** are what agents' MCP entries run. Nothing launches through `npx`.
 - **`trail version`** prints the local version and compares nothing.
