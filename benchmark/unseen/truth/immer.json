@@ -1,0 +1,92 @@
+{
+  "deepClonePatchValue": {
+    "target": "src/plugins/patches.ts",
+    "target_lines": [415],
+    "required": [
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::applyPatches_","lines":[362]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::deepClonePatchValue","lines":[420,424]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::clonePatchValueIfNeeded","lines":[431]}
+    ]
+  },
+  "clonePatchValueIfNeeded": {
+    "target": "src/plugins/patches.ts",
+    "target_lines": [429],
+    "required": [
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::generateArrayPatches","lines":[216,221,234]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::generatePatchesFromAssigned","lines":[263,269,270]}
+    ]
+  },
+  "getArchtype": {
+    "target": "src/utils/common.ts",
+    "target_lines": [116],
+    "required": [
+      {"file":"src/utils/common.ts","chain":"each","lines":[103]},
+      {"file":"src/utils/common.ts","chain":"has","lines":[133]},
+      {"file":"src/utils/common.ts","chain":"get","lines":[143]},
+      {"file":"src/utils/common.ts","chain":"set","lines":[153]},
+      {"file":"src/utils/common.ts","chain":"freeze","lines":[269]}
+    ]
+  },
+  "handleInsertedValues": {
+    "target": "src/plugins/arrayMethods.ts",
+    "target_lines": [223],
+    "required": [
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::handleSimpleOperation","lines":[279,281]},
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::createMethodInterceptor::interceptedMethod","lines":[399]}
+    ]
+  },
+  "prepareCopy": {
+    "target": "src/core/proxy.ts",
+    "target_lines": [356],
+    "required": [
+      {"file":"src/core/proxy.ts","chain":"get","lines":[154]},
+      {"file":"src/core/proxy.ts","chain":"set","lines":[199]},
+      {"file":"src/core/proxy.ts","chain":"deleteProperty","lines":[220]}
+    ]
+  },
+  "handleCrossReference": {
+    "target": "src/core/finalize.ts",
+    "target_lines": [217],
+    "required": [
+      {"file":"src/core/proxy.ts","chain":"set","lines":[216]},
+      {"file":"src/plugins/arrayMethods.ts","chain":"enableArrayMethods::handleInsertedValues","lines":[231]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::set","lines":[77]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftSet::add","lines":[262]}
+    ]
+  },
+  "peek": {
+    "target": "src/core/proxy.ts",
+    "target_lines": [291],
+    "required": [
+      {"file":"src/core/proxy.ts","chain":"get","lines":[151]},
+      {"file":"src/core/proxy.ts","chain":"set","lines":[184]},
+      {"file":"src/core/proxy.ts","chain":"deleteProperty","lines":[222]}
+    ]
+  },
+  "revokeScope": {
+    "target": "src/core/scope.ts",
+    "target_lines": [74],
+    "required": [
+      {"file":"src/core/finalize.ts","chain":"processResult","lines":[34,56]},
+      {"file":"src/core/immerClass.ts","chain":"Immer","lines":[115]}
+    ]
+  },
+  "freeze": {
+    "target": "src/utils/common.ts",
+    "target_lines": [267],
+    "required": [
+      {"file":"src/core/finalize.ts","chain":"maybeFreeze","lines":[103]},
+      {"file":"src/core/immerClass.ts","chain":"Immer","lines":[124]},
+      {"file":"src/utils/common.ts","chain":"freeze","lines":[284]}
+    ]
+  },
+  "keys": {
+    "target": "src/plugins/mapset.ts",
+    "target_lines": [140],
+    "required": [
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::values","lines":[148]},
+      {"file":"src/plugins/mapset.ts","chain":"enableMapSet::DraftMap::entries","lines":[164]},
+      {"file":"src/plugins/patches.ts","chain":"enablePatches::getPath","lines":[80]}
+    ]
+  }
+}

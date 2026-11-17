@@ -25,11 +25,21 @@ This set tests `callers` on 5 repositories that no build of this tool or its ben
 
 ## How truth is derived
 
-For each kept definition the server is asked for every reference, without the declaration. A reference is a call when the line continues with `(`, after any generic arguments (`::<T>` in Rust, `[T]` in Go, `<T>` in C# and TypeScript), or when it is a Python or TypeScript decorator, a JSX element or a tagged template. Calls become required rows, grouped by file and by the named definition around them, or by file (`<file>`) at module level. Any other reference inside a named definition is an optional row; one at module level, such as an import, gets no row. This follows `tsc-truth.mjs`, with 2 differences: the call test reads the line rather than a syntax tree, so a call whose `(` starts the next line counts as a reference, and a calling definition is any symbol the server reports other than a module, namespace or package or a value such as a variable, field or constant, rather than the compiler's syntax kinds.
+For each kept definition the server is asked for every reference, without the declaration. A reference is a call when the line continues with `(`, after any generic arguments (`::<T>` in Rust, `[T]` in Go, `<T>` in C# and TypeScript), or when it is a Python or TypeScript decorator, a JSX element or a tagged template. Calls become required rows, grouped by file and by the named definition around them, or by file (`<file>`) at module level. Any other reference inside a named definition is an optional row; one at module level, such as an import, gets no row. This follows `tsc-truth.mjs`, with 2 differences: the call test reads the line rather than a syntax tree, so a call whose `(` starts the next line counts as a reference, and a calling definition is any symbol the server reports other than a module, namespace or package or a value such as a variable, field or constant whose line does not assign a function, rather than the compiler's syntax kinds.
 
 serilog's project lists its target frameworks with a leading empty entry when not on Windows, which Roslyn's MSBuild workspace cannot load ([dotnet/vscode-csharp#5786](https://github.com/dotnet/vscode-csharp/issues/5786)), so csharp-ls runs with `TargetFramework=net10.0` in its environment.
 
 A first derivation on 16 November 2026 (UTC), before any tool had run on the 5, had 3 faults, which were fixed before the truth was derived again: gopls names a method by its receiver, as `(*Logger).WithFields`, so Go methods were neither picked nor named as callers; a TypeScript arrow function held in a variable, as `let has = (...) =>`, was not named as a caller; and csharp-ls loaded no serilog project, as above, so no C# symbol was picked. A pick now fails rather than write fewer than 10 symbols.
+
+The truth in `truth/` was derived on 16 November 2026 (UTC), on Linux, with the servers above; gopls was v0.24.0 and rust-analyzer reported 0.3.3121.
+
+| Repository | Candidates derived | Required rows | Calls | Optional rows |
+| --- | ---: | ---: | ---: | ---: |
+| marshmallow | 32 | 228 | 272 | 0 |
+| immer | 53 | 30 | 37 | 0 |
+| serde_json | 42 | 49 | 89 | 1 |
+| logrus | 29 | 143 | 195 | 2 |
+| serilog | 55 | 102 | 309 | 4 |
 
 ## Limits
 
