@@ -4,11 +4,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { openBrowser } from "../src/util/browser.js";
 import { execFileSync, findProgram, spawn, spawnSync } from "../src/util/program.js";
 
 const has = (...files: string[]) => (p: string) => files.includes(p);
@@ -33,6 +34,9 @@ test("findProgram (Windows): a git.cmd first on PATH is passed over for a later 
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.cmd", "C:\\a\\git.bat")), null);
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.cmd"), {}, true), "C:\\a\\git.cmd", "unless the caller runs .cmd through a shell");
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.bat"), {}, true), null, "never a .bat");
+  const named = (name: string) => findProgram(name, { platform: "win32", env: { PATH: "C:\\a" }, isFile: has("C:\\a\\cmd.exe"), realpath: asGiven });
+  assert.equal(named("cmd.exe"), "C:\\a\\cmd.exe", "a name that already has its ending");
+  assert.equal(named("CMD.EXE"), "C:\\a\\CMD.EXE");
 });
 
 test("findProgram: empty and relative PATH entries are never looked in", () => {
@@ -174,6 +178,27 @@ test("a program not on PATH: spawnSync reports it, execFileSync and spawn throw,
   assert.throws(() => execFileSync("trail-no-such-program", [], { env }), { code: "ENOENT", message: "trail-no-such-program was not found on PATH outside the working folder and its subfolders" });
   assert.throws(() => spawn("trail-no-such-program", [], { env }), { code: "ENOENT" });
   rmSync(env.PATH, { recursive: true, force: true });
+});
+
+test("spawnSync(name, undefined, options) looks the name up in that options' PATH, as Node reads them", (t) => {
+  const dir = scratch(t);
+  copyFileSync(process.execPath, join(dir, win ? "trail-node.exe" : "trail-node"));
+  const r = spawnSync("trail-node", undefined as unknown as string[], { env: { ...process.env, PATH: dir }, input: "process.exit(6)" });
+  assert.equal(r.error, undefined);
+  assert.equal(r.status, 6);
+});
+
+test("openBrowser with no opener on PATH: the URL printed is the fallback, nothing throws", { skip: win }, async (t) => {
+  const path = process.env.PATH;
+  const off = process.env.GRAFT_NO_BROWSER;
+  t.after(() => {
+    process.env.PATH = path;
+    if (off !== undefined) process.env.GRAFT_NO_BROWSER = off;
+  });
+  delete process.env.GRAFT_NO_BROWSER;
+  process.env.PATH = scratch(t);
+  openBrowser("http://127.0.0.1:9/");
+  await new Promise((done) => setTimeout(done, 200)); // an 'error' event from a child would land here
 });
 
 test("an absolute path and a shell command line pass through as given", () => {

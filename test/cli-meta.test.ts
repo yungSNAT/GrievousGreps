@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -140,16 +140,23 @@ test('git archive, as GitHub serves a commit to npm, writes that commit into scr
 // shell: the update check stored nothing. Ported from ansidium/trail-code-se7en
 // (4fa301e664a8, MIT).
 
-function withFakeNpm(fn: () => void): void {
-  const dir = mkdtempSync(join(tmpdir(), 'graft-fake-npm-'));
+// On Windows the fake is laid out as Node's installer lays npm out: npm.cmd beside
+// node_modules/npm/bin/npm-cli.js, which trail runs with Node directly. Its npm.cmd fails if run.
+// `npm view cwd version` answers with the folder npm ran in.
+function withFakeNpm(fn: () => void, folder = 'npm'): void {
+  const top = mkdtempSync(join(tmpdir(), 'graft-fake-npm-'));
+  const dir = join(top, folder);
   const script = [
     'const args = process.argv.slice(2);',
-    "if (args[0] === 'view') console.log('9.9.9');",
+    "if (args[0] === 'view') console.log(args[1] === 'cwd' ? process.cwd() : '9.9.9');",
   ];
-  writeFileSync(join(dir, 'fake-npm.cjs'), script.join('\n'));
   if (process.platform === 'win32') {
-    writeFileSync(join(dir, 'npm.cmd'), `@"${process.execPath}" "%~dp0fake-npm.cjs" %*\r\n`);
+    mkdirSync(join(dir, 'node_modules', 'npm', 'bin'), { recursive: true });
+    writeFileSync(join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js'), script.join('\n'));
+    writeFileSync(join(dir, 'npm.cmd'), '@exit /b 7\r\n');
   } else {
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'fake-npm.cjs'), script.join('\n'));
     writeFileSync(join(dir, 'npm'), `#!/bin/sh\nexec "${process.execPath}" "$(dirname "$0")/fake-npm.cjs" "$@"\n`);
     chmodSync(join(dir, 'npm'), 0o755);
   }
@@ -159,12 +166,30 @@ function withFakeNpm(fn: () => void): void {
     fn();
   } finally {
     process.env.PATH = path;
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(top, { recursive: true, force: true });
   }
 }
 
 test('getNpmViewVersion reads the latest version from npm on PATH', () => {
   withFakeNpm(() => {
     assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+  });
+});
+
+test('getNpmViewVersion: an npm installed under a path with spaces, & and %NAME% still answers', () => {
+  withFakeNpm(() => {
+    assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+  }, 'npm & 100% %PATH% x');
+});
+
+test('getNpmViewVersion runs npm in the working folder, so a project .npmrc still applies', (t) => {
+  const here = mkdtempSync(join(tmpdir(), 'graft-npm-cwd-'));
+  const back = process.cwd();
+  t.after(() => { process.chdir(back); rmSync(here, { recursive: true, force: true }); });
+  process.chdir(here);
+  withFakeNpm(() => {
+    const r = getNpmViewVersion('cwd', 30_000);
+    assert.ok(r.ok && r.version, JSON.stringify(r));
+    assert.equal(realpathSync.native(r.version!), realpathSync.native(here));
   });
 });

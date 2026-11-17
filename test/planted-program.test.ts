@@ -14,6 +14,7 @@ import { getNpmViewVersion } from "../src/cli-meta.js";
 import { claudeBin } from "../src/init/claude-call.js";
 import { isGitWorkTree } from "../src/init-guard.js";
 import { ghReady } from "../src/notes/pr-reviews.js";
+import { spawnSync as trailSpawnSync } from "../src/util/program.js";
 
 const win = process.platform === "win32";
 
@@ -99,6 +100,17 @@ test("claude planted in the working folder never runs: claudeBin looks on PATH o
   const bin = inside(repo, () => claudeBin(tempDir(t, "planted-home-")));
   assert.deepEqual(ran(marks), [], "the planted claude ran");
   assert.equal(bin, null, "the planted claude was taken for the person's");
+});
+
+test("cmd.exe planted in the working folder never runs as the shell, even with ComSpec unset", { skip: !win }, (t) => {
+  const repo = clonedRepo(t);
+  const marks = plant(t, repo, ["cmd"]);
+  const comspec = process.env.ComSpec;
+  t.after(() => { process.env.ComSpec = comspec; });
+  delete process.env.ComSpec; // Node then starts a bare cmd.exe
+  const r = inside(repo, () => trailSpawnSync("echo shell-ran", [], { shell: true, encoding: "utf8" }));
+  assert.deepEqual(ran(marks), [], "the planted cmd.exe ran");
+  assert.match(String(r.stdout), /shell-ran/);
 });
 
 test("npm planted in the working folder never runs: the update check's npm comes from PATH", (t) => {
