@@ -138,9 +138,9 @@ function inheritedEdition(dir: string, pkg: Table, docs: ReadonlyMap<string, Tab
  * it: the package's manifest path starts with `root` joined to an `exclude` entry and with no
  * `members` entry, compared component by component as written, globs included, `.` dropped.
  * It is read as Linux and macOS read it, and as Windows does, where a backslash separates and a
- * drive letter makes an entry absolute. An absolute entry may or may not hold the package, as
- * where the repository sits is unknown. Undefined when the 2 readings differ or either is unsure,
- * or when either list is not strings. */
+ * drive letter with a separator makes an entry absolute. An absolute entry may or may not hold
+ * the package, as where the repository sits is unknown. Undefined when the 2 readings differ or
+ * either is unsure, or when either list is not strings. */
 function excludes(root: string, dir: string, ws: Table): boolean | undefined {
   const [exclude, members] = [ws.exclude ?? [], ws.members ?? []];
   const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === "string");
@@ -158,6 +158,11 @@ function excludes(root: string, dir: string, ws: Table): boolean | undefined {
     return excluded === false || member === true ? false : excluded === true && member === false ? true : undefined;
   };
   const unix = reading((entry) => under(entry, /^\//));
-  const windows = reading((entry) => under(entry.replaceAll("\\", "/"), /^\/|^[A-Za-z]:/));
+  // A drive-relative entry (`c:foo`) joins to a path with no root, which never holds Cargo's
+  // absolute manifest path.
+  const windows = reading((entry) => {
+    const path = entry.replaceAll("\\", "/");
+    return /^[A-Za-z]:(?!\/)/.test(path) ? false : under(path, /^\/|^[A-Za-z]:/);
+  });
   return unix === windows ? unix : undefined;
 }

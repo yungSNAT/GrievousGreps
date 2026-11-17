@@ -767,12 +767,16 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     ...both("bs/d", pkg(`edition.workspace = true\n${table}`)),
     "bsm/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", 'third\\x', "c:foo/x"]\n\n[workspace.package]\nedition = "2018"\n`,
     ...both("bsm/d", pkg(`edition.workspace = true\n${table}`)),
-    // ... but a package that Windows excludes and Linux does not takes 2015 on Linux and the root's
-    // 2021 on Windows, and `c:foo` is relative to the current folder on drive C.
-    "split/Cargo.toml": `[workspace]\nexclude = ['third\\x', 'third\\x_b']\n\n[workspace.package]\nedition = "2015"\n`,
-    ...both("split/third/x", pkg(`edition.workspace = true\n${table}`)),
+    // ... as is one under a drive-relative entry: on Windows `c:foo` has no root, so it never holds
+    // the absolute manifest path, and on Linux it is a folder name (2015).
     "driverel/Cargo.toml": `[workspace]\nexclude = ["c:foo"]\n\n[workspace.package]\nedition = "2015"\n`,
     ...both("driverel/d", pkg(`edition.workspace = true\n${table}`)),
+    // But a package that Windows excludes and Linux does not takes 2015 on Linux and the root's
+    // 2021 on Windows, and `C:/x` holds any package on Windows whose checkout sits under it.
+    "split/Cargo.toml": `[workspace]\nexclude = ['third\\x', 'third\\x_b']\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("split/third/x", pkg(`edition.workspace = true\n${table}`)),
+    "driveabs/Cargo.toml": `[workspace]\nexclude = ["C:/x"]\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("driveabs/d", pkg(`edition.workspace = true\n${table}`)),
     // Target tables Cargo refuses: a name that is no string, no name, an empty or blank name, a
     // `[[bin]]` with no name (Cargo takes none from its path), and a `[lib]` name that is empty,
     // blank or has a hyphen.
@@ -798,7 +802,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const top = (dir: string) => calls(graph, `${dir}/tests/option.rs#top`);
   const mock = ["mock/src/expect.rs#event"];
   const two = ["two/src/expect.rs#event"];
-  for (const dir of ["project", "quoted", "dotted", "inline", "inner/d", "pointer", "renamed", "excl15/third/back"]) {
+  for (const dir of ["project", "quoted", "dotted", "inline", "inner/d", "pointer", "renamed", "excl15/third/back", "driverel/d"]) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs is no target`);
     assert.deepEqual(top(`${dir}_b`), two, `${dir}_b: and that is read for certain`);
   }
@@ -813,7 +817,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   assert.deepEqual(top("binpath"), mock, "a [[bin]] path");
   assert.deepEqual(top("libpath"), mock, "a [lib] path");
   assert.deepEqual(top("bomname"), mock, "a U+FEFF name is not blank");
-  const unknown = ["unparsed", "edint", "autostr", "loose/d", "split/third/x", "driverel/d", "badname", "noname", "emptyname", "blankname", "nelname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
+  const unknown = ["unparsed", "edint", "autostr", "loose/d", "split/third/x", "driveabs/d", "badname", "noname", "emptyname", "blankname", "nelname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
   for (const dir of unknown) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs may be a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: tests/foo.rs may be no target`);
