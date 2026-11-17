@@ -10,7 +10,7 @@ import { join, parse } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { openBrowser } from "../src/util/browser.js";
-import { execFileSync, findProgram, spawn, spawnSync } from "../src/util/program.js";
+import { admitted, execFileSync, findProgram, spawn, spawnSync } from "../src/util/program.js";
 
 const has = (...files: string[]) => (p: string) => files.includes(p);
 /** Folders as given, with no links: these cases name folders that need not exist. */
@@ -266,6 +266,69 @@ test("openBrowser with no opener on PATH: the URL printed is the fallback, nothi
 test("(Windows) a path with no drive, which the child would take on its own folder's drive, is refused", { skip: !win }, () => {
   const noDrive = process.execPath.replace(/^[a-zA-Z]:/, "");
   assert.match(String(spawnSync(noDrive, ["-e", "process.exit(3)"]).error?.message), /was not started/);
+});
+
+test("a git.com refused for linking into the working folder does not hide a git.exe beside it", () => {
+  const isFile = has("C:\\a\\git.com", "C:\\a\\git.exe");
+  const folders = (file: string) => (file.endsWith("git.com") ? ["C:\\repo"] : []);
+  const found = findProgram("git", { platform: "win32", env: { PATH: "C:\\a" }, cwd: "C:\\repo", isFile, realpath: (dir: string) => dir, folders });
+  assert.equal(found, "C:\\a\\git.exe");
+});
+
+test("admitted: a program path through a link to a node_modules/.bin or Yarn's bin folder elsewhere is refused", (t) => {
+  const top = scratch(t);
+  const other = join(top, "elsewhere");
+  mkdirSync(other);
+  const name = parse(tool(join(top, "pkg", "node_modules", ".bin"))).base;
+  symlinkSync(join(top, "pkg", "node_modules", ".bin"), join(top, "alias"), "junction");
+  assert.equal(admitted(join(top, "alias", name), { cwd: other }), false, "a link to a node_modules/.bin");
+  tool(join(top, "berry"));
+  symlinkSync(join(top, "berry"), join(top, "berry-alias"), "junction");
+  const env = { ...process.env, BERRY_BIN_FOLDER: join(top, "berry") };
+  assert.equal(admitted(join(top, "berry-alias", name), { cwd: other, env }), false, "a link to Yarn's bin folder");
+  tool(join(top, "plain"));
+  symlinkSync(join(top, "plain"), join(top, "plain-alias"), "junction");
+  assert.equal(admitted(join(top, "plain-alias", name), { cwd: other }), true, "a link to an ordinary folder");
+});
+
+test("admitted: Yarn classic's global file links through its own node_modules/.bin still pass", (t) => {
+  const top = scratch(t);
+  const name = parse(tool(join(top, "yg", "node_modules", "pkg", "bin"))).base;
+  mkdirSync(join(top, "yg", "node_modules", ".bin"));
+  mkdirSync(join(top, "yp", "bin"), { recursive: true });
+  try {
+    symlinkSync(join("..", "pkg", "bin", name), join(top, "yg", "node_modules", ".bin", name), "file");
+    symlinkSync(join("..", "..", "yg", "node_modules", ".bin", name), join(top, "yp", "bin", name), "file");
+  } catch (e) {
+    if (win && (e as NodeJS.ErrnoException).code === "EPERM") return t.skip("this Windows account cannot make file links");
+    throw e;
+  }
+  assert.equal(admitted(join(top, "yp", "bin", name), { cwd: join(top, "elsewhere") }), true);
+});
+
+test("findProgram (Windows): a \\\\?\\ PATH entry to the checkout's link out of it is still the checkout's", { skip: !win }, (t) => {
+  const top = scratch(t);
+  const repo = join(top, "repo");
+  mkdirSync(repo);
+  tool(join(top, "outside-bin"));
+  symlinkSync(join(top, "outside-bin"), join(repo, "tools"), "junction");
+  assert.equal(find(`\\\\?\\${join(repo, "tools")}`, repo), null);
+});
+
+test("admitted (Windows): .. is taken out of the path as written before links are followed, as Windows does", { skip: !win }, (t) => {
+  const top = scratch(t);
+  const repo = join(top, "repo");
+  const b = join(top, "b");
+  mkdirSync(repo);
+  mkdirSync(b);
+  mkdirSync(join(top, "d", "sub"), { recursive: true });
+  const name = parse(tool(join(top, "d", "hop"))).base;
+  tool(join(top, "outside"));
+  symlinkSync(join(top, "d", "sub"), join(b, "alias"), "junction");
+  symlinkSync(join(top, "outside"), join(repo, "bridge"), "junction");
+  symlinkSync(join(repo, "bridge"), join(b, "hop"), "junction");
+  // Windows opens b\hop\<name>, through the checkout's bridge; read link first, it would be d\hop\<name>.
+  assert.equal(admitted(`${b}\\alias\\..\\hop\\${name}`, { cwd: repo }), false);
 });
 
 test("an absolute path and a shell command line pass through as given", () => {
