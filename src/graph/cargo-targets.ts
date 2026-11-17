@@ -159,10 +159,10 @@ function excludes(root: string, dir: string, ws: Table): boolean | undefined {
   };
   const unix = reading((entry) => under(entry, /^\//));
   // A drive-relative entry (`c:foo`) joins to a path with no root, which never holds Cargo's
-  // absolute manifest path.
+  // absolute manifest path; a bare `c:` holds every path on drive C.
   const windows = reading((entry) => {
     const path = entry.replaceAll("\\", "/");
-    return /^[A-Za-z]:(?!\/)/.test(path) ? false : under(path, /^\/|^[A-Za-z]:/);
+    return /^[A-Za-z]:(?!\/|$)/.test(path) ? false : under(path, /^\/|^[A-Za-z]:/);
   });
   return unix === windows ? unix : undefined;
 }

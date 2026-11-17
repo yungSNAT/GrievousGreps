@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildGraph } from "../src/graph/build.js";
+import { readCargoTargets } from "../src/graph/cargo-targets.js";
 import * as traverse from "../src/graph/traverse-cli.js";
 import type { GraphV1 } from "../src/graph/types.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -777,6 +778,9 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     ...both("split/third/x", pkg(`edition.workspace = true\n${table}`)),
     "driveabs/Cargo.toml": `[workspace]\nexclude = ["C:/x"]\n\n[workspace.package]\nedition = "2015"\n`,
     ...both("driveabs/d", pkg(`edition.workspace = true\n${table}`)),
+    // A bare `c:` holds every package on drive C.
+    "drivebare/Cargo.toml": `[workspace]\nexclude = ["c:"]\n\n[workspace.package]\nedition = "2015"\n`,
+    ...both("drivebare/d", pkg(`edition.workspace = true\n${table}`)),
     // Target tables Cargo refuses: a name that is no string, no name, an empty or blank name, a
     // `[[bin]]` with no name (Cargo takes none from its path), and a `[lib]` name that is empty,
     // blank or has a hyphen.
@@ -817,7 +821,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   assert.deepEqual(top("binpath"), mock, "a [[bin]] path");
   assert.deepEqual(top("libpath"), mock, "a [lib] path");
   assert.deepEqual(top("bomname"), mock, "a U+FEFF name is not blank");
-  const unknown = ["unparsed", "edint", "autostr", "loose/d", "split/third/x", "driveabs/d", "badname", "noname", "emptyname", "blankname", "nelname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
+  const unknown = ["unparsed", "edint", "autostr", "loose/d", "split/third/x", "driveabs/d", "drivebare/d", "badname", "noname", "emptyname", "blankname", "nelname", "barebin", "pathbin", "emptylib", "blanklib", "hyphenlib"];
   for (const dir of unknown) {
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs may be a target`);
     assert.deepEqual(top(`${dir}_b`), [], `${dir}_b: tests/foo.rs may be no target`);
@@ -826,6 +830,19 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   assert.deepEqual(calls(graph, "autostr/tests/nest/option.rs#nested"), mock, "a module file is no target");
   const reported = graph.errors.filter((e) => e.includes("Cargo.toml")).map((e) => e.slice(0, e.indexOf(":"))).sort();
   assert.deepEqual(reported, unknown.flatMap((dir) => [`${dir}/Cargo.toml`, `${dir}_b/Cargo.toml`]).sort(), "each unknown manifest is reported, and only those");
+});
+
+test("Rust: a package under a Cargo `exclude = [\"c:foo\"]` is unsure, as Linux excludes it and Windows does not", () => {
+  // Windows allows no `:` in a folder name, so the manifests are given by folder, not written out.
+  const errors: string[] = [];
+  const targets = readCargoTargets(new Map([
+    [".", `[workspace]\n\n[workspace.package]\nedition = "2021"\n`],
+    ["w", `[workspace]\nexclude = ["c:foo"]\n\n[workspace.package]\nedition = "2015"\n`],
+    ["w/c:foo/x", `[package]\nname = "x"\nedition.workspace = true\n\n[[test]]\nname = "bar"\n`],
+  ]), errors);
+  assert.deepEqual([...(targets.unknown.get("w/c:foo/x") ?? [])], ["tests"], "Linux takes the root's 2021, Windows w's 2015");
+  assert.equal(errors.length, 1);
+  assert.ok(errors[0]!.startsWith("w/c:foo/x/Cargo.toml: "), errors[0]);
 });
 
 test("Rust: under `use super::*`, a module file's function is reached only when the caller can see it", async (t) => {
