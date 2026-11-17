@@ -36,8 +36,10 @@ for (const [name, src] of [['statusline', statuslineShim()], ['hooks', hooksShim
     assert.match(src, /const BINS = process\.platform === 'win32' \? \['trail\.cmd', 'graft\.cmd'\] : \['trail', 'graft'\];/);
     assert.match(src, /pkgAbove\(fs\.realpathSync\(p\)\)/);
     assert.match(src, /\.\.\.onPath\(\)/);
-    // 5. npm root -g catch-all, queried on demand (no on-disk cache)
-    assert.match(src, /execFileSync\('npm', \['root', '-g'\]/);
+    // 5. npm root -g catch-all, queried on demand (no on-disk cache), from npm's absolute path
+    assert.match(src, /'root', '-g'\]/);
+    assert.match(src, /const npm = findNpm\(\);/);
+    assert.doesNotMatch(src, /execFileSync\('npm'/);
     assert.doesNotMatch(src, /tmpdir/); // no predictable temp cache path
 
     // Highest version wins among the candidates, not first-hit — otherwise the
