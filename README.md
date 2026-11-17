@@ -149,7 +149,7 @@ These are 21 repositories, not an estimate for yours, and none of them is unseen
 
 ## Against the alternatives
 
-On this benchmark GrievousGreps has the highest overall recall of 10 tools and the fewest silent undercounts. It is ahead of Serena on Rust (0.97 to 0.76), of code-review-graph on TypeScript (0.99 to 0.98) and of CodeGraph on Python (1.00 to 0.97). codebase-memory-mcp leads on answer size and memory. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories, 210 symbols and 4,403 calls. Every tool was run on 16 November 2026 (UTC), each at its latest release that day and GrievousGreps at `88c214e`.
+On this benchmark GrievousGreps has the highest overall recall of the 17 tools scored, and the fewest silent undercounts, 7, which ripwire matches. It is ahead of Serena on Rust (0.97 to 0.76), of code-review-graph on TypeScript (0.99 to 0.98) and of CodeGraph on Python (1.00 to 0.97). CodeGraph and codebase-memory-mcp lead on answer size, and codebase-memory-mcp on memory. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories, 210 symbols and 4,403 calls. Every tool was run on 16 November 2026 (UTC), each at its latest release that day and GrievousGreps at `88c214e`.
 
 | | GrievousGreps `88c214e` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned | code-review-graph v2.4.0 |
 | --- | --- | --- | --- | --- | --- |
@@ -173,6 +173,20 @@ The 6 further tools, run the same day on the same calls:
 
 AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool built its index with its documented command and answered its documented callers question: CodeGraph `codegraph callers`, CodeGraphContext's MCP `find_callers`, repowise `context --include callers`, tokensave's MCP symbol lookup and callers, Graphify `explain`, and AxiomCode Graph `impact`. These 6 licences are GitHub's reading of each repository's licence on 16 November 2026, and AxiomCode Graph's from its npm package; they were not checked file by file at each release.
 
+**11 more call-graph tools.** On 16 and 17 November 2026 (UTC) these tools answered the same 210 questions, each at the version installed that day, and the same scorer counted their answers. 7 have complete runs:
+
+| | codeseek 0.1.33 | grepai 1.2.0 | sem 0.30.1 | tilth 0.15.0 | ripwire 0.6.10 | codedb 0.2.5864 | Graphicle 0.1.18 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Overall | 0.73 / 0.63 / 111 | 0.73 / 0.60 / 125 | 0.65 / 0.91 / 17 | 0.62 / 0.74 / 41 | 0.38 / 0.94 / 7 | 0.35 / 0.75 / 103 | 0.32 / 0.93 / 143 |
+| Python | 0.93 / 0.82 / 24 | 0.86 / 0.75 / 32 | 0.94 / 0.99 / 5 | 0.74 / 0.85 / 9 | 0.41 / 0.97 / 0 | 0.45 / 0.77 / 28 | 0.46 / 0.99 / 41 |
+| TypeScript | 0.53 / 0.85 / 35 | 0.55 / 0.84 / 40 | 0.63 / 0.90 / 1 | 0.79 / 0.90 / 17 | 0.59 / 0.93 / 4 | 0.45 / 0.85 / 44 | 0.67 / 0.98 / 48 |
+| Rust | 0.73 / 0.51 / 52 | 0.75 / 0.48 / 53 | 0.50 / 0.85 / 11 | 0.47 / 0.58 / 15 | 0.26 / 0.94 / 3 | 0.24 / 0.61 / 31 | 0.12 / 0.78 / 54 |
+| Licence | MIT | MIT | Apache-2.0 | MIT | Apache-2.0 | BSD-3-Clause | Apache-2.0 |
+
+Graphicle timed out on table after 517 s, so its figures pool the other 20 repositories. sem's index command exited with an error on tokio and tracing, and its answers there are scored as it gave them. grepai builds its symbol index only with an embedding endpoint; a local stand-in that returns one fixed vector served it, as its `trace callers` reads the symbol index, not the vectors. These licences are GitHub's reading of each repository's licence on 17 November 2026.
+
+4 are not scored yet. gortex v0.64.11 marked every answer `coverage_incomplete`, and the run did not establish whether its daemon had finished loading. trace-mcp 3.44.1 and Auryn 0.1.0 returned no callers on almost every TypeScript and Rust repository although both list those languages; the harness finds Auryn's files through Python module paths, so for Auryn at least the fault may be the harness's. Axon 1.0.1 timed out on attrs after 1,058 s and has run on httpx only.
+
 **Language servers, asked directly.** On 16 November 2026 (UTC), `gg-bench lsp` put the same 210 questions to the servers Serena wraps, at their defaults and with each checkout's dependencies installed: Pyright 1.1.414, typescript-language-server 6.1.0 with each checkout's TypeScript, and rust-analyzer 0.3.3121. Each location was named by the definition around it, as for Serena's column; [benchmark/](benchmark/README.md#ask-a-language-server) has the command.
 
 | | Call hierarchy | References |
@@ -184,7 +198,7 @@ AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool
 
 Call hierarchy matched this tool's recall on 6 repositories and references on 7; neither beat it on any. Their lowest rows, radix, structlog, attrs and click (0.02 to 0.10 by call hierarchy), are 4 of the 5 that Serena's tuned row reconfigures; these servers ran at defaults only. The column opens only the target files, and the TypeScript server searches only the projects of open files: asked for references by `gg-bench lsp-truth` on 17 November, the same server found 255 of the 261 call lines in hono's compiler-derived truth with every file open, against 31 with only the targets open.
 
-No competitor's recall beat this tool's on any repository. Where one matched it, both found every call, except on hono (34 of 40, with code-review-graph and CodeGraph), vue (84 of 88, with code-review-graph), rayon (224 of 226, with both language-server asks) and zola (60 of 61, with Serena and both language-server asks).
+3 competitors beat this tool's recall on one repository each: tilth (38 of 40) and ripwire (37 of 40) on hono, where this tool found 34, and codedb on zola (61 of 61, against 60). Where one matched it, both found every call, except on hono (34 of 40, with code-review-graph and CodeGraph), vue (84 of 88, with code-review-graph and codeseek), rayon (224 of 226, with both language-server asks) and zola (60 of 61, with Serena, sem, tilth and both language-server asks).
 
 **Read the table with these limits:**
 
@@ -213,6 +227,8 @@ No competitor's recall beat this tool's on any repository. Where one matched it,
 | AxiomCode Graph | 133 | 181,552 | 1,374 | 307 | 591.4 |
 
 AxiomCode Graph printed answers for 133 of the 210 symbols. This tool's other views cost less than the files they stand for: `skeleton` of the 145 target files came to 90,849 tokens against 498,559 for the files, and `map` of the 21 repositories to 70,501 tokens against 24,877,541 for [Repomix](https://github.com/yamadashy/repomix) 1.19.0 packs of the same checkouts in its XML style.
+
+**Search, on semble's benchmark.** On 17 November 2026 (UTC), `trail ask` at `88c214e` answered the 1,251 queries of [semble's retrieval benchmark](https://github.com/MinishLab/semble/tree/main/benchmarks), 63 repositories in 19 languages at the revisions semble pins (its commit `a1ba6c1`), scored as semble scores its files: NDCG@10 0.714. A relevant file came first for 52.0% of queries, in the top 3 for 75.2% and in the top 10 for 88.6%. This build scored 0 on all 60 Haskell queries; without them NDCG@10 is about 0.75. Semble's README reports 0.855 for semble, 0.630 for codebase-memory-mcp and 0.126 for ripgrep, from its own runs, which were not repeated here.
 
 **Network:** in a separate pass on 15 November on httpx, mdbook and hono, in a namespace with only loopback, Serena made DNS lookups at its default settings on all 3, for `pypi.org` and `oraios-software.de`, and it documents an opt-out. This tool and codebase-memory-mcp made none. code-review-graph was not in that pass.
 
