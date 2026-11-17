@@ -122,7 +122,10 @@ pub fn clean_scope(name: &str) -> String {
 /// way to the definition around it. Empty at module level, a module-level value's included.
 pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
     let mut chain = enclosing(scopes, at);
-    while chain.last().is_some_and(|&inner| LOCAL.contains(&scopes[inner].kind)) {
+    while chain
+        .last()
+        .is_some_and(|&inner| LOCAL.contains(&scopes[inner].kind))
+    {
         chain.pop();
     }
     chain
