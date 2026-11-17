@@ -1,0 +1,211 @@
+{
+  "Warn": {
+    "target": "logrus.go",
+    "target_lines": [201],
+    "required": [
+      {"file":"entry.go","chain":"Warning","lines":[429]},
+      {"file":"example_basic_test.go","chain":"Example_basic","lines":[58]},
+      {"file":"example_hook_test.go","chain":"Example_hook","lines":[32]},
+      {"file":"exported.go","chain":"Warn","lines":[105]},
+      {"file":"hooks/test/test_test.go","chain":"TestAllHooks","lines":[35]},
+      {"file":"hooks/writer/writer_test.go","chain":"TestDifferentLevelsGoToDifferentWriters","lines":[35]},
+      {"file":"logger.go","chain":"Warning","lines":[265]},
+      {"file":"logrus_test.go","chain":"TestWarn","lines":[203]},
+      {"file":"logrus_test.go","chain":"TestDoubleLoggingDoesntPrefixPreviousFields","lines":[424]}
+    ],
+    "optional": [
+      {"file":"writer.go","chain":"WriterLevel","lines":[44]}
+    ]
+  },
+  "Logln": {
+    "target": "logger.go",
+    "target_lines": [333],
+    "required": [
+      {"file":"logger.go","chain":"Traceln","lines":[342]},
+      {"file":"logger.go","chain":"Debugln","lines":[346]},
+      {"file":"logger.go","chain":"Infoln","lines":[350]},
+      {"file":"logger.go","chain":"Warnln","lines":[360]},
+      {"file":"logger.go","chain":"Errorln","lines":[368]},
+      {"file":"logger.go","chain":"Fatalln","lines":[372]},
+      {"file":"logger_bench_test.go","chain":"BenchmarkLoggerLog","lines":[87]},
+      {"file":"logger_test.go","chain":"TestLoggerLogPanicLevelDoesNotPanic","lines":[88]}
+    ]
+  },
+  "WithField": {
+    "target": "entry.go",
+    "target_lines": [174],
+    "required": [
+      {"file":"entry.go","chain":"WithError","lines":[162]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_NewEntry","lines":[30]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithError","lines":[39,55]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain","lines":[81,82,83,84]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain_Disabled","lines":[99,107,108,109,110]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain_Enabled","lines":[124,132,133,134,135]},
+      {"file":"entry_test.go","chain":"TestEntryPanicln","lines":[268]},
+      {"file":"entry_test.go","chain":"TestEntryPanicf","lines":[290]},
+      {"file":"entry_test.go","chain":"TestEntryPanic","lines":[312]},
+      {"file":"entry_test.go","chain":"TestEntryDerivationPreservesCaller","lines":[381]},
+      {"file":"entry_test.go","chain":"TestEntryWithIncorrectField","lines":[419,420]},
+      {"file":"entry_test.go","chain":"TestEntryWithFieldsThenBranch","lines":[578,588]},
+      {"file":"json_formatter_test.go","chain":"TestJSONEntryFieldValueError","lines":[205,232]},
+      {"file":"logger.go","chain":"WithField","lines":[127]},
+      {"file":"logger_bench_test.go","chain":"doLoggerBenchmarkWithFormatter","lines":[109]},
+      {"file":"logrus_test.go","chain":"TestWithFieldsShouldAllowAssignments","lines":[279]},
+      {"file":"logrus_test.go","chain":"TestWithFieldShouldNotOverrideTime","lines":[370]},
+      {"file":"logrus_test.go","chain":"TestLoggingRaceWithHooksOnEntry","lines":[686]},
+      {"file":"text_formatter_test.go","chain":"TestTextEntryFieldValueError","lines":[657,680]}
+    ]
+  },
+  "Debug": {
+    "target": "logrus.go",
+    "target_lines": [187],
+    "required": [
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain_Disabled","lines":[112]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain_Enabled","lines":[137]},
+      {"file":"example_basic_test.go","chain":"Example_basic","lines":[48,62]},
+      {"file":"exported.go","chain":"Debug","lines":[90]}
+    ],
+    "optional": [
+      {"file":"writer.go","chain":"WriterLevel","lines":[40]}
+    ]
+  },
+  "FieldLogger.WithField": {
+    "target": "logrus.go",
+    "target_lines": [167],
+    "required": [
+      {"file":"entry.go","chain":"WithError","lines":[162]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_NewEntry","lines":[30]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithError","lines":[39,55]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain","lines":[81,82,83,84]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain_Disabled","lines":[99,107,108,109,110]},
+      {"file":"entry_bench_test.go","chain":"BenchmarkEntry_WithField_Chain_Enabled","lines":[124,132,133,134,135]},
+      {"file":"entry_test.go","chain":"TestEntryErrorFieldValues","lines":[94]},
+      {"file":"entry_test.go","chain":"TestEntryWithContextPreservesData","lines":[154]},
+      {"file":"entry_test.go","chain":"TestEntryWithTimePreservesData","lines":[185]},
+      {"file":"entry_test.go","chain":"TestEntryPanicln","lines":[268]},
+      {"file":"entry_test.go","chain":"TestEntryPanicf","lines":[290]},
+      {"file":"entry_test.go","chain":"TestEntryPanic","lines":[312]},
+      {"file":"entry_test.go","chain":"TestEntryDerivationPreservesCaller","lines":[381]},
+      {"file":"entry_test.go","chain":"TestEntryWithIncorrectField","lines":[419,420]},
+      {"file":"entry_test.go","chain":"TestEntryWithFieldsThenBranch","lines":[577,578,588]},
+      {"file":"exported.go","chain":"WithField","lines":[69]},
+      {"file":"hook_test.go","chain":"TestHookCanModifyEntry","lines":[97]},
+      {"file":"hook_test.go","chain":"TestCanFireMultipleHooks","lines":[111]},
+      {"file":"hooks/slog/slog_example_test.go","chain":"ExampleNewHandler","lines":[28]},
+      {"file":"hooks/slog/slog_example_test.go","chain":"ExampleNewHook","lines":[88]},
+      {"file":"hooks/slog/slog_test.go","chain":"TestHook_error_propagates","lines":[132]},
+      {"file":"json_formatter_test.go","chain":"TestJSONEntryFieldValueError","lines":[181,205,232]},
+      {"file":"json_formatter_test.go","chain":"TestJSONEntryEndsWithNewline","lines":[258]},
+      {"file":"json_formatter_test.go","chain":"TestFieldDoesNotClashWithCaller","lines":[325]},
+      {"file":"logger.go","chain":"WithField","lines":[127]},
+      {"file":"logger_bench_test.go","chain":"doLoggerBenchmarkWithFormatter","lines":[108,109]},
+      {"file":"logrus_test.go","chain":"TestReportCallerPreservesExistingCaller","lines":[118]},
+      {"file":"logrus_test.go","chain":"TestWithFieldsShouldAllowAssignments","lines":[279]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedFieldDoesNotOverwriteDefaults","lines":[299]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedMsgFieldHasPrefix","lines":[307]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedTimeFieldHasPrefix","lines":[316]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedLevelFieldHasPrefix","lines":[324]},
+      {"file":"logrus_test.go","chain":"TestDefaultFieldsAreNotPrefixed","lines":[333]},
+      {"file":"logrus_test.go","chain":"TestWithTimeShouldNotOverrideFields","lines":[359]},
+      {"file":"logrus_test.go","chain":"TestWithFieldShouldNotOverrideTime","lines":[370]},
+      {"file":"logrus_test.go","chain":"TestTimeOverrideMultipleLogs","lines":[387]},
+      {"file":"logrus_test.go","chain":"TestDoubleLoggingDoesntPrefixPreviousFields","lines":[412]},
+      {"file":"logrus_test.go","chain":"TestNestedLoggingReportsCorrectCaller","lines":[447]},
+      {"file":"logrus_test.go","chain":"TestLoggingRaceWithHooksOnEntry","lines":[652,686]},
+      {"file":"logrus_test.go","chain":"TestEntryWriter","lines":[735]},
+      {"file":"text_formatter_test.go","chain":"TestFormatting","lines":[40]},
+      {"file":"text_formatter_test.go","chain":"TestQuoting","lines":[59]},
+      {"file":"text_formatter_test.go","chain":"TestEscaping","lines":[173]},
+      {"file":"text_formatter_test.go","chain":"TestTextEntryFieldValueError","lines":[638,657,680]}
+    ]
+  },
+  "SetReportCaller": {
+    "target": "logger.go",
+    "target_lines": [455],
+    "required": [
+      {"file":"entry_bench_test.go","chain":"benchmarkEntryInfo","lines":[254]},
+      {"file":"entry_bench_test.go","chain":"benchmarkEntryReportCallerDepth4","lines":[295]},
+      {"file":"entry_test.go","chain":"TestEntryLoggerMutationRace","lines":[469]},
+      {"file":"example_custom_caller_test.go","chain":"ExampleJSONFormatter_CallerPrettyfier","lines":[14]},
+      {"file":"exported.go","chain":"SetReportCaller","lines":[32]},
+      {"file":"hooks/slog/handler_test.go","chain":"TestHandler_PreservesRecordCaller","lines":[395]},
+      {"file":"json_formatter_test.go","chain":"TestFieldDoesNotClashWithCaller","lines":[323]},
+      {"file":"logrus_test.go","chain":"TestSetReportCallerRace","lines":[836]}
+    ]
+  },
+  "Warnf": {
+    "target": "logrus.go",
+    "target_lines": [202],
+    "required": [
+      {"file":"entry.go","chain":"Warningf","lines":[483]},
+      {"file":"exported.go","chain":"Warnf","lines":[197]},
+      {"file":"logger.go","chain":"Warningf","lines":[196]}
+    ]
+  },
+  "Logger.WithField": {
+    "target": "logger.go",
+    "target_lines": [124],
+    "required": [
+      {"file":"entry_test.go","chain":"TestEntryErrorFieldValues","lines":[94]},
+      {"file":"entry_test.go","chain":"TestEntryWithContextPreservesData","lines":[154]},
+      {"file":"entry_test.go","chain":"TestEntryWithTimePreservesData","lines":[185]},
+      {"file":"entry_test.go","chain":"TestEntryWithFieldsThenBranch","lines":[577]},
+      {"file":"exported.go","chain":"WithField","lines":[69]},
+      {"file":"hook_test.go","chain":"TestHookCanModifyEntry","lines":[97]},
+      {"file":"hook_test.go","chain":"TestCanFireMultipleHooks","lines":[111]},
+      {"file":"hooks/slog/slog_example_test.go","chain":"ExampleNewHandler","lines":[28]},
+      {"file":"hooks/slog/slog_example_test.go","chain":"ExampleNewHook","lines":[88]},
+      {"file":"hooks/slog/slog_test.go","chain":"TestHook_error_propagates","lines":[132]},
+      {"file":"json_formatter_test.go","chain":"TestJSONEntryFieldValueError","lines":[181,205,232]},
+      {"file":"json_formatter_test.go","chain":"TestJSONEntryEndsWithNewline","lines":[258]},
+      {"file":"json_formatter_test.go","chain":"TestFieldDoesNotClashWithCaller","lines":[325]},
+      {"file":"logger_bench_test.go","chain":"doLoggerBenchmarkWithFormatter","lines":[108]},
+      {"file":"logrus_test.go","chain":"TestReportCallerPreservesExistingCaller","lines":[118]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedFieldDoesNotOverwriteDefaults","lines":[299]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedMsgFieldHasPrefix","lines":[307]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedTimeFieldHasPrefix","lines":[316]},
+      {"file":"logrus_test.go","chain":"TestUserSuppliedLevelFieldHasPrefix","lines":[324]},
+      {"file":"logrus_test.go","chain":"TestDefaultFieldsAreNotPrefixed","lines":[333]},
+      {"file":"logrus_test.go","chain":"TestWithTimeShouldNotOverrideFields","lines":[359]},
+      {"file":"logrus_test.go","chain":"TestTimeOverrideMultipleLogs","lines":[387]},
+      {"file":"logrus_test.go","chain":"TestDoubleLoggingDoesntPrefixPreviousFields","lines":[412]},
+      {"file":"logrus_test.go","chain":"TestNestedLoggingReportsCorrectCaller","lines":[447]},
+      {"file":"logrus_test.go","chain":"TestLoggingRaceWithHooksOnEntry","lines":[652]},
+      {"file":"logrus_test.go","chain":"TestEntryWriter","lines":[735]},
+      {"file":"text_formatter_test.go","chain":"TestFormatting","lines":[40]},
+      {"file":"text_formatter_test.go","chain":"TestQuoting","lines":[59]},
+      {"file":"text_formatter_test.go","chain":"TestEscaping","lines":[173]},
+      {"file":"text_formatter_test.go","chain":"TestTextEntryFieldValueError","lines":[638,657,680]}
+    ]
+  },
+  "Logger.Warn": {
+    "target": "logger.go",
+    "target_lines": [260],
+    "required": [
+      {"file":"exported.go","chain":"Warn","lines":[105]},
+      {"file":"hooks/test/test_test.go","chain":"TestAllHooks","lines":[35]},
+      {"file":"hooks/writer/writer_test.go","chain":"TestDifferentLevelsGoToDifferentWriters","lines":[35]},
+      {"file":"logger.go","chain":"Warning","lines":[265]},
+      {"file":"logrus_test.go","chain":"TestWarn","lines":[203]}
+    ]
+  },
+  "String": {
+    "target": "logrus.go",
+    "target_lines": [18],
+    "required": [
+      {"file":"hooks/slog/slog_test.go","chain":"TestHookLevelMapping","lines":[188]},
+      {"file":"json_formatter.go","chain":"Format","lines":[105]},
+      {"file":"level.go","chain":"formatLevel","lines":[41]},
+      {"file":"level.go","chain":"<file>","lines":[61]},
+      {"file":"level_test.go","chain":"TestLevelUnmarshalText","lines":[30,31]},
+      {"file":"level_test.go","chain":"TestLevelMarshalText","lines":[52]},
+      {"file":"logrus.go","chain":"MarshalText","lines":[81]},
+      {"file":"logrus_test.go","chain":"TestConvertLevelToString","lines":[531,532,533,534,535,536,537]},
+      {"file":"logrus_test.go","chain":"TestLevelString","lines":[612]},
+      {"file":"text_formatter.go","chain":"printPlain","lines":[231]},
+      {"file":"text_formatter.go","chain":"appendStringer","lines":[430]},
+      {"file":"text_formatter_test.go","chain":"TestDisableLevelTruncation","lines":[220,225,226]},
+      {"file":"text_formatter_test.go","chain":"TestPadLevelText","lines":[318,319]}
+    ]
+  }
+}

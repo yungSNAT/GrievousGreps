@@ -1,0 +1,7 @@
+[
+  { "name": "marshmallow", "repository": "marshmallow-code/marshmallow", "sha": "777ff66039fd939fc509226a33586bc3209df301", "language": "Python", "rules": "span" },
+  { "name": "immer", "repository": "immerjs/immer", "sha": "784c86bb234e805566481c9425fcb2a3897e8bcc", "language": "TypeScript", "rules": "span" },
+  { "name": "serde_json", "repository": "serde-rs/json", "sha": "f51fa15a7015c7d02817a46d2db44c899a0016e8", "language": "Rust", "rules": "span" },
+  { "name": "logrus", "repository": "sirupsen/logrus", "sha": "6ef0748d1177dadaeee9aa79ffef604570f487d7", "language": "Go", "rules": "span" },
+  { "name": "serilog", "repository": "serilog/serilog", "sha": "43105b35095337d77f022561a8f2d3db2f9a7937", "language": "C#", "rules": "span" }
+]

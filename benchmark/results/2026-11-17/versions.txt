@@ -1,0 +1,30 @@
+Tool versions behind the README's 17 November 2026 figures, and where each was read.
+
+Read again at 05:28 UTC on 17 November from the installed tools (`--version`; grepai `version`):
+codeseek 0.1.33
+grepai 1.2.0
+sem 0.30.1
+tilth 0.15.0
+ripwire 0.6.10
+codedb 0.2.5864
+graphicle 0.1.18
+
+Read at 05:43 UTC on 17 November from the installed tools:
+gortex v0.64.11+c7abb9b9 (`gortex version`)
+trace-mcp 3.44.1
+Axon v1.0.1
+Auryn 0.1.0 (falkordb_auryn 0.1.0, its installed package)
+
+Read from the run logs of 16 and 17 November:
+pyright 1.1.414 (language-server column setup log)
+rust-analyzer 0.3.3121 (language-server column setup log)
+gopls v0.24.0 (serverInfo in the logrus lsp-truth log)
+repomix 1.19.0 (`repomix --version` in the token-count log)
+
+Read from the installed package.json at 05:30 UTC on 17 November:
+typescript-language-server 6.1.0
+
+Pinned in the setup script of the unseen set:
+csharp-ls 0.28.0
+
+The TypeScript each checkout installs is not recorded here; its record stays on the benchmark machine.

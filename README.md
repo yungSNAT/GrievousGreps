@@ -19,7 +19,7 @@
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. On 21 public repositories its [measured recall](#measured-recall) is 0.98, against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d`, all 3 measured on 16 November 2026 (UTC). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.95 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
+Use it over upstream if your agent relies on `callers`. On the 21 public repositories its fixes were tuned on, its [measured recall](#measured-recall) is 0.98, against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d`, all 3 measured on 16 November 2026 (UTC). On 5 repositories no build had seen, it was 0.41 against 0.38 for 0.29.0 (17 November, at `0df7dcc`). It is higher than 0.29.0 on 20 of the 21 and level on the other, its precision is 0.95 against 0.94, and its Rust recall is partial. It also makes no background network request until you ask for one, and it refuses to write through a symlink planted in a repository. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences.
 
 ## Install
 
@@ -69,13 +69,18 @@ trail callers <symbol>               # who calls it
 trail callers <symbol> --direction out   # what it calls
 trail map                            # directory clusters, hubs and hotspots
 trail grep <pattern>                 # every occurrence, grouped by enclosing symbol
+trail viz                            # an interactive viewer of the graph, served on localhost
 ```
+
+`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx it was 1,016,743 bytes (16 November, at `88c214e`), with no script or style loaded from elsewhere.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
 `trail init --global` closes that gap by adding hooks to `~/.claude`, and to `~/.codex` for Codex, which run in every project on the machine. `trail uninstall -y` removes what either form wrote except the `.trail/` folder, which keeps your learnings; without `-y` it is a dry run.
 
 The map lives in `.trail/cache` in a repository on trail and in `graft/` elsewhere: a local cache to keep out of git.
+
+In a folder of separate git repositories, `trail build` builds one graph per repository and a federated index beside them, and a query from the folder searches them all, each hit labelled with its repository. On 16 November 2026 (UTC), on Linux at `88c214e`, a folder holding click, flask and httpx built a graph for each. Calls between the repositories are not linked: `trail callers get_current_context` there listed click's own 16 callers, not flask's call in `tests/test_cli.py`. [docs/upstream-guide.md](docs/upstream-guide.md#monorepos-submodules--multi-repo-folders) covers this and the other layouts.
 
 ## Docs search
 
@@ -105,6 +110,8 @@ Recall is the share of real calls that `callers` found, pooled across the symbol
 For the 18, that order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. One correction came after a first scoring pass: the target lines of httpx `to_bytes` and `create_ssl_context` were off by one. No required row changed. A second came on 15 November 2026 (UTC): tokio `channel` lacked 49 calls written with a turbofish, such as `mpsc::channel::<()>(1)`, which [benchmark/](benchmark/README.md#truth) lists with how they were found and checked. They are now required rows, so tokio holds 894 calls and the 21 repositories 4,359. A third came later that day: attrs `resolve_types` lacked 5 calls that apply it as a decorator without arguments, which [benchmark/](benchmark/README.md#truth) also lists. They are now required rows, so attrs holds 282 calls and the 21 repositories 4,364. A fourth came on 16 November: table lacked 39 calls in Svelte and Vue components, which [benchmark/](benchmark/README.md#truth) lists too. They are now required rows, so table holds 397 calls and the 21 repositories 4,403. Every column below was scored on these 4,403 calls.
 
 **Overall, upstream 0.29.0 to patched:** recall 0.32 to 0.98 (21 repositories and 4,328 of 4,403 calls on the patched build), precision 0.94 to 0.95, silent undercounts 77 to 7. Upstream `main` scored 0.19, with precision 0.91 and 113 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule. On the hand-written truth for all 21, the 13 November runs gave recall 0.31, 0.77 and 0.20 and silent undercounts 74, 14 and 113 (0.29.0, patched at `219b118`, `main`). The 12 November runs, on that truth, counted under an earlier rule, which searched the plain output for words such as 'undercount', and gave 50, 5 and 90 silent undercounts.
+
+**On 5 repositories no build had seen, recall was 0.41.** The 5, in Python, TypeScript, Rust, Go and C#, were preregistered with truth that language servers derived before any build ran on them. On 17 November 2026 (UTC), at `0df7dcc`, this tool found 231 of their 564 required rows (the unit the 21-repository table calls calls), with precision 0.98 and 18 silent undercounts; upstream 0.29.0 gave recall 0.38, precision 0.98 and 21. By repository: marshmallow 0.57, immer 0.57, serde_json 0.27, logrus (Go) 0.08 and serilog (C#) 0.53. The 21 repositories below shaped the fixes, so 0.98 is recall on code the build was tuned on. [benchmark/unseen/](benchmark/unseen/README.md) has the set, how its truth was derived and the faults found in that derivation. The 2 figures differ in more than exposure: 0.98 is at `88c214e` and 0.41 at `0df7dcc`, which has later graph fixes; the 21 hold only Python, TypeScript and Rust, and the 5 add Go and C#; and the 5's truth comes from language servers, with serilog's committed rows naming the class around each call rather than the method. On the 3 unseen repositories in the 21's languages, recall was 0.52 (166 of 319 rows), against 0.47 (150 of 319) for 0.29.0.
 
 On the hand-written truth, 0.29.0 gave the same figures on all 21 repositories as `a44da3d` (30 October), the `main` commit whose package version is 0.28.0, gave on 31 October. Since 0.29.0, upstream `main`'s Python and Rust rows held or rose (rich 0.57 to 0.80), but 6 of its 7 TypeScript rows fell, from 0.90 to 0.33 on jotai and from 0.73 to 0.02 on radix: `main` no longer finds some symbols, such as radix `FocusScope`, which it reports as not in the graph. A rerun of `a44da3d` on the same machine on 12 November gave its earlier TypeScript figures, so the fall is upstream's change, not the run.
 
@@ -140,11 +147,11 @@ Against 0.29.0, recall did not rise everywhere: vue did not move. Silent underco
 
 All 3 columns were run on Linux with Node 26.13.1 on 16 November 2026 (UTC) and scored on the truth with all 4 corrections: the patched column at `88c214e`, whose code is that of `3e066a2`, 0.29.0 as the npm package `@trailhq/trail-code@0.29.0` with its install script skipped, and `main` built from source. Against the 15 November runs, only the table row of the 2 upstream columns changed, for its 39 new calls, and the patched figures matched those of `3e066a2` on every row. On the hand-written truth every recall figure matched the 12 November runs (patched at `166c2fd` and `eaa8393`). Linux and Windows gave identical benchmark results at `e37a764` on all 21 repositories, and `e8f73b9` matched them. `a44da3d` was run on Windows and, for those 6 TypeScript rows, again on Linux.
 
-These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
+These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results; the unseen set above measures that. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
 
 ## Against the alternatives
 
-On this benchmark GrievousGreps has the highest overall recall of 10 tools and the fewest silent undercounts. It is ahead of Serena on Rust (0.97 to 0.76), of code-review-graph on TypeScript (0.99 to 0.98) and of CodeGraph on Python (1.00 to 0.97). codebase-memory-mcp leads on answer size and memory. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories, 210 symbols and 4,403 calls. Every tool was run on 16 November 2026 (UTC), each at its latest release that day and GrievousGreps at `88c214e`.
+On this benchmark GrievousGreps has the highest overall recall of the 17 tools scored, and the fewest silent undercounts, 7, which ripwire matches. It is ahead of Serena on Rust (0.97 to 0.76), of code-review-graph on TypeScript (0.99 to 0.98) and of CodeGraph on Python (1.00 to 0.97). Of the 10 tools whose answers were counted, CodeGraph and codebase-memory-mcp give the fewest tokens; of the 4 whose memory was measured, codebase-memory-mcp uses the least. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories, 210 symbols and 4,403 calls. The first 10 tools were run on 16 November 2026 (UTC), each at its latest release that day, with GrievousGreps at `88c214e`; the 7 under '11 more call-graph tools' ran on 16 and 17 November at the versions named.
 
 | | GrievousGreps `88c214e` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned | code-review-graph v2.4.0 |
 | --- | --- | --- | --- | --- | --- |
@@ -168,11 +175,36 @@ The 6 further tools, run the same day on the same calls:
 
 AxiomCode Graph returned no Rust callers, so it has no Rust precision. Each tool built its index with its documented command and answered its documented callers question: CodeGraph `codegraph callers`, CodeGraphContext's MCP `find_callers`, repowise `context --include callers`, tokensave's MCP symbol lookup and callers, Graphify `explain`, and AxiomCode Graph `impact`. These 6 licences are GitHub's reading of each repository's licence on 16 November 2026, and AxiomCode Graph's from its npm package; they were not checked file by file at each release.
 
-No competitor's recall beat this tool's on any repository. Where one matched it, both found every call, except on hono (34 of 40, with code-review-graph and CodeGraph), vue (84 of 88, with code-review-graph) and zola (60 of 61, with Serena).
+**11 more call-graph tools.** Between 21:04 (UTC) on 16 November 2026 and 04:53 on 17 November the 7 scored tools answered the same 210 questions, each at the version installed that day, and the same scorer counted their answers at 04:53. 7 have complete runs:
+
+| | codeseek 0.1.33 | grepai 1.2.0 | sem 0.30.1 | tilth 0.15.0 | ripwire 0.6.10 | codedb 0.2.5864 | Graphicle 0.1.18 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Overall | 0.73 / 0.63 / 111 | 0.73 / 0.60 / 125 | 0.65 / 0.91 / 17 | 0.62 / 0.74 / 41 | 0.38 / 0.94 / 7 | 0.35 / 0.75 / 103 | 0.32 / 0.93 / 143 |
+| Python | 0.93 / 0.82 / 24 | 0.86 / 0.75 / 32 | 0.94 / 0.99 / 5 | 0.74 / 0.85 / 9 | 0.41 / 0.97 / 0 | 0.45 / 0.77 / 28 | 0.46 / 0.99 / 41 |
+| TypeScript | 0.53 / 0.85 / 35 | 0.55 / 0.84 / 40 | 0.63 / 0.90 / 1 | 0.79 / 0.90 / 17 | 0.59 / 0.93 / 4 | 0.45 / 0.85 / 44 | 0.67 / 0.98 / 48 |
+| Rust | 0.73 / 0.51 / 52 | 0.75 / 0.48 / 53 | 0.50 / 0.85 / 11 | 0.47 / 0.58 / 15 | 0.26 / 0.94 / 3 | 0.24 / 0.61 / 31 | 0.12 / 0.78 / 54 |
+| Licence | MIT | MIT | Apache-2.0 | MIT | Apache-2.0 | BSD-3-Clause | Apache-2.0 |
+
+Graphicle timed out on table after 517 s, so its figures pool the other 20 repositories. sem's index command exited with an error on tokio and tracing, and its answers there are scored as it gave them. grepai builds its symbol index only with an embedding endpoint; a local stand-in that returns one fixed vector served it, as its `trace callers` reads the symbol index, not the vectors. These licences are GitHub's reading of each repository's licence on 17 November 2026, except tilth's, from its README of 16 November, as GitHub no longer finds the repository.
+
+4 are not scored yet. gortex v0.64.11 marked 176 of the 237 definitions it answered for `coverage_incomplete`, and the run did not establish whether its daemon had finished loading. trace-mcp 3.44.1 found 33 of the 1,129 TypeScript rows and none of the 2,153 Rust rows, and Auryn 0.1.0 none of either, although both list those languages; the harness finds Auryn's files through Python module paths, so for Auryn at least the fault may be the harness's. Axon 1.0.1 timed out on attrs after 1,058 s, and only its httpx answers were in the scoring at 04:53.
+
+**Language servers, asked directly.** On 16 November 2026 (UTC), from 21:40, `gg-bench lsp` at `8f297cb` put the same 210 questions to the servers Serena wraps, at their defaults and with each checkout's dependencies installed: Pyright 1.1.414, typescript-language-server 6.1.0 with each checkout's TypeScript, and rust-analyzer 0.3.3121. Each location was named by the definition around it, as for Serena's column; [benchmark/](benchmark/README.md#ask-a-language-server) has the command.
+
+| | Call hierarchy | References |
+| --- | --- | --- |
+| Overall | 0.52 / 0.92 / 103 | 0.53 / 0.92 / 103 |
+| Python | 0.37 / 1.00 / 33 | 0.38 / 0.96 / 31 |
+| TypeScript | 0.30 / 1.00 / 46 | 0.29 / 0.96 / 50 |
+| Rust | 0.70 / 0.88 / 24 | 0.74 / 0.89 / 22 |
+
+Call hierarchy matched this tool's recall on 6 repositories and references on 7; neither beat it on any. Their lowest rows, radix, structlog, attrs and click (0.02 to 0.10 by call hierarchy), are 4 of the 5 that Serena's tuned row reconfigures; these servers ran at defaults only. The column opens only the target files, and the TypeScript server searches only the projects of open files: asked for references by `gg-bench lsp-truth` on 17 November, the same server found 255 of the 261 call lines in hono's compiler-derived truth with every file open, against 31 with only the targets open.
+
+3 competitors beat this tool's recall on one repository each: tilth (38 of 40) and ripwire (37 of 40) on hono, where this tool found 34, and codedb on zola (61 of 61, against 60). Where one matched it, both found every call, except on hono (34 of 40, with code-review-graph and CodeGraph), vue (84 of 88, with code-review-graph and codeseek), rayon (224 of 226, with both language-server asks) and zola (60 of 61, with Serena, sem, tilth and both language-server asks).
 
 **Read the table with these limits:**
 
-- The truth was written alongside this tool and all 21 repositories have been seen in development, so the table does not predict recall on other code.
+- The truth was written alongside this tool and all 21 repositories have been seen in development, so the table does not predict recall on other code: on the 5 unseen repositories it was 0.41.
 - A silent undercount is a symbol whose answer misses a caller and whose JSON does not say it may be short. The scorer reads the 2 fields this tool writes, `unresolved` and a shared-name `note`, and no rival field, so each rival's count is every symbol it missed. The earlier rule, which searched the plain output for words such as 'undercount', gives 5, 89, 94, 66 and 86 on the 15 November answers, with this tool at `491b060`.
 - codebase-memory-mcp used documented non-default settings because the truth counts test callers: `depth=1`, `include_tests=true`, `limit=5000` and `max_output_tokens=1000000`. At its defaults its overall recall is 0.29.
 - code-review-graph was asked through its MCP server's `query_graph_tool` with `callers_of` and `max_results=100000`, as its default of 100 would cut long answers, after a `code-review-graph build`. Each target came from the tool's `file_summary` of the target file. Its `file_summary` listed no matching definition for 4 targets: hono `createFactory`, an arrow function, and tokio `spawn`, `spawn_blocking` and `block_in_place`, which sit inside `cfg_rt!` and `cfg_rt_multi_thread!` macros.
@@ -181,9 +213,28 @@ No competitor's recall beat this tool's on any repository. Where one matched it,
 
 **Cost, as medians across the 21 repositories** (this tool, codebase-memory-mcp, Serena, code-review-graph): index time 4.24, 4.33, 10.92 and 5.92 s, with Serena's first query adding 4.18 s; peak memory when querying 100, 41, 1,123 and 101 MiB. Answers across all queries came to 719,535, 291,999, 1,488,043 and 4,650,547 bytes, before target lookups of 178,457 bytes for codebase-memory-mcp, 37,086 for Serena and 1,954,645 for code-review-graph. codebase-memory-mcp and code-review-graph name each caller with the checkout's path, so their byte counts grow with that path. 3 runs each on httpx, mdbook and hono gave the same recall every time; index times varied by up to 1.55 s for this tool (hono), 0.71 s for codebase-memory-mcp (mdbook), 7.90 s for Serena (hono) and 7.87 s for code-review-graph (hono). These runs do not rank latency, because a CLI process per query and an MCP server are not like for like.
 
+**What an agent reads, in tokens.** On 17 November 2026 (UTC) the plain answers of the 16 November runs, as each tool prints them, were counted with tiktoken's `o200k_base` encoding. This tool's 210 callers answers came to 203,627 tokens, against 1,098,195 for `rg -n -w <name>` on the same names. codebase-memory-mcp and CodeGraph spent fewer tokens on each call they found; this tool found more calls.
+
+| Tool | Answers | Tokens | Median tokens an answer | Calls found | Tokens a call found |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| GrievousGreps `88c214e` | 210 | 203,627 | 290 | 4,328 | 47.0 |
+| codebase-memory-mcp, tests on | 210 | 92,944 | 219 | 2,733 | 34.0 |
+| Serena, defaults | 210 | 441,692 | 703 | 2,397 | 184.3 |
+| code-review-graph | 210 | 1,472,912 | 2,378 | 2,735 | 538.5 |
+| CodeGraph | 210 | 75,450 | 137 | 2,381 | 31.7 |
+| CodeGraphContext | 210 | 721,235 | 966 | 2,353 | 306.5 |
+| repowise | 210 | 290,159 | 844 | 2,087 | 139.0 |
+| tokensave | 210 | 290,917 | 775 | 1,243 | 234.0 |
+| Graphify | 210 | 112,845 | 300 | 1,156 | 97.6 |
+| AxiomCode Graph | 133 | 181,552 | 1,374 | 307 | 591.4 |
+
+AxiomCode Graph printed answers for 133 of the 210 symbols. This tool's other views, at `88c214e`, cost less than the files they stand for: `skeleton` of the 145 target files came to 90,849 tokens against 498,559 for the files, and `map` of the 21 repositories to 70,501 tokens against 24,877,541 for [Repomix](https://github.com/yamadashy/repomix) 1.19.0 packs of the same checkouts in its XML style.
+
+**Search, on semble's benchmark.** On 17 November 2026 (UTC), `trail ask` at `88c214e` answered the 1,251 queries of [semble's retrieval benchmark](https://github.com/MinishLab/semble/tree/main/benchmarks), 63 repositories in 19 languages at the revisions semble pins (its commit `a1ba6c1`), scored as semble scores its files: NDCG@10 0.714. A relevant file came first for 52.0% of queries, in the top 3 for 75.2% and in the top 10 for 88.6%. This build scored 0 on all 60 Haskell queries; without them NDCG@10 is about 0.75. Semble's `benchmarks/README.md` at `a1ba6c1` reports 0.855 for semble, 0.630 for codebase-memory-mcp's `search_graph` in `fast` mode and 0.126 for ripgrep, from its own runs, which were not repeated here; whether semble scores its own figure at file level, as here, was not checked.
+
 **Network:** in a separate pass on 15 November on httpx, mdbook and hono, in a namespace with only loopback, Serena made DNS lookups at its default settings on all 3, for `pypi.org` and `oraios-software.de`, and it documents an opt-out. This tool and codebase-memory-mcp made none. code-review-graph was not in that pass.
 
-**Method:** the recall figures come from runs on one Linux machine on 16 November 2026 (UTC), one job at a time, between 07:38 (Serena) and 18:11 (this tool), and were scored together at 18:15. Callers came from `graft callers`, codebase-memory-mcp's `trace_path`, Serena's `find_referencing_symbols`, code-review-graph's `callers_of` and the 6 commands above, with Serena's references mapped to their enclosing definition. All went through the benchmark's scorer unchanged. The cost, network and precision-sample figures above come from the 15 November runs of the first 4 tools, with this tool at `491b060`; they ran between 07:42 and 10:42 UTC that day, with a load average of 3.5 to 19.6 when a run started, so the timings are rough.
+**Method:** the recall figures come from runs on one Linux machine on 16 November 2026 (UTC), one job at a time, between 07:38 (Serena) and 18:11 (this tool), and were scored together at 18:15. The 7 tools under '11 more call-graph tools' ran between 21:04 on 16 November and 04:53 on 17 November with the commands their adapters use, and were scored at 04:53; the language-server column ran with `gg-bench lsp` at `8f297cb` from 21:40 on 16 November and was pooled at 00:23 on 17 November. The outputs behind the figures added on 16 and 17 November are in [benchmark/results/2026-11-17/](benchmark/results/2026-11-17/README.md). Callers came from `graft callers`, codebase-memory-mcp's `trace_path`, Serena's `find_referencing_symbols`, code-review-graph's `callers_of` and the 6 commands above, with Serena's references mapped to their enclosing definition. All went through the benchmark's scorer unchanged. The cost, network and precision-sample figures above come from the 15 November runs of the first 4 tools, with this tool at `491b060`; they ran between 07:42 and 10:42 UTC that day, with a load average of 3.5 to 19.6 when a run started, so the timings are rough.
 
 **To rerun it:** `cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/bin/graft.js` reproduces this tool's column, as [benchmark/](benchmark/README.md) describes. The comparison scripts are not shipped, because they are tied to that machine's sandbox. To repeat the other columns, install the versions above, query each tool as described here and score the answers with `gg-bench score`.
 

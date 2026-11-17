@@ -1,0 +1,56 @@
+# Unseen repositories, preregistered
+
+This set tests `callers` on 5 repositories that no build of this tool or its benchmark has run on, with truth that a language server derives rather than a person. Its order is fixed here, before anything runs on them:
+
+1. This file and `repos.json` are committed first. The 5 were chosen on 16 November 2026 (UTC) as active public projects in 5 languages that appear in neither the 21-repository benchmark nor [semble's retrieval set](https://github.com/MinishLab/semble/tree/main/benchmarks), on which `trail ask` is measured. Each is pinned to its default branch's head that day.
+2. Each repository's truth is then derived and committed, before any GrievousGreps or rival build runs on it:
+
+   ```bash
+   cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- --bench benchmark/unseen lsp-truth --repo <name> --pick 10 --seed 20261117 -- <server>
+   ```
+
+3. Only then do the tools run, and the scorer is unchanged: `span` rules, as for 14 of the 21.
+
+The order is visible in pull request #90's commits, which the squash merge `27f8489` folded into one on `main`: this file and `repos.json` in `01fdfc8` (21:32 UTC on 16 November 2026), the truth in `31d6442` (00:22 on 17 November) and immer's truth derived again in `79ccd63` (02:05). These are author dates. The tools first ran at 02:08.
+
+| Repository | Language | Server |
+| --- | --- | --- |
+| marshmallow-code/marshmallow @ 777ff66 | Python | pyright 1.1.414 (`pyright-langserver --stdio`) |
+| immerjs/immer @ 784c86b | TypeScript | typescript-language-server 6.1.0 with the checkout's own TypeScript |
+| serde-rs/json @ f51fa15 | Rust | rust-analyzer 2026-11-16 |
+| sirupsen/logrus @ 6ef0748 | Go | gopls, the latest release on the day of the run |
+| serilog/serilog @ 43105b3 | C# | csharp-ls 0.28.0 (Roslyn), with the .NET SDK the checkout needs |
+
+## How symbols are picked
+
+`--pick 10` lists every function and method (LSP symbol kinds 12 and 6) that the server reports in the repository's source files, outside folders named for tests, examples, benchmarks, documentation, fixtures, vendored or built code, and outside test files. Names shorter than 3 bytes and names of the form `__name__` are left out. The list, in file order and, within a file, the order of the server's document symbols, is shuffled with SplitMix64 from the seed 20261117. In that order each candidate's references are derived, and it is kept if it has 3 to 300 calls, until 10 are kept. A name already kept is qualified with its owner, such as `Logger.info`, and skipped if that is taken too.
+
+## How truth is derived
+
+For each kept definition the server is asked for every reference, without the declaration. A reference is a call when the line continues with `(`, after any generic arguments (`::<T>` in Rust, `[T]` in Go, `<T>` in C# and TypeScript), or when it is a Python or TypeScript decorator, a JSX element or a tagged template. Calls become required rows, grouped by file and by the named definition around them, or by file (`<file>`) at module level. Any other reference inside a named definition is an optional row; one at module level, such as an import, gets no row. This follows `tsc-truth.mjs`, with 3 differences: the call test reads the line rather than a syntax tree, so a call whose `(` starts the next line counts as a reference; a function stored in an object literal, as in `const Jwt = { verify }`, is not searched again as a property, so a call such as `Jwt.verify()` is missing; and a calling definition is any symbol the server reports other than a module, namespace or package or a value such as a variable, field or constant whose line does not assign a function, rather than the compiler's syntax kinds. For TypeScript every `.ts`, `.tsx`, `.mts` and `.cts` file outside `dist` and `coverage` is opened first, as `tsc-truth.mjs` reads them all, because the TypeScript server searches only the projects of open files.
+
+serilog's project lists its target frameworks with a leading empty entry when not on Windows, which Roslyn's MSBuild workspace cannot load ([dotnet/vscode-csharp#5786](https://github.com/dotnet/vscode-csharp/issues/5786)), so csharp-ls runs with `TargetFramework=net10.0` in its environment.
+
+A first derivation on 16 November 2026 (UTC), before any tool had run on the 5, had 3 faults, which were fixed before the truth was derived again: gopls names a method by its receiver, as `(*Logger).WithFields`, so Go methods were neither picked nor named as callers; a TypeScript arrow function held in a variable, as `let has = (...) =>`, was not named as a caller; and csharp-ls loaded no serilog project, as above, so no C# symbol was picked. A pick now fails rather than write fewer than 10 symbols.
+
+The second derivation, committed on 17 November 2026 at 00:22 (UTC), had a fourth fault, found before any tool had run on the 5 by deriving truth again for 7 of the 21 repositories and comparing it with their committed truth. immer's `tsconfig.json` lists only its source files, and only the target files were open, so the TypeScript server searched no other file and immer's truth had no row outside `src/`. With every file open, the same derivation found 255 of the 261 call lines in hono's compiler-derived truth, against 31 before, and 348 of radix's 395, against 14. immer's truth was derived again; the other 4 languages' servers search the whole workspace, so their truth is unchanged.
+
+The truth in `truth/` was derived on Linux with the servers above, on 16 November 2026 (UTC) and, for immer, on 17 November; gopls was v0.24.0 and rust-analyzer reported 0.3.3121.
+
+| Repository | Candidates derived | Required rows | Call lines | Optional rows |
+| --- | ---: | ---: | ---: | ---: |
+| marshmallow | 32 | 228 | 272 | 0 |
+| immer | 28 | 42 | 56 | 0 |
+| serde_json | 42 | 49 | 89 | 1 |
+| logrus | 29 | 143 | 195 | 2 |
+| serilog | 55 | 102 | 309 | 4 |
+
+This committed truth is the one the tools ran against, from 02:08 (UTC) on 17 November, so it is not changed. A review of the code afterwards found further faults, which are fixed in `lsp-truth`. Derived again with the fixed code, the truth of marshmallow, immer, serde_json and logrus is identical, row for row. serilog's is not: csharp-ls names a method with its parameters, as `Write(LogEventLevel level)`, which the derivation took for an anonymous scope. So serilog's committed rows name the class around each call, not the method, and only generic methods, whose names were cut at `<`, could be picked. The fixed derivation picks 10 other symbols from 29 candidates and groups their 166 calls into 130 rows by method. Read serilog's figures with that in mind.
+
+## Limits
+
+- The truth is the server's. A call the server cannot resolve, such as one through Python's dynamic attributes, is missing from it, so a tool that finds such a call is charged a false positive.
+- The TypeScript truth reads TypeScript files only, as `tsc-truth.mjs` does. 17 of the 25 JavaScript and TypeScript files in immer's `__tests__` are JavaScript, so a call from them is charged as a false positive.
+- Opening every file can exhaust the TypeScript server on a large monorepo: on trpc it exited before answering.
+- The language-server column of the main benchmark is not run here, because these servers wrote the truth.
+- 5 repositories with 10 symbols each estimate nothing about recall on other code; they only test whether the 21-repository figures hold on code no build has seen.
