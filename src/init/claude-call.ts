@@ -2,16 +2,16 @@
  * Asking the person's own Claude Code, headless, for `trail init`: finding a
  * copy to run and making the one call.
  */
-import { spawn, spawnSync } from "../util/program.js";
+import { findProgram, spawn, spawnSync } from "../util/program.js";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { flatLine } from "../notes/flatten.js";
 
-/** Whether `claude` (Claude Code) is on PATH. */
-function claudeOnPath(): boolean {
-  const r = spawnSync("claude", ["--version"], { stdio: "ignore", timeout: 10_000 });
-  return r.status === 0;
+/** `claude` (Claude Code) on PATH by its absolute path (util/program.ts), when it answers `--version`. */
+function claudeOnPath(): string | null {
+  const claude = findProgram("claude");
+  return claude && spawnSync(claude, ["--version"], { stdio: "ignore", timeout: 10_000 }).status === 0 ? claude : null;
 }
 
 /** `[2, 1, 296]` from `anthropic.claude-code-2.1.296-darwin-arm64`; null for anything else. */
@@ -21,14 +21,15 @@ function extensionVersion(name: string): number[] | null {
 }
 
 /**
- * The Claude Code to run: `claude` on PATH, else a standalone install's copy,
+ * The Claude Code to run, by its absolute path: `claude` on PATH, else a standalone install's copy,
  * else the newest copy the VS Code, Cursor, VS Code Insiders or Windsurf
  * extension keeps. Someone who only uses the extension has no `claude` on
  * PATH, and without this their past sessions are never read. Null when
  * there's none.
  */
-export function claudeBin(home: string = homedir(), onPath: () => boolean = claudeOnPath): string | null {
-  if (onPath()) return "claude";
+export function claudeBin(home: string = homedir(), onPath: () => string | null = claudeOnPath): string | null {
+  const found = onPath();
+  if (found) return found;
   const exe = process.platform === "win32" ? "claude.exe" : "claude";
   for (const p of [join(home, ".local", "bin", exe), join(home, ".claude", "local", exe)]) if (existsSync(p)) return p;
   const copies: { version: number[]; path: string }[] = [];

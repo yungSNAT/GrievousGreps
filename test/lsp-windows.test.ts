@@ -212,7 +212,9 @@ test("Windows: a server Windows refuses to start (a .cmd that isn't an npm shim)
       ],
       edges: [],
     };
-    const r = await enrichWithLsp(graph, dir);
+    const repo = join(dir, "repo"); // the mapped repository, outside the server's folder: trail never starts a server inside it
+    mkdirSync(repo);
+    const r = await enrichWithLsp(graph, repo);
     assert.equal(r.added, 0);
     assert.match(String(r.server), /typescript-language-server\.cmd$/i, "the .cmd was found, then skipped");
     assert.equal(graph.edges.length, 0, "graph untouched");

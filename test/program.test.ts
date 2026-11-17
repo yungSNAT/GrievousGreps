@@ -36,7 +36,7 @@ test("findProgram (Windows): a git.cmd first on PATH is passed over for a later 
   assert.equal(onWindows("C:\\a", has("C:\\a\\git.bat"), {}, true), null, "never a .bat");
   const named = (name: string) => findProgram(name, { platform: "win32", env: { PATH: "C:\\a" }, isFile: has("C:\\a\\cmd.exe"), realpath: asGiven });
   assert.equal(named("cmd.exe"), "C:\\a\\cmd.exe", "a name that already has its ending");
-  assert.equal(named("CMD.EXE"), "C:\\a\\CMD.EXE");
+  assert.equal(named("cmd"), "C:\\a\\cmd.exe");
 });
 
 test("findProgram: empty and relative PATH entries are never looked in", () => {

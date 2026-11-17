@@ -61,8 +61,7 @@ test("--lsp names a server it will not start: one only in a node_modules/.bin or
   const server = (dir: string) => {
     mkdirSync(dir, { recursive: true });
     const file = join(dir, process.platform === "win32" ? "typescript-language-server.cmd" : "typescript-language-server");
-    writeFileSync(file, "#!/bin/sh
-", { mode: 0o755 });
+    writeFileSync(file, "#!/bin/sh\n", { mode: 0o755 });
     return file;
   };
   const repo = join(top, "repo");
