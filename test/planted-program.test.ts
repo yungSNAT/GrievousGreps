@@ -116,16 +116,6 @@ test("claude planted in the working folder never runs: claudeBin looks on PATH o
   assert.equal(bin, null, "the planted claude was taken for the person's");
 });
 
-test("claude on PATH in the temp folder, where callClaude runs it, is not taken", (t) => {
-  const repo = clonedRepo(t);
-  const bin = tempDir(t, "planted-claude-bin-");
-  const marks = plant(t, bin, ["claude"]);
-  process.env.PATH = bin; // an absolute entry, outside the checkout but under the temp folder
-  const found = inside(repo, () => claudeBin(tempDir(t, "planted-home-")));
-  assert.deepEqual(ran(marks), [], "the claude under the temp folder ran");
-  assert.equal(found, null, "the claude under the temp folder was taken");
-});
-
 /** Plants a shell in `repo` (cmd.exe on Windows, `sh` elsewhere); the shell setting that names it by `how`. */
 function plantShell(t: TestContext, repo: string, how: "relative" | "absolute"): { marks: string; shell: string | true } {
   const name = win ? "cmd" : "sh";

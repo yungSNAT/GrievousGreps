@@ -19,7 +19,7 @@ import type { GraphV1 } from "../src/graph/types.js";
 const onWindows = { skip: process.platform !== "win32" };
 /** How the LSP registry looks a server up on Windows, with PATH and the files given. */
 const findOnWindowsPath = (cmd: string, path: string, isFile: (p: string) => boolean) =>
-  findProgram(cmd, { platform: "win32", env: { PATH: path }, cmd: true, isFile, realpath: (dir) => dir });
+  findProgram(cmd, { platform: "win32", env: { PATH: path }, cmd: true, isFile, realpath: (dir) => dir, folders: () => [] });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Windows keeps a just-killed process's hold on its cwd for a moment: retry the cleanup. */
 async function removeDir(dir: string): Promise<void> {
