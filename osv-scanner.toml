@@ -1,0 +1,12 @@
+# OSV-Scanner reads this file next to package-lock.json; rust/gg-docs has its own for its Cargo.lock.
+#
+# An ignore lapses on ignoreUntil (OSV-Scanner stops ignoring at midnight on that date in the
+# runner's time zone, which is UTC on GitHub-hosted runners), so the weekly scan fails again then.
+# Extend a date only after checking that no fixed release exists yet.
+
+# Remove when a picomatch release fixes the advisory (4.0.7, the latest on 17 November 2026, is the
+# last affected) and the lockfile takes it.
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+ignoreUntil = 2026-12-01
+reason = "picomatch 4.0.7 is a dev dependency only (node-gyp -> tinyglobby), with no fixed release. node-gyp globs only its own fixed patterns (build/*.sln, build/*.mk in lib/build.js), never an extglob from input; trail does not ship or call picomatch."
