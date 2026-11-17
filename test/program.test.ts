@@ -169,6 +169,53 @@ test("findProgram: a filesystem root or the home folder as the working folder sk
   assert.equal(find(join(top, "tools"), top), bin, "trail run in the home folder still finds ~/tools");
 });
 
+test("findProgram: a PATH entry that is the working folder is passed over, even when that is the home folder or a root", (t) => {
+  const top = scratch(t);
+  tool(top);
+  const home = win ? "USERPROFILE" : "HOME";
+  const was = process.env[home];
+  process.env[home] = top;
+  t.after(() => { if (was === undefined) delete process.env[home]; else process.env[home] = was; });
+  assert.equal(find(top, top), null, "trail run in the home folder, with the home folder itself on PATH");
+  const atRoot = (path: string, file: string) => findProgram("git", { platform: "linux", env: { PATH: path }, cwd: "/", isFile: has(file), realpath: asGiven });
+  assert.equal(atRoot("/", "/git"), null, "a service started in /, with / on PATH");
+  assert.equal(atRoot("/usr/bin", "/usr/bin/git"), "/usr/bin/git", "a folder under the root is still used");
+});
+
+test("findProgram: a program file that links into the working folder is passed over", (t) => {
+  const top = scratch(t);
+  const repo = join(top, "repo");
+  const planted = tool(repo);
+  mkdirSync(join(top, "bin"));
+  try {
+    symlinkSync(planted, join(top, "bin", parse(planted).base), "file");
+  } catch (e) {
+    if (win && (e as NodeJS.ErrnoException).code === "EPERM") return t.skip("this Windows account cannot make file links");
+    throw e;
+  }
+  assert.equal(find(join(top, "bin"), repo), null);
+});
+
+test("findProgram: a folder reached through a link into the working folder is passed over, though it links out again", (t) => {
+  const top = scratch(t);
+  const repo = join(top, "repo");
+  mkdirSync(repo);
+  tool(join(top, "outside-bin"));
+  symlinkSync(join(top, "outside-bin"), join(repo, "tools"), "junction");
+  symlinkSync(repo, join(top, "alias"), "junction");
+  assert.equal(find(join(top, "alias", "tools"), repo), null, "alias/tools is the checkout's tools link");
+  assert.notEqual(find(join(top, "outside-bin"), repo), null, "the folder it links to, named as itself, is used");
+});
+
+test("findProgram (POSIX): .. after a link is taken from the link's target, as the system takes it", { skip: win }, (t) => {
+  const top = scratch(t);
+  mkdirSync(join(top, "a"));
+  mkdirSync(join(top, "b", "sub"), { recursive: true });
+  const bin = tool(join(top, "b", "bin"));
+  symlinkSync(join(top, "b", "sub"), join(top, "a", "link"));
+  assert.equal(find(`${top}/a/link/../bin`, join(top, "elsewhere")), bin);
+});
+
 test("a program not on PATH: spawnSync reports it, execFileSync and spawn throw, each saying so", () => {
   const env = { ...process.env, PATH: mkdtempSync(join(tmpdir(), "program-empty-")) };
   const r = spawnSync("trail-no-such-program", ["x"], { env, encoding: "utf8" });

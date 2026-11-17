@@ -7,7 +7,7 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { getNpmViewVersion } from "../src/cli-meta.js";
@@ -47,13 +47,17 @@ function plant(t: TestContext, dir: string, names: string[]): string {
     for (const name of names) writeFileSync(join(dir, name), `#!/bin/sh\n: > '${join(marks, `ran-${name}`)}'\n`, { mode: 0o755 });
     return marks;
   }
-  // A copy of node named git.exe (and so on), which leaves its mark through a --require hook and
-  // stops; the hook does nothing in a process of any other name, such as npm's node. A .cmd is
-  // planted for npm, which Trail starts through cmd.exe.
+  // A copy of node named git.exe (and so on), which stops at once through a --require hook, and
+  // leaves its mark first when it is the copy planted in `dir`; the hook does nothing in a process
+  // of any other name, such as npm's node. A .cmd is planted for npm, which Trail starts through cmd.exe.
   const hook = join(marks, "hook.cjs");
   writeFileSync(hook, `const path = require("path");
 const name = path.basename(process.execPath, ".exe").toLowerCase();
-if (${JSON.stringify(names)}.includes(name)) { require("fs").writeFileSync(path.join(${JSON.stringify(marks)}, "ran-" + name), ""); process.exit(0); }
+if (${JSON.stringify(names)}.includes(name)) {
+  const fs = require("fs");
+  if (fs.realpathSync.native(path.dirname(process.execPath)).toLowerCase() === ${JSON.stringify(realpathSync.native(dir).toLowerCase())}) fs.writeFileSync(path.join(${JSON.stringify(marks)}, "ran-" + name), "");
+  process.exit(0);
+}
 `);
   process.env.NODE_OPTIONS = `--require "${hook.replace(/\\/g, "/")}"`;
   for (const name of names) {
@@ -84,10 +88,19 @@ test("git planted in the repository never runs: isGitWorkTree uses the person's 
   assert.equal(workTree, true);
 });
 
+/** A gh that exits 0 in a folder of its own, put on PATH after `.`: the person's own. */
+function trustedGh(t: TestContext): void {
+  const dir = tempDir(t, "trusted-gh-");
+  if (win) copyFileSync(process.execPath, join(dir, "gh.exe")); // plant's hook stops it with 0
+  else writeFileSync(join(dir, "gh"), ["#!/bin/sh", "exit 0", ""].join("\n"), { mode: 0o755 });
+  process.env.PATH = `.${delimiter}${dir}${delimiter}${process.env.PATH ?? ""}`;
+}
+
 test("gh planted in the repository never runs: ghReady asks the person's gh", (t) => {
   const repo = clonedRepo(t);
   const marks = plant(t, repo, ["gh"]);
-  ghReady(repo);
+  trustedGh(t);
+  assert.equal(ghReady(repo), true, "the person's gh was not the one asked");
   assert.deepEqual(ran(marks), [], "the planted gh ran");
 });
 
@@ -102,6 +115,39 @@ test("claude planted in the working folder never runs: claudeBin looks on PATH o
   assert.deepEqual(ran(marks), [], "the planted claude ran");
   assert.equal(bin, null, "the planted claude was taken for the person's");
 });
+
+test("claude on PATH in the temp folder, where callClaude runs it, is not taken", (t) => {
+  const repo = clonedRepo(t);
+  const bin = tempDir(t, "planted-claude-bin-");
+  const marks = plant(t, bin, ["claude"]);
+  process.env.PATH = bin; // an absolute entry, outside the checkout but under the temp folder
+  const found = inside(repo, () => claudeBin(tempDir(t, "planted-home-")));
+  assert.deepEqual(ran(marks), [], "the claude under the temp folder ran");
+  assert.equal(found, null, "the claude under the temp folder was taken");
+});
+
+/** Plants a shell in `repo` (cmd.exe on Windows, `sh` elsewhere); the shell setting that names it by `how`. */
+function plantShell(t: TestContext, repo: string, how: "relative" | "absolute"): { marks: string; shell: string | true } {
+  const name = win ? "cmd" : "sh";
+  const marks = plant(t, repo, [name]);
+  const file = win ? `${name}.exe` : name;
+  const named = how === "relative" ? `.${win ? "\\" : "/"}${file}` : join(repo, file);
+  if (!win) return { marks, shell: named };
+  const comspec = process.env.ComSpec;
+  t.after(() => { process.env.ComSpec = comspec; });
+  process.env.ComSpec = named;
+  return { marks, shell: true };
+}
+
+for (const how of ["relative", "absolute"] as const) {
+  test(`a shell named by a${how === "absolute" ? "n absolute" : " relative"} path in the working folder never runs`, (t) => {
+    const repo = clonedRepo(t);
+    const { marks, shell } = plantShell(t, repo, how);
+    const r = inside(repo, () => trailSpawnSync("echo shell-ran", [], { shell, encoding: "utf8" }));
+    assert.deepEqual(ran(marks), [], "the planted shell ran");
+    assert.notEqual(r.error, undefined, "the planted shell was started");
+  });
+}
 
 test("cmd.exe planted in the working folder never runs as the shell, even with ComSpec unset", { skip: !win }, (t) => {
   const repo = clonedRepo(t);

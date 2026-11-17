@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -192,4 +192,88 @@ test('getNpmViewVersion runs npm in the working folder, so a project .npmrc stil
     assert.ok(r.ok && r.version, JSON.stringify(r));
     assert.equal(realpathSync.native(r.version!), realpathSync.native(here));
   });
+});
+
+// --- npm.cmd's own choice of npm, made without cmd.exe (Windows) ---
+//
+// npm.cmd runs node_modules\npm\bin\npm-cli.js under the configured global prefix, which
+// npm-prefix.js prints, when that file exists, and else the one beside it. Trail makes the same
+// choice, and starts none of npm's files from a folder it starts no program from.
+
+const onWindows = { skip: process.platform !== 'win32' };
+
+/** npm in `dir` as Node's installer lays it out: npm.cmd (which fails if run), an npm-cli.js that
+ * answers `version` and leaves the file `mark` when given, and an npm-prefix.js printing `prefix`. */
+function npmAt(dir: string, version: string, opts: { prefix?: string; mark?: string } = {}): void {
+  const bin = join(dir, 'node_modules', 'npm', 'bin');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(dir, 'npm.cmd'), '@exit /b 7\r\n');
+  writeFileSync(join(bin, 'npm-cli.js'), [
+    ...(opts.mark ? [`require('fs').writeFileSync(${JSON.stringify(opts.mark)}, '');`] : []),
+    `if (process.argv[2] === 'view') console.log(${JSON.stringify(version)});`,
+  ].join('\n'));
+  if (opts.prefix !== undefined) writeFileSync(join(bin, 'npm-prefix.js'), `console.log(${JSON.stringify(opts.prefix)});`);
+}
+
+/** A scratch folder, and the working folder `here` (made current), both removed afterwards; npm's folder `top\npm` goes first on PATH. */
+function npmScene(t: { after: (fn: () => void) => void }): { top: string; here: string } {
+  const top = realpathSync.native(mkdtempSync(join(tmpdir(), 'graft-npm-prefix-')));
+  const here = realpathSync.native(mkdtempSync(join(tmpdir(), 'graft-npm-here-')));
+  const back = process.cwd();
+  const path = process.env.PATH;
+  t.after(() => {
+    process.chdir(back);
+    process.env.PATH = path;
+    rmSync(top, { recursive: true, force: true });
+    rmSync(here, { recursive: true, force: true });
+  });
+  process.chdir(here);
+  process.env.PATH = `${join(top, 'npm')}${delimiter}${path}`;
+  return { top, here };
+}
+
+test('getNpmViewVersion (Windows) runs the npm under the configured global prefix, as npm.cmd does', onWindows, (t) => {
+  const { top } = npmScene(t);
+  npmAt(join(top, 'npm'), '9.9.9', { prefix: join(top, 'prefix') });
+  npmAt(join(top, 'prefix'), '8.8.8');
+  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '8.8.8' });
+});
+
+test('getNpmViewVersion (Windows): a prefix with no npm in it leaves the npm beside npm.cmd', onWindows, (t) => {
+  const { top } = npmScene(t);
+  npmAt(join(top, 'npm'), '9.9.9', { prefix: join(top, 'empty') });
+  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+});
+
+test('getNpmViewVersion (Windows): a prefix inside the working folder is never run', onWindows, (t) => {
+  const { top, here } = npmScene(t);
+  const mark = join(top, 'ran');
+  npmAt(join(top, 'npm'), '9.9.9', { prefix: join(here, 'prefix') });
+  npmAt(join(here, 'prefix'), '7.7.7', { mark });
+  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
+  assert.equal(existsSync(mark), false, "the working folder's npm ran");
+});
+
+test("getNpmViewVersion (Windows): npm's files reached through a link into the working folder are never run", onWindows, (t) => {
+  const { top, here } = npmScene(t);
+  const mark = join(top, 'ran');
+  npmAt(join(here, 'pkg'), '7.7.7', { mark });
+  mkdirSync(join(top, 'npm'));
+  writeFileSync(join(top, 'npm', 'npm.cmd'), '@exit /b 7\r\n');
+  symlinkSync(join(here, 'pkg', 'node_modules'), join(top, 'npm', 'node_modules'), 'junction');
+  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
+  assert.equal(existsSync(mark), false, "the working folder's npm-cli.js ran");
+});
+
+test("getNpmViewVersion (Windows): a node.exe beside npm.cmd that links into the working folder is never run", onWindows, (t) => {
+  const { top, here } = npmScene(t);
+  npmAt(join(top, 'npm'), '9.9.9');
+  copyFileSync(process.execPath, join(here, 'node.exe'));
+  try {
+    symlinkSync(join(here, 'node.exe'), join(top, 'npm', 'node.exe'), 'file');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('this Windows account cannot make file links');
+    throw e;
+  }
+  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
 });
