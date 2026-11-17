@@ -710,9 +710,36 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const both = (dir: string, manifest: (name: string) => string) => ({ ...found(dir, manifest), ...notFound(`${dir}_b`, manifest) });
   const pkg = (rest: string) => (name: string) => `[package]\nname = "${name}"\n${rest}`;
   const table = `\n[[test]]\nname = "bar"\n`;
-  // A package that inherits its edition and has a [[test]], and a workspace root that states one.
+  // A package that inherits its edition and has a [[test]].
   const inherits = pkg(`edition.workspace = true\n${table}`);
-  const workspace = (lists: string, edition: string) => `[workspace]\n${lists}\n\n[workspace.package]\nedition = "${edition}"\n`;
+  // Workspace roots, each stating an edition over packages that inherit it, as Cargo's
+  // `is_excluded` places them:
+  // - `excl`: `d` is under no `exclude` entry. `excl15`: `third/gone` is, so the root above decides
+  //   (2021); `third/back` is named again.
+  // - `glob`: `members` entries are read literally, so `third/*` names no package and `third/d`
+  //   stays excluded (2021).
+  // - A drive letter makes an entry absolute on Windows only, and a backslash is a separator there
+  //   only. That matters only where it decides: `drive`, `bs` and `bsm` hold explicit members, and
+  //   in `driverel` `c:foo` has no root on Windows, so it never holds the absolute manifest path,
+  //   and on Linux it is a folder name. Each is placed alike everywhere.
+  // - But `split` excludes `third/x` on Windows only (2021 there, 2015 on Linux), `C:/x` in
+  //   `driveabs` holds any package whose checkout sits under it, and a bare `c:` in `drivebare`
+  //   holds every package on drive C.
+  const workspaces = Object.fromEntries(([
+    ["excl", `members = ["d", "d_b"]\nexclude = ["old"]`, "2018", ["d"]],
+    ["excl15", `members = ["third/back", "third/back_b"]\nexclude = ["third"]`, "2015", ["third/gone", "third/back"]],
+    ["glob", `members = ["third/*"]\nexclude = ["third"]`, "2015", ["third/d"]],
+    ["drive", `members = ["d", "d_b"]\nexclude = ["C:/x"]`, "2018", ["d"]],
+    ["bs", `members = ["d", "d_b"]\nexclude = ['third\\x']`, "2018", ["d"]],
+    ["bsm", `members = ["d", "d_b", 'third\\x', "c:foo/x"]`, "2018", ["d"]],
+    ["driverel", `exclude = ["c:foo"]`, "2015", ["d"]],
+    ["split", `exclude = ['third\\x', 'third\\x_b']`, "2015", ["third/x"]],
+    ["driveabs", `exclude = ["C:/x"]`, "2015", ["d"]],
+    ["drivebare", `exclude = ["c:"]`, "2015", ["d"]],
+  ] as const).flatMap(([root, lists, edition, packages]) => [
+    [`${root}/Cargo.toml`, `[workspace]\n${lists}\n\n[workspace.package]\nedition = "${edition}"\n`],
+    ...packages.flatMap((dir) => Object.entries(both(`${root}/${dir}`, inherits))),
+  ]));
   const graph = await build(t, {
     "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b", "emptyname", "emptyname_b", "blankname", "blankname_b", "nelname", "nelname_b", "bomname", "barebin", "barebin_b", "pathbin", "pathbin_b", "emptylib", "emptylib_b", "blanklib", "blanklib_b", "hyphenlib", "hyphenlib_b"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
@@ -750,40 +777,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     // A root that states no edition.
     "loose/Cargo.toml": `[workspace]\nmembers = ["d", "d_b"]\n`,
     ...both("loose/d", inherits),
-    // An `exclude` list passes over only the packages under it that no `members` entry names, as
-    // Cargo's `is_excluded` reads it: `excl/d` is not under it; `third/gone` is, so the root above
-    // decides (2021); `third/back` is named again.
-    "excl/Cargo.toml": workspace(`members = ["d", "d_b"]\nexclude = ["old"]`, "2018"),
-    ...both("excl/d", inherits),
-    "excl15/Cargo.toml": workspace(`members = ["third/back", "third/back_b"]\nexclude = ["third"]`, "2015"),
-    ...both("excl15/third/gone", inherits),
-    ...both("excl15/third/back", inherits),
-    // `members` entries are read literally, as `is_excluded` reads them: `third/*` names no
-    // package, so `third/d` stays excluded and the root above decides (2021).
-    "glob/Cargo.toml": workspace(`members = ["third/*"]\nexclude = ["third"]`, "2015"),
-    ...both("glob/third/d", inherits),
-    // A drive letter makes an entry absolute on Windows only, and a backslash is a separator there
-    // only. That matters only where it decides: an explicit member, or a package no reading of the
-    // entry reaches, is placed alike everywhere (2018) ...
-    "drive/Cargo.toml": workspace(`members = ["d", "d_b"]\nexclude = ["C:/x"]`, "2018"),
-    ...both("drive/d", inherits),
-    "bs/Cargo.toml": workspace(`members = ["d", "d_b"]\nexclude = ['third\\x']`, "2018"),
-    ...both("bs/d", inherits),
-    "bsm/Cargo.toml": workspace(`members = ["d", "d_b", 'third\\x', "c:foo/x"]`, "2018"),
-    ...both("bsm/d", inherits),
-    // ... as is one under a drive-relative entry: on Windows `c:foo` has no root, so it never holds
-    // the absolute manifest path, and on Linux it is a folder name (2015).
-    "driverel/Cargo.toml": workspace(`exclude = ["c:foo"]`, "2015"),
-    ...both("driverel/d", inherits),
-    // But a package that Windows excludes and Linux does not takes 2015 on Linux and the root's
-    // 2021 on Windows, and `C:/x` holds any package on Windows whose checkout sits under it.
-    "split/Cargo.toml": workspace(`exclude = ['third\\x', 'third\\x_b']`, "2015"),
-    ...both("split/third/x", inherits),
-    "driveabs/Cargo.toml": workspace(`exclude = ["C:/x"]`, "2015"),
-    ...both("driveabs/d", inherits),
-    // A bare `c:` holds every package on drive C.
-    "drivebare/Cargo.toml": workspace(`exclude = ["c:"]`, "2015"),
-    ...both("drivebare/d", inherits),
+    ...workspaces,
     // Target tables Cargo refuses: a name that is no string, no name, an empty or blank name, a
     // `[[bin]]` with no name (Cargo takes none from its path), and a `[lib]` name that is empty,
     // blank or has a hyphen.
