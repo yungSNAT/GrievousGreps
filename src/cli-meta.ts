@@ -77,11 +77,11 @@ export function versionLine(moduleUrl: string): string {
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
   const npm = findProgram("npm", { cmd: true });
   if (!npm) throw new Error(notFound("npm"));
-  if (!npm.toLowerCase().endsWith(".cmd")) return spawnSync(npm, args, options);
+  if (!npm.toLowerCase().endsWith(".cmd")) return spawnSync(npm, args, { ...options, windowsHide: true });
   const entry = join(dirname(npm), "node_modules", "npm", "bin", "npm-cli.js");
   if (!existsSync(entry)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);
   const node = join(dirname(npm), "node.exe");
-  return spawnSync(existsSync(node) ? node : process.execPath, [entry, ...args], options);
+  return spawnSync(existsSync(node) ? node : process.execPath, [entry, ...args], { ...options, windowsHide: true });
 }
 
 export interface NpmViewResult {

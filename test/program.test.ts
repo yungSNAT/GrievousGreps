@@ -230,6 +230,27 @@ function childProcessImports(file: string): string[] {
   return found;
 }
 
+test("code trail writes out as text (hook shims, generated extensions) never starts a program by bare name", () => {
+  const src = fileURLToPath(new URL("../src/", import.meta.url));
+  const bare = /\b(?:spawn|spawnSync|execFile|execFileSync|execSync|exec)\(\s*(['"`])[^'"`/\\]+\1/;
+  const offenders: string[] = [];
+  for (const name of readdirSync(src, { recursive: true, encoding: "utf8" })) {
+    if (!name.endsWith(".ts")) continue;
+    const file = join(src, name);
+    const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node) => {
+      const text = ts.isStringLiteralLike(node) ? node.text
+        : ts.isTemplateExpression(node) ? [node.head.text, ...node.templateSpans.map((s) => s.literal.text)].join("${}")
+        : undefined;
+      const m = text === undefined ? null : bare.exec(text);
+      if (m) offenders.push(`${name.replace(/\\/g, "/")}:${source.getLineAndCharacterOfPosition(node.getStart()).line + 1}: ${m[0]}`);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  assert.deepEqual(offenders, []);
+});
+
 test("only util/program.ts takes child_process: every other module starts programs through it", () => {
   const src = fileURLToPath(new URL("../src/", import.meta.url));
   const offenders: string[] = [];

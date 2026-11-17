@@ -36,12 +36,13 @@ function clonedRepo(t: TestContext): string {
 /** Plants a stand-in for each program in `dir` and puts `.` first on PATH; returns the folder the marks go to. */
 function plant(t: TestContext, dir: string, names: string[]): string {
   const marks = tempDir(t, "planted-marks-");
-  const saved = { PATH: process.env.PATH, NODE_OPTIONS: process.env.NODE_OPTIONS, npm_config_offline: process.env.npm_config_offline };
+  const saved = { PATH: process.env.PATH, NODE_OPTIONS: process.env.NODE_OPTIONS, npm_config_offline: process.env.npm_config_offline, NoDefaultCurrentDirectoryInExePath: process.env.NoDefaultCurrentDirectoryInExePath };
   t.after(() => {
     for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
   });
   process.env.PATH = `.${delimiter}${process.env.PATH ?? ""}`;
   process.env.npm_config_offline = "true"; // the real npm, if it runs, answers from its cache, not the registry
+  delete process.env.NoDefaultCurrentDirectoryInExePath; // set, Windows would skip the working folder and hide the defect
   if (!win) {
     for (const name of names) writeFileSync(join(dir, name), `#!/bin/sh\n: > '${join(marks, `ran-${name}`)}'\n`, { mode: 0o755 });
     return marks;
