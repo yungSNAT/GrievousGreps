@@ -54,7 +54,51 @@ process.stdin.on('data', (chunk) => {
 });
 "#;
 
-const MAIN: &str = "import lib\n\ndef main():\n    x = lib.run()\n    f = lib.run\n\ndef other():\n    return lib.run\nlib.run()\nfrom lib import run\nlib.run()\n";
+/// A TypeScript server that, as typescript-language-server does, finds a reference only in a file
+/// whose project is loaded: here, only once the test file has been opened.
+const FAKE_TS_SERVER: &str = r#"
+const send = (m) => { const b = JSON.stringify({ jsonrpc: '2.0', ...m }); process.stdout.write(`Content-Length: ${Buffer.byteLength(b)}\r\n\r\n${b}`); };
+const at = (line, a, b) => ({ start: { line, character: a }, end: { line, character: b } });
+const span = (a, b, c, d) => ({ start: { line: a, character: b }, end: { line: c, character: d } });
+let buffer = Buffer.alloc(0);
+let root = null;
+const open = new Set();
+function answer(m) {
+  const p = m.params || {};
+  const uri = p.textDocument && p.textDocument.uri;
+  switch (m.method) {
+    case 'initialize': root = p.rootUri; return { capabilities: {} };
+    case 'textDocument/documentSymbol':
+      if (uri.endsWith('lib.ts')) return [{ name: 'run', kind: 12, range: span(0, 0, 0, 36), selectionRange: at(0, 16, 19) }];
+      return [{ name: 'check', kind: 12, range: span(1, 0, 3, 1), selectionRange: at(1, 9, 14) }];
+    case 'textDocument/references': {
+      const test = root + '/__tests__/lib.test.ts';
+      const loaded = [...open].some((u) => u.endsWith('/__tests__/lib.test.ts'));
+      return loaded ? [{ uri: test, range: at(2, 2, 5) }] : [];
+    }
+    default: return null;
+  }
+}
+function handle(m) {
+  if (m.method === 'exit') process.exit(0);
+  if (m.method === 'textDocument/didOpen') open.add(m.params.textDocument.uri);
+  if (m.method === 'textDocument/didClose') open.delete(m.params.textDocument.uri);
+  if (m.id !== undefined && m.method) send({ id: m.id, result: answer(m) });
+}
+process.stdin.on('data', (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  for (;;) {
+    const end = buffer.indexOf('\r\n\r\n');
+    if (end < 0) return;
+    const length = Number(/Content-Length: (\d+)/i.exec(buffer.subarray(0, end).toString())[1]);
+    if (buffer.length < end + 4 + length) return;
+    handle(JSON.parse(buffer.subarray(end + 4, end + 4 + length).toString()));
+    buffer = buffer.subarray(end + 4 + length);
+  }
+});
+"#;
+
+const MAIN: &str ="import lib\n\ndef main():\n    x = lib.run()\n    f = lib.run\n\ndef other():\n    return lib.run\nlib.run()\nfrom lib import run\nlib.run()\n";
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
@@ -79,24 +123,34 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    fixture_of(
+        "Python",
+        &[("lib.py", "def run():\n    pass\n"), ("main.py", MAIN)],
+        FAKE_SERVER,
+    )
+}
+
+fn fixture_of(language: &str, files: &[(&str, &str)], fake_server: &str) -> Fixture {
     let tmp = tempfile::tempdir().unwrap();
     let (bench, work) = (tmp.path().join("bench"), tmp.path().join("work"));
     let checkout = work.join("repos").join("demo");
-    fs::create_dir_all(&checkout).unwrap();
-    fs::write(checkout.join("lib.py"), "def run():\n    pass\n").unwrap();
-    fs::write(checkout.join("main.py"), MAIN).unwrap();
+    for (path, text) in files {
+        let file = checkout.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, text).unwrap();
+    }
     git(&checkout, &["init", "--quiet"]);
     git(&checkout, &["add", "."]);
     git(&checkout, &["commit", "--quiet", "-m", "demo"]);
     let sha = git(&checkout, &["rev-parse", "HEAD"]);
     fs::create_dir_all(bench.join("truth")).unwrap();
     let repos = json!([
-        { "name": "demo", "repository": "o/demo", "sha": sha, "language": "Python", "rules": "span" },
+        { "name": "demo", "repository": "o/demo", "sha": sha, "language": language, "rules": "span" },
     ]);
     fs::write(bench.join("repos.json"), repos.to_string()).unwrap();
     let server = tmp.path().join("server").join("fake.js");
     fs::create_dir_all(server.parent().unwrap()).unwrap();
-    fs::write(&server, FAKE_SERVER).unwrap();
+    fs::write(&server, fake_server).unwrap();
     Fixture {
         _tmp: tmp,
         bench,
@@ -174,5 +228,27 @@ fn pick_chooses_symbols_with_enough_calls_and_refuses_to_replace_truth() {
     assert!(
         err.contains("--pick only starts a new repository's truth"),
         "{err}"
+    );
+}
+
+#[test]
+fn every_typescript_file_is_opened_so_tests_outside_the_project_count() {
+    let f = fixture_of(
+        "TypeScript",
+        &[
+            ("src/lib.ts", "export function run() { return 1; }\n"),
+            (
+                "__tests__/lib.test.ts",
+                "import { run } from '../src/lib';\nfunction check() {\n  run();\n}\n",
+            ),
+        ],
+        FAKE_TS_SERVER,
+    );
+    let truth = json!({ "run": { "target": "src/lib.ts", "target_lines": [1], "required": [] } });
+    fs::write(f.bench.join("truth").join("demo.json"), truth.to_string()).unwrap();
+    run(&f.options(None)).unwrap();
+    assert_eq!(
+        f.truth()["run"]["required"],
+        json!([{ "file": "__tests__/lib.test.ts", "chain": "check", "lines": [3] }])
     );
 }

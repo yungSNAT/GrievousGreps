@@ -377,6 +377,23 @@ fn files(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<(), String> 
     Ok(())
 }
 
+/// Opens every TypeScript source file outside `dist` and `coverage`, as tsc-truth.mjs reads them
+/// all: the TypeScript server searches only the projects of open files, and a tsconfig's `files`
+/// or `include` can leave the tests out of the project that holds the targets.
+fn open_typescript_sources(session: &mut Session) -> Result<(), String> {
+    let mut all = Vec::new();
+    files(session.root, "", &mut all)?;
+    for path in all {
+        let built = path
+            .split('/')
+            .any(|part| part == "dist" || part == "coverage");
+        if Language::TypeScript.source(&path) && !built && session.open.insert(path.clone()) {
+            session.server.open(session.root, &path)?;
+        }
+    }
+    Ok(())
+}
+
 /// The receiver type of a method gopls names as `(*Logger).WithFields`: `Logger`.
 fn go_receiver(name: &str) -> Option<String> {
     let (receiver, _) = name.strip_prefix('(')?.split_once(").")?;
@@ -573,6 +590,9 @@ pub fn run(opts: &TruthOptions) -> Result<String, String> {
         if deriver.session.open.insert(entry.target.clone()) {
             deriver.session.server.open(&root, &entry.target)?;
         }
+    }
+    if language == Language::TypeScript {
+        open_typescript_sources(&mut deriver.session)?;
     }
     deriver.session.server.wait_ready(READY_LIMIT)?;
     let server: Vec<_> = opts.server.iter().map(|a| a.to_string_lossy()).collect();
