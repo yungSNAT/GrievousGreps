@@ -710,7 +710,7 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
   const pkg = (rest: string) => (name: string) => `[package]\nname = "${name}"\n${rest}`;
   const table = `\n[[test]]\nname = "bar"\n`;
   const graph = await build(t, {
-    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b"]\n\n[workspace.package]\nedition = "2021"\n`,
+    "Cargo.toml": `[workspace]\nmembers = ["mock", "two", "project", "project_b", "quoted", "quoted_b", "dotted", "dotted_b", "inline", "inline_b", "dotted18", "inline18", "renamed", "renamed_b", "examples", "override", "binpath", "libpath", "unparsed", "unparsed_b", "edint", "edint_b", "autostr", "autostr_b", "autostr/inner", "badname", "badname_b", "noname", "noname_b"]\n\n[workspace.package]\nedition = "2021"\n`,
     "mock/Cargo.toml": `[package]\nname = "tracing-mock"\n`,
     "mock/src/lib.rs": "pub mod expect;\n",
     "mock/src/expect.rs": "pub fn event() {}\n",
@@ -723,6 +723,9 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     ...both("quoted", (name) => `["package"]\nname = "${name}"\n${table}`),
     ...both("dotted", (name) => `package.name = "${name}"\npackage.edition = "2015"\n${table}`),
     ...both("inline", (name) => `package = { name = "${name}", edition = "2015" }\ntest = [{ name = "bar" }]\n`),
+    // The same forms stating 2018, where tests/foo.rs is a target.
+    ...found("dotted18", (name) => `package.name = "${name}"\npackage.edition = "2018"\n${table}`),
+    ...found("inline18", (name) => `package = { name = "${name}", edition = "2018" }\ntest = [{ name = "bar" }]\n`),
     // An inherited edition is the workspace root's: the nearest folder above with a `[workspace]`,
     // or the one `package.workspace` names.
     "inner/Cargo.toml": `[workspace]\nmembers = ["d", "d_b", "../pointer", "../pointer_b"]\npackage.edition = "2015"\n`,
@@ -762,6 +765,8 @@ test("Rust: under `use super::*`, Cargo.toml is read in every TOML form, and wha
     assert.deepEqual(top(dir), [], `${dir}: tests/foo.rs is no target`);
     assert.deepEqual(top(`${dir}_b`), two, `${dir}_b: and that is read for certain`);
   }
+  assert.deepEqual(top("dotted18"), mock, "a dotted `package.edition = \"2018\"`");
+  assert.deepEqual(top("inline18"), mock, "an inline package's 2018 edition");
   assert.deepEqual(top("examples"), mock, "an [[example]] leaves tests found");
   assert.deepEqual(top("override"), mock, "`autotests = true` beats the 2015 default");
   assert.deepEqual(top("binpath"), mock, "a [[bin]] path");
