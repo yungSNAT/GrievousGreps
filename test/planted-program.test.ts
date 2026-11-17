@@ -92,8 +92,13 @@ test("gh planted in the repository never runs: ghReady asks the person's gh", (t
 test("claude planted in the working folder never runs: claudeBin looks on PATH only", (t) => {
   const repo = clonedRepo(t);
   const marks = plant(t, repo, ["claude"]);
-  inside(repo, () => claudeBin(tempDir(t, "planted-home-")));
+  // No claude on PATH, so the only one to find is the planted one. On Windows the stand-in is
+  // node, which answers `claude --version` before its hook loads: it leaves no mark, but
+  // claudeBin then names it.
+  process.env.PATH = `.${delimiter}${tempDir(t, "planted-path-")}`;
+  const bin = inside(repo, () => claudeBin(tempDir(t, "planted-home-")));
   assert.deepEqual(ran(marks), [], "the planted claude ran");
+  assert.equal(bin, null, "the planted claude was taken for the person's");
 });
 
 test("npm planted in the working folder never runs: the update check's npm comes from PATH", (t) => {
