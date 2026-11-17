@@ -11,7 +11,7 @@ import { flatLine } from "../notes/flatten.js";
 /** `claude` (Claude Code) on PATH by its absolute path (util/program.ts), when it answers `--version`. */
 function claudeOnPath(): string | null {
   const claude = findProgram("claude");
-  return claude && spawnSync(claude, ["--version"], { stdio: "ignore", timeout: 10_000 }).status === 0 ? claude : null;
+  return claude && spawnSync(claude, ["--version"], { stdio: "ignore", timeout: 10_000, windowsHide: true }).status === 0 ? claude : null;
 }
 
 /** `[2, 1, 296]` from `anthropic.claude-code-2.1.296-darwin-arm64`; null for anything else. */
@@ -193,7 +193,7 @@ export function callClaude<T>(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let child;
     try {
-      child = spawn(bin, args, { cwd: tmpdir(), env: { ...process.env, TRAIL_NO_HOOKS: "1" }, stdio: ["pipe", "pipe", "pipe"] });
+      child = spawn(bin, args, { cwd: tmpdir(), env: { ...process.env, TRAIL_NO_HOOKS: "1" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       finish({ ok: false, why: (e as NodeJS.ErrnoException)?.code === "ENOENT" ? "not_installed" : "failed" });
       return;

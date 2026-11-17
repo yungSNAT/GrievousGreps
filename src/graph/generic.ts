@@ -364,6 +364,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     extractRustMacroCalls(tree.rootNode as TsNode, rel, defs, rawEdges);
     extractRustAliases(tree.rootNode as TsNode, rel, rawEdges);
     extractRustPubUses(tree.rootNode as TsNode, rel, rawEdges, macroRegions);
+    extractRustModUses(tree.rootNode as TsNode, rel, rawEdges);
     extractRustMacroDefs(tree.rootNode as TsNode, rel, rawEdges);
     extractRustFields(tree.rootNode as TsNode, rel, rawEdges);
     const cfgItems = rustItems
@@ -377,6 +378,7 @@ export function extractGeneric(rel: string, source: string, langName: string): E
   }
   else if (langName === "php") extractPhpUses(tree.rootNode as TsNode, rel, rawEdges);
   else if (langName === "gleam") extractGleamModules(tree.rootNode as TsNode, rel, defs, rawEdges);
+  else if (langName === "elixir") extractElixir(tree.rootNode as TsNode, rel, nodes, defs, rawEdges);
   return { nodes, rawEdges };
 }
 
@@ -728,7 +730,8 @@ function rustWholePath(path: string | undefined, name: string, scopes: RustUseSc
 
 /** For a path call whose first name no `use` in scope binds, such as `subscriber::mock()`,
  * the globs in scope at `at` that could bring that name in, walking out until a `mod`.
- * `self` and `super` globs name this file, whose own modules the path already reaches.
+ * `self` and `super` globs name this file, whose own modules the path already reaches, except
+ * a file-level `use super::*`, which names the file that declares this one (`rustSuperGlob`).
  * `rustInMod` marks a call whose walk stopped at an inline `mod`, where the file's own child
  * modules are out of sight. A `mod` of that name declared in scope shadows every glob. */
 function rustGlobsFor(path: string | undefined, scopes: RustUseScope[], at: number): Partial<RawEdge> {
@@ -739,15 +742,18 @@ function rustGlobsFor(path: string | undefined, scopes: RustUseScope[], at: numb
   const around = scopes.filter((s) => s.start <= at && at < s.end).sort((a, b) => b.start - a.start);
   let inMod = false;
   let declared = false;
+  let parent = false;
   for (const scope of around) {
     declared ||= scope.mods.has(first);
     for (const g of scope.globs) if (!/^(self|super)(::|$)/.test(g)) out.push(g);
+    if (scope.start === 0 && scope.end === Number.POSITIVE_INFINITY && scope.globs.includes("super")) parent = true;
     if (scope.closed) {
       inMod = scope.start > 0 || scope.end !== Number.POSITIVE_INFINITY;
       break;
     }
   }
-  return { ...(out.length && !declared ? { rustGlobs: out } : {}), ...(inMod ? { rustInMod: true } : {}) };
+  if (declared) return inMod ? { rustInMod: true } : {};
+  return { ...(out.length ? { rustGlobs: out } : {}), ...(parent ? { rustSuperGlob: true } : {}), ...(inMod ? { rustInMod: true } : {}) };
 }
 
 /** Whether the name a call's path starts with could be brought in from another file: a path
@@ -1014,6 +1020,26 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
   for (const pub of byMacros.values()) {
     if (pub.names.length || pub.globs.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustPubUses: pub });
   }
+}
+
+/** For a file that declares module files (`mod option;`), what a `use super::*` in one of them
+ * brings in: the file's top-level `use` lines, private ones included, and its globs. Modules
+ * declared `pub` or `pub(crate)` are also listed as open, as a sibling module can reach them. */
+function extractRustModUses(root: TsNode, rel: string, rawEdges: RawEdge[]): void {
+  const into: NonNullable<RawEdge["rustModUses"]> = { mods: [], open: [], names: [], globs: [] };
+  for (let i = 0; i < (root.namedChildCount ?? 0); i++) {
+    const c = root.namedChild?.(i);
+    if (c?.type === "mod_item" && !c.childForFieldName?.("body")) {
+      const name = c.childForFieldName?.("name")?.text;
+      if (name) into.mods.push(name);
+      const vis = c.namedChild?.(0);
+      if (name && vis?.type === "visibility_modifier" && /^pub(\(crate\))?$/.test(vis.text.replace(/\s+/g, ""))) into.open.push(name);
+    } else if (c?.type === "use_declaration") {
+      for (const [name, { full }] of rustUseBindings(c.text, into.globs)) into.names.push([name, full]);
+    }
+  }
+  into.globs = into.globs.filter((g) => !/^(self|super)(::|$)/.test(g));
+  if (into.mods.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustModUses: into });
 }
 
 /** Each `macro_rules!` in the file, function bodies included, and whether every arm passes on
@@ -1383,6 +1409,185 @@ function extractGleamModules(root: TsNode, rel: string, defs: Def[], rawEdges: R
   visit(root, null, NONE);
 }
 
+/** Elixir: module-scoped alias resolution for remote calls.
+ *
+ * The tags query captures `Cart.total(x)` as the bare name `total` (the `dot`'s right
+ * identifier) and throws the receiver away, so resolve.ts has to drop it as ambiguous the
+ * moment a second `total` exists anywhere in the repo — which in Elixir is always. This pass
+ * re-walks the tree with a `defmodule` scope stack and each scope's `alias` table and
+ * emits the remote call receiver-typed (`recvType` = the aliased module's full name), so
+ * `resolveTypedMember` settles it through the ownerMethod index. It also stamps each `def*`
+ * with its module (`owner`) and arity — what populates that index for Elixir — and each
+ * module with its full name (`fqn`; a nested module's `name` is the bare last segment).
+ *
+ * Handled: `alias A.B.C`, `as:`, `alias A.{B, C}`, `alias __MODULE__.{..}`, `defmodule`
+ * under an aliased prefix, nested-`defmodule` auto-aliases, `__MODULE__.fun()`, `&Mod.fun/N`
+ * captures, and the extra argument a `|>` supplies. Not handled (needs the compiler):
+ * `import`, macro-generated functions (resolve.ts lands those on the module node),
+ * `apply/3`, module attributes as receivers. An alias declared inside a function body is
+ * treated as module-scoped (leaks forward): over-approximates rather than under-resolves. */
+function extractElixir(root: TsNode, rel: string, nodes: NodeV1[], defs: Def[], rawEdges: RawEdge[]): void {
+  const DEF_HEADS = new Set([
+    "def", "defp", "defmacro", "defmacrop", "defguard", "defguardp", "defdelegate", "defn", "defnp",
+  ]);
+  const defByStart = new Map(defs.map((d) => [d.startIndex, d]));
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const enclosing = (at: number): Def | undefined =>
+    defs
+      .filter((d) => d.startIndex <= at && at < d.endIndex)
+      .sort((a, b) => a.endIndex - a.startIndex - (b.endIndex - b.startIndex))[0];
+  const kids = (n: TsNode): TsNode[] => {
+    const out: TsNode[] = [];
+    const count = n.namedChildCount ?? 0;
+    for (let i = 0; i < count; i++) {
+      const c = n.namedChild?.(i);
+      if (c) out.push(c);
+    }
+    return out;
+  };
+  const field = (n: TsNode | null | undefined, k: string): TsNode | null =>
+    n?.childForFieldName?.(k) ?? null;
+
+  type Scope = { fqn: string | null; aliases: Map<string, string> };
+  const scopes: Scope[] = [{ fqn: null, aliases: new Map() }];
+  const cur = (): Scope => scopes[scopes.length - 1];
+  const lookup = (first: string): string | null => {
+    for (let i = scopes.length - 1; i >= 0; i--) {
+      const v = scopes[i].aliases.get(first);
+      if (v) return v;
+    }
+    return null;
+  };
+  // "Cart.Sub" → "Shop.Checkout.Cart.Sub" when `Cart` is aliased; else as written.
+  const expand = (text: string): string => {
+    const segs = text.split(".");
+    const hit = lookup(segs[0]);
+    return hit ? [hit, ...segs.slice(1)].join(".") : text;
+  };
+  const argsOf = (call: TsNode): TsNode | null => kids(call).find((c) => c.type === "arguments") ?? null;
+  const headOf = (call: TsNode): string | null => {
+    const t = field(call, "target");
+    return t?.type === "identifier" ? t.text : null;
+  };
+  const opOf = (n: TsNode | null): string | null => field(n, "operator")?.text ?? null;
+  // The module a `dot`'s left side names, fully qualified; null when it isn't a module
+  // (a variable receiver, a map access, an erlang atom).
+  const receiverOf = (left: TsNode): string | null => {
+    if (left.type === "alias") return expand(left.text);
+    if (left.type === "identifier" && left.text === "__MODULE__") return cur().fqn;
+    if (left.type === "dot") {
+      const l = field(left, "left"), r = field(left, "right");
+      const fqn = cur().fqn;
+      const isSelf = l?.type === "identifier" && l.text === "__MODULE__";
+      if (fqn && isSelf && r?.type === "alias") return `${fqn}.${r.text}`;
+    }
+    return null;
+  };
+  const recordAlias = (args: TsNode): void => {
+    let asName: string | null = null;
+    const kw = kids(args).find((c) => c.type === "keywords");
+    if (kw) {
+      for (const pair of kids(kw)) {
+        const [k, v] = kids(pair);
+        if (k?.text.trim() === "as:" && v?.type === "alias") asName = v.text;
+      }
+    }
+    const first = kids(args)[0];
+    if (!first) return;
+    if (first.type === "alias") {
+      const segs = first.text.split(".");
+      cur().aliases.set(asName ?? segs[segs.length - 1], expand(first.text));
+      return;
+    }
+    if (first.type === "dot") {
+      // alias A.B.{C, D}  /  alias __MODULE__.{C, D}
+      const l = field(first, "left"), r = field(first, "right");
+      const base =
+        l?.type === "alias" ? expand(l.text)
+        : l?.type === "identifier" && l.text === "__MODULE__" ? cur().fqn
+        : null;
+      if (!base || r?.type !== "tuple") return;
+      for (const a of kids(r)) {
+        if (a.type !== "alias") continue;
+        const segs = a.text.split(".");
+        cur().aliases.set(segs[segs.length - 1], `${base}.${a.text}`);
+      }
+    }
+  };
+  // Parameter count of a `def` head; null when a default (`\\`) makes the arity a range.
+  const arityOf = (args: TsNode | null): number | null => {
+    let sig: TsNode | null = args ? (kids(args)[0] ?? null) : null;
+    if (!sig) return null;
+    if (sig.type === "binary_operator" && opOf(sig) === "when") sig = field(sig, "left");
+    if (sig?.type === "identifier") return 0;
+    if (sig?.type !== "call") return null;
+    const ps = argsOf(sig);
+    if (!ps) return 0;
+    const params = kids(ps);
+    for (const p of params) if (p.type === "binary_operator" && opOf(p) === "\\\\") return null;
+    return params.length;
+  };
+  const visit = (n: TsNode): void => {
+    if (n.type === "call") {
+      const head = headOf(n);
+      const args = argsOf(n);
+      const firstArg = args ? (kids(args)[0] ?? null) : null;
+      if (head === "defmodule" && firstArg?.type === "alias") {
+        // `alias Shop.Payments` … `defmodule Payments.Gateway` defines Shop.Payments.Gateway:
+        // defmodule expands aliases in scope exactly like a remote call does.
+        const name = expand(firstArg.text);
+        const parent = cur().fqn;
+        // `defmodule Foo.Bar` inside `A` defines `A.Foo.Bar` and aliases `Foo` → `A.Foo`.
+        if (parent) cur().aliases.set(name.split(".")[0], `${parent}.${name.split(".")[0]}`);
+        const fqn = parent ? `${parent}.${name}` : name;
+        const md = defByStart.get(n.startIndex);
+        const mnode = md ? nodeById.get(md.id) : undefined;
+        if (mnode) mnode.fqn = fqn;
+        scopes.push({ fqn, aliases: new Map() });
+        for (const c of kids(n)) visit(c);
+        scopes.pop();
+        return;
+      }
+      if (head === "alias" && args) {
+        recordAlias(args);
+        return;
+      }
+      if (head && DEF_HEADS.has(head)) {
+        const d = defByStart.get(n.startIndex);
+        const node = d ? nodeById.get(d.id) : undefined;
+        const fqn = cur().fqn;
+        if (node && fqn) {
+          node.owner = fqn;
+          const ar = arityOf(args);
+          if (ar !== null) node.arity = ar;
+        }
+      }
+      const t = field(n, "target");
+      if (t?.type === "dot") {
+        const l = field(t, "left"), r = field(t, "right");
+        const recv = l && r?.type === "identifier" ? receiverOf(l) : null;
+        if (recv && r) {
+          let argCount = args ? kids(args).length : 0;
+          const p = n.parent;
+          const op = p?.type === "binary_operator" ? opOf(p) : null;
+          const rhs = op ? field(p, "right") : null;
+          // `&Mod.fun/2`: no call args, the arity is the `/ N` operand.
+          if (args && argCount === 0 && op === "/" && rhs?.type === "integer") argCount = Number(rhs.text);
+          // `x |> Mod.fun(a)` supplies one more argument than written.
+          if (op === "|>" && rhs?.startIndex === n.startIndex) argCount += 1;
+          const enc = enclosing(r.startIndex);
+          rawEdges.push({
+            source: enc ? enc.id : rel, relation: "calls", file: rel, name: r.text,
+            viaMember: true, recvType: recv, argCount,
+          });
+        }
+      }
+    }
+    for (const c of kids(n)) visit(c);
+  };
+  visit(root);
+}
+
 /** An Objective-C method's whole selector: `setValue:forKey:`, or `draw` with no
  * arguments. Its first part alone would make `setValue:forKey:` and
  * `setValue:forHTTPHeaderField:` one name. A definition's parts are its own
@@ -1451,7 +1656,9 @@ function tagsExtract(
       const name = (langName === "objc" && objcSelector(cap[defKey])) || cap.name.text;
       mkDef(name, KIND[defKey.slice("definition.".length)] ?? "function", defScope(cap[defKey], langName));
     }
-    if (("reference.call" in cap || "reference.send" in cap) && cap.name && !(langName === "fortran" && fortranDeclared(cap.name, cap.name.text)))
+    // Elixir remote call (`Mod.fun`): the bare `fun` is ambiguous repo-wide by
+    // construction; extractElixir re-emits it receiver-typed instead.
+    if (("reference.call" in cap || "reference.send" in cap) && cap.name && !(langName === "fortran" && fortranDeclared(cap.name, cap.name.text)) && !(langName === "elixir" && cap.name.parent?.type === "dot"))
       calls.push({
         name: (langName === "objc" && objcSelector(cap["reference.call"])) || cap.name.text,
         at: cap.name.startIndex,

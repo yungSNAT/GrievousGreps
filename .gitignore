@@ -4,8 +4,9 @@ dist/
 
 # graft's local graph cache — regenerable, not committed. Each dev runs
 # `graft build` locally (it re-adds this line itself), so the folder is a
-# personal cache like node_modules, never a shared artifact.
-graft/
+# personal cache like node_modules, never a shared artifact. Root-anchored:
+# an unanchored `graft/` would also ignore `.claude/skills/graft/` (#79).
+/graft/
 # Except the graft skill's SKILL.md fixture, which CI checks against the spec.
 !test/fixtures/skills/graft/
 
@@ -23,6 +24,9 @@ transcripts/
 # and never part of a PR diff (the hook helpers/skills alongside them stay tracked).
 .claude/settings.json
 .claude/settings.local.json
+
+# trail's hook for this repository, written per machine by `trail init`; upstream commits it, the fork does not.
+/.trail/hook.cjs
 
 # Cursor project config — written per machine by `graft init` (hooks, MCP, rule),
 # a personal setup like the Claude settings above, not a shared artifact.

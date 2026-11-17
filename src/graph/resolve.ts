@@ -36,7 +36,37 @@ const PY_CTOR_KINDS: Kind[] = ["class"];
  * shape — types are tried only once functions (and methods, see extract.ts's
  * implicit-self widening) have found nothing. */
 const SWIFT_EXT = /\.swift$/i;
+const EX_EXT = /\.exs?$/i;
 const SWIFT_CTOR_KINDS: Kind[] = ["class", "struct", "enum"];
+/** Kotlin is Swift's case again — `Mailer(host = "smtp")` is an ordinary call node with
+ * no `new` to mark it — and it has free functions too, so it takes the same fallback
+ * rather than Java's outright widening. Without it a DI-heavy backend loses most of its
+ * coupling: measured on a 717-file Kotlin monorepo (#387), a service class constructed in
+ * a Koin module and instantiated five times in its integration test reported `no indexed
+ * callers`, while the free functions in the same package resolved 51 call sites.
+ *
+ * `class` alone, unlike Swift's three kinds. `data class`, `object` and `companion
+ * object` are that kind already (see extract.ts's KOTLIN_KINDS and describeKotlin), so it
+ * covers construction. The two kinds left out are left out on measured grounds, not
+ * because the language forbids them:
+ *   - `enum`: an enum class's constructor IS private in Kotlin, so `Color(…)` cannot be
+ *     written from outside — this one really is unreachable.
+ *   - `interface`: this one is reachable in principle. A `fun interface` is SAM-converted
+ *     by writing `Action { … }`, which is an ordinary `call_expression`, and since Kotlin
+ *     1.6 an `annotation class` (also kind "interface" here) can be instantiated. It is
+ *     excluded because tree-sitter-kotlin@0.3.8 cannot parse `fun interface` at all — it
+ *     yields an ERROR node, so no such interface becomes a node to resolve against — and
+ *     admitting the kind today would widen what an unresolvable bare call can land on
+ *     while buying nothing. Worth revisiting if that grammar gap closes.
+ *
+ * And this is a fallback, so it inherits the fallback's imprecision honestly: `class` also
+ * covers `object`, where `Factory()` may be an `operator fun invoke` rather than a
+ * constructor, and a local `val Mailer = factory; Mailer()` shadows the type it names.
+ * Python and Swift already make that trade above; this one is no tighter. What keeps it
+ * safe is the ordering — a real function of that name resolves first — and resolveName's
+ * unique-match rule, which drops the ambiguous rather than picking. */
+const KOTLIN_EXT = /\.kts?$/i;
+const KOTLIN_CTOR_KINDS: Kind[] = ["class"];
 
 /**
  * Languages whose symbols can genuinely reach each other. A call edge may not
@@ -109,6 +139,8 @@ export interface ResolveOptions {
   rustExternalCrates?: ReadonlySet<string>;
   /** Each of the repo's crates, `-` as `_`, to its folder. */
   rustCrateDirs?: ReadonlyMap<string, string>;
+  /** The test, example and bench targets the repo's Cargo.toml files state. */
+  rustTargets?: RustTargets;
   /** The Python roots the repo's configuration states (see python-roots.ts). */
   pythonRoots?: string[];
   /** Filled with the Python calls an import names but no edge carries. */
@@ -191,6 +223,8 @@ export function resolveEdges(
     if (!fileMap) perFileName.set(n.path, (fileMap = new Map()));
     push(fileMap, n.name, n);
     // A generic-tier Rust `impl` item is a `function` that knows its owner.
+    // Elixir functions carry `owner` (their module) from extractElixir and are looked up
+    // the same owner-qualified way a method is.
     if (n.kind === "method" || (n.kind === "function" && n.owner)) {
       const owner = n.owner ?? ownerFromMethodId(n.id);
       if (owner) push(ownerMethod, `${owner}.${n.name}`, n);
@@ -200,6 +234,13 @@ export function resolveEdges(
   // classParents: class/interface name → its declared base-class names, from raw
   // `extends` edges (source id's own name → the base name). Used to walk up an
   // inheritance chain when a receiver's own type has no matching method.
+  // Elixir module nodes by full name (extractElixir stamps `fqn`; a nested module's
+  // `name` is the bare last segment).
+  const moduleByFqn = new Map<string, NodeV1>();
+  for (const n of nodes) {
+    if (n.kind === "module" && n.fqn && !moduleByFqn.has(n.fqn)) moduleByFqn.set(n.fqn, n);
+  }
+
   const classParents = new Map<string, string[]>();
   for (const e of rawEdges) {
     if (e.relation !== "extends" || !e.name) continue;
@@ -355,7 +396,11 @@ export function resolveEdges(
     }
   };
   const cfgGated = new Map(rawEdges.flatMap((e) => e.rustCfgItems ?? []));
-  const rustPathCtx: RustPathCtx = { crates: opts.rustCrateDirs ?? new Map(), byId, perFileName, pubUses: rustPubUses, cfgGated };
+  const modUses = new Map(rawEdges.flatMap((e) => (e.rustModUses ? [[e.file, e.rustModUses] as const] : [])));
+  const rustPathCtx: RustPathCtx = {
+    crates: opts.rustCrateDirs ?? new Map(), targets: opts.rustTargets ?? { off: new Map(), unknown: new Map(), listed: new Set(), dropped: new Set(), unsure: new Set() },
+    byId, perFileName, pubUses: rustPubUses, cfgGated, modUses,
+  };
   // The type a receiver is by the end of its chain, each step read off a signature. Undefined
   // when a step's signature does not say, and the method falls back on its name.
   const rustChainType = (chain: NonNullable<RawEdge["rustChain"]>, e: RawEdge): string | undefined => {
@@ -447,7 +492,7 @@ export function resolveEdges(
         const candidates = narrowGleamByKind(perFileName.get(targetFile)?.get(e.name) ?? [], e.file, TYPE_KINDS);
         if (candidates.length === 1) add(e.source, candidates[0].id, "references", "extracted");
       } else if (e.file.endsWith(".php") && byId.get(e.source)?.origin === "ast") {
-        // PHP attribute without a `use` import (same-file or globally unique class).
+        // PHP type/attribute without a `use` import (same-file or globally unique type).
         const refKinds: Kind[] = ["class", "interface", "trait", "enum"];
         const hit = resolveName(e.name, e.file, refKinds, perFileName, globalName);
         if (hit && hit.id !== e.source) add(e.source, hit.id, "references", hit.confidence);
@@ -528,6 +573,16 @@ export function resolveEdges(
         else if (hit !== "external") add(e.source, hit.id, "calls", "extracted");
         continue;
       }
+      // Go: a package-qualified call names the imported package's directory.
+      if (e.specifier && e.file.endsWith(".go")) {
+        const dir = hasGoModules ? goImportDir(e.specifier, opts.goModules!) : null;
+        const candidates = (dir ? (goFilesByDir.get(dir) ?? []) : [])
+          .filter((f) => !f.endsWith("_test.go"))
+          .flatMap((f) => perFileName.get(f)?.get(e.name!) ?? [])
+          .filter((n) => n.kind === "function");
+        if (candidates.length === 1) add(e.source, candidates[0].id, "calls", "extracted");
+        continue;
+      }
       if (e.viaMember) {
         if (e.rustChain?.root && (RUST_STD_CRATES.has(e.rustChain.root) || opts.rustExternalCrates?.has(e.rustChain.root))) {
           rustTraitProvides(e, e.rustChain.type ?? null);
@@ -598,6 +653,16 @@ export function resolveEdges(
           if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "inferred" : stated(hit.confidence));
           continue;
         }
+        if (EX_EXT.test(e.file)) {
+          // Elixir: the receiver module exists in the repo but declares no such `def` —
+          // the function is macro-generated (`use Ecto.Repo`, a DSL). The call is still
+          // a real dependency on that module: point the edge at the module node.
+          const mod = moduleByFqn.get(recvType);
+          if (mod && mod.id !== e.source && reachable(e.file, mod.path)) {
+            add(e.source, mod.id, "calls", "inferred");
+          }
+          continue;
+        }
         // No owner-qualified match means the call is unresolved. A unique bare
         // method name is not evidence that this receiver has that method — a
         // name-fallback here was measured to HALVE call-edge precision (73%→37%
@@ -641,7 +706,8 @@ export function resolveEdges(
             : ["function"]);
       if (e.rustForm) {
         if (e.rustPath && e.rustForm !== "macro") {
-          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx);
+          const reached = rustFollowPath(e.rustPath, e.file, rustPathCtx, 0, !e.rustInMod) ?? rustFollowGlobs(e.rustPath, e.rustGlobs, e.file, rustPathCtx)
+            ?? (e.rustSuperGlob ? rustFollowSuper(e.rustPath, e.file, rustPathCtx) : undefined);
           if (reached) {
             for (const arm of rustArmsOf(reached, rustPathCtx)) if (arm.id !== e.source) add(e.source, arm.id, "calls", stated("extracted"));
             continue;
@@ -663,7 +729,10 @@ export function resolveEdges(
         else if (global.length > 1 && e.rustForm === "free") opts.unresolvedCalls?.push({ source: e.source, name: e.name!, through: e.rustPath ?? `${global.length} definitions of that name` });
         continue;
       }
-      let hit = resolveName(e.name!, e.file, callKinds, perFileName, globalName);
+      // Elixir: a bare call reaches only its own file (extractElixir types the remote ones).
+      let hit = EX_EXT.test(e.file)
+        ? resolveLocalName(e.name!, e.file, callKinds, perFileName)
+        : resolveName(e.name!, e.file, callKinds, perFileName, globalName);
       // Python is the Java case without the `new` to mark it: `Widget()` is an
       // ordinary call node, so a constructor edge dies against the function-only
       // index. Java can widen to types outright; Python has free functions, so
@@ -675,6 +744,9 @@ export function resolveEdges(
       }
       if (!hit && SWIFT_EXT.test(e.file)) {
         hit = resolveName(e.name!, e.file, SWIFT_CTOR_KINDS, perFileName, globalName);
+      }
+      if (!hit && KOTLIN_EXT.test(e.file)) {
+        hit = resolveName(e.name!, e.file, KOTLIN_CTOR_KINDS, perFileName, globalName);
       }
       if (hit) add(e.source, hit.id, "calls", hit.confidence); // drop unresolved calls (too noisy)
     }
@@ -700,6 +772,22 @@ function ownerFromMethodId(id: string): string | undefined {
  * Resolve a bare symbol name: same-file match first (certain → `extracted`),
  * else a unique cross-file match (→ `inferred`), else null (ambiguous/unknown).
  */
+/**
+ * Same-file only — no cross-file fallback. Elixir: a bare `foo(x)` is a local, imported, or
+ * Kernel function, never another module's, so `resolveName`'s unique-global rule turned every
+ * coincidental name match into a false edge. Remote calls arrive receiver-typed from
+ * extractElixir and never reach this.
+ */
+function resolveLocalName(
+  name: string,
+  file: string,
+  kinds: Kind[],
+  perFileName: Map<string, Map<string, NodeV1[]>>,
+): { id: string; confidence: EdgeV1["confidence"] } | null {
+  const local = (perFileName.get(file)?.get(name) ?? []).filter((n) => kinds.includes(n.kind));
+  return local.length ? { id: local[0].id, confidence: "extracted" } : null;
+}
+
 function resolveName(
   name: string,
   file: string,
@@ -718,10 +806,18 @@ function resolveName(
   // Without it a unique name match ANYWHERE in the repo wins, which is how a Go
   // builtin ended up resolving into a TypeScript test — see FAMILIES above.
   const global = (globalName.get(name) ?? []).filter(
-    (n) => kinds.includes(n.kind) && reachable(file, n.path),
+    (n) =>
+      kinds.includes(n.kind) &&
+      reachable(file, n.path) &&
+      (!file.endsWith(".go") || sameGoPackage(file, n.path)),
   );
   if (global.length === 1) return { id: global[0].id, confidence: "inferred" };
   return null;
+}
+
+function sameGoPackage(file: string, candidatePath: string): boolean {
+  if (posix.dirname(toPosixPath(file)) !== posix.dirname(toPosixPath(candidatePath))) return false;
+  return file.endsWith("_test.go") || !candidatePath.endsWith("_test.go");
 }
 
 /**
@@ -790,6 +886,12 @@ function resolveTypedMember(
         // Rust is the same within a file, where each `impl From<_>` holds its own `from`.
         // The tiebreak below still chooses this file's type over another crate's namesake.
         if (file.endsWith(".rs") && candidates.filter((c) => c.path === file).length > 1) return "ambiguous";
+        // Elixir multi-clause: several `def total(...)` heads of ONE function in one module.
+        // The first clause stands for the function.
+        if (EX_EXT.test(file) && candidates.every((c) => c.path === candidates[0].path)) {
+          const c = candidates[0];
+          return { id: c.id, confidence: c.path === file ? "extracted" : "inferred" };
+        }
         const sameFile = candidates.find((c) => c.path === file);
         if (sameFile) return { id: sameFile.id, confidence: "extracted" };
         return "ambiguous"; // several, none same-file — drop and stop
@@ -911,13 +1013,32 @@ function rustTextName(text: string): string | undefined {
   return /^[A-Z]\w+$/.test(name) ? name : undefined;
 }
 
+/** What the repo's Cargo.toml files say Cargo builds as crates (see cargo-targets.ts). */
+export interface RustTargets {
+  /** By crate folder (`.` at the root), the folders among `tests`, `examples` and `benches`
+   * whose files Cargo no longer builds by itself (`autotests = false` and the like). */
+  off: Map<string, Set<string>>;
+  /** The same, for the folders where the manifest leaves that unknown. */
+  unknown: Map<string, Set<string>>;
+  /** The files target tables name, by `path` or by `name`, and `[lib]` and `[[bin]]` paths. */
+  listed: Set<string>;
+  /** Files Cargo would find but does not build, as a table gives their name another path. */
+  dropped: Set<string>;
+  /** Crate folders whose manifest is not read whole (unreadable, not TOML, or a target table of
+   * another shape), so whether Cargo builds any file below is unknown. */
+  unsure: Set<string>;
+}
+
 interface RustPathCtx {
   crates: ReadonlyMap<string, string>;
+  targets: RustTargets;
   byId: Map<string, NodeV1>;
   perFileName: Map<string, Map<string, NodeV1[]>>;
   pubUses: Map<string, NonNullable<RawEdge["rustPubUses"]>>;
   /** Functions a `cfg` attribute or an item macro gates: node id → the inline module path it sits in. */
   cfgGated: ReadonlyMap<string, string>;
+  /** Files that declare module files, by path: those modules and the file's top-level `use` lines. */
+  modUses: ReadonlyMap<string, NonNullable<RawEdge["rustModUses"]>>;
 }
 
 /** The crate folder a file sits in: the deepest one above it. */
@@ -1053,6 +1174,89 @@ function rustFollowGlobs(path: string, globs: string[] | undefined, file: string
     if (hit) hits.add(hit);
   }
   return hits.size === 1 ? [...hits][0] : undefined;
+}
+
+/** A path under a file-level `use super::*`, such as `expect::event()` in tracing's
+ * `tests/layer_filters/option.rs`, read where the file that declares this module reads it:
+ * through its `use` lines, its own modules, then its globs. Undefined unless every such file,
+ * and every `use` that binds the path's first name, reaches the same one function.
+ *
+ * shortcut: a file beside this one that declares the module counts as its parent when it is a
+ * `mod.rs`, `lib.rs` or `main.rs`, sits outside a `src` folder (a test, example or bench root)
+ * or in `src/bin`, and no other file beside it declares it as a module, whose own modules would
+ * sit in a folder of its name, unless Cargo builds it as a crate ({@link rustCargoRoot}).
+ * A path's first name reaches the parent's module files only through its `mod` lines.
+ * A parent's `self::` and `super::` globs are not followed, so a path only they bring in stays
+ * unresolved. */
+function rustFollowSuper(path: string, file: string, ctx: RustPathCtx): NodeV1 | undefined {
+  const dirOf = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf("/")));
+  const stemOf = (p: string) => p.slice(p.lastIndexOf("/") + 1).replace(/\.rs$/, "");
+  const own = file.endsWith("/mod.rs") ? dirOf(file) : file;
+  const stem = stemOf(own);
+  const at = dirOf(own);
+  // A file Cargo builds as a crate is a root, whatever else declares it as a module. When that
+  // is unknown and another file declares it, which file is the parent is unknown too.
+  let unsure = false;
+  const declaredBeside = (p: string) => {
+    if (p.endsWith("/mod.rs")) return false;
+    const root = rustCargoRoot(p, ctx);
+    if (root) return false;
+    const beside = [...ctx.modUses].some(([q, u]) => q !== p && u.mods.includes(stemOf(p)) && (dirOf(q) === dirOf(p) || q === `${dirOf(p)}.rs`));
+    if (beside && root === undefined) unsure = true;
+    return beside;
+  };
+  const declares = (p: string) => (at !== "" && p === `${at}.rs`)
+    || (dirOf(p) === at && (/(^|\/)(mod|lib|main)\.rs$/.test(p) || !/(^|\/)src\//.test(p) || /(^|\/)src\/bin\/[^/]+$/.test(p)) && !declaredBeside(p));
+  const [first = "", ...rest] = path.split("::");
+  const hits = new Set<NodeV1 | undefined>();
+  for (const [parent, uses] of ctx.modUses) {
+    if (parent === file || !uses.mods.includes(stem) || !declares(parent)) continue;
+    const bound = uses.names.filter(([n]) => n === first);
+    for (const [, full] of bound) hits.add(rustFollowPath([full, ...rest].join("::"), parent, ctx));
+    if (!bound.length) {
+      const ownMod = uses.mods.includes(first);
+      hits.add(rustFollowPath(path, parent, ctx, 0, ownMod)
+        ?? (ownMod ? rustSiblingModuleFn(at, first, rest, ctx) : undefined)
+        ?? rustFollowGlobs(path, uses.globs, parent, ctx));
+    }
+  }
+  return hits.size === 1 && !unsure ? [...hits][0] : undefined;
+}
+
+/** Whether Cargo builds `file` as a crate: a target a Cargo.toml lists, or a file directly in a
+ * crate's `tests`, `examples` or `benches` unless that crate turned finding them off or a table
+ * gave its name another path; undefined when its crate's manifest leaves that unknown.
+ *
+ * shortcut: a folder with no Cargo.toml of its own reads as a crate that finds them; the
+ * upgrade is to read each file's crate from the workspace. */
+function rustCargoRoot(file: string, ctx: RustPathCtx): boolean | undefined {
+  const { listed, unsure, dropped, unknown, off } = ctx.targets;
+  if (listed.has(file)) return true;
+  if ([...unsure].some((d) => d === "." || file.startsWith(`${d}/`))) return undefined;
+  const direct = /^(?:(.+)\/)?(tests|examples|benches)\/[^/]+$/.exec(file);
+  if (!direct || dropped.has(file)) return false;
+  const [crate, folder] = [direct[1] ?? ".", direct[2]!];
+  return unknown.get(crate)?.has(folder) ? undefined : !off.get(crate)?.has(folder);
+}
+
+/** `helpers::event` where `helpers` is a module file in `dir`, as a test root's own `mod helpers;`
+ * declares it: the one free function of that name the file defines, or for `helpers::nested::event`
+ * the same in the module file `helpers` declares as `nested`. The caller is a sibling of
+ * `helpers`, so it sees only what is `pub` or `pub(crate)` below it: each module after the
+ * first, and the function.
+ *
+ * shortcut: `pub(super)` and `pub(in …)` count as private, so a call through one stays
+ * unresolved; reading each one's scope would settle it. */
+function rustSiblingModuleFn(dir: string, mod: string, rest: string[], ctx: RustPathCtx, depth = 0): NodeV1 | undefined {
+  const base = dir === "" ? mod : `${dir}/${mod}`;
+  const file = [`${base}.rs`, `${base}/mod.rs`].find((f) => ctx.byId.has(f));
+  if (!file || rest.length === 0 || depth > 5) return undefined;
+  if (rest.length > 1) {
+    return ctx.modUses.get(file)?.open?.includes(rest[0]!) ? rustSiblingModuleFn(base, rest[0]!, rest.slice(1), ctx, depth + 1) : undefined;
+  }
+  const fns = (ctx.perFileName.get(file)?.get(rest[0]!) ?? [])
+    .filter((n) => n.kind === "function" && !n.owner && /^pub(\(crate\))?\s/.test(n.signature ?? ""));
+  return fns.length === 1 ? fns[0] : undefined;
 }
 
 /** Path aliases for the files under `dir`, whose targets read from `base`. */
@@ -1546,6 +1750,13 @@ function resolveRustUse(spec: string, file: string, byId: Map<string, NodeV1>, c
  * dir may hold several `.go` files; we pick a deterministic representative (lowest id).
  */
 function resolveGoImport(spec: string, modules: GoModule[], filesByDir: Map<string, string[]>): string {
+  const dir = goImportDir(spec, modules);
+  const files = dir === null ? undefined : filesByDir.get(dir);
+  if (!files || files.length === 0) return spec; // stdlib / third-party — keep the package path
+  return [...files].sort()[0]; // NOSONAR: strings only, so the default code-unit order is deterministic
+}
+
+function goImportDir(spec: string, modules: GoModule[]): string | null {
   let best: { mod: GoModule; subpath: string } | null = null;
   for (const mod of modules) {
     let subpath: string | null = null;
@@ -1554,10 +1765,5 @@ function resolveGoImport(spec: string, modules: GoModule[], filesByDir: Map<stri
     if (subpath === null) continue;
     if (!best || mod.module.length > best.mod.module.length) best = { mod, subpath };
   }
-  if (!best) return spec; // stdlib / third-party — keep the package path
-
-  const dir = posix.normalize(posix.join(best.mod.dir, best.subpath));
-  const files = filesByDir.get(dir);
-  if (!files || files.length === 0) return spec;
-  return [...files].sort()[0]; // NOSONAR: strings only, so the default code-unit order is deterministic
+  return best ? posix.normalize(posix.join(best.mod.dir, best.subpath)) : null;
 }

@@ -9,16 +9,16 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pickServer, LSP_SERVERS } from "../src/graph/lsp/registry.js";
+import { pickServers, LSP_SERVERS } from "../src/graph/lsp/registry.js";
 import { enrichWithLsp } from "../src/graph/lsp/enrich.js";
 import type { GraphV1 } from "../src/graph/types.js";
 
-test("pickServer: no languages present → no server", () => {
-  assert.equal(pickServer(new Set(), process.cwd()).server, null);
+test("pickServers: no languages present → no servers", () => {
+  assert.deepEqual(pickServers(new Set(), process.cwd()).servers, []);
 });
 
-test("pickServer: a language no registered server covers → null", () => {
-  assert.equal(pickServer(new Set(["cobol", "fortran"]), process.cwd()).server, null);
+test("pickServers: languages no registered server covers → no servers", () => {
+  assert.deepEqual(pickServers(new Set(["cobol", "fortran"]), process.cwd()).servers, []);
 });
 
 test("registry rows are well-formed (languages, command, languageId)", () => {
@@ -41,7 +41,7 @@ test("enrichWithLsp is a no-op when no server matches the repo's languages", asy
   };
   const before = graph.edges.length;
   const r = await enrichWithLsp(graph, "/tmp/does-not-matter");
-  assert.equal(r.server, null, "no server selected for an unsupported language");
+  assert.deepEqual(r.servers, [], "no server selected for an unsupported language");
   assert.equal(r.added, 0);
   assert.equal(graph.edges.length, before, "graph edges untouched");
 });
@@ -69,7 +69,7 @@ test("--lsp names a server it will not start: one only in a node_modules/.bin or
     const file = server(dir);
     process.env.PATH = dir;
     const r = await enrichWithLsp(graph(), repo);
-    assert.equal(r.server, null, `not started from ${dir}`);
+    assert.deepEqual(r.servers, [], `not started from ${dir}`);
     assert.equal(r.notices.length, 1, `one notice for ${dir}`);
     const [notice] = r.notices;
     assert.ok(notice.includes("typescript-language-server") && notice.includes(file), notice);
