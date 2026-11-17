@@ -188,6 +188,7 @@ export function namesRepoSymbol(repo: string, names: string[]): boolean {
       execFileSync("git", ["grep", "-q", "-w", "-F", "-e", name, "--", ".", ":(exclude).trail", ":(exclude).claude", ":(exclude)*.md"], { // NOSONAR: the person's own git, found through PATH on purpose
         cwd: repo,
         stdio: "ignore",
+        windowsHide: true,
       });
       return true;
     } catch {
@@ -206,7 +207,7 @@ export function namesRepoSymbol(repo: string, names: string[]): boolean {
 export function trackedFiles(repo: string, files: string[]): Set<string> {
   if (!files.length) return new Set();
   try {
-    const out = execFileSync("git", ["ls-files", "-z", "--", ...files], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); // NOSONAR: the person's own git, found through PATH on purpose
+    const out = execFileSync("git", ["ls-files", "-z", "--", ...files], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
     return new Set(out.split("\0").filter(Boolean));
   } catch {
     return new Set(files.filter((f) => existsSync(join(repo, f))));

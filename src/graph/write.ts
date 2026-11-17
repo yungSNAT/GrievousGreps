@@ -36,6 +36,17 @@ export function readGraph(path: string, base = dirname(path)): GraphV1 | null {
   }
 }
 
+/**
+ * JSON text with every non-ASCII character as a `\uXXXX` escape; JSON.parse reads
+ * back the same values. One non-ASCII character anywhere makes V8 hold a whole file,
+ * read back, as a two-byte string: on assign, ~100 MB more for each process that
+ * reads its 94 MB graph (every query, hook and build), and ~300 MB for the build's
+ * extract cache.
+ */
+export function asciiJson(json: string): string {
+  return json.replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
 export function writeGraph(graph: GraphV1, outDir: string): string {
   const sorted: GraphV1 = {
     ...graph,
@@ -54,7 +65,7 @@ export function writeGraph(graph: GraphV1, outDir: string): string {
   // file and hand the loser a corrupt graph, and a failed rename would otherwise
   // leave a full-size orphan behind that nothing ever cleans up. `dirname(outDir)`
   // is the base so a symlinked `graft/` or `.graph/` is refused, never followed.
-  writeFileInside(dirname(outDir), path, JSON.stringify(sorted, null, 2) + "\n", { atomic: true });
+  writeFileInside(dirname(outDir), path, asciiJson(JSON.stringify(sorted, null, 2)) + "\n", { atomic: true });
   return path;
 }
 

@@ -149,6 +149,7 @@ export function repoLabel(root: string): string {
     const url = execFileSync("git", ["-C", root, "remote", "get-url", "origin"], { // NOSONAR: the person's own git, found through PATH on purpose
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      windowsHide: true,
     }).trim();
     const name = url.replace(/\.git$/, "").split(/[/:]/).pop();
     if (name) return name;
