@@ -13,7 +13,7 @@
  * the check runs in a child, and the mark that lets the second try through is
  * a file beside the session's gate file.
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from '../util/program.js';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

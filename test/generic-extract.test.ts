@@ -514,6 +514,15 @@ pub fn run() { helper() }
     defs: ["function:helper", "function:run", "type:Point", "type:Shape"], calls: ["run->helper"],
   },
   {
+    // Haskell: `area`'s 2 equations are one definition, so a call of it resolves
+    // and a call in its second equation is its own; `helper` passed to `map` is
+    // no call, and `M.lookup` keeps its module.
+    lang: "haskell", file: "a.hs",
+    src: `module Main where\n\nimport qualified Data.Map as M\n\ndata Shape = Circle Double | Square Double\n\nnewtype Name = Name String\n\ntype Size = Int\n\nclass Sized a where\n  size :: a -> Int\n\nhelper :: Int -> Int\nhelper x = x + 1\n\narea :: Shape -> Double\narea (Circle r) = pi * r * r\n-- a square\narea (Square s) = fromIntegral (helper 1) * s\n\nrun :: IO ()\nrun = do\n  print (area (Circle 1))\n  print (map helper [1, 2])\n  print (M.lookup 1 M.empty)\n`,
+    defs: ["function:area", "function:helper", "function:run", "type:Name", "type:Shape", "type:Size", "type:Sized"],
+    calls: ["area->helper", "run->area"],
+  },
+  {
     // Fortran: `arr(1)` and `b(2)` index arrays that the procedure and its
     // module declare, so they are no calls of the functions `arr` and `b`; names
     // ignore case.

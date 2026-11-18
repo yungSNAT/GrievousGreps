@@ -47,7 +47,8 @@
  * publishing, because the store and the secret it signs URLs with live with the
  * server.
  */
-import { fork, type ChildProcess } from "node:child_process";
+import { fork } from "../util/program.js";
+import type { ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { jobKey, type ReviewJob } from "./events.js";

@@ -35,7 +35,13 @@ const parseSpan = (s: string): [number, number] | null => {
   return m ? [Number(m[1]), Number(m[2])] : null;
 };
 
-export interface LspEnrichResult { added: number; queried: number; servers: string[] }
+export interface LspEnrichResult {
+  added: number;
+  queried: number;
+  servers: string[];
+  /** Servers passed over for where they are installed, each with what to do (registry.ts pickServers). */
+  notices: string[];
+}
 
 export async function enrichWithLsp(
   graph: GraphV1,
@@ -44,8 +50,8 @@ export async function enrichWithLsp(
 ): Promise<LspEnrichResult> {
   const languagesPresent = new Set<string>();
   for (const n of graph.nodes) { const l = langOf(n.path); if (l) languagesPresent.add(l); }
-  const servers = pickServers(languagesPresent);
-  if (!servers.length) return { added: 0, queried: 0, servers: [] };
+  const { servers, notices } = pickServers(languagesPresent, root);
+  if (!servers.length) return { added: 0, queried: 0, servers: [], notices };
 
   // Canonicalize the root: servers (rust-analyzer/clangd) report callee URIs
   // against the REAL path, so under a symlinked checkout (macOS /tmp →
@@ -154,5 +160,5 @@ export async function enrichWithLsp(
       await client.dispose();
     }
   }
-  return { added, queried, servers: attempted };
+  return { added, queried, servers: attempted, notices };
 }

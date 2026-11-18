@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn } from "./program.js";
 
 /** Open `url` in the default browser. Best-effort: the printed URL is the fallback. */
 export function openBrowser(url: string): void {

@@ -23,7 +23,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/program.js";
 import { matter } from "../util/front-matter.js";
 import { contentHash, normalizeName } from "../util/id.js";
 import { relPosix, stripTrailingSlashes } from "../util/paths.js";
@@ -232,7 +232,7 @@ function gitAlreadyIgnores(root: string, rel: string): boolean {
   try {
     const env = { ...process.env };
     for (const k of GIT_REPO_ENV) delete env[k];
-    const r = spawnSync("git", ["-c", "core.fsmonitor=false", "check-ignore", "-q", "--", `${rel}/`], { // NOSONAR: the person's own git, found through PATH on purpose
+    const r = spawnSync("git", ["-c", "core.fsmonitor=false", "check-ignore", "-q", "--", `${rel}/`], {
       cwd: root, env, stdio: "ignore", timeout: 5000, windowsHide: true,
     });
     return r.status === 0;

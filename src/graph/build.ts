@@ -599,6 +599,7 @@ export async function buildGraph(
   if (opts.lsp) {
     const { enrichWithLsp } = await import("./lsp/enrich.js");
     const r = await enrichWithLsp(graph, root);
+    errors.push(...r.notices);
     graph.meta.edgeCount = graph.edges.length;
     opts.onProgress?.({ phase: "enrich", index: r.added, total: r.queried, file: `lsp:${r.servers.join(", ") || "none"}` });
   }

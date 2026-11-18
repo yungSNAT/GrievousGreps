@@ -8,7 +8,8 @@
  * flag does nothing elsewhere. The sources are read with the TypeScript parser,
  * so this holds on every platform in CI. A call that hands the person's own
  * terminal to the child (`stdio: "inherit"`) is left as it is. Calls are those
- * of the names imported from `node:child_process` at the top of a file.
+ * of the names imported from `node:child_process`, or from `util/program.ts`, through which
+ * every module starts its child processes, at the top of a file.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -22,18 +23,17 @@ const SPAWNERS = new Set(["execFileSync", "execSync", "spawnSync", "spawn", "exe
 /** Calls left without `windowsHide`, each with why. `starts` is how the call's first argument begins. */
 const EXEMPT: Array<{ file: string; starts: string; why: string }> = [
   { file: "src/cloud/onboarding.ts", starts: '"scutil"', why: "macOS only" },
-  { file: "src/graph/lsp/registry.ts", starts: "`command -v", why: "the POSIX branch: Windows looks the command up on PATH itself" },
   { file: "src/util/browser.ts", starts: "opener", why: "only called when stdout is a terminal, so the person's own console is there" },
 ];
 
 interface Call { file: string; line: number; fn: string; first: string }
 
-/** The local names a file imports from `node:child_process` that start a process. */
+/** The local names a file imports from `node:child_process` or util/program.ts that start a process. */
 function spawnersOf(sf: ts.SourceFile): Set<string> {
   const names = new Set<string>();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
-    if (!/^(?:node:)?child_process$/.test(st.moduleSpecifier.text)) continue;
+    if (!/^(?:node:)?child_process$|(?:^|\/)(?:util\/)?program\.js$/.test(st.moduleSpecifier.text)) continue;
     const bound = st.importClause?.namedBindings;
     if (!bound || !ts.isNamedImports(bound)) continue;
     for (const e of bound.elements) if (SPAWNERS.has((e.propertyName ?? e.name).text)) names.add(e.name.text);

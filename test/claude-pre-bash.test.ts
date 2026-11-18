@@ -147,8 +147,9 @@ test('the PreToolUse module loads only node builtins and small files, never the 
   for (const heavy of ['cli.ts', 'claude/hooks.ts', 'upkeep.ts', 'upkeep-run.ts']) assert.ok(!names.includes(heavy), `${heavy} stays out`);
   assert.ok(!names.some((n) => /^(telemetry|graph|ask|notes|cloud)\//.test(n)), `nothing heavier: ${names.join(', ')}`);
   // Itself, the one-copy check (hook-layers, brand, host), the skills fast path below, and the
-  // commit check (pre-bash-check.ts), loaded only before a commit, a push or a PR.
-  assert.ok(files.length <= 13, `a small closure: ${names.join(', ')}`);
+  // commit check (pre-bash-check.ts), loaded only before a commit, a push or a PR, with
+  // util/program.ts, through which every module starts a child process.
+  assert.ok(files.length <= 14, `a small closure: ${names.join(', ')}`);
   // Loading it costs nothing but itself: no other file, and no ESM import of
   // node:fs, which alone costs Node several ms before every shell command.
   const atLoad = importClosure(join(SRC, 'claude', 'pre-bash.ts'), true);

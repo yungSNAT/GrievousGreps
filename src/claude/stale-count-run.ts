@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../util/program.js';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';

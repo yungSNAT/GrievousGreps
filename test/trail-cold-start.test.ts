@@ -381,7 +381,7 @@ function homeWith(...paths: string[]): string {
 }
 
 test("claudeBin uses claude on PATH when it's there", () => {
-  assert.equal(claudeBin(homeWith(extCopy(".vscode", "anthropic.claude-code-2.1.289-darwin-arm64")), () => true), "claude");
+  assert.equal(claudeBin(homeWith(extCopy(".vscode", "anthropic.claude-code-2.1.289-darwin-arm64")), () => "/opt/x/claude"), "/opt/x/claude");
 });
 
 test("claudeBin finds the newest VS Code or Cursor extension copy when claude isn't on PATH", () => {
@@ -391,18 +391,18 @@ test("claudeBin finds the newest VS Code or Cursor extension copy when claude is
     extCopy(".vscode", "anthropic.claude-code-2.1.289-darwin-arm64"),
     newest,
   );
-  assert.equal(claudeBin(home, () => false), join(home, newest));
+  assert.equal(claudeBin(home, () => null), join(home, newest));
 });
 
 test("claudeBin prefers a standalone install to an extension's copy", () => {
   const home = homeWith(join(".local", "bin", exe), extCopy(".vscode", "anthropic.claude-code-2.1.289-darwin-arm64"));
-  assert.equal(claudeBin(home, () => false), join(home, ".local", "bin", exe));
+  assert.equal(claudeBin(home, () => null), join(home, ".local", "bin", exe));
 });
 
 test("claudeBin skips an extension folder without the binary, and is null with nothing to run", () => {
   const home = homeWith();
   mkdirSync(join(home, ".vscode", "extensions", "anthropic.claude-code-2.1.300-darwin-arm64"), { recursive: true });
-  assert.equal(claudeBin(home, () => false), null);
+  assert.equal(claudeBin(home, () => null), null);
 });
 
 /* ---- ticking which learnings to keep ---- */
