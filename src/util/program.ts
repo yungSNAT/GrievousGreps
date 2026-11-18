@@ -85,6 +85,9 @@ function runnable(path: string, win: boolean): boolean {
 function linkFolders(p: typeof posix, file: string): string[] | null {
   const win = p === win32;
   const split = (path: string) => path.split(win ? /[\\/]+/ : /\/+/).filter((part) => part !== "" && part !== ".");
+  // Windows keeps `..` in a `\\?\` path, which resolve() removes. Node's fs calls (the lstat below,
+  // realpath in allows) remove it in the same way first, so the trace and the real path agree; that
+  // the system then opens such a path as resolved or not at all, NTFS having no `..` entry, is untested.
   if (win) file = p.resolve(file);
   let at = p.parse(file).root;
   let todo = split(file.slice(at.length));
@@ -172,7 +175,7 @@ function rules(opts: FindOptions) {
  * over only itself, as every folder the person installs to is under one of them. Each test is
  * made on the entry as listed (made absolute) and on its real path; the working-folder test is
  * also made on where each link on the way to the program stands (a link to the program file
- * included) and on the program's real folder, with each working folder taken both ways too, so a
+ * included), as traced and in its folder's real path, and on the program's real folder, with each working folder taken both ways too, so a
  * link in either direction does not bring a tree's folder back; letter case is ignored on Windows.
  * On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
  * unset), keeping those Node can start without a shell: `.com` and `.exe`, and `.cmd` when `cmd`
