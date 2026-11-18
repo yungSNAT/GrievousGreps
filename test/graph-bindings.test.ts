@@ -74,12 +74,15 @@ test("ts: a PLAIN constructor parameter creates no this.<name> binding (no over-
   assert.equal(callEdges(viaThis, "typescript").find((e) => e.name === "m")?.recvType, undefined);
 });
 
-test("go: composite literal, var decl, NewX convention, receiver var", () => {
+test("go: composite literal, var decl, held call result, receiver var", () => {
   const src = "package m\nfunc f() {\n  u := User{}\n  var d *DB\n  s := NewServer()\n  u.Save()\n  d.Query()\n  s.Start()\n}\nfunc (w *Worker) run() { w.stop() }\n";
   const edges = callEdges(src, "go", "x.go");
   assert.equal(edges.find((e) => e.name === "Save")?.recvType, "User");
   assert.equal(edges.find((e) => e.name === "Query")?.recvType, "DB");
-  assert.equal(edges.find((e) => e.name === "Start")?.recvType, "Server");
+  // `NewServer()` is not taken to return a Server: resolve reads the declared result (graph-go.test.ts).
+  const start = edges.find((e) => e.name === "Start");
+  assert.equal(start?.recvType, undefined);
+  assert.deepEqual(start?.goResult, { fn: "NewServer" });
   assert.equal(edges.find((e) => e.name === "stop")?.recvType, "Worker");
 });
 
