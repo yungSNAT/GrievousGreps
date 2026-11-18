@@ -227,7 +227,9 @@ function rules(opts: FindOptions) {
  * folder, or has one above it, is passed over however its path spells it, as a share
  * (`\\localhost\C$\...`) or a bind mount does; a share whose root is on a working folder's volume,
  * and is not the root a working folder stands on, is passed over too, as its path cannot show where
- * it stands. On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
+ * it stands. A drive letter mapped to a share or made with subst is judged by its real path, which
+ * is the share's or the folder's. A bind mount of a folder inside a working folder is not seen: only
+ * the mount table shows where it stands. On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
  * unset), keeping those Node can start without a shell: `.com` and `.exe`, and `.cmd` when `cmd`
  * is set; a name already ending in one of those (`cmd.exe`) is tried as it is. A `git.cmd` is
  * passed over, as Node itself passes it over, so a `git.exe` later on PATH is still found. With no

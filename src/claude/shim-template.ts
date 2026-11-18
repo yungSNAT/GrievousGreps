@@ -286,7 +286,8 @@ function entry(name, cheapOnly) {
   // Cheap candidates first, and only shell out to npm when every one of them misses.
   const project = USER_LEVEL ? folders([dir, process.cwd()]) : [];
   const under = USER_LEVEL ? underById([dir, process.cwd()]) : () => false;
-  const allowed = (d) => d && (project.length === 0 || !(inside(project, d) || under(d)));
+  // By identity as given and as its real path: a drive letter mapped to a share stops at its own root.
+  const allowed = (d) => d && (project.length === 0 || !(inside(project, d) || [d, real(d)].some((x) => x && under(x))));
   const cheap = [remembered(), ...(USER_LEVEL ? [] : fromPkg(dir)), ...fromPkg(path.join(path.dirname(process.execPath), '..', 'lib')), ...onPath()];
   const hit = best(cheap.filter(allowed), name);
   if (hit) return path.join(hit, name);
