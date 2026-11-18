@@ -20,7 +20,7 @@ The figures that pull requests #90, #91 and #92 added to the README, and where e
 
 These README times rest on records that were not copied here:
 
-- 21:04 UTC on 16 November, the start of the 7 scored tools' window: the earliest of their runner's done markers (the httpx runs).
+- 20:43 UTC on 16 November, the start of the 7 scored tools' window: the earliest of their httpx answers, from the adapter tests (`r11/out/<tool>/httpx/meta.json`, written 20:43:36 to 21:02:32). This line said 21:04, the time the runner's done markers for those tests were written (21:04:35), until 18 November.
 - 21:40 UTC on 16 November, the language-server column's start: its job's start record.
 - 00:23 UTC on 17 November, the column's pooling: the modification time of its pooled table, copied here as `language-servers.md`.
 - 02:08, 04:10 and 04:47 UTC on 17 November and 21:11 on 16 November in the table above: the job logs and output files of those runs.
