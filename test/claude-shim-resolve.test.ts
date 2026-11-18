@@ -482,6 +482,25 @@ test('a user-level shim stays user-level when the home folder is the project', (
   assert.equal(runShim(root, home, { remembered: own, userLevel: true, shimPath, cwd: home, env: { HOME: home, USERPROFILE: home } }), '0.28.0+gg');
 });
 
+// The home folder as the project counts only as itself, as every folder the person installs to
+// is under it; its node_modules is the project's dependencies all the same.
+test('a user-level shim with the home folder as the project takes nothing from its node_modules', () => {
+  const root = tmpRepo('shim-user-level-home-modules');
+  const home = join(root, 'home');
+  const deps = fakeInstall(join(home, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  fakeNpm(join(root, 'npm-bin'), join(home, 'node_modules'));
+  const shimPath = join(home, '.claude', 'helpers', 'graft-hooks.cjs');
+  assert.equal(runShim(root, home, { remembered: deps, userLevel: true, shimPath, cwd: home, env: { HOME: home, USERPROFILE: home }, pathDirs: [join(root, 'npm-bin')] }), null);
+});
+
+test('a user-level shim never imports the project\'s copy through a link outside it', () => {
+  const root = tmpRepo('shim-user-level-link');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  symlinkSync(join(p, 'node_modules', '@equitybot', 'grievousgreps'), join(root, 'alias'), 'junction');
+  assert.equal(runShim(root, p, { remembered: join(root, 'alias', 'dist', 'claude'), userLevel: true }), null);
+});
+
 test('a user-level shim never imports a remembered install inside the project', () => {
   const root = tmpRepo('shim-user-level-remembered');
   const p = project(root);
