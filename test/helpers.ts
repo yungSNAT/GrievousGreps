@@ -67,6 +67,20 @@ export function pathWithoutTrail(): string {
 }
 
 /**
+ * Windows path `path` through this machine's administrative share for its drive
+ * (`\\localhost\C$\...`), or null when that share cannot be reached (not Windows, the
+ * Server service off, or an account the share refuses). Node's real path keeps that
+ * spelling, so it names a folder without showing which.
+ */
+export function viaShare(path: string): string | null {
+  if (process.platform !== "win32") return null;
+  const m = /^([a-zA-Z]):\\(.*)$/.exec(realpathSync.native(path));
+  if (!m) return null;
+  const shared = `\\\\localhost\\${m[1]}$\\${m[2]}`;
+  return existsSync(shared) ? shared : null;
+}
+
+/**
  * Why a test can't inject a failure by removing permission — or null when it can.
  *
  * On Windows the mode bits map onto the read-only *attribute*: it does block writes

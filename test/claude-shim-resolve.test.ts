@@ -20,7 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { hooksShim, installHintPath, rememberInstall } from '../src/claude/shim-template.js';
 import { learningId } from '../src/notes/learning-fields.js';
-import { tmpRepo } from './helpers.js';
+import { tmpRepo, viaShare } from './helpers.js';
 import { jsLit } from './escape.js';
 
 /** A fake installed package whose hooks entry records that it ran. */
@@ -506,6 +506,20 @@ test('a user-level shim never imports a remembered install inside the project', 
   const p = project(root);
   const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
   assert.equal(runShim(root, p, { remembered: inside, userLevel: true }), null);
+});
+
+// Node's real path keeps a share's spelling, so \\localhost\C$\...\project shows nothing of the project.
+test('a user-level shim never imports the project\'s copy named through this machine\'s share', { skip: process.platform !== 'win32' }, (t) => {
+  const root = tmpRepo('shim-user-level-share');
+  const p = project(root);
+  const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  for (const b of ['trail', 'trail.cmd']) writeFileSync(join(p, b), '');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const [sharedCopy, sharedProject, sharedOwn] = [inside, p, own].map(viaShare);
+  if (sharedCopy === null || sharedProject === null || sharedOwn === null) return t.skip("this machine's administrative share cannot be reached");
+  assert.equal(runShim(root, p, { remembered: sharedCopy, userLevel: true }), null, 'a remembered install');
+  assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [sharedProject] }), '0.28.0+gg', 'a trail command in the project on PATH');
+  assert.equal(runShim(root, p, { remembered: sharedOwn, userLevel: true }), '0.28.0+gg', 'an install outside the project, through the share');
 });
 
 /** An npm in `dir` that answers `root -g` with `globalRoot` and leaves `mark` when given:
