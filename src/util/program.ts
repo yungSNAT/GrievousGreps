@@ -162,9 +162,14 @@ function rules(opts: FindOptions) {
   const treeIds = new Map<string, boolean>();
   const volumes = new Set<string>();
   const roots = new Set<string>();
+  // A working folder of no identity (stat failed, or no file number) could be any share: then no share is used.
+  let unknown = false;
   for (const dir of work) {
     const key = id(p.resolve(dir));
-    if (key === null) continue;
+    if (key === null) {
+      unknown = true;
+      continue;
+    }
     const root = id(p.parse(real(dir) ?? p.resolve(dir)).root);
     treeIds.set(key, key === homeId || key === root);
     volumes.add(volume(key));
@@ -174,12 +179,12 @@ function rules(opts: FindOptions) {
    * path stops at the share, which can stand inside a working folder, so a share on a working
    * folder's volume that is not the root one stands on is passed over too. */
   const underById = (dir: string) => {
-    if (volumes.size === 0) return false;
+    if (volumes.size === 0 && !unknown) return false;
     for (let at = p.resolve(dir), self = true; ; self = false) {
       const key = id(at);
       if (key !== null && treeIds.has(key) && (self || !treeIds.get(key))) return true;
       const up = p.dirname(at);
-      if (up === at) return win && at.startsWith(p.sep + p.sep) && (key === null || (volumes.has(volume(key)) && !roots.has(key)));
+      if (up === at) return win && at.startsWith(p.sep + p.sep) && (unknown || key === null || (volumes.has(volume(key)) && !roots.has(key)));
       at = up;
     }
   };
@@ -227,7 +232,7 @@ function rules(opts: FindOptions) {
  * folder, or has one above it, is passed over however its path spells it, as a share
  * (`\\localhost\C$\...`) or a bind mount does; a share whose root is on a working folder's volume,
  * and is not the root a working folder stands on, is passed over too, as its path cannot show where
- * it stands. A drive letter mapped to a share or made with subst is judged by its real path, which
+ * it stands, and so is every share when a working folder has no identity to read. A drive letter mapped to a share or made with subst is judged by its real path, which
  * is the share's or the folder's. A bind mount of a folder inside a working folder is not seen: only
  * the mount table shows where it stands. On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
  * unset), keeping those Node can start without a shell: `.com` and `.exe`, and `.cmd` when `cmd`

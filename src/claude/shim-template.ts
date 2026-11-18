@@ -155,9 +155,10 @@ function id(p) {
 function underById(work) {
   const home = id(os.homedir());
   const ids = new Set(), volumes = new Set(), roots = new Set();
+  let unknown = false; // a working folder of no identity could be any share: then no share is used
   for (const d of work.map((w) => path.resolve(w))) {
     const key = id(d);
-    if (!key) continue;
+    if (!key) { unknown = true; continue; }
     const root = id(path.parse(real(d) || d).root);
     const own = key === home || key === root ? id(path.join(d, 'node_modules')) : key;
     if (own) ids.add(own);
@@ -165,11 +166,11 @@ function underById(work) {
     if (root) roots.add(root);
   }
   return (p) => {
-    if (volumes.size === 0) return false;
+    if (volumes.size === 0 && !unknown) return false;
     for (let at = path.resolve(p); ; at = path.dirname(at)) {
       const key = id(at);
       if (key && ids.has(key)) return true;
-      if (path.dirname(at) === at) return win && at.startsWith(path.sep + path.sep) && (!key || (volumes.has(key.split(':')[0]) && !roots.has(key)));
+      if (path.dirname(at) === at) return win && at.startsWith(path.sep + path.sep) && (unknown || !key || (volumes.has(key.split(':')[0]) && !roots.has(key)));
     }
   };
 }
