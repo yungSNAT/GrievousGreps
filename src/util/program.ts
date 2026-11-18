@@ -31,6 +31,8 @@ export interface FindOptions {
   realpath?: (path: string) => string | null;
   /** The folders the system passes through to reach a file (see linkFolders), or null. */
   folders?: (file: string) => string[] | null;
+  /** A folder's identity, its volume and file number as `dev:ino`, or null when it has none to read. */
+  identity?: (path: string) => string | null;
 }
 
 export interface Located {
@@ -60,6 +62,15 @@ const absolute = (path: string, win: boolean) => (win ? /^([a-zA-Z]:[\\/]|\\\\)/
 function realPath(path: string): string | null {
   try {
     return realpathSync.native(path);
+  } catch {
+    return null;
+  }
+}
+
+function identity(path: string): string | null {
+  try {
+    const s = statSync(path, { bigint: true });
+    return s.ino === 0n ? null : `${s.dev}:${s.ino}`;
   } catch {
     return null;
   }
@@ -134,9 +145,44 @@ function rules(opts: FindOptions) {
   // Each folder both as given and as its real path.
   const bothWays = (dir: string) => [p.resolve(dir), real(dir)].filter((d): d is string => d !== null).map(fold);
   const home = new Set(bothWays(homedir()));
-  const trees = [process.cwd(), opts.cwd].flatMap((d) => (d === undefined ? [] : bothWays(d)));
+  const work = [process.cwd(), opts.cwd].filter((d): d is string => d !== undefined);
+  const trees = work.flatMap(bothWays);
   // A filesystem root or the home folder holds every folder the person installs to: only the folder itself is passed over.
   const holdsAll = (tree: string) => p.dirname(tree) === tree || home.has(tree);
+  // The working folders also by identity: a share (\\localhost\C$\...) or a bind mount names a
+  // folder its path does not show, and its real path keeps that spelling. Each identity maps to
+  // whether it holds all; also kept are the volumes they are on and the roots they stand on.
+  const known = new Map<string, string | null>();
+  const id = (path: string) => {
+    if (!known.has(path)) known.set(path, (opts.identity ?? identity)(path));
+    return known.get(path)!;
+  };
+  const volume = (key: string) => key.slice(0, key.indexOf(":"));
+  const homeId = id(homedir());
+  const treeIds = new Map<string, boolean>();
+  const volumes = new Set<string>();
+  const roots = new Set<string>();
+  for (const dir of work) {
+    const key = id(p.resolve(dir));
+    if (key === null) continue;
+    const root = id(p.parse(real(dir) ?? p.resolve(dir)).root);
+    treeIds.set(key, key === homeId || key === root);
+    volumes.add(volume(key));
+    if (root !== null) roots.add(root);
+  }
+  /** Whether folder `dir`, however spelled, is a working folder or under one by identity. A share's
+   * path stops at the share, which can stand inside a working folder, so a share on a working
+   * folder's volume that is not the root one stands on is passed over too. */
+  const underById = (dir: string) => {
+    if (volumes.size === 0) return false;
+    for (let at = p.resolve(dir), self = true; ; self = false) {
+      const key = id(at);
+      if (key !== null && treeIds.has(key) && (self || !treeIds.get(key))) return true;
+      const up = p.dirname(at);
+      if (up === at) return win && at.startsWith(p.sep + p.sep) && (key === null || (volumes.has(volume(key)) && !roots.has(key)));
+      at = up;
+    }
+  };
   const berry = envValue(env, "BERRY_BIN_FOLDER", win);
   const yarnBin = berry && p.isAbsolute(berry) ? bothWays(berry) : [];
   const inTree = (dir: string) => trees.some((tree) => {
@@ -146,7 +192,7 @@ function rules(opts: FindOptions) {
   const packageBin = (dir: string) => p.basename(dir) === ".bin" && p.basename(p.dirname(dir)) === "node_modules";
   const passedOver = (dir: string) => {
     const d = fold(dir);
-    return packageBin(d) || yarnBin.includes(d) || inTree(d);
+    return packageBin(d) || yarnBin.includes(d) || inTree(d) || underById(dir);
   };
   /** Whether the file at absolute path `file`, reached as written, may start: none of the folders
    * it is named from (`entry`) is passed over, and no folder on the way to it is a working folder's.
@@ -161,7 +207,7 @@ function rules(opts: FindOptions) {
       const parent = real(p.dirname(d));
       return parent === null ? d : p.join(parent, p.basename(d));
     });
-    return ![p.dirname(realFile), ...traced, ...stands].some((d) => inTree(fold(d)));
+    return ![p.dirname(realFile), ...traced, ...stands].some((d) => inTree(fold(d)) || underById(d));
   };
   return { win, p, env, real, allows };
 }
@@ -177,7 +223,11 @@ function rules(opts: FindOptions) {
  * also made on where each link on the way to the program stands (a link to the program file
  * included), as traced and in its folder's real path, and on the program's real folder, with each working folder taken both ways too, so a
  * link in either direction does not bring a tree's folder back; letter case is ignored on Windows.
- * On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
+ * Each of those folders is also tested by identity (volume and file number): one that is a working
+ * folder, or has one above it, is passed over however its path spells it, as a share
+ * (`\\localhost\C$\...`) or a bind mount does; a share whose root is on a working folder's volume,
+ * and is not the root a working folder stands on, is passed over too, as its path cannot show where
+ * it stands. On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
  * unset), keeping those Node can start without a shell: `.com` and `.exe`, and `.cmd` when `cmd`
  * is set; a name already ending in one of those (`cmd.exe`) is tried as it is. A `git.cmd` is
  * passed over, as Node itself passes it over, so a `git.exe` later on PATH is still found. With no

@@ -135,13 +135,54 @@ function folders(work) {
 }
 const inside = (here, p) => both(p).some((x) => here.some((h) => within(h, x)));
 
+// A folder's volume and file number, or null. A share (localhost's C$, say) or a bind mount
+// names a folder its path does not show, and its real path keeps that spelling, so the
+// working folders are also matched by identity.
+const known = new Map();
+function id(p) {
+  if (!known.has(p)) {
+    let key = null;
+    try { const s = fs.statSync(p, { bigint: true }); if (s.ino !== 0n) key = s.dev + ':' + s.ino; } catch { /* none to read */ }
+    known.set(p, key);
+  }
+  return known.get(p);
+}
+
+// For the working folders work (a root or the home folder as its node_modules, as folders
+// takes them), whether a folder is one of them or under one by identity. A share's path
+// stops at the share, which can stand inside one, so a share on their volume that is not the
+// root one stands on counts as inside too.
+function underById(work) {
+  const home = id(os.homedir());
+  const ids = new Set(), volumes = new Set(), roots = new Set();
+  for (const d of work.map((w) => path.resolve(w))) {
+    const key = id(d);
+    if (!key) continue;
+    const root = id(path.parse(real(d) || d).root);
+    const own = key === home || key === root ? id(path.join(d, 'node_modules')) : key;
+    if (own) ids.add(own);
+    volumes.add(key.split(':')[0]);
+    if (root) roots.add(root);
+  }
+  return (p) => {
+    if (volumes.size === 0) return false;
+    for (let at = path.resolve(p); ; at = path.dirname(at)) {
+      const key = id(at);
+      if (key && ids.has(key)) return true;
+      if (path.dirname(at) === at) return win && at.startsWith(path.sep + path.sep) && (!key || (volumes.has(key.split(':')[0]) && !roots.has(key)));
+    }
+  };
+}
+
 // For the working folders work, the real folder of a PATH entry trail may take a program
 // from, else null, under the rules of trail's src/util/program.ts: only an absolute entry,
-// never one at or under a working folder (see folders), a node_modules/.bin folder or Yarn's
-// bin folder, each tested as listed and as its real path. program.ts passes over only the
-// home folder or root itself; its node_modules here is the stricter of the two.
+// never one at or under a working folder (see folders), as named or by identity, a
+// node_modules/.bin folder or Yarn's bin folder, each tested as listed and as its real path.
+// program.ts passes over only the home folder or root itself; its node_modules here is the
+// stricter of the two.
 function pathRule(work) {
   const here = folders(work);
+  const under = underById(work);
   const yarn = process.env.BERRY_BIN_FOLDER;
   const yarnBin = yarn && path.isAbsolute(yarn) ? both(yarn) : [];
   const skip = (d) => (path.basename(d) === '.bin' && path.basename(path.dirname(d)) === 'node_modules') || yarnBin.includes(d) || here.some((h) => within(h, d));
@@ -149,7 +190,7 @@ function pathRule(work) {
     const listed = win ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
     if (!listed || !path.isAbsolute(listed) || (win && path.parse(listed).root.length < 2)) return null;
     const d = real(listed);
-    return d && ![path.resolve(listed), d].map(fold).some(skip) ? d : null;
+    return d && ![path.resolve(listed), d].map(fold).some(skip) && !under(listed) && !under(d) ? d : null;
   };
 }
 
@@ -160,10 +201,11 @@ function onPath() {
   const out = [];
   const usable = USER_LEVEL ? pathRule([dir, process.cwd()]) : (d) => d && path.isAbsolute(d);
   for (const d of (process.env.PATH || '').split(path.delimiter)) {
-    if (!usable(d)) continue;
-    for (const bin of BINS) {
+    // Which commands are there first: the rule reads each folder above the entry, and this runs before every shell command.
+    const bins = BINS.filter((bin) => fs.existsSync(path.join(d, bin)));
+    if (bins.length === 0 || !usable(d)) continue;
+    for (const bin of bins) {
       const p = path.join(d, bin);
-      if (!fs.existsSync(p)) continue;
       try { out.push(pkgAbove(fs.realpathSync(p))); } catch { /* dangling link */ }
       out.push(...fromPkg(d));
     }
@@ -243,7 +285,8 @@ function best(dirs, name) {
 function entry(name, cheapOnly) {
   // Cheap candidates first, and only shell out to npm when every one of them misses.
   const project = USER_LEVEL ? folders([dir, process.cwd()]) : [];
-  const allowed = (d) => d && (project.length === 0 || !inside(project, d));
+  const under = USER_LEVEL ? underById([dir, process.cwd()]) : () => false;
+  const allowed = (d) => d && (project.length === 0 || !(inside(project, d) || under(d)));
   const cheap = [remembered(), ...(USER_LEVEL ? [] : fromPkg(dir)), ...fromPkg(path.join(path.dirname(process.execPath), '..', 'lib')), ...onPath()];
   const hit = best(cheap.filter(allowed), name);
   if (hit) return path.join(hit, name);
