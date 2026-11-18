@@ -438,9 +438,26 @@ export function resolveEdges(
     return type && rustTextName(type);
   };
 
-  // Go: the functions named `name` in the package an import path names, its test files aside.
-  const goPackageFunctions = (specifier: string, name: string): NodeV1[] => {
+  // Go: each folder's package name, from its ordinary files, and the import paths each file names without an alias.
+  const goPackageOf = new Map<string, string>();
+  const goBare = new Map<string, ReadonlySet<string>>();
+  for (const e of rawEdges) {
+    if (!e.goFile) continue;
+    const file = toPosixPath(e.file);
+    if (!file.endsWith("_test.go") && !goPackageOf.has(posix.dirname(file))) goPackageOf.set(posix.dirname(file), e.goFile.package);
+    goBare.set(file, new Set(e.goFile.bare));
+  }
+  // Go: the in-module folder an import path in `file` names. An import without an alias is named by its folder's
+  // package clause, but extract.ts took its path's last segment, so a folder whose package differs is not the one meant.
+  const goDirFrom = (specifier: string, file: string): string | null => {
     const dir = hasGoModules ? goImportDir(specifier, opts.goModules!) : null;
+    const pkg = dir === null ? undefined : goPackageOf.get(dir);
+    const guessed = goBare.get(toPosixPath(file))?.has(specifier) && pkg !== undefined && pkg !== specifier.split("/").at(-1);
+    return guessed ? null : dir;
+  };
+  // Go: the functions named `name` in the package an import path in `file` names, its test files aside.
+  const goPackageFunctions = (specifier: string, name: string, file: string): NodeV1[] => {
+    const dir = goDirFrom(specifier, file);
     return (dir ? (goFilesByDir.get(dir) ?? []) : [])
       .filter((f) => !f.endsWith("_test.go"))
       .flatMap((f) => perFileName.get(f)?.get(name) ?? [])
@@ -458,18 +475,18 @@ export function resolveEdges(
   // function's result, whose type is that function's first result, declared in the function's own package.
   const goHeldTarget = (e: RawEdge): NodeV1 | undefined => {
     if (e.goType) {
-      const dir = hasGoModules ? goImportDir(e.goType.specifier, opts.goModules!) : null;
+      const dir = goDirFrom(e.goType.specifier, e.file);
       return dir ? goMethodIn(dir, e.goType.name, e.name!, e.file) : undefined;
     }
     const { fn, specifier } = e.goResult!;
     const found = specifier
-      ? goPackageFunctions(specifier, fn)
+      ? goPackageFunctions(specifier, fn, e.file)
       : (globalName.get(fn) ?? []).filter((n) => n.kind === "function" && n.path.endsWith(".go") && sameGoPackage(e.file, n.path));
     const returns = found.length === 1 ? found[0]!.returns : undefined;
     if (!returns) return undefined;
     // `T` is in the function's own folder; `<import path>.T` in the folder that path names.
     const dot = returns.lastIndexOf(".");
-    const dir = dot < 0 ? posix.dirname(toPosixPath(found[0]!.path)) : hasGoModules ? goImportDir(returns.slice(0, dot), opts.goModules!) : null;
+    const dir = dot < 0 ? posix.dirname(toPosixPath(found[0]!.path)) : goDirFrom(returns.slice(0, dot), found[0]!.path);
     return dir ? goMethodIn(dir, returns.slice(dot + 1), e.name!, e.file) : undefined;
   };
 
@@ -610,7 +627,7 @@ export function resolveEdges(
       }
       // Go: a package-qualified call names the imported package's directory.
       if (e.specifier && e.file.endsWith(".go")) {
-        const candidates = goPackageFunctions(e.specifier, e.name!);
+        const candidates = goPackageFunctions(e.specifier, e.name!, e.file);
         if (candidates.length === 1) add(e.source, candidates[0].id, "calls", "extracted");
         continue;
       }

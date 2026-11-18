@@ -244,9 +244,13 @@ export function resolveRecvType(
   // PHP static call `Foo::bar()`: the scope operand is a class name, so it *is*
   // the receiver type. (Member calls pass a `$var` receiver, filtered by the `$`.)
   if (ctx.lang === "php" && !receiver.startsWith("$")) return receiver;
+  const bound = ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver);
+  // A func literal's own parameter or local named like the Go receiver hides the receiver.
+  const isGoReceiver =
+    ctx.lang === "go" && receiver === ctx.goReceiverVar && (ctx.goLiterals.length === 0 || bound === ctx.bindings.lookup(ctx.scope, receiver));
   return (
-    (ctx.lang === "go" && receiver === ctx.goReceiverVar ? ctx.enclosingClass : undefined) ??
-    ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver) ??
+    (isGoReceiver ? ctx.enclosingClass : undefined) ??
+    bound ??
     // Swift type-member call `Animal.staticThing()`: an uppercase receiver with no
     // local binding is the type itself (Swift naming: types are UpperCamelCase,
     // values lowerCamelCase — and a shadowing binding was already tried above).
@@ -823,7 +827,8 @@ function goCallResult(call: SyntaxNode): string | null {
 }
 
 /** A type's name through a pointer: `*Logger` → `Logger`, and `*log.Logger` → `log.Logger`, whose
- * package extract.ts reads from the file's imports. */
+ * package extract.ts reads from the file's imports. Null for a type parameter (`T` in
+ * `func Wrap[T any](v T) T`), which names no declared type. */
 export function goTypeName(type: SyntaxNode | null): string | null {
   const base = type?.type === "pointer_type" ? type.namedChildren.at(-1) : type;
   if (base?.type === "qualified_type") {
@@ -831,5 +836,27 @@ export function goTypeName(type: SyntaxNode | null): string | null {
     const name = base.childForFieldName("name");
     return pkg && name?.type === "type_identifier" ? `${pkg}.${name.text}` : null;
   }
-  return base?.type === "type_identifier" ? base.text : null;
+  return base?.type === "type_identifier" && !isGoTypeParameter(base) ? base.text : null;
+}
+
+/** Whether a bare type name is a type parameter of a declaration around it: a generic function's or
+ * type's (`[T any]`), or one a method's receiver names (`func (b *Box[T]) …`). */
+function isGoTypeParameter(name: SyntaxNode): boolean {
+  for (let n = name.parent; n; n = n.parent) {
+    if (n.type === "function_declaration" || n.type === "type_spec") {
+      const decls = n.childForFieldName("type_parameters")?.namedChildren ?? [];
+      if (decls.some((d) => d.namedChildren.some((c) => c.type === "identifier" && c.text === name.text))) return true;
+    } else if (n.type === "method_declaration") {
+      const recv = n.childForFieldName("receiver")?.namedChildren.find((c) => c.type === "parameter_declaration");
+      let type = recv?.childForFieldName("type");
+      if (type?.type === "pointer_type") type = type.namedChildren.at(-1) ?? null;
+      const args = type?.type === "generic_type" ? type.childForFieldName("type_arguments") : null;
+      if (args && hasTypeIdentifier(args, name.text)) return true;
+    }
+  }
+  return false;
+}
+
+function hasTypeIdentifier(node: SyntaxNode, text: string): boolean {
+  return (node.type === "type_identifier" && node.text === text) || node.namedChildren.some((c) => hasTypeIdentifier(c, text));
 }
