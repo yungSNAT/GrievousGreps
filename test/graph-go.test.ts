@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildGraph } from "../src/graph/build.js";
 import { readGraph, wiringPath } from "../src/graph/write.js";
@@ -356,13 +356,25 @@ test("Go extraction: a local that shadows an import name is not the package", as
   }
 });
 
-test("Go extraction: a receiver typed by a parameter or a function's result resolves its method", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "graft-go-recv-"));
+// Builds the graph of a temporary Go module `example.com/app` from its files, keyed by path, and deletes the module.
+async function goModuleGraph(files: Record<string, string>): Promise<GraphV1> {
+  const dir = mkdtempSync(join(tmpdir(), "graft-go-module-"));
   try {
-    mkdirSync(join(dir, "log"));
     writeFileSync(join(dir, "go.mod"), "module example.com/app\n\ngo 1.22\n");
-    writeFileSync(
-      join(dir, "log", "logger.go"),
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), text);
+    }
+    await buildGraph(dir);
+    return readGraph(wiringPath(join(dir, "graft")))!;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("Go extraction: a receiver typed by a parameter or a function's result resolves its method", async () => {
+  const graph = await goModuleGraph({
+    "log/logger.go":
       "package log\n\n" +
         "type Logger struct{ level int }\n" +
         "type Entry struct{ logger *Logger }\n\n" +
@@ -374,9 +386,7 @@ test("Go extraction: a receiver typed by a parameter or a function's result reso
         "func (l *Logger) SetLevel(v int) { l.level = v }\n" +
         "func (e *Entry) SetLevel(v int) {}\n" +
         "func SetLevel(v int) { std.SetLevel(v) }\n",
-    );
-    writeFileSync(
-      join(dir, "main.go"),
+    "main.go":
       'package main\n\nimport "example.com/app/log"\n\n' +
         "func run(f func(*log.Logger)) {}\n" +
         "func fromCtor() { l := log.New(); l.SetLevel(1) }\n" +
@@ -385,35 +395,24 @@ test("Go extraction: a receiver typed by a parameter or a function's result reso
         "func fromEntry() { e := log.NewEntry(nil); e.SetLevel(1) }\n" +
         "func fromPair() { l, _ := log.Load(); l.SetLevel(1) }\n" +
         "func fromSecond() { _, l := log.Pair(); l.SetLevel(1) }\n",
-    );
+  });
 
-    await buildGraph(dir);
-    const graph = readGraph(wiringPath(join(dir, "graft")))!;
-
-    const setLevel = (source: string) =>
-      graph.edges
-        .filter((e) => e.relation === "calls" && e.source === source && e.target.endsWith("SetLevel"))
-        .map((e) => e.target);
-    assert.deepEqual(setLevel("log/logger.go#SetLevel"), ["log/logger.go#Logger.SetLevel"]);
-    for (const fn of ["fromCtor", "fromParam", "fromLiteral", "fromPair"]) {
-      assert.deepEqual(setLevel(`main.go#${fn}`), ["log/logger.go#Logger.SetLevel"], fn);
-    }
-    assert.deepEqual(setLevel("main.go#fromEntry"), ["log/logger.go#Entry.SetLevel"]);
-    // Only a function's first result is read, so the second value stays untyped rather than guessed.
-    assert.deepEqual(setLevel("main.go#fromSecond"), []);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  const setLevel = (source: string) =>
+    graph.edges
+      .filter((e) => e.relation === "calls" && e.source === source && e.target.endsWith("SetLevel"))
+      .map((e) => e.target);
+  assert.deepEqual(setLevel("log/logger.go#SetLevel"), ["log/logger.go#Logger.SetLevel"]);
+  for (const fn of ["fromCtor", "fromParam", "fromLiteral", "fromPair"]) {
+    assert.deepEqual(setLevel(`main.go#${fn}`), ["log/logger.go#Logger.SetLevel"], fn);
   }
+  assert.deepEqual(setLevel("main.go#fromEntry"), ["log/logger.go#Entry.SetLevel"]);
+  // Only a function's first result is read, so the second value stays untyped rather than guessed.
+  assert.deepEqual(setLevel("main.go#fromSecond"), []);
 });
 
 test("Go extraction: a receiver's type names its package, and a guess is dropped rather than taken", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "graft-go-recv-pkg-"));
-  try {
-    mkdirSync(join(dir, "log"));
-    mkdirSync(join(dir, "config"));
-    writeFileSync(join(dir, "go.mod"), "module example.com/app\n\ngo 1.22\n");
-    writeFileSync(
-      join(dir, "log", "logger.go"),
+  const graph = await goModuleGraph({
+    "log/logger.go":
       "package log\n\n" +
         "type Logger struct{}\n" +
         "type Entry struct{}\n\n" +
@@ -421,14 +420,10 @@ test("Go extraction: a receiver's type names its package, and a guess is dropped
         "func NewEntry() *Logger { return New() }\n" +
         "func (l *Logger) SetLevel(v int) {}\n" +
         "func (e *Entry) SetLevel(v int) {}\n",
-    );
-    writeFileSync(
-      join(dir, "config", "config.go"),
+    "config/config.go":
       "package config\n\ntype Config struct{}\n\nfunc Load() (*Config, error) { return nil, nil }\nfunc (c *Config) Get(k string) string { return k }\n",
-    );
-    writeFileSync(join(dir, "helpers.ts"), "export function New() {}\n");
-    writeFileSync(
-      join(dir, "main.go"),
+    "helpers.ts": "export function New() {}\n",
+    "main.go":
       'package main\n\nimport (\n\t"example.com/app/config"\n\t"example.com/app/log"\n)\n\n' +
         "type Logger struct{}\n\n" +
         "func (l *Logger) SetLevel(v int) {}\n" +
@@ -444,35 +439,29 @@ test("Go extraction: a receiver's type names its package, and a guess is dropped
         "func viaVar() { var x = log.New(); x.SetLevel(1) }\n" +
         "func pair() { a, b := log.New(), New(); a.SetLevel(1); b.SetLevel(2) }\n" +
         "func sameFolderNew() { x := New(); x.SetLevel(1) }\n",
-    );
+  });
 
-    await buildGraph(dir);
-    const graph = readGraph(wiringPath(join(dir, "graft")))!;
-
-    const calls = (fn: string, suffix: string) =>
-      graph.edges
-        .filter((e) => e.relation === "calls" && e.source === `main.go#${fn}` && e.target.endsWith(suffix))
-        .map((e) => e.target)
-        .sort();
-    const imported = "log/logger.go#Logger.SetLevel";
-    const local = "main.go#Logger.SetLevel";
-    // S1: another package's type is looked for in that package, never in the caller's same-named type.
-    assert.deepEqual(calls("importedType", "SetLevel"), [imported]);
-    // S2: a local function value hides the package's New, so x's type is unknown.
-    assert.deepEqual(calls("shadowedNew", "SetLevel"), []);
-    // S3: a function type's parameter is no variable, so l keeps its own type.
-    assert.deepEqual(calls("funcTypeParam", "SetLevel"), [local]);
-    // S4: the declared result decides, not the NewX name.
-    assert.deepEqual(calls("declaredResult", "SetLevel"), [imported]);
-    // S5: config is the package where Load is called, and holds Load's result afterwards.
-    assert.deepEqual(calls("rebound", ""), ["config/config.go#Config.Get", "config/config.go#Load"]);
-    // H1: one name, 2 types in one scope: neither is guessed.
-    assert.deepEqual(calls("twoLiterals", "SetLevel"), []);
-    assert.deepEqual(calls("viaVar", "SetLevel"), [imported]);
-    assert.deepEqual(calls("pair", "SetLevel"), [imported, local]);
-    // S6: a TypeScript New in the same folder does not make Go's ambiguous.
-    assert.deepEqual(calls("sameFolderNew", "SetLevel"), [local]);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const calls = (fn: string, suffix: string) =>
+    graph.edges
+      .filter((e) => e.relation === "calls" && e.source === `main.go#${fn}` && e.target.endsWith(suffix))
+      .map((e) => e.target)
+      .sort();
+  const imported = "log/logger.go#Logger.SetLevel";
+  const local = "main.go#Logger.SetLevel";
+  // S1: another package's type is looked for in that package, never in the caller's same-named type.
+  assert.deepEqual(calls("importedType", "SetLevel"), [imported]);
+  // S2: a local function value hides the package's New, so x's type is unknown.
+  assert.deepEqual(calls("shadowedNew", "SetLevel"), []);
+  // S3: a function type's parameter is no variable, so l keeps its own type.
+  assert.deepEqual(calls("funcTypeParam", "SetLevel"), [local]);
+  // S4: the declared result decides, not the NewX name.
+  assert.deepEqual(calls("declaredResult", "SetLevel"), [imported]);
+  // S5: config is the package where Load is called, and holds Load's result afterwards.
+  assert.deepEqual(calls("rebound", ""), ["config/config.go#Config.Get", "config/config.go#Load"]);
+  // H1: one name, 2 types in one scope: neither is guessed.
+  assert.deepEqual(calls("twoLiterals", "SetLevel"), []);
+  assert.deepEqual(calls("viaVar", "SetLevel"), [imported]);
+  assert.deepEqual(calls("pair", "SetLevel"), [imported, local]);
+  // S6: a TypeScript New in the same folder does not make Go's ambiguous.
+  assert.deepEqual(calls("sameFolderNew", "SetLevel"), [local]);
 });
