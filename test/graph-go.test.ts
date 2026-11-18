@@ -405,3 +405,74 @@ test("Go extraction: a receiver typed by a parameter or a function's result reso
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Go extraction: a receiver's type names its package, and a guess is dropped rather than taken", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "graft-go-recv-pkg-"));
+  try {
+    mkdirSync(join(dir, "log"));
+    mkdirSync(join(dir, "config"));
+    writeFileSync(join(dir, "go.mod"), "module example.com/app\n\ngo 1.22\n");
+    writeFileSync(
+      join(dir, "log", "logger.go"),
+      "package log\n\n" +
+        "type Logger struct{}\n" +
+        "type Entry struct{}\n\n" +
+        "func New() *Logger { return &Logger{} }\n" +
+        "func NewEntry() *Logger { return New() }\n" +
+        "func (l *Logger) SetLevel(v int) {}\n" +
+        "func (e *Entry) SetLevel(v int) {}\n",
+    );
+    writeFileSync(
+      join(dir, "config", "config.go"),
+      "package config\n\ntype Config struct{}\n\nfunc Load() (*Config, error) { return nil, nil }\nfunc (c *Config) Get(k string) string { return k }\n",
+    );
+    writeFileSync(join(dir, "helpers.ts"), "export function New() {}\n");
+    writeFileSync(
+      join(dir, "main.go"),
+      'package main\n\nimport (\n\t"example.com/app/config"\n\t"example.com/app/log"\n)\n\n' +
+        "type Logger struct{}\n\n" +
+        "func (l *Logger) SetLevel(v int) {}\n" +
+        "func New() *Logger { return &Logger{} }\n" +
+        "func run(f func(*log.Logger)) {}\n" +
+        "func runEntry(f func(*log.Entry)) {}\n" +
+        "func importedType(l *log.Logger) { l.SetLevel(1) }\n" +
+        "func shadowedNew() { New := func() *log.Entry { return nil }; x := New(); x.SetLevel(1) }\n" +
+        "func funcTypeParam(l *Logger) { var cb func(l *log.Entry); _ = cb; l.SetLevel(1) }\n" +
+        "func declaredResult() { x := log.NewEntry(); x.SetLevel(1) }\n" +
+        'func rebound() { config, _ := config.Load(); config.Get("x") }\n' +
+        "func twoLiterals() { run(func(l *log.Logger) { l.SetLevel(1) }); runEntry(func(l *log.Entry) { l.SetLevel(1) }) }\n" +
+        "func viaVar() { var x = log.New(); x.SetLevel(1) }\n" +
+        "func pair() { a, b := log.New(), New(); a.SetLevel(1); b.SetLevel(2) }\n" +
+        "func sameFolderNew() { x := New(); x.SetLevel(1) }\n",
+    );
+
+    await buildGraph(dir);
+    const graph = readGraph(wiringPath(join(dir, "graft")))!;
+
+    const calls = (fn: string, suffix: string) =>
+      graph.edges
+        .filter((e) => e.relation === "calls" && e.source === `main.go#${fn}` && e.target.endsWith(suffix))
+        .map((e) => e.target)
+        .sort();
+    const imported = "log/logger.go#Logger.SetLevel";
+    const local = "main.go#Logger.SetLevel";
+    // S1: another package's type is looked for in that package, never in the caller's same-named type.
+    assert.deepEqual(calls("importedType", "SetLevel"), [imported]);
+    // S2: a local function value hides the package's New, so x's type is unknown.
+    assert.deepEqual(calls("shadowedNew", "SetLevel"), []);
+    // S3: a function type's parameter is no variable, so l keeps its own type.
+    assert.deepEqual(calls("funcTypeParam", "SetLevel"), [local]);
+    // S4: the declared result decides, not the NewX name.
+    assert.deepEqual(calls("declaredResult", "SetLevel"), [imported]);
+    // S5: config is the package where Load is called, and holds Load's result afterwards.
+    assert.deepEqual(calls("rebound", ""), ["config/config.go#Config.Get", "config/config.go#Load"]);
+    // H1: one name, 2 types in one scope: neither is guessed.
+    assert.deepEqual(calls("twoLiterals", "SetLevel"), []);
+    assert.deepEqual(calls("viaVar", "SetLevel"), [imported]);
+    assert.deepEqual(calls("pair", "SetLevel"), [imported, local]);
+    // S6: a TypeScript New in the same folder does not make Go's ambiguous.
+    assert.deepEqual(calls("sameFolderNew", "SetLevel"), [local]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

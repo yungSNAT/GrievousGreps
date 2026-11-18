@@ -446,13 +446,26 @@ export function resolveEdges(
       .flatMap((f) => perFileName.get(f)?.get(name) ?? [])
       .filter((n) => n.kind === "function");
   };
-  // Go: what a receiver holds when it holds a function's result, read from that function's first result.
-  const goResultType = (e: RawEdge): string | undefined => {
+  // Go: the one method `type.name` declared in a package folder; test files only for a test file's call.
+  const goMethodIn = (dir: string, type: string, name: string, file: string): NodeV1 | undefined => {
+    const found = (ownerMethod.get(`${type}.${name}`) ?? []).filter(
+      (n) => posix.dirname(toPosixPath(n.path)) === dir && (file.endsWith("_test.go") || !n.path.endsWith("_test.go")),
+    );
+    return found.length === 1 ? found[0] : undefined;
+  };
+  // Go: the method a member call reaches through a receiver of another package's type, or one holding a
+  // function's result, whose type is that function's first result, declared in the function's own package.
+  const goHeldTarget = (e: RawEdge): NodeV1 | undefined => {
+    if (e.goType) {
+      const dir = hasGoModules ? goImportDir(e.goType.specifier, opts.goModules!) : null;
+      return dir ? goMethodIn(dir, e.goType.name, e.name!, e.file) : undefined;
+    }
     const { fn, specifier } = e.goResult!;
     const found = specifier
       ? goPackageFunctions(specifier, fn)
-      : (globalName.get(fn) ?? []).filter((n) => n.kind === "function" && sameGoPackage(e.file, n.path));
-    return found.length === 1 ? found[0]!.returns : undefined;
+      : (globalName.get(fn) ?? []).filter((n) => n.kind === "function" && n.path.endsWith(".go") && sameGoPackage(e.file, n.path));
+    const called = found.length === 1 ? found[0]! : undefined;
+    return called?.returns ? goMethodIn(posix.dirname(toPosixPath(called.path)), called.returns, e.name!, e.file) : undefined;
   };
 
   const tsModules = new Map<string, TsModule>();
@@ -596,15 +609,17 @@ export function resolveEdges(
         if (candidates.length === 1) add(e.source, candidates[0].id, "calls", "extracted");
         continue;
       }
+      if (e.goResult || e.goType) {
+        const hit = goHeldTarget(e);
+        if (hit && hit.id !== e.source) add(e.source, hit.id, "calls", "inferred");
+        continue;
+      }
       if (e.viaMember) {
         if (e.rustChain?.root && (RUST_STD_CRATES.has(e.rustChain.root) || opts.rustExternalCrates?.has(e.rustChain.root))) {
           rustTraitProvides(e, e.rustChain.type ?? null);
           continue;
         }
-        const recv = e.rustChain ? rustChainType(e.rustChain, e)
-          : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file)
-            : e.goResult ? goResultType(e)
-              : e.recvType;
+        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
         if (!recv && !e.rustForm) continue;
         // `x = factory.Store()` may hold what a function named Store returns, not a Store,
         // unless the calling file's own definitions and imports name Store as a class.

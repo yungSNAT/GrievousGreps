@@ -35,6 +35,13 @@ export class FileBindings {
     this.map.set(`${scopePath}|${name}`, type);
   }
 
+  /** Go: a name given 2 different types in one scope (2 func literals' parameters, a shadowing
+   * block) gets `?`, which names no type, rather than whichever came last. */
+  setGo(scopePath: string, name: string, type: string): void {
+    const prior = this.map.get(`${scopePath}|${name}`);
+    this.set(scopePath, name, prior === undefined || prior === type ? type : "?");
+  }
+
   /** Innermost-first: for scope ["a","b"] name "x", tries `a.b|x`, `a|x`, `|x`. */
   lookup(scope: string[], name: string): string | null {
     for (let i = scope.length; i >= 0; i--) {
@@ -738,19 +745,21 @@ function javaNewTypeName(value: SyntaxNode | null | undefined): string | null {
 function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): void {
   const scopePath = scope.join(".");
   if (node.type === "parameter_declaration") {
+    // A function type's parameters (`var cb func(l *Logger)`) name no variable here.
+    if (!GO_FUNCTIONS.has(node.parent?.parent?.type ?? "")) return;
     const type = goTypeName(node.childForFieldName("type"));
-    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) bindings.set(scopePath, name.text, type);
+    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) bindings.setGo(scopePath, name.text, type);
     return;
   }
   if (node.type === "var_spec") {
     const name = node.childForFieldName("name");
     const type = goTypeName(node.childForFieldName("type"));
-    if (name?.type === "identifier" && type) bindings.set(scopePath, name.text, type);
+    if (name?.type === "identifier" && type) bindings.setGo(scopePath, name.text, type);
     const values = node.childForFieldName("value")?.namedChildren ?? [];
     const first = values[0];
     if (name?.type === "identifier" && !type && values.length === 1 && first?.type === "call_expression") {
       const result = goCallResult(first);
-      if (result) bindings.set(scopePath, name.text, result);
+      if (result) bindings.setGo(scopePath, name.text, result);
     }
     return;
   }
@@ -775,33 +784,38 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
     }
     let typeName: string | null = null;
     if (expr.type === "composite_literal") {
-      const t = expr.childForFieldName("type");
-      typeName = t?.type === "type_identifier" ? t.text : null;
-    } else if (expr.type === "call_expression") {
-      const fn = expr.childForFieldName("function");
-      // Go convention: NewX(...) binds to X.
-      if (fn?.type === "identifier" && /^New[A-Z]/.test(fn.text)) typeName = fn.text.slice(3);
+      typeName = goTypeName(expr.childForFieldName("type"));
+    } else if (expr.type === "call_expression" && (exprs.length === names.length || i === 0)) {
       // One call on the right gives its first result to the first name; `a, b := f(), g()` pairs them.
-      else if (exprs.length === names.length || i === 0) typeName = goCallResult(expr);
+      typeName = goCallResult(expr);
     }
-    if (typeName) bindings.set(scopePath, nameNode.text, typeName);
+    if (typeName) bindings.setGo(scopePath, nameNode.text, typeName);
   }
 }
 
-/** A call whose result a variable holds, written `New()` or `pkg.New()`: the type is the called
- * function's declared first result, which only resolve.ts can read, so extract.ts turns this text
- * into an edge's `goResult`. No Go type name ends in `()`, so the text cannot be taken for one. */
+/** The nodes whose parameters are variables in their body. */
+const GO_FUNCTIONS: ReadonlySet<string> = new Set(["function_declaration", "method_declaration", "func_literal"]);
+
+/** A call whose result a variable holds, written `<at>|New()` or `<at>|pkg.New()` with `at` the call's
+ * offset: the type is the called function's declared first result, which only resolve.ts can read,
+ * so extract.ts turns this text into an edge's `goResult`, checking at `at` whether a local hides
+ * the name. No Go type name ends in `()`, so the text cannot be taken for one. */
 function goCallResult(call: SyntaxNode): string | null {
   const fn = call.childForFieldName("function");
-  if (fn?.type === "identifier") return `${fn.text}()`;
+  if (fn?.type === "identifier") return `${call.startIndex}|${fn.text}()`;
   const pkg = fn?.type === "selector_expression" ? fn.childForFieldName("operand") : null;
   const name = fn?.childForFieldName("field")?.text;
-  return pkg?.type === "identifier" && name ? `${pkg.text}.${name}()` : null;
+  return pkg?.type === "identifier" && name ? `${call.startIndex}|${pkg.text}.${name}()` : null;
 }
 
-/** A type's bare name, through a pointer and a package qualifier (`*log.Logger` → `Logger`). */
+/** A type's name through a pointer: `*Logger` → `Logger`, and `*log.Logger` → `log.Logger`, whose
+ * package extract.ts reads from the file's imports. */
 export function goTypeName(type: SyntaxNode | null): string | null {
   const base = type?.type === "pointer_type" ? type.namedChildren.at(-1) : type;
-  const named = base?.type === "qualified_type" ? base.childForFieldName("name") : base;
-  return named?.type === "type_identifier" ? named.text : null;
+  if (base?.type === "qualified_type") {
+    const pkg = base.childForFieldName("package")?.text;
+    const name = base.childForFieldName("name");
+    return pkg && name?.type === "type_identifier" ? `${pkg}.${name.text}` : null;
+  }
+  return base?.type === "type_identifier" ? base.text : null;
 }
