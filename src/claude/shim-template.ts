@@ -19,18 +19,28 @@ import { claudeDistDir } from './paths.js';
 // Candidates, cheapest first (no subprocess for 1–4):
 //   1. remembered   — `<trail home>/install.json`: the `dist/claude` this machine's last
 //                     `init` ran from. Correct with zero guesswork for whoever ran it.
-//   2. repo node_modules — a local dev-dep install.
+//   2. repo node_modules — a local dev-dep install. Only for the project's own shim.
 //   3. `execDir/../lib`  — the cheap legacy guess (covers nvm / classic prefix layout).
 //   4. PATH         — each `trail`/`graft` command on PATH: npm links the bin into the
 //                     package, so its real path leads back to it (a custom prefix, or
 //                     `npm i -g <folder>`), and on Windows the `.cmd` sits beside the
-//                     `node_modules` that holds it.
+//                     `node_modules` that holds it. For a user-level shim, a PATH folder in
+//                     the project or a package runner's bin folder is passed over, as
+//                     findNpm passes it over for npm.
 //   5. `npm root -g`     — authoritative global dir, layout-agnostic. Only shelled out to
 //                     when 1–4 all miss; queried on demand — no on-disk cache, which on a
 //                     shared machine would be a world-writable path an attacker could point
 //                     at their own code for us to import. For the same reason the
 //                     remembered file is read only when it is ours and no one else can
 //                     write it.
+//
+// A user-level shim (`~/.claude`, `~/.codex`, `~/.pi`) runs in every project the agent opens,
+// trusted or not, so it imports nothing the project supplies: not its node_modules (2), not its
+// own `dist/claude` (the last-ditch guess), and no candidate inside the project or the working
+// folder, and it runs no npm from there. The writer says which kind a shim is (hooksShim's
+// userLevel): where the file sits cannot, as both kinds sit under the project when the project
+// is the home folder or a root. The project's own shim may import the project's code, as that
+// file is the repository's anyway.
 //
 // Among the candidates that exist we prefer this distribution, then take the HIGHEST
 // VERSION, not the first hit. Upstream's version numbers say nothing about this build, so a
@@ -56,7 +66,7 @@ const PRE_BASH_NOTE = `// PreToolUse (pre-bash) runs before every shell command:
 // found without a subprocess (never npm root -g), or nothing at all.
 `;
 
-function shim(entryFile: string, call: string, fallback = '', preBash = false): string {
+function shim(entryFile: string, call: string, fallback = '', preBash = false, userLevel = false): string {
   const pick = preBash
     ? `${PRE_BASH_NOTE}const FAST = process.argv[2] === 'pre-bash';\nconst target = entry(FAST ? 'pre-bash.js' : ${JSON.stringify(entryFile)}, FAST);`
     : `const target = entry(${JSON.stringify(entryFile)});`;
@@ -66,6 +76,7 @@ const fs = require('fs');
 const os = require('os');
 const { pathToFileURL } = require('url');
 const dir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const USER_LEVEL = ${userLevel};
 
 // This distribution is @equitybot/grievousgreps, and it answers whenever it is
 // found. Upstream ships its own code as @trailhq/trail-code and as @nanonets/graft,
@@ -109,13 +120,47 @@ function pkgAbove(file) {
   return null;
 }
 
+const win = process.platform === 'win32';
+const fold = (p) => (win ? p.toLowerCase() : p);
+const real = (p) => { try { return fs.realpathSync.native(p); } catch { return null; } };
+const both = (p) => [path.resolve(p), real(p)].filter(Boolean).map(fold);
+const within = (base, p) => { const r = path.relative(base, p); return !(r === '..' || r.startsWith('..' + path.sep) || path.isAbsolute(r)); };
+
+// The working folders work, each as given and as its real path. A filesystem root or the
+// home folder holds every folder the person installs to, so it counts only as its own
+// node_modules, the dependencies a project there would have.
+function folders(work) {
+  const home = both(os.homedir());
+  return work.flatMap(both).map((d) => (path.dirname(d) === d || home.includes(d) ? path.join(d, 'node_modules') : d));
+}
+const inside = (here, p) => both(p).some((x) => here.some((h) => within(h, x)));
+
+// For the working folders work, the real folder of a PATH entry trail may take a program
+// from, else null, under the rules of trail's src/util/program.ts: only an absolute entry,
+// never one at or under a working folder (see folders), a node_modules/.bin folder or Yarn's
+// bin folder, each tested as listed and as its real path. program.ts passes over only the
+// home folder or root itself; its node_modules here is the stricter of the two.
+function pathRule(work) {
+  const here = folders(work);
+  const yarn = process.env.BERRY_BIN_FOLDER;
+  const yarnBin = yarn && path.isAbsolute(yarn) ? both(yarn) : [];
+  const skip = (d) => (path.basename(d) === '.bin' && path.basename(path.dirname(d)) === 'node_modules') || yarnBin.includes(d) || here.some((h) => within(h, d));
+  return (entry) => {
+    const listed = win ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
+    if (!listed || !path.isAbsolute(listed) || (win && path.parse(listed).root.length < 2)) return null;
+    const d = real(listed);
+    return d && ![path.resolve(listed), d].map(fold).some(skip) ? d : null;
+  };
+}
+
 // The package behind each trail/graft command on PATH: the bin is a link into
 // the package (dist/cli.js in older releases, dist/bin/<name>.js now), and a
 // Windows .cmd sits beside the node_modules that holds it.
 function onPath() {
   const out = [];
+  const usable = USER_LEVEL ? pathRule([dir, process.cwd()]) : (d) => d && path.isAbsolute(d);
   for (const d of (process.env.PATH || '').split(path.delimiter)) {
-    if (!d || !path.isAbsolute(d)) continue;
+    if (!usable(d)) continue;
     for (const bin of BINS) {
       const p = path.join(d, bin);
       if (!fs.existsSync(p)) continue;
@@ -126,28 +171,16 @@ function onPath() {
   return out;
 }
 
-// npm by its absolute path, under the rules of trail's src/util/program.ts: only an absolute
-// PATH entry, never one at or under the working folder (a filesystem root or the home folder
-// excepted), a node_modules/.bin folder or Yarn's bin folder, each tested as listed and as its
-// real path. A bare npm would be looked for in the working folder first on Windows.
+// npm by its absolute path, from a PATH entry pathRule allows for the working folder (and for
+// a user-level shim the project too). A bare npm would be looked for in the working folder
+// first on Windows.
 function findNpm() {
-  const win = process.platform === 'win32';
-  const fold = (p) => (win ? p.toLowerCase() : p);
-  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return null; } };
-  const both = (p) => [path.resolve(p), real(p)].filter(Boolean).map(fold);
-  const home = both(os.homedir());
-  const here = both(process.cwd()).filter((d) => path.dirname(d) !== d && !home.includes(d));
-  const yarn = process.env.BERRY_BIN_FOLDER;
-  const yarnBin = yarn && path.isAbsolute(yarn) ? both(yarn) : [];
-  const inside = (d) => here.some((h) => { const r = path.relative(h, d); return !(r === '..' || r.startsWith('..' + path.sep) || path.isAbsolute(r)); });
-  const skip = (d) => (path.basename(d) === '.bin' && path.basename(path.dirname(d)) === 'node_modules') || yarnBin.includes(d) || inside(d);
+  const usable = pathRule(USER_LEVEL ? [dir, process.cwd()] : [process.cwd()]);
   for (const entry of (process.env.PATH || '').split(path.delimiter)) {
-    const listed = win ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
-    if (!listed || !path.isAbsolute(listed) || (win && path.parse(listed).root.length < 2)) continue;
-    const dir = real(listed);
-    if (!dir || [path.resolve(listed), dir].map(fold).some(skip)) continue;
+    const at = usable(entry);
+    if (!at) continue;
     for (const name of win ? ['npm.exe', 'npm.cmd'] : ['npm']) {
-      if (fs.existsSync(path.join(dir, name))) return path.join(dir, name);
+      if (fs.existsSync(path.join(at, name))) return path.join(at, name);
     }
   }
   return null;
@@ -209,17 +242,19 @@ function best(dirs, name) {
 
 function entry(name, cheapOnly) {
   // Cheap candidates first, and only shell out to npm when every one of them misses.
-  const cheap = [remembered(), ...fromPkg(dir), ...fromPkg(path.join(path.dirname(process.execPath), '..', 'lib')), ...onPath()];
-  const hit = best(cheap, name);
+  const project = USER_LEVEL ? folders([dir, process.cwd()]) : [];
+  const allowed = (d) => d && (project.length === 0 || !inside(project, d));
+  const cheap = [remembered(), ...(USER_LEVEL ? [] : fromPkg(dir)), ...fromPkg(path.join(path.dirname(process.execPath), '..', 'lib')), ...onPath()];
+  const hit = best(cheap.filter(allowed), name);
   if (hit) return path.join(hit, name);
   const gr = cheapOnly ? null : globalRoot();
-  const global = gr && best(PKGS.map((p) => path.join(gr, ...p.split('/'), 'dist', 'claude')), name);
+  const global = gr && best(PKGS.map((p) => path.join(gr, ...p.split('/'), 'dist', 'claude')).filter(allowed), name);
   if (global) return path.join(global, name);
-  return path.join(dir, 'dist', 'claude', name); // last-ditch; import will no-op if absent
+  return USER_LEVEL ? null : path.join(dir, 'dist', 'claude', name); // last-ditch; import will no-op if absent
 }
 
 ${pick}
-if (fs.existsSync(target)) import(pathToFileURL(target).href).then((m) => ${call}).catch(() => { /* trail unavailable — no-op */ });${fallback}
+if (target && fs.existsSync(target)) import(pathToFileURL(target).href).then((m) => ${call}).catch(() => { /* trail unavailable — no-op */ });${fallback}
 `;
 }
 
@@ -316,7 +351,9 @@ function liveFiles(learnings, files) {
 ${FLAT_LINE_JS}`;
 
 export function statuslineShim(): string { return shim('statusline.js', 'm.main()'); }
-export function hooksShim(): string { return shim('hooks.js', 'm.main(process.argv[2])', OFFER_TRAIL, true); }
+/** The hooks shim; `userLevel` for one written outside a repository (`~/.claude`, `~/.codex`,
+ * `~/.pi`), which then imports nothing the project it runs in supplies. */
+export function hooksShim(userLevel = false): string { return shim('hooks.js', 'm.main(process.argv[2])', OFFER_TRAIL, true, userLevel); }
 
 /** Where `rememberInstall` writes, and the shims read: `<trail home>/install.json`. */
 export function installHintPath(home: string = homedir(), env: NodeJS.ProcessEnv = process.env): string {

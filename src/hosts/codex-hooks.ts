@@ -135,7 +135,7 @@ export function installCodexHooks(home: string): ConfigWrite[] {
   if (targets.length === 0) return [];
 
   const shimPath = targets[0].path;
-  const shimWrite = writeOwned('codex-hook-shim', shimPath, hooksShim(), 0o755);
+  const shimWrite = writeOwned('codex-hook-shim', shimPath, hooksShim(true), 0o755);
   const cfgPath = targets[1].path;
   const skipped: ConfigWrite = { id: 'codex-hooks', path: cfgPath, action: 'skipped-unparseable' };
 
