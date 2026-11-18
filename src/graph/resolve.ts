@@ -438,6 +438,23 @@ export function resolveEdges(
     return type && rustTextName(type);
   };
 
+  // Go: the functions named `name` in the package an import path names, its test files aside.
+  const goPackageFunctions = (specifier: string, name: string): NodeV1[] => {
+    const dir = hasGoModules ? goImportDir(specifier, opts.goModules!) : null;
+    return (dir ? (goFilesByDir.get(dir) ?? []) : [])
+      .filter((f) => !f.endsWith("_test.go"))
+      .flatMap((f) => perFileName.get(f)?.get(name) ?? [])
+      .filter((n) => n.kind === "function");
+  };
+  // Go: what a receiver holds when it holds a function's result, read from that function's first result.
+  const goResultType = (e: RawEdge): string | undefined => {
+    const { fn, specifier } = e.goResult!;
+    const found = specifier
+      ? goPackageFunctions(specifier, fn)
+      : (globalName.get(fn) ?? []).filter((n) => n.kind === "function" && sameGoPackage(e.file, n.path));
+    return found.length === 1 ? found[0]!.returns : undefined;
+  };
+
   const tsModules = new Map<string, TsModule>();
   for (const e of rawEdges) if (e.tsModule) tsModules.set(e.file, e.tsModule);
   const tsCtx: TsCtx = { modules: tsModules, perFileName, byId, paths: opts.tsPaths ?? [], packages: opts.tsPackages ?? [], unmanifested: opts.tsUnmanifested ?? new Set(), repoPaths: tsRepoPaths(byId) };
@@ -575,11 +592,7 @@ export function resolveEdges(
       }
       // Go: a package-qualified call names the imported package's directory.
       if (e.specifier && e.file.endsWith(".go")) {
-        const dir = hasGoModules ? goImportDir(e.specifier, opts.goModules!) : null;
-        const candidates = (dir ? (goFilesByDir.get(dir) ?? []) : [])
-          .filter((f) => !f.endsWith("_test.go"))
-          .flatMap((f) => perFileName.get(f)?.get(e.name!) ?? [])
-          .filter((n) => n.kind === "function");
+        const candidates = goPackageFunctions(e.specifier, e.name!);
         if (candidates.length === 1) add(e.source, candidates[0].id, "calls", "extracted");
         continue;
       }
@@ -588,7 +601,10 @@ export function resolveEdges(
           rustTraitProvides(e, e.rustChain.type ?? null);
           continue;
         }
-        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
+        const recv = e.rustChain ? rustChainType(e.rustChain, e)
+          : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file)
+            : e.goResult ? goResultType(e)
+              : e.recvType;
         if (!recv && !e.rustForm) continue;
         // `x = factory.Store()` may hold what a function named Store returns, not a Store,
         // unless the calling file's own definitions and imports name Store as a class.

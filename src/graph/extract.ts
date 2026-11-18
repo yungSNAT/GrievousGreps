@@ -8,7 +8,7 @@
  */
 import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
-import { collectBindings, goReceiverVarOf, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
+import { collectBindings, goReceiverVarOf, goTypeName, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
 import { parseDepth, type SyntaxNode } from "./depth-parser.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 
@@ -198,6 +198,9 @@ export interface RawEdge {
   /** calls with viaMember: the receiver's resolved type name (from bindings /
    * self / this / Go receiver), when a confident local clue exists. */
   recvType?: string;
+  /** Go calls with viaMember: the receiver holds what this function returns (`l := log.New()`);
+   * resolve.ts reads the function's first result. `specifier` is the imported package's path. */
+  goResult?: { fn: string; specifier?: string };
   /** calls without viaMember: which kinds the bare-name match may resolve to.
    * Every other language's bare-name call is always a free function, so this
    * is absent for them (resolve.ts defaults to `["function"]`). R (Phase 4) is
@@ -505,6 +508,7 @@ interface DefDescriptor {
   // ordinary ctx.enclosingClass fallback instead, so they leave this unset.
   owner?: string;
   arity?: number; // declared parameter count — overload disambiguation (Java)
+  returns?: string; // Go functions: the first result's bare type name
   variadic?: boolean; // last parameter is a vararg, so `arity` is a minimum
 }
 
@@ -785,6 +789,7 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
       ...(owner !== undefined ? { owner } : {}),
       ...(desc.arity !== undefined ? { arity: desc.arity } : {}),
       ...(desc.variadic ? { variadic: true } : {}),
+      ...(desc.returns ? { returns: desc.returns } : {}),
     });
     // structural containment
     edges.push({ source: ctx.parentId, relation: "contains", targetId: id, file: ctx.rel });
@@ -1003,15 +1008,20 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
         } else if (moduleSpec && !shadowed) {
           edges.push({ ...callEdge, specifier: moduleSpec, pythonChain: parts!.slice(1) });
         } else if (!shadowed) {
-          const recvType = resolveRecvType(callee.receiver, ctx);
+          const bound = resolveRecvType(callee.receiver, ctx);
+          // Only a Go binding ends in `()`: the receiver holds a call's result (bindings.ts's goCallResult).
+          const heldResult = ctx.lang === "go" && !!bound?.endsWith("()");
+          const goResult = heldResult ? goResultOf(bound!, ctx) : undefined;
+          const recvType = heldResult ? undefined : bound;
           const recvAttr = recvType || ctx.lang !== "python" ? undefined : pythonAttrReceiver(callee.receiver, ctx);
           // Go: `pkg.Fn()` through an import no local shadows names the imported package.
           const goPackage =
-            !recvType && callee.receiver && node.startIndex < (ctx.goLocals.get(callee.receiver) ?? Infinity)
+            !bound && callee.receiver && node.startIndex < (ctx.goLocals.get(callee.receiver) ?? Infinity)
               ? ctx.goImports.get(callee.receiver)
               : undefined;
           edges.push(
             recvType ? { ...callEdge, recvType }
+              : goResult ? { ...callEdge, goResult }
               : recvAttr ? { ...callEdge, recvAttr }
                 : goPackage ? { ...callEdge, specifier: goPackage }
                   : callEdge,
@@ -1675,6 +1685,15 @@ function collectGoLocals(definition: SyntaxNode): Map<string, number> {
   return out;
 }
 
+/** The function a Go receiver's binding (`New()`, `log.New()`) calls: one of this package's, or one
+ * an import names. Undefined when the qualifier is no import, or a local of this function shadows it. */
+function goResultOf(bound: string, ctx: WalkCtx): RawEdge["goResult"] {
+  const [pkg, fn] = bound.slice(0, -2).split(".");
+  if (fn === undefined) return { fn: pkg! };
+  const specifier = ctx.goLocals.has(pkg!) ? undefined : ctx.goImports.get(pkg!);
+  return specifier ? { fn, specifier } : undefined;
+}
+
 function collectGoImports(root: SyntaxNode): Map<string, string> {
   const out = new Map<string, string>();
   const visit = (node: SyntaxNode): void => {
@@ -2068,7 +2087,10 @@ function describeGo(node: SyntaxNode, _ctx: WalkCtx): DefDescriptor | null {
     const name = node.childForFieldName("name")?.text;
     if (!name) return null;
     const body = node.childForFieldName("body");
-    return { name, kind: "function", headerEnd: body ? body.startIndex : node.endIndex, hashNode: node };
+    const result = node.childForFieldName("result");
+    const first = result?.type === "parameter_list" ? result.namedChildren[0]?.childForFieldName("type") : result;
+    const returns = goTypeName(first ?? null) ?? undefined;
+    return { name, kind: "function", headerEnd: body ? body.startIndex : node.endIndex, hashNode: node, returns };
   }
 
   if (node.type === "method_declaration") {

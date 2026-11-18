@@ -737,10 +737,21 @@ function javaNewTypeName(value: SyntaxNode | null | undefined): string | null {
 
 function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): void {
   const scopePath = scope.join(".");
+  if (node.type === "parameter_declaration") {
+    const type = goTypeName(node.childForFieldName("type"));
+    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) bindings.set(scopePath, name.text, type);
+    return;
+  }
   if (node.type === "var_spec") {
     const name = node.childForFieldName("name");
     const type = goTypeName(node.childForFieldName("type"));
     if (name?.type === "identifier" && type) bindings.set(scopePath, name.text, type);
+    const values = node.childForFieldName("value")?.namedChildren ?? [];
+    const first = values[0];
+    if (name?.type === "identifier" && !type && values.length === 1 && first?.type === "call_expression") {
+      const result = goCallResult(first);
+      if (result) bindings.set(scopePath, name.text, result);
+    }
     return;
   }
   if (node.type === "field_declaration") {
@@ -770,12 +781,27 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
       const fn = expr.childForFieldName("function");
       // Go convention: NewX(...) binds to X.
       if (fn?.type === "identifier" && /^New[A-Z]/.test(fn.text)) typeName = fn.text.slice(3);
+      // One call on the right gives its first result to the first name; `a, b := f(), g()` pairs them.
+      else if (exprs.length === names.length || i === 0) typeName = goCallResult(expr);
     }
     if (typeName) bindings.set(scopePath, nameNode.text, typeName);
   }
 }
 
-function goTypeName(type: SyntaxNode | null): string | null {
+/** A call whose result a variable holds, written `New()` or `pkg.New()`: the type is the called
+ * function's declared first result, which only resolve.ts can read, so extract.ts turns this text
+ * into an edge's `goResult`. No Go type name ends in `()`, so the text cannot be taken for one. */
+function goCallResult(call: SyntaxNode): string | null {
+  const fn = call.childForFieldName("function");
+  if (fn?.type === "identifier") return `${fn.text}()`;
+  const pkg = fn?.type === "selector_expression" ? fn.childForFieldName("operand") : null;
+  const name = fn?.childForFieldName("field")?.text;
+  return pkg?.type === "identifier" && name ? `${pkg.text}.${name}()` : null;
+}
+
+/** A type's bare name, through a pointer and a package qualifier (`*log.Logger` → `Logger`). */
+export function goTypeName(type: SyntaxNode | null): string | null {
   const base = type?.type === "pointer_type" ? type.namedChildren.at(-1) : type;
-  return base?.type === "type_identifier" ? base.text : null;
+  const named = base?.type === "qualified_type" ? base.childForFieldName("name") : base;
+  return named?.type === "type_identifier" ? named.text : null;
 }

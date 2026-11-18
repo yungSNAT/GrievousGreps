@@ -47,6 +47,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **A Go method call resolves when its receiver is a parameter or holds a function's result.** `func f(l *log.Logger) { l.SetLevel(1) }`, `l := log.New()` and `var std = New()` gave the receiver no type, so a method sharing its name with a function or another type's method had no callers there. The receiver now takes the parameter's type, or the first result the called function declares.
 - **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
 - **A Rust crate's name and dependencies are read from the parsed `Cargo.toml`.** They were read line by line, so a crate named under `[project]`, by a dotted key (`package.name = ...`), a quoted key or with a comment after it was no crate, and calls through its name stayed unresolved; a dependency named by a dotted or quoted key was taken for the repository's own code.
 - **A cached parse is replayed only when it describes its own file.** The extraction cache in the output folder could come with a clone, and an entry whose node named a path outside the repository was replayed as it stood, so `trail build --lsp` read that file and sent it to the language server. Such an entry, or a malformed one, is now dropped and its file parsed again.
