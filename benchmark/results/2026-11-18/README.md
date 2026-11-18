@@ -7,6 +7,7 @@ Run on the benchmark machine (Linux, Node 26.13.1). Local paths are replaced wit
 | The 21 repositories at `fc50a01` (main at #93, after #88 and #89) against upstream 0.29.0: 4,333 of 4,403 (0.98), precision 0.95, 7 silent undercounts; 0.29.0 1,410 (0.32) | [callers-21.txt](callers-21.txt), each repository run from 22:13 to 22:55 UTC on 17 November and pooled from the per-repository outputs |
 | The 5 unseen repositories at `fc50a01`: 232 of 564 (0.41) | [unseen-callers.txt](unseen-callers.txt), 22:57 UTC on 17 November |
 | `trail viz --export` on httpx at `fc50a01`: 1,016,743 bytes, as at `88c214e` | the exported `index.html` (22:58 UTC on 17 November); not copied |
+| `trail ask` on semble's 60 Haskell queries at `4fcf41b`: NDCG@10 0.697 | [ask-haskell.md](ask-haskell.md), 01:33 to 01:35 UTC on 18 November |
 | The language-server column again, with `gg-bench` at `6a4c63f`, and the bisect of its TypeScript change | [language-servers-rerun.txt](language-servers-rerun.txt), 00:35 to 01:28 UTC on 18 November |
 
 ## The language-server column at `6a4c63f`
