@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync, readFileSync, chmodSync, rmSync, rmdirSync, existsSync, appendFileSync } from 'node:fs';
 import { join, dirname, resolve, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../util/program.js';
 import { disableGraftServerIn, installClaudeGlobal, type GlobalWrite } from '../hosts/claude-global.js';
 import { mergeGraftSettings, mergeTrailShared, mergeTrailLocal, withoutOurs } from './settings-merge.js';
 import { isJustMe } from '../notes/just-me.js';
@@ -297,7 +297,7 @@ function dropTrailShared(dir: string, path: string): void {
 /** Git tracks `rel` in the checkout at `dir`. False outside git. */
 function gitTracks(dir: string, rel: string): boolean {
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: dir, stdio: 'ignore', windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+    execFileSync('git', ['ls-files', '--error-unmatch', '--', rel], { cwd: dir, stdio: 'ignore', windowsHide: true });
     return true;
   } catch {
     return false;
@@ -326,13 +326,13 @@ function dropServer(path: string, names: string[]): void {
  */
 export function keepOutOfGit(dir: string, rel: string): void {
   try {
-    execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: dir, stdio: 'ignore', windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+    execFileSync('git', ['check-ignore', '-q', '--', rel], { cwd: dir, stdio: 'ignore', windowsHide: true });
     return; // exit 0: already ignored
   } catch (e) {
     if ((e as { status?: number }).status !== 1) return; // 128: not a git checkout
   }
   try {
-    let exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim(); // NOSONAR: the person's own git, found through PATH on purpose
+    let exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
     if (!isAbsolute(exclude)) exclude = join(dir, exclude);
     const line = `/${rel.split('\\').join('/')}`;
     const text = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
@@ -345,7 +345,7 @@ export function keepOutOfGit(dir: string, rel: string): void {
 /** Undo `keepOutOfGit`: `rel`'s line comes out of `.git/info/exclude`, so git sees it again. */
 export function letGitSee(dir: string, rel: string): void {
   try {
-    let exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim(); // NOSONAR: the person's own git, found through PATH on purpose
+    let exclude = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim();
     if (!isAbsolute(exclude)) exclude = join(dir, exclude);
     const line = `/${rel.split('\\').join('/')}`;
     const text = readFileSync(exclude, 'utf8');

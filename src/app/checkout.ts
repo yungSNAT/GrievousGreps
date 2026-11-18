@@ -15,7 +15,7 @@
  *  - **Bounded.** A hostile or merely enormous repository must not hold a worker
  *    forever: every git call has a timeout, and the fetch is shallow.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/program.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,7 +73,7 @@ function git(dir: string, args: string[], token?: string): { ok: boolean; out: s
       ]
     : [];
   const res = spawnSync(
-    "git", // NOSONAR: the person's own git, found through PATH on purpose
+    "git",
     ["-c", "core.hooksPath=/dev/null", "-c", "protocol.version=2", ...auth, ...args],
     {
       cwd: dir,

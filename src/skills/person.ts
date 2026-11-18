@@ -16,7 +16,7 @@
  * When the process table can't be read, the answer is no: a person can run
  * the command again, an agent must not get through on an error.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync } from '../util/program.js';
 import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 

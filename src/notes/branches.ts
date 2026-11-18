@@ -15,7 +15,7 @@
  * squash-merged branch still on the remote looks unmerged to git's history,
  * and so does one whose pull request was closed.
  */
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "../util/program.js";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { brand } from "../brand.js";
@@ -107,7 +107,7 @@ export function readBranchCache(repo: string): BranchCache | null {
 function git(repo: string, args: string[], timeout = 15_000): string | null {
   try {
     // Never a credential prompt: this runs detached, where nobody could answer it.
-    return execFileSync("git", args, { // NOSONAR: the person's own git, found through PATH on purpose
+    return execFileSync("git", args, {
       cwd: repo,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -167,7 +167,7 @@ function closedPrHeads(repo: string): ClosedHeads | null {
   if (!/github\.com[:/]/.test(origin)) return null;
   let out: string;
   try {
-    out = execFileSync("gh", ["pr", "list", "--state", "all", "--limit", "200", "--json", "headRefName,headRefOid,state"], { // NOSONAR: the person's own gh, found through PATH on purpose
+    out = execFileSync("gh", ["pr", "list", "--state", "all", "--limit", "200", "--json", "headRefName,headRefOid,state"], {
       cwd: repo,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

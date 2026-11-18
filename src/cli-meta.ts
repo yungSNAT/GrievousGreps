@@ -5,7 +5,8 @@
  * injected results instead of hitting the network from tests.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { spawnSync, type SpawnSyncOptions } from "node:child_process";
+import { admitted, findProgram, notFound, refused, spawnSync } from "./util/program.js";
+import type { SpawnSyncOptions } from "node:child_process";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brand, PACKAGE_FOR } from "./brand.js";
@@ -67,15 +68,41 @@ export function versionLine(moduleUrl: string): string {
   }
 }
 
-/** Runs `npm <args>`. On Windows `npm` is the `npm.cmd` shim, which only a shell
- * can start: spawned directly it fails with ENOENT, so the update check stored nothing.
- * The shell gets one joined command line because Node 24 warns (DEP0190) when it
- * has to join args for a shell. Every arg here is a fixed token, never user input,
- * and `npm` is found on PATH exactly as when the user runs it. */
+/** Runs `npm <args>` by npm's absolute path from PATH (util/program.ts); throws when there is none.
+ * On Windows `npm` is the `npm.cmd` shim, which Node can start only through cmd.exe, where `%NAME%`
+ * in its path would expand and the shim's fallback to a bare `node` would be looked for in the
+ * working folder first. So trail makes the shim's choice itself, without a shell, for the layout
+ * Node's installer, nvm-windows and `npm i -g npm` make: Node is the node.exe beside the shim, else
+ * `node` from PATH, and npm is node_modules/npm/bin/npm-cli.js under the global prefix the shim's
+ * npm-prefix.js prints, when that file exists, else the one beside the shim. Unlike the shim,
+ * npm-prefix.js runs in npm's own folder in global mode, so no project's .npmrc names the prefix;
+ * an older npm with no npm-prefix.js gets the npm-cli.js beside the shim. Each must keep to
+ * util/program.ts's rules, or nothing runs. A `.cmd` with no npm-cli.js beside it, such as mise's
+ * shims, which hand on to another program through cmd.exe, is not run. */
 function npmSync(args: readonly string[], options: SpawnSyncOptions) {
-  const win = process.platform === "win32";
-  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- fixed npm tokens only
-  return spawnSync(win ? ["npm", ...args].join(" ") : "npm", win ? [] : args, { ...options, shell: win, windowsHide: true }); // NOSONAR: npm from PATH is intended
+  const npm = findProgram("npm", { cmd: true });
+  if (!npm) throw new Error(notFound("npm"));
+  if (!npm.toLowerCase().endsWith(".cmd")) return spawnSync(npm, args, { ...options, windowsHide: true });
+  const bin = (prefix: string) => join(prefix, "node_modules", "npm", "bin");
+  const beside = join(dirname(npm), "node.exe");
+  const node = existsSync(beside) ? beside : findProgram("node");
+  if (!node) throw new Error(notFound("node"));
+  const run = (script: string, more: readonly string[], opts: SpawnSyncOptions) => {
+    for (const file of [node, script]) if (!admitted(file)) throw new Error(refused(file));
+    return spawnSync(node, [script, ...more], { ...opts, windowsHide: true });
+  };
+  let cli = join(bin(dirname(npm)), "npm-cli.js");
+  const prefixScript = join(bin(dirname(npm)), "npm-prefix.js");
+  if (existsSync(prefixScript)) {
+    // In npm's own folder and in global mode, which reads no project's .npmrc: run in the working
+    // folder, its .npmrc would name the prefix, and a folder above npm's that makes npm's folder a
+    // workspace would name it from npm's own folder.
+    const env = Object.fromEntries(Object.entries(options.env ?? process.env).filter(([k]) => k.toLowerCase() !== "npm_config_global"));
+    const prefix = run(prefixScript, [], { ...options, cwd: dirname(npm), env: { ...env, npm_config_global: "true" }, encoding: "utf8" }).stdout?.toString().trim().split(/\r?\n/).pop();
+    if (prefix && existsSync(join(bin(prefix), "npm-cli.js"))) cli = join(bin(prefix), "npm-cli.js");
+  }
+  if (!existsSync(cli)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);
+  return run(cli, args, options);
 }
 
 export interface NpmViewResult {

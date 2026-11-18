@@ -143,6 +143,25 @@ test('no candidate at all exits quietly — a hook must never fail the session',
   assert.equal(runShim(root, project(root), { remembered: join(root, 'nowhere') }), null);
 });
 
+// With no candidate the shim asks npm for its global root. An npm the project holds must
+// never be the one asked: cmd.exe (and a bare name on Windows) looks in the working folder
+// first, and a relative PATH entry does the same anywhere.
+test('the npm the shim asks for its global root is never one the project holds', () => {
+  const root = tmpRepo('shim-planted-npm');
+  const dir = project(root);
+  const mark = join(root, 'ran-npm');
+  if (process.platform === 'win32') writeFileSync(join(dir, 'npm.cmd'), `@type nul > "${mark}"\r\n`);
+  else { writeFileSync(join(dir, 'npm'), `#!/bin/sh\n: > '${mark}'\n`); chmodSync(join(dir, 'npm'), 0o755); }
+  const shimPath = join(root, 'graft-hooks.cjs');
+  writeFileSync(shimPath, hooksShim());
+  const { preload, env } = isolate(root, ['.']);
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, ...env, CLAUDE_PROJECT_DIR: dir };
+  for (const k of Object.keys(childEnv)) if (k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath') delete childEnv[k];
+  const res = spawnSync(process.execPath, ['--require', preload, shimPath, 'session-start'], { cwd: dir, encoding: 'utf8', env: childEnv });
+  assert.equal(res.status, 0, `shim exited ${res.status}: ${res.stderr}`);
+  assert.equal(existsSync(mark), false, 'the planted npm ran');
+});
+
 // Guards the isolation itself. `isolate` repoints the exec dir at the fixture
 // rather than disabling that probe, so the nvm-layout candidate must still be
 // live — just rooted somewhere the test built. Without this, someone deleting

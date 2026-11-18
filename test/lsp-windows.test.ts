@@ -11,12 +11,15 @@ import { spawn } from "node:child_process";
 import { copyFileSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findOnWindowsPath } from "../src/graph/lsp/registry.js";
+import { findProgram } from "../src/util/program.js";
 import { npmShimEntry, spawnSpec, LspClient } from "../src/graph/lsp/client.js";
 import { enrichWithLsp } from "../src/graph/lsp/enrich.js";
 import type { GraphV1 } from "../src/graph/types.js";
 
 const onWindows = { skip: process.platform !== "win32" };
+/** How the LSP registry looks a server up on Windows, with PATH and the files given. */
+const findOnWindowsPath = (cmd: string, path: string, isFile: (p: string) => boolean) =>
+  findProgram(cmd, { platform: "win32", env: { PATH: path }, cmd: true, isFile, realpath: (dir) => dir, folders: () => [] });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Windows keeps a just-killed process's hold on its cwd for a moment: retry the cleanup. */
 async function removeDir(dir: string): Promise<void> {
@@ -209,7 +212,9 @@ test("Windows: a server Windows refuses to start (a .cmd that isn't an npm shim)
       ],
       edges: [],
     };
-    const r = await enrichWithLsp(graph, dir);
+    const repo = join(dir, "repo"); // the mapped repository, outside the server's folder: trail never starts a server inside it
+    mkdirSync(repo);
+    const r = await enrichWithLsp(graph, repo);
     assert.equal(r.added, 0);
     assert.match(String(r.servers[0]), /typescript-language-server\.cmd$/i, "the .cmd was found, then skipped");
     assert.equal(graph.edges.length, 0, "graph untouched");

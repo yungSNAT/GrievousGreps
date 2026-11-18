@@ -126,14 +126,49 @@ function onPath() {
   return out;
 }
 
+// npm by its absolute path, under the rules of trail's src/util/program.ts: only an absolute
+// PATH entry, never one at or under the working folder (a filesystem root or the home folder
+// excepted), a node_modules/.bin folder or Yarn's bin folder, each tested as listed and as its
+// real path. A bare npm would be looked for in the working folder first on Windows.
+function findNpm() {
+  const win = process.platform === 'win32';
+  const fold = (p) => (win ? p.toLowerCase() : p);
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return null; } };
+  const both = (p) => [path.resolve(p), real(p)].filter(Boolean).map(fold);
+  const home = both(os.homedir());
+  const here = both(process.cwd()).filter((d) => path.dirname(d) !== d && !home.includes(d));
+  const yarn = process.env.BERRY_BIN_FOLDER;
+  const yarnBin = yarn && path.isAbsolute(yarn) ? both(yarn) : [];
+  const inside = (d) => here.some((h) => { const r = path.relative(h, d); return !(r === '..' || r.startsWith('..' + path.sep) || path.isAbsolute(r)); });
+  const skip = (d) => (path.basename(d) === '.bin' && path.basename(path.dirname(d)) === 'node_modules') || yarnBin.includes(d) || inside(d);
+  for (const entry of (process.env.PATH || '').split(path.delimiter)) {
+    const listed = win ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
+    if (!listed || !path.isAbsolute(listed) || (win && path.parse(listed).root.length < 2)) continue;
+    const dir = real(listed);
+    if (!dir || [path.resolve(listed), dir].map(fold).some(skip)) continue;
+    for (const name of win ? ['npm.exe', 'npm.cmd'] : ['npm']) {
+      if (fs.existsSync(path.join(dir, name))) return path.join(dir, name);
+    }
+  }
+  return null;
+}
+
 // The global node_modules dir per npm (handles Homebrew/Windows/volta). Queried on demand.
 // child_process is required here, not up top: loading it costs a few ms that
-// PreToolUse, which runs before every shell command, never needs to pay.
+// PreToolUse, which runs before every shell command, never needs to pay. No shell: npm's
+// npm.cmd is run as Node with the npm-cli.js beside it.
 function globalRoot() {
   try {
     const { execFileSync } = require('child_process');
-    const root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], shell: process.platform === 'win32', windowsHide: true }).trim();
-    return root || null;
+    const npm = findNpm();
+    if (!npm) return null;
+    const opts = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true };
+    const cmd = npm.toLowerCase().endsWith('.cmd');
+    const node = path.join(path.dirname(npm), 'node.exe');
+    const root = cmd
+      ? execFileSync(fs.existsSync(node) ? node : process.execPath, [path.join(path.dirname(npm), 'node_modules', 'npm', 'bin', 'npm-cli.js'), 'root', '-g'], opts)
+      : execFileSync(npm, ['root', '-g'], opts);
+    return root.trim() || null;
   } catch { return null; /* npm unavailable */ }
 }
 
