@@ -323,7 +323,7 @@ test("findProgram (Windows): the checkout named through this machine's share is 
   tool(join(top, "outside"));
   const [tools, shared, outside] = [join(repo, "tools"), repo, join(top, "outside")].map(viaShare);
   if (tools === null || shared === null || outside === null) return t.skip("this machine's administrative share cannot be reached");
-  assert.equal(find(tools, repo), null, "a PATH entry through \\\\localhost\\<drive>$");
+  assert.equal(find(tools, repo), null, "a PATH entry through \\\\127.0.0.1\\<drive>$");
   assert.equal(find(join(repo, "tools"), shared), null, "the working folder through the share, the PATH entry by its drive");
   assert.equal(admitted(join(tools, name), { cwd: repo }), false, "a program path through the share");
   assert.notEqual(find(outside, repo), null, "a folder outside the checkout through the share is used");

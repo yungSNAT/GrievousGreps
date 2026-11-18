@@ -68,15 +68,16 @@ export function pathWithoutTrail(): string {
 
 /**
  * Windows path `path` through this machine's administrative share for its drive
- * (`\\localhost\C$\...`), or null when that share cannot be reached (not Windows, the
+ * (`\\127.0.0.1\C$\...`), or null when that share cannot be reached (not Windows, the
  * Server service off, or an account the share refuses). Node's real path keeps that
- * spelling, so it names a folder without showing which.
+ * spelling, so it names a folder without showing which. The address, not `localhost`:
+ * a file URL drops the host `localhost`, so `import()` could not load a module there.
  */
 export function viaShare(path: string): string | null {
   if (process.platform !== "win32") return null;
   const m = /^([a-zA-Z]):\\(.*)$/.exec(realpathSync.native(path));
   if (!m) return null;
-  const shared = `\\\\localhost\\${m[1]}$\\${m[2]}`;
+  const shared = `\\\\127.0.0.1\\${m[1]}$\\${m[2]}`;
   return existsSync(shared) ? shared : null;
 }
 
