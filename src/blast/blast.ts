@@ -16,7 +16,7 @@
 import { impactOfMany, type EdgeHit } from "../graph/traverse.js";
 import type { GraphV1, NodeV1 } from "../graph/types.js";
 import { dirLabel, moduleIndex, parentDir, shortLabel, type ModuleIndex } from "./modules.js";
-import type { ChangedFile, LineRange } from "./diff.js";
+import type { ChangedFile, Hunk, LineRange } from "./diff.js";
 import { wordRe } from "./evidence.js";
 import type { Owner, Reviewer } from "./owners.js";
 
@@ -271,6 +271,7 @@ export function blastRadius(
   const merged = new Map<string, { hit: Impacted; from: Set<string> }>();
   /** Symbol seeds whose declaration the diff changed. */
   const declaredSeeds: NodeV1[] = [];
+  const removed = removedBlocks(changed);
 
   for (const file of changed) {
     if (file.status === "deleted") {
@@ -287,7 +288,7 @@ export function blastRadius(
     // file: the unit of change is the file itself.
     const symbolSeeds = file.ranges.length > 0 ? seedsForFile(graph, file.path, file.ranges) : [];
     for (const node of symbolSeeds) {
-      const declared = declarationChanged(node, file.ranges, opts.read);
+      const declared = declarationChanged(node, file, removed, opts.read);
       if (declared) declaredSeeds.push(node);
       seeds.push({
         id: node.id, name: node.name, kind: node.kind, path: node.path, span: node.span, wholeFile: false,
@@ -364,32 +365,76 @@ const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
 const overlaps = (ranges: LineRange[], start: number, end: number): boolean =>
   ranges.some((r) => r.start <= end && r.end >= start);
 
+/** A hunk that only deletes: git places it at the line before the gap. A hunk whose
+ * lines fell past the text cap is never taken for one, so a long deletion reads as an edit. */
+const pureDeletion = (h: Hunk): boolean => h.dropped === 0 && !h.lines.some((l) => l.sign === "+");
+
+/** One side of a hunk, whitespace collapsed. */
+const side = (h: Hunk, sign: "+" | "-"): string => collapse(h.lines.filter((l) => l.sign === sign).map((l) => l.text).join(" "));
+
 /**
- * The last line of a symbol's declaration: where the signature the graph recorded
- * ends. Found by reading the span until its whitespace-collapsed text contains that
- * signature, which is how a parameter on the third line of a wrapped signature counts.
- * The first line when the file cannot be read, or the signature is not found (the
- * file moved on from the graph).
+ * The post-image lines a file's diff added or rewrote: its ranges less its pure
+ * deletions, whose range is the line before the gap. With no hunk text, the ranges.
  */
-function declarationEnd(node: NodeV1, span: { start: number; end: number }, read?: LineReader): number {
-  const signature = node.signature ? collapse(node.signature) : "";
-  const lines = signature ? read?.(node.path) : null;
-  if (!lines) return span.start;
-  const last = Math.min(span.end, span.start + MAX_DECLARATION_LINES - 1, lines.length);
-  let text = "";
-  for (let n = span.start; n <= last; n++) {
-    const line = collapse(lines[n - 1]);
-    if (line) text = text ? `${text} ${line}` : line;
-    if (text.includes(signature)) return n;
-  }
-  return span.start;
+function addedRanges(file: ChangedFile): LineRange[] {
+  if (file.hunks.length === 0) return file.ranges;
+  return file.hunks.filter((h) => !pureDeletion(h)).map((h) => ({ start: h.start, end: h.end }));
 }
 
-/** Whether a changed range falls in `node`'s declaration ({@link declarationEnd}). */
-function declarationChanged(node: NodeV1, ranges: LineRange[], read?: LineReader): boolean {
+/**
+ * Whether one of the file's hunks changes the text of lines `start` to `end`.
+ *
+ * A pure deletion counts only when its gap lies inside, before line `end`: deleting a
+ * function's first statement leaves the gap after the signature's last line. A hunk
+ * whose two sides match once whitespace is collapsed (a reflowed signature, or a line
+ * git removed and re-added as it was) changes nothing. With no hunk text, the ranges.
+ */
+function editsLines(file: ChangedFile, start: number, end: number): boolean {
+  if (file.hunks.length === 0) return overlaps(file.ranges, start, end);
+  return file.hunks.some((h) =>
+    pureDeletion(h) ? h.start >= start && h.start < end : h.start <= end && h.end >= start && (h.dropped > 0 || side(h, "-") !== side(h, "+")));
+}
+
+/** The diff's removed lines, collapsed, one block per hunk, each line between newlines. */
+function removedBlocks(changed: ChangedFile[]): string[] {
+  return changed.flatMap((f) =>
+    f.hunks.map((h) => `\n${h.lines.filter((l) => l.sign === "-").map((l) => collapse(l.text)).filter(Boolean).join("\n")}\n`));
+}
+
+/**
+ * A symbol's declaration: from the span's first line to where the signature the graph
+ * recorded ends. Found by reading the span until its whitespace-collapsed text contains
+ * that signature, which is how a parameter on the third line of a wrapped signature
+ * counts. Just the first line when the signature is not found (the file moved on from
+ * the graph); no text when the file cannot be read.
+ */
+function declaration(node: NodeV1, span: { start: number; end: number }, read?: LineReader): { end: number; lines: string[] } {
+  const file = read?.(node.path);
+  if (!file || span.start > file.length) return { end: span.start, lines: [] };
+  const signature = node.signature ? collapse(node.signature) : "";
+  const last = Math.min(span.end, span.start + MAX_DECLARATION_LINES - 1, file.length);
+  const lines: string[] = [];
+  for (let n = span.start; signature && n <= last; n++) {
+    const line = collapse(file[n - 1]);
+    if (line) lines.push(line);
+    if (lines.join(" ").includes(signature)) return { end: n, lines };
+  }
+  const first = collapse(file[span.start - 1]);
+  return { end: span.start, lines: first ? [first] : [] };
+}
+
+/**
+ * Whether the diff changed `node`'s declaration ({@link declaration}): a hunk edits its
+ * lines ({@link editsLines}), and they are not among the diff's removed lines as they
+ * stand. Found there, the declaration moved, from another file or within this one.
+ */
+function declarationChanged(node: NodeV1, file: ChangedFile, removed: string[], read?: LineReader): boolean {
   const span = spanBounds(node.span);
   if (!span) return false;
-  return overlaps(ranges, span.start, declarationEnd(node, span, read));
+  const decl = declaration(node, span, read);
+  if (!editsLines(file, span.start, decl.end)) return false;
+  const block = `\n${decl.lines.join("\n")}\n`;
+  return decl.lines.length === 0 || !removed.some((r) => r.includes(block));
 }
 
 /**
@@ -438,7 +483,7 @@ function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedF
     });
     if (owner && !watched.has(owner.id)) watched.set(owner.id, seed);
   }
-  const rangesOf = new Map(changed.map((f) => [f.path, f.ranges]));
+  const rangesOf = new Map(changed.map((f) => [f.path, addedRanges(f)]));
   const found = new Map<string, LeftBehind>();
   for (const e of graph.edges) {
     if (e.relation !== "calls" || e.source === e.target) continue;

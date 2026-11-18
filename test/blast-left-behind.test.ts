@@ -69,6 +69,39 @@ test("blast: a body-only change leaves no caller behind", () => {
   assert.doesNotMatch(markdownReport(report), /left behind/);
 });
 
+const hunk = (start: number, end: number, lines: [sign: "+" | "-", text: string][]): ChangedFile["hunks"][number] => {
+  let n = start;
+  return { start, end, dropped: 0, lines: lines.map(([sign, text]) => ({ n: sign === "+" ? n++ : null, sign, text })) };
+};
+
+test("blast: deleting a body line just under the signature is no declaration change", () => {
+  // git records a pure deletion at the line before the gap: here the signature's last line.
+  const file: ChangedFile = { path: "a.ts", status: "modified", ranges: [{ start: 4, end: 4 }], hunks: [hunk(4, 4, [["-", "  const unused = 1;"]])] };
+  const report = blastRadius(graph(), [file], "test", { depth: 2, read });
+  assert.equal(report.seeds.find((s) => s.name === "add")?.declarationChanged, undefined);
+  assert.deepEqual(report.leftBehind, []);
+});
+
+test("blast: a declaration the diff removed and re-added as it was is not changed", () => {
+  // git's alignment can remove and re-add an unchanged line; so does moving the function.
+  const realigned = hunk(2, 2, [["-", "  a: number,"], ["+", "a: number,  "]]);
+  const same = blastRadius(graph(), [{ path: "a.ts", status: "modified", ranges: [{ start: 2, end: 2 }], hunks: [realigned] }], "test", { depth: 2, read });
+  assert.deepEqual(same.leftBehind, [], "one removed line matching the rewritten one");
+
+  const moved: ChangedFile[] = [
+    { path: "a.ts", status: "added", ranges: [{ start: 1, end: 6 }], hunks: [hunk(1, 6, ADD.map((t) => ["+", t] as ["+", string]))] },
+    { path: "old.ts", status: "modified", ranges: [{ start: 3, end: 3 }], hunks: [hunk(3, 3, ADD.map((t) => ["-", t] as ["-", string]))] },
+  ];
+  assert.deepEqual(blastRadius(graph(), moved, "test", { depth: 2, read }).leftBehind, [], "moved from old.ts unchanged");
+
+  const changedOnMove = [moved[0], { ...moved[1], hunks: [hunk(3, 3, ADD.filter((t) => !t.includes("b:")).map((t) => ["-", t] as ["-", string]))] }];
+  assert.deepEqual(
+    blastRadius(graph(), changedOnMove, "test", { depth: 2, read }).leftBehind?.map((c) => c.name),
+    ["total", "sum"],
+    "moved and given a parameter",
+  );
+});
+
 test("blast: an edit elsewhere in a caller is not an edit to its call", () => {
   const withTail = { ...files, "c.ts": [...CALLER("total").slice(0, 2), "  // reviewed", "}"] };
   const g = graph();
@@ -97,7 +130,7 @@ test("blast: a changed __init__ leaves behind the calls that construct its class
     nodes: [
       node("shop.py", "L1-L4", { kind: "file" }), node("use.py", "L1-L2", { kind: "file" }),
       node("shop.py#Cart", "L1-L4", { kind: "class", signature: "class Cart" }),
-      node("shop.py#Cart.__init__", "L2-L3", { kind: "method", owner: "Cart", signature: "def __init__(self, items)" }),
+      node("shop.py#Cart.__init__", "L2-L3", { name: "__init__", kind: "method", owner: "Cart", signature: "def __init__(self, items)" }),
       node("use.py#make", "L1-L2"),
     ],
     edges: [{ source: "use.py#make", target: "shop.py#Cart", relation: "calls", confidence: "extracted" }],
@@ -184,12 +217,19 @@ test("blast CLI: a new parameter names each caller whose call the diff left alon
   assert.match(text.stdout, /add ← total \(src\/total\.ts:3\)/);
 });
 
-test("blast CLI: a body edit reports no caller left behind", (t) => {
-  const d = builtRepo(t, TS_TREE);
+test("blast CLI: a body edit reports no caller left behind, nor does deleting the body's first line", (t) => {
+  const d = builtRepo(t, { ...TS_TREE, "src/math.ts": TS_TREE["src/math.ts"].replace("  return", "  const s = a + b;\n  return") });
   writeFileSync(join(d, "src/math.ts"), TS_TREE["src/math.ts"].replace("a + b", "b + a"));
   const report = blastJson([d]);
   assert.equal(report.seeds.find((s) => s.name === "add")?.declarationChanged, undefined);
   assert.deepEqual(report.leftBehind, []);
+
+  // A pure deletion: git places its range on the line before, the signature's last.
+  writeFileSync(join(d, "src/math.ts"), TS_TREE["src/math.ts"]);
+  const deleted = blastJson([d]);
+  assert.deepEqual((deleted.changed as { ranges: unknown }[])[0].ranges, [{ start: 4, end: 4 }]);
+  assert.deepEqual(deleted.seeds.map((s) => [s.name, s.declarationChanged]), [["add", undefined]]);
+  assert.deepEqual(deleted.leftBehind, []);
 });
 
 test("blast CLI: a Python __init__ change names the calls that construct the class", (t) => {
