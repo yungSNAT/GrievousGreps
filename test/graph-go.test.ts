@@ -502,3 +502,22 @@ test("Go extraction: a function's result of another package's type, and test fil
   assert.deepEqual(calls("main_test.go#TestLevel"), ["log/logger.go#Logger.SetLevel"]);
   assert.deepEqual(calls("main_test.go#TestParam"), []);
 });
+
+test("Go extraction: a func literal's local does not type a captured variable it does not yet shadow", async () => {
+  const graph = await goModuleGraph({
+    "main.go":
+      "package main\n\n" +
+        "type A struct{}\ntype B struct{}\n\n" +
+        "func (a *A) M() {}\nfunc (b *B) M() {}\nfunc (b *B) N() {}\n" +
+        "func NewB() *B { return &B{} }\n" +
+        "func run(cb func()) {}\n" +
+        "func before(l *A) { run(func() { l.M(); l := &B{}; l.N() }) }\n" +
+        "func outside(l *A, debug bool) { run(func() { if debug { l := NewB(); l.N() }; l.M() }) }\n",
+  });
+
+  const calls = (fn: string) =>
+    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#${fn}` && e.target === "main.go#B.M");
+  // The call before the declaration, or outside its block, is the captured *A's: never B.M.
+  assert.deepEqual(calls("before"), []);
+  assert.deepEqual(calls("outside"), []);
+});
