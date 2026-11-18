@@ -11,7 +11,7 @@ import { globalCopyCovers } from "../src/claude/hook-layers.js";
 import { hooksShim } from "../src/claude/shim-template.js";
 
 /** A home with ~/.claude hooks for `events`, calling a shim with `shim` as its bytes. */
-function homeWith(events: string[], shim = hooksShim()): { home: string; globalShim: string } {
+function homeWith(events: string[], shim = hooksShim(true)): { home: string; globalShim: string } {
   const home = mkdtempSync(join(tmpdir(), "hook-layers-"));
   const helpers = join(home, ".claude", "helpers");
   mkdirSync(helpers, { recursive: true });

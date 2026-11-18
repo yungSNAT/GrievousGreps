@@ -189,7 +189,7 @@ test("the shared hook stands down when ~/.claude answers the event, like the old
   const helpers = join(home, ".claude", "helpers");
   mkdirSync(helpers, { recursive: true });
   const globalShim = join(helpers, "graft-hooks.cjs");
-  writeFileSync(globalShim, hooksShim());
+  writeFileSync(globalShim, hooksShim(true));
   const cmd = `node "${globalShim.replace(/\\/g, "/")}" session-start`;
   writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: cmd }] }] } }));
   assert.equal(globalCopyCovers("session-start", join(tmpRepo("layers-repo"), ".trail", "hook.cjs"), home), true);

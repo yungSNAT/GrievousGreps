@@ -98,7 +98,7 @@ export function installClaudeGlobal(home: string, brand: Brand = 'graft'): Globa
   const out: GlobalWrite[] = [];
 
   try {
-    out.push(writeOwned(shim.id, shim.path, hooksShim(), 0o755));
+    out.push(writeOwned(shim.id, shim.path, hooksShim(true), 0o755));
   } catch {
     out.push({ id: shim.id, path: shim.path, action: 'skipped-unparseable' });
   }

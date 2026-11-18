@@ -77,7 +77,7 @@ function assertWired(repo: string, home: string): void {
       assert.match(h.command, / \|\| exit 0$/, h.command);
       assert.ok(h.timeout <= 15, `${h.command}: ${h.timeout} s`);
     }
-  assert.equal(readFileSync(join(home, ".claude", "helpers", "graft-hooks.cjs"), "utf8"), hooksShim(), "the ~/.claude shim, with the PreToolUse fast path");
+  assert.equal(readFileSync(join(home, ".claude", "helpers", "graft-hooks.cjs"), "utf8"), hooksShim(true), "the ~/.claude shim, with the PreToolUse fast path");
   assert.equal(readFileSync(join(repo, ".trail", "hook.cjs"), "utf8"), hooksShim(), "the shared shim");
   assert.equal(read(join(repo, ".claude", "settings.local.json")).hooks, undefined, "~/.claude carries them: none in the personal file");
   // Claude Code runs both session-start entries: the repo's stands down, so the session starts once.
