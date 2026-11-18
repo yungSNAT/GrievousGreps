@@ -166,7 +166,7 @@ impl Session<'_> {
             let at = position(&at);
             let line = at.0 as i64 + 1;
             let scopes = self.scopes(&path)?;
-            let chain = caller_chain(scopes, at);
+            let chain = caller_chain(scopes, at, &path);
             let (id, name) = match chain.last() {
                 None => (path.clone(), None),
                 Some(&inner) => {
