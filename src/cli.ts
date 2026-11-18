@@ -8,7 +8,7 @@
  * Both names run this file. Under `graft` every command keeps its old name and
  * meaning; under `trail` the layout changes (see `TRAIL` below and brand.ts).
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "./util/program.js";
 import { Command, Option } from "commander";
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
@@ -1015,7 +1015,7 @@ program
     const dir = noteQuery(queryRoot(dirArg));
     const { existsSync } = await import("node:fs");
     const { resolve, basename } = await import("node:path");
-    const { spawn } = await import("node:child_process");
+    const { spawn } = await import("./util/program.js");
     const { fileURLToPath } = await import("node:url");
     const { assertRealContextDir, contextDirFor } = await import("./context/node-file.js");
     const { startVizServer } = await import("./viz/serve.js");
@@ -1056,7 +1056,11 @@ program
     console.log(`${cmd("graft viz")} → ${srv.url}  (ctrl-c to stop)`);
     if (opts.open) {
       const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-      spawn(opener, [srv.url], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+      try {
+        spawn(opener, [srv.url], { stdio: "ignore", detached: true, shell: process.platform === "win32" }).unref();
+      } catch {
+        /* no opener on PATH: the printed URL is the fallback */
+      }
     }
   });
 
@@ -2060,7 +2064,7 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
       for (const w of selectedWrites(plan, ids)) {
         if (w.scope !== "repo") continue;
         const rel = shown(repo, w.path);
-        const r = spawnSync("git", ["status", "--porcelain", "--", rel], { cwd: repo, encoding: "utf8", windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+        const r = spawnSync("git", ["status", "--porcelain", "--", rel], { cwd: repo, encoding: "utf8", windowsHide: true });
         if (r.stdout.startsWith("??")) keepOutOfGit(repo, rel);
         else if (r.stdout.trim()) inGit.push(rel);
       }
@@ -2081,7 +2085,7 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
       if (TRAIL && !tops.includes(".trail/")) tops.push(".trail/");
       // Only what git sees as new or changed: a teammate's init over committed files has nothing to commit.
       const changedTops = tops.filter((t) => {
-        const r = spawnSync("git", ["status", "--porcelain", "--", t], { cwd: repo, encoding: "utf8", windowsHide: true }); // NOSONAR: uses the person's git on PATH with separate arguments and no shell.
+        const r = spawnSync("git", ["status", "--porcelain", "--", t], { cwd: repo, encoding: "utf8", windowsHide: true });
         return r.status !== 0 || r.stdout.trim().length > 0;
       });
       tops.splice(0, tops.length, ...changedTops);
@@ -2156,7 +2160,7 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
 
 /** The repo's team committed `.trail/`: trail is shared here already. */
 function trailCommitted(repo: string): boolean {
-  const r = spawnSync("git", ["ls-files", "--", ".trail"], { cwd: repo, encoding: "utf8", windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+  const r = spawnSync("git", ["ls-files", "--", ".trail"], { cwd: repo, encoding: "utf8", windowsHide: true });
   return r.status === 0 && r.stdout.trim().length > 0;
 }
 

@@ -73,6 +73,7 @@ export const GENERIC_LANGS: readonly GenericLang[] = [
   { name: "rescript", exts: [".res", ".resi"], wasm: "rescript" },
   { name: "groovy", exts: [".groovy", ".gradle"], wasm: "groovy" },
   { name: "elm", exts: [".elm"], wasm: "elm" },
+  { name: "haskell", exts: [".hs"], wasm: "haskell" },
   // Free-form Fortran only: fixed-form `.f`/`.for` files read badly in this grammar.
   { name: "fortran", exts: [".f90", ".f95", ".f03", ".f08"], wasm: "fortran" },
 ];
@@ -1654,7 +1655,8 @@ function tagsExtract(
     if (defKey && cap.name) {
       defNameAt.add(cap.name.startIndex);
       const name = (langName === "objc" && objcSelector(cap[defKey])) || cap.name.text;
-      mkDef(name, KIND[defKey.slice("definition.".length)] ?? "function", defScope(cap[defKey], langName));
+      const equations = langName === "haskell" ? haskellEquations(cap[defKey]) : undefined;
+      if (!equations?.later) mkDef(name, KIND[defKey.slice("definition.".length)] ?? "function", equations?.whole ?? defScope(cap[defKey], langName));
     }
     // Elixir remote call (`Mod.fun`): the bare `fun` is ambiguous repo-wide by
     // construction; extractElixir re-emits it receiver-typed instead.
@@ -1800,6 +1802,25 @@ function nextNamedSibling(n: TsNode): TsNode | null {
   }
   return null;
 }
+/** A Haskell function written as several equations (`area (Circle r) = ...` then
+ * `area (Square s) = ...`) is one definition: the first equation's span reaches to the
+ * end of the run of adjacent equations of its name, comments between them included, and
+ * a later equation is no definition of its own, so the name stays unique in its file. */
+function haskellEquations(n: TsNode): { later: boolean; whole?: TsNode } {
+  const nameOf = (c: TsNode | null | undefined) => (c?.type === "function" ? c.childForFieldName?.("name")?.text : undefined);
+  const name = nameOf(n);
+  const p = n.parent;
+  if (name === undefined || !p?.namedChild) return { later: false };
+  const kids = Array.from({ length: p.namedChildCount ?? 0 }, (_, i) => p.namedChild!(i)!).filter((c) => c.type !== "comment");
+  const at = kids.findIndex((c) => c.startIndex === n.startIndex);
+  if (at > 0 && nameOf(kids[at - 1]) === name) return { later: true };
+  let last = at;
+  while (nameOf(kids[last + 1]) === name) last += 1;
+  if (last === at) return { later: false };
+  const end = kids[last];
+  return { later: false, whole: { type: n.type, text: n.text, startIndex: n.startIndex, endIndex: end.endIndex, startPosition: n.startPosition, endPosition: end.endPosition, parent: p } };
+}
+
 function defScope(node: TsNode, langName?: string): TsNode {
   let n = node;
   while (n.parent && DEF_CONTAINER.test(n.parent.type)) n = n.parent;

@@ -4,7 +4,7 @@
  * one small file read, and a spawn when a run is due.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn } from "../util/program.js";
 import { dirname, join } from "node:path";
 import { graftCliPath } from "../claude/paths.js";
 import { trailHome } from "../notes/trail-home.js";

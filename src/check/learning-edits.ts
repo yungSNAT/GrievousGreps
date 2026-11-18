@@ -6,7 +6,7 @@
  * says what changed. And only the learnings already on the base branch can
  * fail the check: one saved on this branch hasn't been reviewed yet.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../util/program.js";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { noteName, parseNote, type Note } from "../notes/notes.js";
@@ -15,7 +15,7 @@ import type { CheckFinding } from "./types.js";
 
 function show(repo: string, ref: string, path: string): string | null {
   try {
-    return execFileSync("git", ["show", `${ref}:${path}`], { // NOSONAR: the person's own git, found through PATH on purpose
+    return execFileSync("git", ["show", `${ref}:${path}`], {
       cwd: repo,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
@@ -33,7 +33,7 @@ const isLearningPath = (p: string) => p.startsWith(`${LEARNINGS_DIR}/`) && p.end
 /** The learning files in `.trail/learnings/` at `from`, read from the top of the repo whatever folder `repo` is. */
 function learningPathsAt(repo: string, from: string): string[] {
   try {
-    const out = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", from, "--", LEARNINGS_DIR], { // NOSONAR: the person's own git, found through PATH on purpose
+    const out = execFileSync("git", ["ls-tree", "--full-tree", "-r", "--name-only", from, "--", LEARNINGS_DIR], {
       cwd: repo,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],

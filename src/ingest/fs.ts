@@ -1,7 +1,7 @@
 /**
  * Filesystem walking used by `init`/`check` to enumerate a repo's source files.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/program.js";
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -208,7 +208,7 @@ function gitVisibleFiles(
   // Following uses `-t --stage` so one process can distinguish gitlinks from
   // tracked and untracked files. `-z` keeps either form safe for unusual paths.
   const result = spawnSync(
-    "git", // NOSONAR: the person's own git, found through PATH on purpose
+    "git",
     ["ls-files", "-t", "--stage", "--cached", "--others", "--exclude-standard", "-z", "--"],
     {
       cwd: root,
@@ -313,7 +313,7 @@ function gitVisibleFiles(
  * did before submodule support existed. */
 function gitVisibleFilesShallow(root: string, includes?: ReadonlySet<string>): string[] | null {
   const result = spawnSync(
-    "git", // NOSONAR: the person's own git, found through PATH on purpose
+    "git",
     ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"],
     {
       cwd: root,

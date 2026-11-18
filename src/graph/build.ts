@@ -36,7 +36,8 @@ import { writeFingerprint } from "./fingerprint.js";
 import { seedGraph, type SeedResult } from "./seed.js";
 import { filterByOnlyDirs, listSourceStats, normalizeExtensions } from "./source-files.js";
 import { readPythonRoots } from "./python-roots.js";
-import { readCargoTargets } from "./cargo-targets.js";
+import { isTable, readCargoTargets } from "./cargo-targets.js";
+import { parse as parseToml } from "smol-toml";
 import { resolveEdges, type GoModule, type RustTargets, type TsPackage, type TsPaths } from "./resolve.js";
 import { readFileInside } from "../util/safe-fs.js";
 import { enrichGraph, type EnrichStats } from "./enrich.js";
@@ -343,28 +344,32 @@ function readRustCrates(root: string, repoFiles: string[], errors: string[]): { 
     }
     const dir = posix.dirname(relPosix(root, f));
     manifests.set(dir, text);
-    let section = "";
-    for (const line of (text ?? "").split(/\r?\n/)) {
-      const header = /^\s*\[+\s*([^\]]+?)\s*\]+/.exec(line);
-      if (header) {
-        section = header[1];
-        const table = /(?:^|\.)(?:dev-|build-)?dependencies\.([\w-]+)$/.exec(section);
-        if (table) deps.add(norm(table[1]));
-        continue;
+    if (text === null) continue;
+    let doc: Record<string, unknown>;
+    try {
+      doc = parseToml(text);
+    } catch {
+      continue; // readCargoTargets reports a manifest that is not TOML
+    }
+    // Cargo reads `[project]` as `[package]` before the 2024 edition.
+    const pkg = doc.package ?? doc.project;
+    if (isTable(pkg) && typeof pkg.name === "string" && pkg.name) {
+      const crate = norm(pkg.name);
+      internal.add(crate);
+      rustCrateDirs.set(crate, dir);
+    }
+    // Dependencies sit at the top, under each `[target.<cfg>]` and under `[workspace]`.
+    const holders = [doc, ...(isTable(doc.target) ? Object.values(doc.target).filter(isTable) : [])];
+    if (isTable(doc.workspace)) holders.push(doc.workspace);
+    for (const holder of holders) {
+      for (const kind of ["dependencies", "dev-dependencies", "build-dependencies", "dev_dependencies", "build_dependencies"]) {
+        const table = holder[kind];
+        if (!isTable(table)) continue;
+        for (const [name, spec] of Object.entries(table)) {
+          deps.add(norm(name));
+          if (isTable(spec) && spec.path !== undefined) internal.add(norm(name));
+        }
       }
-      const key = /^\s*([\w-]+)\s*=\s*(.*)$/.exec(line);
-      if (!key) continue;
-      if (section === "package" && key[1] === "name") {
-        const crate = norm(key[2].replace(/["'\s]/g, ""));
-        internal.add(crate);
-        rustCrateDirs.set(crate, dir);
-      }
-      if (/(?:^|\.)(?:dev-|build-)?dependencies$/.test(section)) {
-        deps.add(norm(key[1]));
-        if (/\bpath\s*=/.test(key[2])) internal.add(norm(key[1]));
-      }
-      const table = /(?:^|\.)(?:dev-|build-)?dependencies\.([\w-]+)$/.exec(section);
-      if (table && key[1] === "path") internal.add(norm(table[1]));
     }
   }
   for (const name of internal) deps.delete(name);
@@ -594,6 +599,7 @@ export async function buildGraph(
   if (opts.lsp) {
     const { enrichWithLsp } = await import("./lsp/enrich.js");
     const r = await enrichWithLsp(graph, root);
+    errors.push(...r.notices);
     graph.meta.edgeCount = graph.edges.length;
     opts.onProgress?.({ phase: "enrich", index: r.added, total: r.queried, file: `lsp:${r.servers.join(", ") || "none"}` });
   }
