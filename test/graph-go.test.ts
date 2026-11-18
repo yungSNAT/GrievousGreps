@@ -355,3 +355,53 @@ test("Go extraction: a local that shadows an import name is not the package", as
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("Go extraction: a receiver typed by a parameter or a function's result resolves its method", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "graft-go-recv-"));
+  try {
+    mkdirSync(join(dir, "log"));
+    writeFileSync(join(dir, "go.mod"), "module example.com/app\n\ngo 1.22\n");
+    writeFileSync(
+      join(dir, "log", "logger.go"),
+      "package log\n\n" +
+        "type Logger struct{ level int }\n" +
+        "type Entry struct{ logger *Logger }\n\n" +
+        "var std = New()\n\n" +
+        "func New() *Logger { return &Logger{} }\n" +
+        "func NewEntry(l *Logger) *Entry { return &Entry{logger: l} }\n" +
+        "func Load() (*Logger, error) { return New(), nil }\n" +
+        "func Pair() (*Entry, *Logger) { return nil, nil }\n" +
+        "func (l *Logger) SetLevel(v int) { l.level = v }\n" +
+        "func (e *Entry) SetLevel(v int) {}\n" +
+        "func SetLevel(v int) { std.SetLevel(v) }\n",
+    );
+    writeFileSync(
+      join(dir, "main.go"),
+      'package main\n\nimport "example.com/app/log"\n\n' +
+        "func run(f func(*log.Logger)) {}\n" +
+        "func fromCtor() { l := log.New(); l.SetLevel(1) }\n" +
+        "func fromParam(l *log.Logger) { l.SetLevel(1) }\n" +
+        "func fromLiteral() { run(func(l *log.Logger) { l.SetLevel(1) }) }\n" +
+        "func fromEntry() { e := log.NewEntry(nil); e.SetLevel(1) }\n" +
+        "func fromPair() { l, _ := log.Load(); l.SetLevel(1) }\n" +
+        "func fromSecond() { _, l := log.Pair(); l.SetLevel(1) }\n",
+    );
+
+    await buildGraph(dir);
+    const graph = readGraph(wiringPath(join(dir, "graft")))!;
+
+    const setLevel = (source: string) =>
+      graph.edges
+        .filter((e) => e.relation === "calls" && e.source === source && e.target.endsWith("SetLevel"))
+        .map((e) => e.target);
+    assert.deepEqual(setLevel("log/logger.go#SetLevel"), ["log/logger.go#Logger.SetLevel"]);
+    for (const fn of ["fromCtor", "fromParam", "fromLiteral", "fromPair"]) {
+      assert.deepEqual(setLevel(`main.go#${fn}`), ["log/logger.go#Logger.SetLevel"], fn);
+    }
+    assert.deepEqual(setLevel("main.go#fromEntry"), ["log/logger.go#Entry.SetLevel"]);
+    // Only a function's first result is read, so the second value stays untyped rather than guessed.
+    assert.deepEqual(setLevel("main.go#fromSecond"), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
