@@ -436,6 +436,9 @@ test("Go extraction: a receiver's type names its package, and a guess is dropped
         "func declaredResult() { x := log.NewEntry(); x.SetLevel(1) }\n" +
         'func rebound() { config, _ := config.Load(); config.Get("x") }\n' +
         "func twoLiterals() { run(func(l *log.Logger) { l.SetLevel(1) }); runEntry(func(l *log.Entry) { l.SetLevel(1) }) }\n" +
+        "func twoBlocks(ok bool) { if ok { l := &log.Logger{}; l.SetLevel(1) } else { l := &log.Entry{}; l.SetLevel(1) } }\n" +
+        "func literalOnly(l *Logger) { run(func(l *log.Logger) {}); l.SetLevel(1) }\n" +
+        'func shadowAfter() { x, _ := config.Load(); config := 1; _ = config; x.Get("k") }\n' +
         "func viaVar() { var x = log.New(); x.SetLevel(1) }\n" +
         "func pair() { a, b := log.New(), New(); a.SetLevel(1); b.SetLevel(2) }\n" +
         "func sameFolderNew() { x := New(); x.SetLevel(1) }\n",
@@ -458,10 +461,42 @@ test("Go extraction: a receiver's type names its package, and a guess is dropped
   assert.deepEqual(calls("declaredResult", "SetLevel"), [imported]);
   // S5: config is the package where Load is called, and holds Load's result afterwards.
   assert.deepEqual(calls("rebound", ""), ["config/config.go#Config.Get", "config/config.go#Load"]);
-  // H1: one name, 2 types in one scope: neither is guessed.
-  assert.deepEqual(calls("twoLiterals", "SetLevel"), []);
+  // H1: one name, 2 types in one scope (blocks share their function's): neither is guessed.
+  assert.deepEqual(calls("twoBlocks", "SetLevel"), []);
+  // Each func literal is a scope of its own: its parameters type only its own body.
+  assert.deepEqual(calls("twoLiterals", "SetLevel"), ["log/logger.go#Entry.SetLevel", imported]);
+  assert.deepEqual(calls("literalOnly", "SetLevel"), [local]);
+  // A local declared after the call does not hide the package the call names.
+  assert.deepEqual(calls("shadowAfter", "Get"), ["config/config.go#Config.Get"]);
   assert.deepEqual(calls("viaVar", "SetLevel"), [imported]);
   assert.deepEqual(calls("pair", "SetLevel"), [imported, local]);
   // S6: a TypeScript New in the same folder does not make Go's ambiguous.
   assert.deepEqual(calls("sameFolderNew", "SetLevel"), [local]);
+});
+
+test("Go extraction: a function's result of another package's type, and test files, reach the right method", async () => {
+  const graph = await goModuleGraph({
+    "log/logger.go": "package log\n\ntype Logger struct{}\n\nfunc (l *Logger) SetLevel(v int) {}\n",
+    "log/logger_test.go": "package log\n\nfunc (l *Logger) Check() {}\n",
+    "logtest/null.go":
+      'package logtest\n\nimport (\n\t"bytes"\n\tlg "example.com/app/log"\n)\n\n' +
+        "func NewNullLogger() (*lg.Logger, int) { return nil, 0 }\n" +
+        "func NewBuffer() *bytes.Buffer { return nil }\n",
+    "main.go":
+      'package main\n\nimport "example.com/app/logtest"\n\n' +
+        "func qualified() { l, _ := logtest.NewNullLogger(); l.SetLevel(1) }\n" +
+        "func outside() { b := logtest.NewBuffer(); b.SetLevel(1) }\n",
+    "main_test.go":
+      'package main\n\nimport "example.com/app/logtest"\n\n' +
+        "func TestLevel() { l, _ := logtest.NewNullLogger(); l.SetLevel(1); l.Check() }\n",
+  });
+
+  const calls = (source: string) =>
+    graph.edges.filter((e) => e.relation === "calls" && e.source === source && e.target.includes("Logger.")).map((e) => e.target).sort();
+  // The result's type is read through the returning file's imports, alias included.
+  assert.deepEqual(calls("main.go#qualified"), ["log/logger.go#Logger.SetLevel"]);
+  // A type from outside the module names no method here.
+  assert.deepEqual(calls("main.go#outside"), []);
+  // A test file reaches a method in another package's ordinary files, never in its test files.
+  assert.deepEqual(calls("main_test.go#TestLevel"), ["log/logger.go#Logger.SetLevel"]);
 });
