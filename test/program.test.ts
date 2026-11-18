@@ -270,7 +270,7 @@ test("(Windows) a path with no drive, which the child would take on its own fold
 
 test("a git.com refused for linking into the working folder does not hide a git.exe beside it", () => {
   const isFile = has("C:\\a\\git.com", "C:\\a\\git.exe");
-  const folders = (file: string) => (file.endsWith("git.com") ? ["C:\\repo"] : []);
+  const folders = (file: string) => (file === "C:\\a\\git.com" ? ["C:\\repo"] : []);
   const found = findProgram("git", { platform: "win32", env: { PATH: "C:\\a" }, cwd: "C:\\repo", isFile, realpath: (dir: string) => dir, folders });
   assert.equal(found, "C:\\a\\git.exe");
 });
@@ -333,6 +333,7 @@ test("admitted (Windows): .. is taken out of the path as written before links ar
 
 test("an absolute path and a shell command line pass through as given", () => {
   assert.equal(spawnSync(process.execPath, ["-e", "process.exit(3)"]).status, 3);
+  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- the shell is what this test checks; the command line is fixed
   const r = spawnSync(`"${process.execPath}" -e "process.exit(4)"`, [], { shell: true });
   assert.equal(r.status, 4);
 });

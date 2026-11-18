@@ -133,6 +133,7 @@ for (const how of ["relative", "absolute"] as const) {
   test(`a shell named by a${how === "absolute" ? "n absolute" : " relative"} path in the working folder never runs`, (t) => {
     const repo = clonedRepo(t);
     const { marks, shell } = plantShell(t, repo, how);
+    // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- a planted shell is what this test checks; the command line is fixed
     const r = inside(repo, () => trailSpawnSync("echo shell-ran", [], { shell, encoding: "utf8" }));
     assert.deepEqual(ran(marks), [], "the planted shell ran");
     assert.notEqual(r.error, undefined, "the planted shell was started");
@@ -145,6 +146,7 @@ test("cmd.exe planted in the working folder never runs as the shell, even with C
   const comspec = process.env.ComSpec;
   t.after(() => { process.env.ComSpec = comspec; });
   delete process.env.ComSpec; // Node then starts a bare cmd.exe
+  // nosemgrep: javascript.lang.security.audit.spawn-shell-true.spawn-shell-true -- a planted cmd.exe is what this test checks; the command line is fixed
   const r = inside(repo, () => trailSpawnSync("echo shell-ran", [], { shell: true, encoding: "utf8" }));
   assert.deepEqual(ran(marks), [], "the planted cmd.exe ran");
   assert.match(String(r.stdout), /shell-ran/);

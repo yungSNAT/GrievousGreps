@@ -50,7 +50,7 @@ export const refused = (path: string) => `${path} was not started: trail starts 
  * and of 2 spellings Node gives the child the first in sort order (`PATH` before `Path`). */
 function envValue(env: NodeJS.ProcessEnv, name: string, win: boolean): string | undefined {
   if (!win) return env[name];
-  const key = Object.keys(env).filter((k) => k.toUpperCase() === name).sort()[0];
+  const key = Object.keys(env).filter((k) => k.toUpperCase() === name).sort((a, b) => Number(a > b) - Number(a < b))[0];
   return key === undefined ? undefined : env[key];
 }
 
