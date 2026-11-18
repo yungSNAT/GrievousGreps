@@ -1,0 +1,107 @@
+{
+  "_create_file": {
+    "target": "loguru/_file_sink.py",
+    "target_lines": [273],
+    "required": [
+      {"file":"loguru/_file_sink.py","chain":"FileSink::__init__","lines":[240]},
+      {"file":"loguru/_file_sink.py","chain":"FileSink::write","lines":[246]},
+      {"file":"loguru/_file_sink.py","chain":"FileSink::_reopen_if_needed","lines":[308]},
+      {"file":"loguru/_file_sink.py","chain":"FileSink::_terminate_file","lines":[341]}
+    ]
+  },
+  "prepare_format": {
+    "target": "loguru/_colorizer.py",
+    "target_lines": [393],
+    "required": [
+      {"file":"loguru/_handler.py","chain":"prepare_colored_format","lines":[14]},
+      {"file":"loguru/_handler.py","chain":"prepare_stripped_format","lines":[19]},
+      {"file":"loguru/_logger.py","chain":"Logger::add","lines":[1012]}
+    ]
+  },
+  "env": {
+    "target": "loguru/_defaults.py",
+    "target_lines": [4],
+    "required": [
+      {"file":"loguru/_defaults.py","chain":"<file>","lines":[30,32,39,40,41,42,43,44,45,46,47,49,50,51,53,54,55,57,58,59,61,62,63,65,66,67,69,70,71,73,74,75]},
+      {"file":"tests/test_defaults.py","chain":"test_string","lines":[11]},
+      {"file":"tests/test_defaults.py","chain":"test_bool_positive","lines":[19]},
+      {"file":"tests/test_defaults.py","chain":"test_bool_negative","lines":[27]},
+      {"file":"tests/test_defaults.py","chain":"test_int","lines":[34]},
+      {"file":"tests/test_defaults.py","chain":"test_invalid_int","lines":[46]},
+      {"file":"tests/test_defaults.py","chain":"test_invalid_bool","lines":[58]},
+      {"file":"tests/test_defaults.py","chain":"test_invalid_type","lines":[66]}
+    ]
+  },
+  "create_logger_lock": {
+    "target": "loguru/_locks_machinery.py",
+    "target_lines": [42],
+    "required": [
+      {"file":"loguru/_locks_machinery.py","chain":"<file>","lines":[7]},
+      {"file":"loguru/_logger.py","chain":"Core::__init__","lines":[229]},
+      {"file":"loguru/_logger.py","chain":"Core::__setstate__","lines":[240]}
+    ]
+  },
+  "load_ctime_functions": {
+    "target": "loguru/_ctime_functions.py",
+    "target_lines": [4],
+    "required": [
+      {"file":"loguru/_ctime_functions.py","chain":"<file>","lines":[57]},
+      {"file":"tests/test_filesink_rotation.py","chain":"test_time_rotation_reopening_native","lines":[709]},
+      {"file":"tests/test_filesink_rotation.py","chain":"test_time_rotation_reopening_xattr_attributeerror","lines":[767]},
+      {"file":"tests/test_filesink_rotation.py","chain":"test_time_rotation_reopening_xattr_oserror","lines":[803]}
+    ]
+  },
+  "_log": {
+    "target": "loguru/_logger.py",
+    "target_lines": [2068],
+    "required": [
+      {"file":"loguru/_logger.py","chain":"Logger::catch::Catcher::__exit__","lines":[1320]},
+      {"file":"loguru/_logger.py","chain":"Logger::trace","lines":[2212]},
+      {"file":"loguru/_logger.py","chain":"Logger::debug","lines":[2216]},
+      {"file":"loguru/_logger.py","chain":"Logger::info","lines":[2220]},
+      {"file":"loguru/_logger.py","chain":"Logger::success","lines":[2224]},
+      {"file":"loguru/_logger.py","chain":"Logger::warning","lines":[2228]},
+      {"file":"loguru/_logger.py","chain":"Logger::error","lines":[2232]},
+      {"file":"loguru/_logger.py","chain":"Logger::critical","lines":[2236]},
+      {"file":"loguru/_logger.py","chain":"Logger::exception","lines":[2246]},
+      {"file":"loguru/_logger.py","chain":"Logger::log","lines":[2254]}
+    ]
+  },
+  "_format_exception": {
+    "target": "loguru/_better_exceptions.py",
+    "target_lines": [401],
+    "required": [
+      {"file":"loguru/_better_exceptions.py","chain":"ExceptionFormatter::_format_exception","lines":[415,434,451,544]},
+      {"file":"loguru/_better_exceptions.py","chain":"ExceptionFormatter::format_exception","lines":[591]}
+    ]
+  },
+  "ansi_escape": {
+    "target": "loguru/_colorizer.py",
+    "target_lines": [81],
+    "required": [
+      {"file":"loguru/_colorizer.py","chain":"AnsiParser","lines":[93,116,153]}
+    ]
+  },
+  "_indent": {
+    "target": "loguru/_better_exceptions.py",
+    "target_lines": [185],
+    "required": [
+      {"file":"loguru/_better_exceptions.py","chain":"ExceptionFormatter::_format_exception","lines":[425,427,444,446,516,518,524,533,538,542,552]}
+    ]
+  },
+  "should_wrap": {
+    "target": "loguru/_colorama.py",
+    "target_lines": [57],
+    "required": [
+      {"file":"loguru/_logger.py","chain":"Logger::add","lines":[872]},
+      {"file":"tests/test_colorama.py","chain":"test_dont_wrap_on_linux","lines":[289]},
+      {"file":"tests/test_colorama.py","chain":"test_dont_wrap_if_not_original_stdout_or_stderr","lines":[299]},
+      {"file":"tests/test_colorama.py","chain":"test_dont_wrap_if_terminal_has_vt_support","lines":[311]},
+      {"file":"tests/test_colorama.py","chain":"test_dont_wrap_if_winapi_false","lines":[323]},
+      {"file":"tests/test_colorama.py","chain":"test_wrap_if_winapi_true_and_no_vt_support","lines":[335]},
+      {"file":"tests/test_colorama.py","chain":"test_wrap_if_winapi_true_and_vt_check_fails","lines":[348]},
+      {"file":"tests/test_colorama.py","chain":"test_wrap_if_winapi_true_and_stream_has_no_fileno","lines":[360]},
+      {"file":"tests/test_colorama.py","chain":"test_wrap_if_winapi_true_and_old_colorama_version","lines":[373]}
+    ]
+  }
+}

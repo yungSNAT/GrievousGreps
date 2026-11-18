@@ -1,0 +1,126 @@
+{
+  "getRequestHost": {
+    "target": "src/utils/request.ts",
+    "target_lines": [443],
+    "required": [
+      {"file":"src/utils/request.ts","chain":"getRequestURL","lines":[514]},
+      {"file":"test/utils.test.ts","chain":"<file>","lines":[275,282,290]}
+    ]
+  },
+  "compileRouteRules": {
+    "target": "src/rules/compiler/compile.ts",
+    "target_lines": [34],
+    "required": [
+      {"file":"test/bench/rules-bundle-inspect.ts","chain":"compile","lines":[110]},
+      {"file":"test/rules/compiler.test-d.ts","chain":"<file>","lines":[18,32,37]},
+      {"file":"test/rules/compiler.test.ts","chain":"<file>","lines":[165,179,340,436,445,452,466,470,480,483,493,503,511,515,524,617,752,753]},
+      {"file":"test/rules/treeshake.test.ts","chain":"<file>","lines":[233,241,254]},
+      {"file":"test/rules/types.test-d.ts","chain":"<file>","lines":[93,94]}
+    ]
+  },
+  "compileHandlersImport": {
+    "target": "src/rules/compiler/compile.ts",
+    "target_lines": [72],
+    "required": [
+      {"file":"test/rules/compiler.test-d.ts","chain":"<file>","lines":[26,39]},
+      {"file":"test/rules/compiler.test.ts","chain":"<file>","lines":[321,332,339,350,354,376,394,406,424,432,562,565,589,605,704,735]}
+    ]
+  },
+  "appendCorsHeaders": {
+    "target": "src/utils/cors.ts",
+    "target_lines": [138],
+    "required": [
+      {"file":"src/utils/cors.ts","chain":"handleCors","lines":[195]},
+      {"file":"test/rules/rules.test.ts","chain":"<file>","lines":[130]},
+      {"file":"test/unit/cors.test.ts","chain":"<file>","lines":[867,888,910,930,953,954]}
+    ]
+  },
+  "createOriginHeaders": {
+    "target": "src/utils/internal/cors.ts",
+    "target_lines": [104],
+    "required": [
+      {"file":"src/utils/cors.ts","chain":"appendCorsPreflightHeaders","lines":[119]},
+      {"file":"src/utils/cors.ts","chain":"appendCorsHeaders","lines":[140]},
+      {"file":"test/unit/cors.test.ts","chain":"<file>","lines":[337,340,343,346,368,372,375,397,401,428,432,435,439,458,459,474,475]}
+    ]
+  },
+  "mergeRuleOptions": {
+    "target": "src/rules/merge.ts",
+    "target_lines": [116],
+    "required": [
+      {"file":"src/rules/internal/premerge.ts","chain":"mergeChainRule","lines":[199]},
+      {"file":"src/rules/merge.ts","chain":"mergeRouteRule","lines":[231]},
+      {"file":"src/rules/normalize.ts","chain":"normalizeRouteRules","lines":[133]}
+    ]
+  },
+  "proxy": {
+    "target": "src/utils/proxy.ts",
+    "target_lines": [284],
+    "required": [
+      {"file":"src/utils/proxy.ts","chain":"proxyRequest","lines":[237]},
+      {"file":"test/proxy.test.ts","chain":"<file>","lines":[14,34,230,874,886,937,1250,1294]}
+    ]
+  },
+  "updateSession": {
+    "target": "src/utils/session.ts",
+    "target_lines": [241],
+    "required": [
+      {"file":"src/utils/session.ts","chain":"useSession","lines":[117]},
+      {"file":"src/utils/session.ts","chain":"useSession::update","lines":[129]},
+      {"file":"src/utils/session.ts","chain":"getSession","lines":[215]},
+      {"file":"test/session.test.ts","chain":"<file>","lines":[676,712,725]}
+    ]
+  },
+  "getRequestIP": {
+    "target": "src/utils/request.ts",
+    "target_lines": [551],
+    "required": [
+      {"file":"src/utils/fingerprint.ts","chain":"getRequestFingerprint","lines":[47]},
+      {"file":"test/unit/event.test.ts","chain":"<file>","lines":[96]},
+      {"file":"test/utils.test.ts","chain":"<file>","lines":[440,453,466,479]}
+    ]
+  },
+  "use": {
+    "target": "src/types/h3.ts",
+    "target_lines": [188],
+    "required": [
+      {"file":"test/app.test.ts","chain":"<file>","lines":[55,85,97,113,120,135,140,153,176,195,209,216,234,244,261,262,269,270,294,312,438,469,499,511,524,543,553,565]},
+      {"file":"test/bench/bench.impl.ts","chain":"h3Middleware","lines":[37,38,43]},
+      {"file":"test/cache.test.ts","chain":"<file>","lines":[27,50,65,80,98,131,144,162,172,186,205]},
+      {"file":"test/errors.test.ts","chain":"<file>","lines":[39,68,89,108,224,232,240,248,284,294,304,314,328,345,358,376,393,414,435,452]},
+      {"file":"test/hooks.test.ts","chain":"<file>","lines":[7,25,41,57,77,103]},
+      {"file":"test/integrations.test.ts","chain":"<file>","lines":[80,88,95,121,129,136,159]},
+      {"file":"test/iterable.test.ts","chain":"<file>","lines":[9,16,22,43,78,105,200,209,219,235,248,266,279]},
+      {"file":"test/middleware.test.ts","chain":"<file>","lines":[11,19,24,30,35,40,51,152,166,186,188,203,205,223,256,267,284,305,314,339,348,365,375]},
+      {"file":"test/mount.test.ts","chain":"<file>","lines":[74,77,110,138,147,148,158,159,178,198,216,237,241,258,278,293,312,332,351,360,375]},
+      {"file":"test/router.test.ts","chain":"<file>","lines":[23,134,147,218,229,260]},
+      {"file":"test/rules/cache.test.ts","chain":"createApp","lines":[12]},
+      {"file":"test/rules/cache.test.ts","chain":"<file>","lines":[39,226,233,530,708,712,733,736,760,764,783,790,827,830,991,1017,1168,1173]},
+      {"file":"test/rules/cache.test.ts","chain":"mkApp","lines":[59]},
+      {"file":"test/rules/cache.test.ts","chain":"mkApp","lines":[75]},
+      {"file":"test/rules/cache.test.ts","chain":"mkApp","lines":[100]},
+      {"file":"test/rules/cache.test.ts","chain":"createPassthroughApp","lines":[1191]},
+      {"file":"test/rules/encoding.test.ts","chain":"<file>","lines":[138,154,165,177,185,199,284,406,424,452,507,549,649,755,838,958,1027,1060,1222,1240,1285,1319]},
+      {"file":"test/rules/match.test.ts","chain":"<file>","lines":[453]},
+      {"file":"test/rules/memoize.test.ts","chain":"<file>","lines":[213]},
+      {"file":"test/rules/merge.test.ts","chain":"<file>","lines":[682]},
+      {"file":"test/rules/middleware.test.ts","chain":"appWithContextProbe","lines":[22]},
+      {"file":"test/rules/middleware.test.ts","chain":"<file>","lines":[68,153,172,173,191,192,205,206,226,265,280,305]},
+      {"file":"test/rules/rules.test.ts","chain":"createApp","lines":[15]},
+      {"file":"test/rules/rules.test.ts","chain":"<file>","lines":[70,113,114,129,156,159,186,187,729]},
+      {"file":"test/security.test.ts","chain":"<file>","lines":[7,56,93,194,273,280,337,344,393,427]},
+      {"file":"test/security.test.ts","chain":"buildApp","lines":[241]},
+      {"file":"test/security.test.ts","chain":"setup","lines":[305]},
+      {"file":"test/session.test.ts","chain":"<file>","lines":[36]},
+      {"file":"test/static.test.ts","chain":"<file>","lines":[334,419,423,638,639]},
+      {"file":"test/tracing.test.ts","chain":"<file>","lines":[186,190,213,214,280,284,318,354,358,393,397,432,436,500,527,564,614,620]},
+      {"file":"test/unit/middleware.test.ts","chain":"<file>","lines":[72,74,80,83,97,117]},
+      {"file":"test/unit/route-normalize.test.ts","chain":"<file>","lines":[91,147]},
+      {"file":"test/utils.test.ts","chain":"<file>","lines":[102,117,125,131,139,225,231,240,494,511,525,537,542,557,576,592,610,622,630,851,865,879,900,917,942,957,977,994,1018,1034,1051,1066,1079,1092,1104,1124,1148,1164,1178]},
+      {"file":"test/ws.test.ts","chain":"<file>","lines":[107,123,136,168,208]}
+    ],
+    "optional": [
+      {"file":"src/tracing.ts","chain":"tracingPlugin","lines":[106,107,108]}
+    ]
+  }
+}

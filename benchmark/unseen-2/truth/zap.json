@@ -1,0 +1,184 @@
+{
+  "With": {
+    "target": "sugar.go",
+    "target_lines": [114],
+    "required": [
+      {"file":"sugar_test.go","chain":"TestSugarFieldsInvalidPairs","lines":[272]},
+      {"file":"sugar_test.go","chain":"TestSugarStructuredLogging","lines":[309,310,311,312,313,314]},
+      {"file":"sugar_test.go","chain":"TestSugarConcatenatingLogging","lines":[342,343,344,345,346,347]},
+      {"file":"sugar_test.go","chain":"TestSugarTemplatedLogging","lines":[379,380,381,382,383,384]},
+      {"file":"sugar_test.go","chain":"TestSugarLnLogging","lines":[416,417,418,419,420,421]}
+    ],
+    "optional": [
+      {"file":"sugar_test.go","chain":"TestSugarWith","lines":[60]},
+      {"file":"sugar_test.go","chain":"TestSugarWithCaptures","lines":[175]}
+    ]
+  },
+  "Float32s": {
+    "target": "array.go",
+    "target_lines": [69],
+    "required": [
+      {"file":"array_test.go","chain":"TestArrayWrappers","lines":[67,87]},
+      {"file":"field_test.go","chain":"TestFieldConstructors","lines":[144]}
+    ],
+    "optional": [
+      {"file":"field.go","chain":"Any","lines":[529]}
+    ]
+  },
+  "AppendFloat64": {
+    "target": "zapcore/memory_encoder.go",
+    "target_lines": [165],
+    "required": [
+      {"file":"array.go","chain":"MarshalLogArray","lines":[318]},
+      {"file":"zapcore/encoder.go","chain":"EpochTimeEncoder","lines":[106]},
+      {"file":"zapcore/encoder.go","chain":"EpochMillisTimeEncoder","lines":[114]},
+      {"file":"zapcore/encoder.go","chain":"SecondsDurationEncoder","lines":[235]},
+      {"file":"zapcore/json_encoder_impl_test.go","chain":"TestJSONEncoderArrays","lines":[352]},
+      {"file":"zapcore/memory_encoder_test.go","chain":"TestSliceArrayEncoderAppend","lines":[272]}
+    ]
+  },
+  "MarshalLogArray": {
+    "target": "array.go",
+    "target_lines": [289],
+    "required": [
+      {"file":"error_test.go","chain":"AddArray","lines":[127]},
+      {"file":"zapcore/error_test.go","chain":"AddArray","lines":[220]},
+      {"file":"zapcore/json_encoder.go","chain":"AppendArray","lines":[213]},
+      {"file":"zapcore/memory_encoder.go","chain":"AddArray","lines":[47]},
+      {"file":"zapcore/memory_encoder.go","chain":"AppendArray","lines":[143]}
+    ]
+  },
+  "Check": {
+    "target": "zapcore/increase_level.go",
+    "target_lines": [61],
+    "required": [
+      {"file":"logger.go","chain":"check","lines":[343]},
+      {"file":"zapcore/core_test.go","chain":"TestNopCore","lines":[64]},
+      {"file":"zapcore/core_test.go","chain":"TestIOCore","lines":[90,93,96]},
+      {"file":"zapcore/entry_ext_test.go","chain":"TestCheckedEntryIllegalReuse","lines":[40]},
+      {"file":"zapcore/hook.go","chain":"Check","lines":[56]},
+      {"file":"zapcore/hook_test.go","chain":"TestHooks","lines":[62]},
+      {"file":"zapcore/increase_level.go","chain":"Check","lines":[66]},
+      {"file":"zapcore/increase_level_test.go","chain":"TestIncreaseLevel","lines":[109]},
+      {"file":"zapcore/lazy_with.go","chain":"Check","lines":[61]},
+      {"file":"zapcore/lazy_with_test.go","chain":"Check","lines":[51]},
+      {"file":"zapcore/lazy_with_test.go","chain":"TestLazyCore","lines":[174]},
+      {"file":"zapcore/lazy_with_test.go","chain":"TestLazyCoreRace","lines":[212]},
+      {"file":"zapcore/sampler.go","chain":"Check","lines":[228]},
+      {"file":"zapcore/sampler_bench_test.go","chain":"BenchmarkSampler_Check","lines":[225]},
+      {"file":"zapcore/sampler_bench_test.go","chain":"BenchmarkSampler_CheckWithHook","lines":[272]},
+      {"file":"zapcore/sampler_test.go","chain":"writeSequence","lines":[65]},
+      {"file":"zapcore/sampler_test.go","chain":"TestSamplerConcurrent","lines":[217]},
+      {"file":"zapcore/sampler_test.go","chain":"TestSamplerWithZeroThereafter","lines":[306,322]},
+      {"file":"zapcore/tee.go","chain":"Check","lines":[77]},
+      {"file":"zapcore/tee_logger_bench_test.go","chain":"BenchmarkTeeCheck","lines":[56]},
+      {"file":"zapcore/tee_test.go","chain":"TestTeeCheck","lines":[98]},
+      {"file":"zapcore/tee_test.go","chain":"TestTeeWith","lines":[141]},
+      {"file":"zaptest/observer/observer_test.go","chain":"TestObserverWith","lines":[90]}
+    ]
+  },
+  "Enabled": {
+    "target": "zapcore/level.go",
+    "target_lines": [213],
+    "required": [
+      {"file":"level.go","chain":"Enabled","lines":[113]},
+      {"file":"logger.go","chain":"check","lines":[331,368]},
+      {"file":"sugar.go","chain":"log","lines":[349]},
+      {"file":"sugar.go","chain":"logln","lines":[361]},
+      {"file":"zapcore/core.go","chain":"Check","lines":[88]},
+      {"file":"zapcore/core_test.go","chain":"TestNopCore","lines":[63]},
+      {"file":"zapcore/increase_level.go","chain":"NewIncreaseLevelCore","lines":[41]},
+      {"file":"zapcore/increase_level.go","chain":"Enabled","lines":[50]},
+      {"file":"zapcore/increase_level_test.go","chain":"TestIncreaseLevel","lines":[107]},
+      {"file":"zapcore/lazy_with.go","chain":"Check","lines":[57]},
+      {"file":"zapcore/lazy_with.go","chain":"Enabled","lines":[66]},
+      {"file":"zapcore/lazy_with_test.go","chain":"TestLazyCoreRace","lines":[208,209]},
+      {"file":"zapcore/level.go","chain":"LevelOf","lines":[104]},
+      {"file":"zapcore/level_test.go","chain":"Enabled","lines":[219]},
+      {"file":"zapcore/sampler.go","chain":"Check","lines":[215]},
+      {"file":"zapcore/tee.go","chain":"Enabled","lines":[68]},
+      {"file":"zapcore/tee_test.go","chain":"TestTeeEnabled","lines":[171]},
+      {"file":"zapgrpc/zapgrpc.go","chain":"Println","lines":[132]},
+      {"file":"zapgrpc/zapgrpc.go","chain":"Infoln","lines":[175]},
+      {"file":"zapgrpc/zapgrpc.go","chain":"Warningln","lines":[192]},
+      {"file":"zapgrpc/zapgrpc.go","chain":"Errorln","lines":[209]},
+      {"file":"zapgrpc/zapgrpc.go","chain":"V","lines":[236]},
+      {"file":"zapio/writer.go","chain":"Write","lines":[77]},
+      {"file":"zaptest/observer/observer.go","chain":"Check","lines":[179]}
+    ]
+  },
+  "AddCore": {
+    "target": "zapcore/entry.go",
+    "target_lines": [298],
+    "required": [
+      {"file":"zapcore/core.go","chain":"Check","lines":[89]},
+      {"file":"zapcore/entry_test.go","chain":"TestCheckedEntryBefore","lines":[165,182,199]},
+      {"file":"zapcore/entry_test.go","chain":"Check","lines":[222]},
+      {"file":"zapcore/hook.go","chain":"Check","lines":[57]},
+      {"file":"zapcore/sampler_test.go","chain":"Check","lines":[158]},
+      {"file":"zapio/writer_test.go","chain":"Check","lines":[243]},
+      {"file":"zaptest/observer/observer.go","chain":"Check","lines":[180]}
+    ]
+  },
+  "AppendString": {
+    "target": "zapcore/json_encoder.go",
+    "target_lines": [292],
+    "required": [
+      {"file":"array.go","chain":"MarshalLogArray","lines":[224]},
+      {"file":"array.go","chain":"MarshalLogArray","lines":[381]},
+      {"file":"zapcore/encoder.go","chain":"LowercaseLevelEncoder","lines":[48]},
+      {"file":"zapcore/encoder.go","chain":"LowercaseColorLevelEncoder","lines":[58]},
+      {"file":"zapcore/encoder.go","chain":"CapitalLevelEncoder","lines":[64]},
+      {"file":"zapcore/encoder.go","chain":"CapitalColorLevelEncoder","lines":[74]},
+      {"file":"zapcore/encoder.go","chain":"encodeTimeLayout","lines":[133]},
+      {"file":"zapcore/encoder.go","chain":"StringDurationEncoder","lines":[253]},
+      {"file":"zapcore/encoder.go","chain":"FullCallerEncoder","lines":[283]},
+      {"file":"zapcore/encoder.go","chain":"ShortCallerEncoder","lines":[290]},
+      {"file":"zapcore/encoder.go","chain":"FullNameEncoder","lines":[314]},
+      {"file":"zapcore/encoder_test.go","chain":"capitalNameEncoder","lines":[75]},
+      {"file":"zapcore/encoder_test.go","chain":"TestEncoderConfiguration","lines":[282]},
+      {"file":"zapcore/field_test.go","chain":"MarshalLogArray","lines":[58]},
+      {"file":"zapcore/json_encoder.go","chain":"AddString","lines":[197]},
+      {"file":"zapcore/json_encoder.go","chain":"EncodeEntry","lines":[372,393,404,409,414]},
+      {"file":"zapcore/json_encoder_bench_test.go","chain":"MarshalLogArray","lines":[62]},
+      {"file":"zapcore/json_encoder_impl_test.go","chain":"TestJSONEncoderArrays","lines":[359,360,429,437]},
+      {"file":"zapcore/memory_encoder_test.go","chain":"TestSliceArrayEncoderAppend","lines":[279,311,328]}
+    ]
+  },
+  "AppendUint": {
+    "target": "zapcore/encoder.go",
+    "target_lines": [439],
+    "required": [
+      {"file":"array.go","chain":"MarshalLogArray","lines":[399]},
+      {"file":"zapcore/json_encoder_impl_test.go","chain":"TestJSONEncoderArrays","lines":[362]},
+      {"file":"zapcore/memory_encoder_test.go","chain":"TestSliceArrayEncoderAppend","lines":[281]}
+    ]
+  },
+  "Sync": {
+    "target": "logger.go",
+    "target_lines": [302],
+    "required": [
+      {"file":"example_test.go","chain":"Example_presets","lines":[38]},
+      {"file":"example_test.go","chain":"Example_basicConfiguration","lines":[95]},
+      {"file":"example_test.go","chain":"Example_advancedConfiguration","lines":[149]},
+      {"file":"example_test.go","chain":"ExampleNamespace","lines":[155]},
+      {"file":"example_test.go","chain":"ExampleObject","lines":[190]},
+      {"file":"example_test.go","chain":"ExampleNewStdLog","lines":[206]},
+      {"file":"example_test.go","chain":"ExampleRedirectStdLog","lines":[216]},
+      {"file":"example_test.go","chain":"ExampleReplaceGlobals","lines":[228]},
+      {"file":"example_test.go","chain":"ExampleAtomicLevel","lines":[250]},
+      {"file":"example_test.go","chain":"ExampleAtomicLevel_config","lines":[279]},
+      {"file":"example_test.go","chain":"ExampleLogger_Check","lines":[291]},
+      {"file":"example_test.go","chain":"ExampleLogger_Named","lines":[309]},
+      {"file":"example_test.go","chain":"ExampleWrapCore_replace","lines":[334]},
+      {"file":"example_test.go","chain":"ExampleWrapCore_wrap","lines":[352]},
+      {"file":"example_test.go","chain":"ExampleDict","lines":[364]},
+      {"file":"example_test.go","chain":"ExampleObjects","lines":[377]},
+      {"file":"example_test.go","chain":"ExampleDictObject","lines":[393]},
+      {"file":"example_test.go","chain":"ExampleObjectValues","lines":[438]},
+      {"file":"logger_test.go","chain":"TestLoggerSync","lines":[609]},
+      {"file":"logger_test.go","chain":"TestLoggerSyncFail","lines":[623]},
+      {"file":"sugar.go","chain":"Sync","lines":[342]}
+    ]
+  }
+}

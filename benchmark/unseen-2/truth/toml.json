@@ -1,0 +1,97 @@
+{
+  "decode_as_is": {
+    "target": "crates/toml_parser/src/decoder/scalar.rs",
+    "target_lines": [673],
+    "required": [
+      {"file":"crates/toml_parser/src/decoder/scalar.rs","chain":"decode_sign_prefix","lines":[210,228]},
+      {"file":"crates/toml_parser/src/decoder/scalar.rs","chain":"decode_datetime_or_float_or_integer","lines":[404]}
+    ]
+  },
+  "parse": {
+    "target": "crates/toml/src/de/parser/detable.rs",
+    "target_lines": [20],
+    "required": [
+      {"file":"crates/benchmarks/benches/0-cargo.rs","chain":"detable","lines":[115]},
+      {"file":"crates/benchmarks/benches/0-cargo.rs","chain":"detable_owned","lines":[123]},
+      {"file":"crates/benchmarks/benches/1-map.rs","chain":"detable_owned","lines":[139]},
+      {"file":"crates/benchmarks/benches/2-array.rs","chain":"detable_owned","lines":[157]},
+      {"file":"crates/benchmarks/examples/bench.rs","chain":"main","lines":[80]},
+      {"file":"crates/toml/src/de/deserializer/mod.rs","chain":"parse","lines":[38]}
+    ]
+  },
+  "span": {
+    "target": "crates/toml_edit/src/repr.rs",
+    "target_lines": [65],
+    "required": [
+      {"file":"crates/toml_edit/src/value.rs","chain":"span","lines":[215,216,217,218,219]}
+    ]
+  },
+  "is_implicit": {
+    "target": "crates/toml/src/map.rs",
+    "target_lines": [308],
+    "required": [
+      {"file":"crates/toml/src/de/parser/document.rs","chain":"capture_key_value","lines":[217]},
+      {"file":"crates/toml/src/de/parser/document.rs","chain":"start_table","lines":[318]},
+      {"file":"crates/toml/src/de/parser/document.rs","chain":"descend_path","lines":[449,458]},
+      {"file":"crates/toml/src/de/parser/inline_table.rs","chain":"descend_path","lines":[230]}
+    ]
+  },
+  "encode_with_default": {
+    "target": "crates/toml_edit/src/raw_string.rs",
+    "target_lines": [104],
+    "required": [
+      {"file":"crates/toml_edit/src/encode.rs","chain":"encode_array","lines":[114]},
+      {"file":"crates/toml_edit/src/encode.rs","chain":"encode_table","lines":[154]},
+      {"file":"crates/toml_edit/src/encode.rs","chain":"fmt","lines":[201]},
+      {"file":"crates/toml_edit/src/repr.rs","chain":"prefix_encode","lines":[225]},
+      {"file":"crates/toml_edit/src/repr.rs","chain":"suffix_encode","lines":[249]}
+    ]
+  },
+  "decode_datetime_or_float_or_integer": {
+    "target": "crates/toml_parser/src/decoder/scalar.rs",
+    "target_lines": [379],
+    "required": [
+      {"file":"crates/toml_parser/src/decoder/scalar.rs","chain":"decode_unquoted_scalar","lines":[113,116]},
+      {"file":"crates/toml_parser/src/decoder/scalar.rs","chain":"decode_sign_prefix","lines":[181,184]},
+      {"file":"crates/toml_parser/src/decoder/scalar.rs","chain":"decode_zero_prefix","lines":[374]}
+    ]
+  },
+  "custom": {
+    "target": "crates/toml_edit/src/ser/error.rs",
+    "target_lines": [20],
+    "required": [
+      {"file":"crates/toml_edit/src/ser/error.rs","chain":"custom","lines":[53]},
+      {"file":"crates/toml_edit/src/ser/error.rs","chain":"from","lines":[74]},
+      {"file":"crates/toml_edit/src/ser/map.rs","chain":"dt_err","lines":[150]}
+    ]
+  },
+  "comment": {
+    "target": "crates/toml_parser/src/parser/event.rs",
+    "target_lines": [30],
+    "required": [
+      {"file":"crates/toml_parser/src/parser/document.rs","chain":"on_comment","lines":[1357]},
+      {"file":"crates/toml_parser/src/parser/event.rs","chain":"comment","lines":[139]},
+      {"file":"crates/toml_parser/src/parser/event.rs","chain":"comment","lines":[265]},
+      {"file":"crates/toml_parser/src/parser/event.rs","chain":"comment","lines":[346,350]},
+      {"file":"crates/toml_parser/src/parser/event.rs","chain":"comment","lines":[446,447]}
+    ]
+  },
+  "ensure_radixed_value": {
+    "target": "crates/toml_parser/src/decoder/scalar.rs",
+    "target_lines": [547],
+    "required": [
+      {"file":"crates/toml_parser/src/decoder/scalar.rs","chain":"decode_zero_prefix","lines":[276,308,340,368]}
+    ]
+  },
+  "new": {
+    "target": "crates/toml_edit/src/repr.rs",
+    "target_lines": [199],
+    "required": [
+      {"file":"crates/toml_edit/src/parser/document.rs","chain":"document","lines":[57]},
+      {"file":"crates/toml_edit/src/parser/document.rs","chain":"on_table","lines":[205]},
+      {"file":"crates/toml_edit/src/parser/inline_table.rs","chain":"finish_key","lines":[158]},
+      {"file":"crates/toml_edit/src/parser/key.rs","chain":"close_key","lines":[141]},
+      {"file":"crates/toml_edit/src/value.rs","chain":"decorate","lines":[207]}
+    ]
+  }
+}

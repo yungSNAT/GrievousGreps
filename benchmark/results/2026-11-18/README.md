@@ -6,6 +6,7 @@ Run on the benchmark machine (Linux, Node 26.13.1). Local paths are replaced wit
 | --- | --- |
 | The 21 repositories at `fc50a01` (main at #93, after #88 and #89) against upstream 0.29.0: 4,333 of 4,403 (0.98), precision 0.95, 7 silent undercounts; 0.29.0 1,410 (0.32) | [callers-21.txt](callers-21.txt), each repository run from 22:13 to 22:55 UTC on 17 November and pooled from the per-repository outputs |
 | The 5 unseen repositories at `fc50a01`: 232 of 564 (0.41) | [unseen-callers.txt](unseen-callers.txt), 22:57 UTC on 17 November |
+| Both unseen sets at `4be1b3b` (#110) against upstream 0.29.0: the second, held out, 122 of 357 (0.34), 0.29.0 0.22; the first, tuning since #110, 272 of 564 (0.48), 0.29.0 0.38 | [unseen-2.txt](unseen-2.txt), 05:29 to 05:32 UTC on 18 November |
 | `trail viz --export` on httpx at `fc50a01`: 1,016,743 bytes, as at `88c214e` | the exported `index.html` (22:58 UTC on 17 November); not copied |
 | `trail ask` on semble's 60 Haskell queries at `4fcf41b`: NDCG@10 0.697 | [ask-haskell.md](ask-haskell.md), 01:33 to 01:35 UTC on 18 November |
 | CodeGraph 1.6.3 on the 21 repositories: 0.78 / 0.93 / 62, beside 1.6.2's answers rescored to 0.54 / 0.94 / 90 | [codegraph-1.6.3.md](codegraph-1.6.3.md), 02:42 to 02:47 UTC on 18 November |

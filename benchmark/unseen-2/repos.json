@@ -1,0 +1,7 @@
+[
+  { "name": "loguru", "repository": "Delgan/loguru", "sha": "28349be3cd740867bc947eef741c69370ca45735", "language": "Python", "rules": "span" },
+  { "name": "h3", "repository": "h3js/h3", "sha": "2f29b875617e8daf39d25118f7474fd4c24fbfe1", "language": "TypeScript", "rules": "span" },
+  { "name": "toml", "repository": "toml-rs/toml", "sha": "02d4d8d00d8786aedb019f9ed71e855e262b0536", "language": "Rust", "rules": "span" },
+  { "name": "zap", "repository": "uber-go/zap", "sha": "4892335e05f14bce8a98a69a577fcf3844a42623", "language": "Go", "rules": "span" },
+  { "name": "fluentvalidation", "repository": "FluentValidation/FluentValidation", "sha": "5903fa65863ec66dabf10646b9c09b33130a03e8", "language": "C#", "rules": "span" }
+]

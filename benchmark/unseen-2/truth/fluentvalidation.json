@@ -1,0 +1,163 @@
+{
+  "GetDisplayName": {
+    "target": "src/FluentValidation/IValidationRule.cs",
+    "target_lines": [134],
+    "required": [
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::Should_set_custom_property_name","lines":[56]},
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::PropertyDescription_should_return_property_name_split","lines":[126]},
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::PropertyDescription_should_return_custom_property_name","lines":[135]},
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::Rule_for_a_non_memberexpression_should_not_generate_property_name","lines":[159]},
+      {"file":"src/FluentValidation/DefaultValidatorExtensions.cs","chain":"DefaultValidatorExtensions::ForEach","lines":[1178]},
+      {"file":"src/FluentValidation/ValidatorDescriptor.cs","chain":"ValidatorDescriptor::GetName","lines":[54]}
+    ]
+  },
+  "Localized": {
+    "target": "src/FluentValidation/Validators/PropertyValidator.cs",
+    "target_lines": [47],
+    "required": [
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::TestPropertyValidator::GetDefaultMessageTemplate","lines":[209]},
+      {"file":"src/FluentValidation/Validators/CreditCardValidator.cs","chain":"CreditCardValidator::GetDefaultMessageTemplate","lines":[32]},
+      {"file":"src/FluentValidation/Validators/EmailValidator.cs","chain":"EmailValidator::GetDefaultMessageTemplate","lines":[64]},
+      {"file":"src/FluentValidation/Validators/EmailValidator.cs","chain":"AspNetCoreCompatibleEmailValidator::GetDefaultMessageTemplate","lines":[88]},
+      {"file":"src/FluentValidation/Validators/EmptyValidator.cs","chain":"EmptyValidator::GetDefaultMessageTemplate","lines":[52]},
+      {"file":"src/FluentValidation/Validators/EnumValidator.cs","chain":"EnumValidator::GetDefaultMessageTemplate","lines":[118]},
+      {"file":"src/FluentValidation/Validators/EqualValidator.cs","chain":"EqualValidator::GetDefaultMessageTemplate","lines":[85]},
+      {"file":"src/FluentValidation/Validators/GreaterThanOrEqualValidator.cs","chain":"GreaterThanOrEqualValidator::GetDefaultMessageTemplate","lines":[50]},
+      {"file":"src/FluentValidation/Validators/GreaterThanValidator.cs","chain":"GreaterThanValidator::GetDefaultMessageTemplate","lines":[49]},
+      {"file":"src/FluentValidation/Validators/LengthValidator.cs","chain":"LengthValidator::GetDefaultMessageTemplate","lines":[72]},
+      {"file":"src/FluentValidation/Validators/LengthValidator.cs","chain":"ExactLengthValidator::GetDefaultMessageTemplate","lines":[89]},
+      {"file":"src/FluentValidation/Validators/LengthValidator.cs","chain":"MaximumLengthValidator::GetDefaultMessageTemplate","lines":[107]},
+      {"file":"src/FluentValidation/Validators/LengthValidator.cs","chain":"MinimumLengthValidator::GetDefaultMessageTemplate","lines":[125]},
+      {"file":"src/FluentValidation/Validators/LessThanOrEqualValidator.cs","chain":"LessThanOrEqualValidator::GetDefaultMessageTemplate","lines":[47]},
+      {"file":"src/FluentValidation/Validators/LessThanValidator.cs","chain":"LessThanValidator::GetDefaultMessageTemplate","lines":[48]},
+      {"file":"src/FluentValidation/Validators/NotEmptyValidator.cs","chain":"NotEmptyValidator::GetDefaultMessageTemplate","lines":[52]},
+      {"file":"src/FluentValidation/Validators/NotEqualValidator.cs","chain":"NotEqualValidator::GetDefaultMessageTemplate","lines":[81]},
+      {"file":"src/FluentValidation/Validators/NotNullValidator.cs","chain":"NotNullValidator::GetDefaultMessageTemplate","lines":[30]},
+      {"file":"src/FluentValidation/Validators/NullValidator.cs","chain":"NullValidator::GetDefaultMessageTemplate","lines":[30]},
+      {"file":"src/FluentValidation/Validators/PrecisionScaleValidator.cs","chain":"PrecisionScaleValidator::GetDefaultMessageTemplate","lines":[92]},
+      {"file":"src/FluentValidation/Validators/PredicateValidator.cs","chain":"PredicateValidator::GetDefaultMessageTemplate","lines":[43]},
+      {"file":"src/FluentValidation/Validators/RangeValidator.cs","chain":"RangeValidator::GetDefaultMessageTemplate","lines":[72]},
+      {"file":"src/FluentValidation/Validators/RegularExpressionValidator.cs","chain":"RegularExpressionValidator::GetDefaultMessageTemplate","lines":[80]},
+      {"file":"src/FluentValidation/Validators/StringEnumValidator.cs","chain":"StringEnumValidator::GetDefaultMessageTemplate","lines":[54]}
+    ]
+  },
+  "TestValidateAsync": {
+    "target": "src/FluentValidation/TestHelper/ValidatorTestExtensions.cs",
+    "target_lines": [109],
+    "required": [
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationError_should_not_throw_when_there_are_validation_errors__WhenAsyn_is_used","lines":[569]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldNotHaveValidationError_should_throw_when_there_are_validation_errors__WhenAsyn_is_used","lines":[619]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::TestValidate_runs_async","lines":[734]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::TestValidate_runs_async_throws","lines":[742]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationError_async","lines":[752]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationError_async_throws","lines":[760]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldNotHaveValidationError_async","lines":[768]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldNotHaveValidationError_async_throws","lines":[776]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationError_model_async","lines":[784]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationError_model_async_throws","lines":[792]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldNotHaveValidationError_model_async","lines":[800]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldNotHaveValidationError_async_model_throws","lines":[808]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationErrorFor_Only_async","lines":[837]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationErrorFor_Only_async_throws","lines":[848]}
+    ]
+  },
+  "When": {
+    "target": "src/FluentValidation/DefaultValidatorOptions.cs",
+    "target_lines": [173],
+    "required": [
+      {"file":"src/FluentValidation.Tests.Benchmarks/Models.cs","chain":"FullModelValidator::FullModelValidator","lines":[74,77,80,83,86,95,98,101,104,107,112,114,119,121]},
+      {"file":"src/FluentValidation.Tests.Benchmarks/Models.cs","chain":"NestedModelValidator::NestedModelValidator","lines":[128,131,137,140]},
+      {"file":"src/FluentValidation.Tests/ChainedValidationTester.cs","chain":"ChainedValidationTester::DepartmentValidator::DepartmentValidator","lines":[182]},
+      {"file":"src/FluentValidation.Tests/ChainedValidationTester.cs","chain":"ChainedValidationTester::PersonValidator::PersonValidator","lines":[191,192]},
+      {"file":"src/FluentValidation.Tests/CollectionValidatorWithParentTests.cs","chain":"CollectionValidatorWithParentTests::Condition_should_work_with_child_collection","lines":[149]},
+      {"file":"src/FluentValidation.Tests/ComplexValidationTester.cs","chain":"ComplexValidationTester::Condition_should_work_with_complex_property","lines":[109]},
+      {"file":"src/FluentValidation.Tests/ComplexValidationTester.cs","chain":"ComplexValidationTester::Condition_should_work_with_complex_property_when_invoked_async","lines":[119]},
+      {"file":"src/FluentValidation.Tests/ComplexValidationTester.cs","chain":"ComplexValidationTester::TestObjectValidator::TestObjectValidator","lines":[231]},
+      {"file":"src/FluentValidation.Tests/ConditionTests.cs","chain":"ConditionTests::Condition_is_applied_to_all_validators_in_the_chain","lines":[87]},
+      {"file":"src/FluentValidation.Tests/ConditionTests.cs","chain":"ConditionTests::Sync_condition_is_applied_to_async_validators","lines":[120]},
+      {"file":"src/FluentValidation.Tests/ConditionTests.cs","chain":"ConditionTests::Condition_is_applied_to_single_validator_in_the_chain_when_ApplyConditionTo_set_to_CurrentValidator","lines":[130]},
+      {"file":"src/FluentValidation.Tests/ConditionTests.cs","chain":"ConditionTests::TestConditionValidator::TestConditionValidator","lines":[336]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::Condition_should_work_with_child_collection","lines":[448]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::When_runs_outside_RuleForEach_loop","lines":[592]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::When_runs_outside_RuleForEach_loop_async","lines":[607]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::Failing_condition_should_prevent_multiple_components_running_and_not_throw","lines":[688]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::Failing_condition_should_prevent_multiple_components_running_and_not_throw_async","lines":[702]},
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::Should_throw_when_predicate_is_null","lines":[93]},
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::Nullable_object_with_condition_should_not_throw","lines":[141]},
+      {"file":"src/FluentValidation.Tests/ValidatorSelectorTests.cs","chain":"ValidatorSelectorTests::Validates_nullable_property_with_overridden_name_when_selected","lines":[76]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveChildValidator_should_work_with_DependentRules","lines":[627]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::UnitOfMeasureValidator::UnitOfMeasureValidator","lines":[1046]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::Address2Validator::Address2Validator","lines":[1063]}
+    ]
+  },
+  "IncludeRulesNotInRuleSet": {
+    "target": "src/FluentValidation/Internal/ValidationStrategy.cs",
+    "target_lines": [71],
+    "required": [
+      {"file":"src/FluentValidation.Tests/InheritanceValidatorTest.cs","chain":"InheritanceValidatorTest::Rulesets_cascade_properly_with_polymorphic_validators","lines":[324]},
+      {"file":"src/FluentValidation.Tests/RulesetTests.cs","chain":"RulesetTests::Executes_rules_in_default_ruleset_and_specific_ruleset","lines":[126]},
+      {"file":"src/FluentValidation.Tests/RulesetTests.cs","chain":"RulesetTests::Executes_in_rule_in_default_and_none","lines":[232]},
+      {"file":"src/FluentValidation.Tests/RulesetTests.cs","chain":"RulesetTests::Includes_combination_of_rulesets","lines":[287]},
+      {"file":"src/FluentValidation.Tests/RulesetTests.cs","chain":"RulesetTests::Includes_combination_of_rulesets_async","lines":[307]}
+    ]
+  },
+  "ApplyPredicate": {
+    "target": "src/FluentValidation/TestHelper/ITestValidationContinuation.cs",
+    "target_lines": [29],
+    "required": [
+      {"file":"src/FluentValidation/TestHelper/TestValidationResult.cs","chain":"TestValidationResult::ShouldHaveValidationError","lines":[67]},
+      {"file":"src/FluentValidation/TestHelper/ValidatorTestExtensions.cs","chain":"ValidationTestExtension::When","lines":[143]},
+      {"file":"src/FluentValidation/TestHelper/ValidatorTestExtensions.cs","chain":"ValidationTestExtension::WhenAll","lines":[157]}
+    ]
+  },
+  "WithName": {
+    "target": "src/FluentValidation/DefaultValidatorOptions.cs",
+    "target_lines": [424],
+    "required": [
+      {"file":"src/FluentValidation.Tests/AbstractValidatorTester.cs","chain":"AbstractValidatorTester::WithName_should_override_field_name_with_value_from_other_property","lines":[112]},
+      {"file":"src/FluentValidation.Tests/LocalisedNameTester.cs","chain":"LocalisedNameTester::Uses_localized_name","lines":[39]},
+      {"file":"src/FluentValidation.Tests/LocalisedNameTester.cs","chain":"LocalisedNameTester::Uses_localized_name_expression","lines":[49]}
+    ]
+  },
+  "Add": {
+    "target": "src/FluentValidation/Validators/PolymorphicValidator.cs",
+    "target_lines": [72],
+    "required": [
+      {"file":"src/FluentValidation.Tests/InheritanceValidatorTest.cs","chain":"InheritanceValidatorTest::Validates_with_callback_accepting_derived","lines":[181,185]},
+      {"file":"src/FluentValidation.Tests/InheritanceValidatorTest.cs","chain":"InheritanceValidatorTest::Validates_with_callback_accepting_derived_async","lines":[211,215]}
+    ]
+  },
+  "CreateExclusiveBetween": {
+    "target": "src/FluentValidation/Validators/RangeValidator.cs",
+    "target_lines": [77],
+    "required": [
+      {"file":"src/FluentValidation.Tests/ExclusiveBetweenValidatorTests.cs","chain":"ExclusiveBetweenValidatorTests::To_and_from_properties_should_be_set","lines":[85]},
+      {"file":"src/FluentValidation.Tests/ExclusiveBetweenValidatorTests.cs","chain":"ExclusiveBetweenValidatorTests::When_the_to_is_smaller_than_the_from_then_the_validator_should_throw_for_strings","lines":[127]},
+      {"file":"src/FluentValidation.Tests/ExclusiveBetweenValidatorTests.cs","chain":"ExclusiveBetweenValidatorTests::When_the_to_is_smaller_than_the_from_then_the_validator_should_throw_for_chars","lines":[133]},
+      {"file":"src/FluentValidation.Tests/ExclusiveBetweenValidatorTests.cs","chain":"ExclusiveBetweenValidatorTests::To_and_from_properties_should_be_set_for_strings","lines":[145]},
+      {"file":"src/FluentValidation.Tests/ExclusiveBetweenValidatorTests.cs","chain":"ExclusiveBetweenValidatorTests::To_and_from_properties_should_be_set_for_dates","lines":[152]},
+      {"file":"src/FluentValidation/DefaultValidatorExtensions.cs","chain":"DefaultValidatorExtensions::ExclusiveBetween","lines":[1052]},
+      {"file":"src/FluentValidation/DefaultValidatorExtensions.cs","chain":"DefaultValidatorExtensions::ExclusiveBetween","lines":[1080]}
+    ]
+  },
+  "NotEqual": {
+    "target": "src/FluentValidation/DefaultValidatorExtensions.cs",
+    "target_lines": [283],
+    "required": [
+      {"file":"src/FluentValidation.Tests/AbstractValidatorTester.cs","chain":"AbstractValidatorTester::Uses_named_parameters_to_validate_ruleset","lines":[225]},
+      {"file":"src/FluentValidation.Tests/ChildRulesTests.cs","chain":"ChildRulesTests::RootValidator::BaseRules","lines":[194]},
+      {"file":"src/FluentValidation.Tests/CollectionValidatorWithParentTests.cs","chain":"CollectionValidatorWithParentTests::OrderInterfaceValidator::OrderInterfaceValidator","lines":[273]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::OrderValidator::OrderValidator","lines":[735]},
+      {"file":"src/FluentValidation.Tests/ForEachRuleTests.cs","chain":"ForEachRuleTests::OrderInterfaceValidator::OrderInterfaceValidator","lines":[741]},
+      {"file":"src/FluentValidation.Tests/InlineValidatorTester.cs","chain":"InlineValidatorTester::Customer","lines":[26]},
+      {"file":"src/FluentValidation.Tests/NotEqualValidatorTests.cs","chain":"NotEqualValidatorTests::MyTypeValidator::MyTypeValidator","lines":[145]},
+      {"file":"src/FluentValidation.Tests/RuleBuilderTests.cs","chain":"RuleBuilderTests::PropertyDescription_should_return_custom_property_name","lines":[134]},
+      {"file":"src/FluentValidation.Tests/RulesetTests.cs","chain":"RulesetTests::Executes_multiple_rulesets","lines":[100]},
+      {"file":"src/FluentValidation.Tests/RulesetTests.cs","chain":"RulesetTests::Executes_rules_in_default_ruleset_and_specific_ruleset","lines":[123]},
+      {"file":"src/FluentValidation.Tests/ValidatorSelectorTests.cs","chain":"ValidatorSelectorTests::Includes_nested_property","lines":[89]},
+      {"file":"src/FluentValidation.Tests/ValidatorSelectorTests.cs","chain":"ValidatorSelectorTests::Includes_nested_property_using_expression","lines":[101]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationErrorFor_takes_account_of_rulesets","lines":[212]},
+      {"file":"src/FluentValidation.Tests/ValidatorTesterTester.cs","chain":"ValidatorTesterTester::ShouldHaveValidationErrorFor_takes_account_of_rulesets_fluent_approach","lines":[225]}
+    ]
+  }
+}
