@@ -19,6 +19,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
 - **Usage stats, the update check and workspace background reads are off** until you ask for them.
 - **Writes refuse a symlink** planted in a repository or output folder.
+- **CI tests Node 22 and 26.** Node 20 reached end of life on 30 April 2026 and is no longer tested.
 - **In a Git repository, the graph indexes folders whose names start with a dot**, such as `.storybook` or trpc's `examples/.test`, when Git lists their files. Caches, environments and tool state such as `.venv`, `.next`, `.cache` and `.trail` are still skipped, as are files whose names start with a dot. Outside Git every dot folder is still skipped.
 - **`trail mcp` and `graft mcp`** are what agents' MCP entries run. Nothing launches through `npx`.
 - **`trail version`** prints the local version and compares nothing.
@@ -48,6 +49,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 ### Fixed
 
 - **An install from GitHub names its commit in `--version`.** npm builds a GitHub install from an archive with no `.git`, so it printed the bare `0.28.0+gg`. The archive now carries the commit in `scripts/archive-commit.txt`, which `git archive` fills in.
+- **A Rust crate's name and dependencies are read from the parsed `Cargo.toml`.** They were read line by line, so a crate named under `[project]`, by a dotted key (`package.name = ...`), a quoted key or with a comment after it was no crate, and calls through its name stayed unresolved; a dependency named by a dotted or quoted key was taken for the repository's own code.
 - **A cached parse is replayed only when it describes its own file.** The extraction cache in the output folder could come with a clone, and an entry whose node named a path outside the repository was replayed as it stood, so `trail build --lsp` read that file and sent it to the language server. Such an entry, or a malformed one, is now dropped and its file parsed again.
 - **The skill says the commands are free instead of `$0`.** Claude Code reads `$0` in a skill as the first argument, so `/trail <words>` replaced it with the first word.
 - **A PHP group `use` no longer imports its functions and constants as class files.** `use App\{Widget, function helper, const READY};` gave imports of `App\function helper` and `App\const READY`; it now gives `App\Widget` alone. Names are read from the syntax tree, so `USE … AS` in any case, comments inside a name and PHP 8 names such as `function\Widget` are read as PHP reads them.

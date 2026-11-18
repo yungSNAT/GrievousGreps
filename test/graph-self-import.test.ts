@@ -157,6 +157,33 @@ test("Rust: `crate::` and a workspace member's own name both reach it", async (t
   assert.deepEqual(calls(graph, "crates/app/src/main.rs#main"), ["crates/grep-printer/src/util.rs#f"]);
 });
 
+// Each crate defines `go`, so only its crate name tells the 3 calls apart.
+test("Rust: a crate's name is read as TOML: `[project]`, a dotted or quoted key and a trailing comment", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["crates/*"]\n`,
+    "crates/old/Cargo.toml": `[project]\nname = "old-style"\n`,
+    "crates/old/src/lib.rs": "pub fn go() {}\n",
+    "crates/dotted/Cargo.toml": `package.name = "dotted-name"\n`,
+    "crates/dotted/src/lib.rs": "pub fn go() {}\n",
+    "crates/quoted/Cargo.toml": `[package]\n"name" = "quoted-name" # the published name\n`,
+    "crates/quoted/src/lib.rs": "pub fn go() {}\n",
+    "crates/app/Cargo.toml": `[package]\nname = "app"\n`,
+    "crates/app/src/main.rs": "fn main() { old_style::go(); dotted_name::go(); quoted_name::go(); }\n",
+  });
+  assert.deepEqual(calls(graph, "crates/app/src/main.rs#main"), ["crates/dotted/src/lib.rs#go", "crates/old/src/lib.rs#go", "crates/quoted/src/lib.rs#go"]);
+});
+
+test("Rust: a dependency named by a dotted or quoted key is outside the repo", async (t) => {
+  const graph = await build(t, {
+    "Cargo.toml": `dependencies."http" = "1"\n[package]\nname = "app"\n`,
+    "src/lib.rs": "pub struct Other;\nimpl Other { pub fn builder() {} }\n",
+    "src/a.rs": "type Req = http::Request;\npub fn up() { Req::builder(); }\n",
+  });
+  assert.deepEqual(calls(graph, "src/a.rs#up"), []);
+  const stated = (graph.unresolvedCalls ?? []).filter((u) => u.source === "src/a.rs#up").map((u) => [u.name, u.through]);
+  assert.deepEqual(stated, [["builder", "Request"]]);
+});
+
 const types = "pub struct One;\npub struct Two;\nimpl One { pub fn go() {} }\nimpl Two { pub fn run() {} }\n";
 
 test("Rust: an alias reads in its inline module, so 2 modules may share its name", async (t) => {
