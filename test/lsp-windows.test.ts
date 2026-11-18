@@ -86,7 +86,7 @@ test("spawnSpec: an npm shim runs its entry point with Node directly, preferring
   assert.deepEqual([b.command, b.args], ["C:\\npm\\node.exe", [entry, "--stdio"]]);
 });
 
-test("spawnSpec: the Node started for an npm shim gets no NODE_OPTIONS (a checkout's .env can set it)", () => {
+test("spawnSpec: the Node started for an npm shim gets no NODE_OPTIONS from the caller's environment", () => {
   const saved = process.env.NODE_OPTIONS;
   process.env.NODE_OPTIONS = "--require ./payload.cjs";
   try {
@@ -175,7 +175,7 @@ test("Windows: a checkout's NODE_OPTIONS preload doesn't run in the npm-shim ser
     const payload = join(dir, "payload.cjs");
     writeFileSync(payload, `require("fs").writeFileSync(${JSON.stringify(marker)}, "x");`);
     const shim = fakeNpmBin(join(dir, "npm"), "fake-server", 'console.log("started")');
-    // As dotenv would load it from the checkout's .env. Forward slashes: inside quotes,
+    // As a caller's environment could set it. Forward slashes: inside quotes,
     // NODE_OPTIONS treats a backslash as an escape.
     process.env.NODE_OPTIONS = `--require "${payload.replace(/\\/g, "/")}"`;
     const s = spawnSpec(shim, []);
