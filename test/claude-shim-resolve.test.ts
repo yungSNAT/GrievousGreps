@@ -552,6 +552,18 @@ test('a user-level shim never imports the project\'s copy through a link to a sh
   assert.equal(runShim(root, p, { remembered, userLevel: true, pathDirs: [ownOnPath(root)] }), '0.28.0+gg');
 });
 
+// A project folder that cannot be read (here it does not exist) has no identity, so a share could be it.
+test('a user-level shim takes no copy through a share when the project has no identity to read', { skip: process.platform !== 'win32' }, (t) => {
+  const root = tmpRepo('shim-user-level-share-unknown');
+  const gone = join(root, 'gone');
+  const newer = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.29.0+gg', '@equitybot/grievousgreps');
+  const shared = viaShare(newer);
+  if (shared === null) return t.skip("this machine's administrative share cannot be reached");
+  const pathDirs = [ownOnPath(root)];
+  assert.equal(runShim(root, gone, { remembered: newer, userLevel: true, pathDirs }), '0.29.0+gg', 'by its drive it is used');
+  assert.equal(runShim(root, gone, { remembered: shared, userLevel: true, pathDirs }), '0.28.0+gg', 'through the share it is not');
+});
+
 /** An npm in `dir` that answers `root -g` with `globalRoot` and leaves `mark` when given:
  * `npm` for POSIX, and for Windows `npm.cmd` with the npm-cli.js beside it, which the shim runs. */
 function fakeNpm(dir: string, globalRoot: string, mark?: string): void {
