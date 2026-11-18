@@ -41,6 +41,17 @@ use App\{Widget, function helper, const READY};
   assert.deepEqual(imports(source), ["App\\Widget"]);
 });
 
+test("PHP import keywords after comments and multi-byte characters still import only classes", () => {
+  // Tree-sitter's offsets here match the source's UTF-16 indices, so a 2-byte or 4-byte character
+  // before the keyword moves neither the keyword nor the namespace separator after it.
+  const source = String.raw`<?php
+use /* é */ function \App\{helper};
+use /* 🦀 */ const \App\READY, \App\OTHER;
+use App\{/* é */ function \helper, Widget};
+`;
+  assert.deepEqual(imports(source), ["App\\Widget"]);
+});
+
 test("PHP mixed groups keep class aliases and keyword-prefixed class names", () => {
   const source = String.raw`<?php
 use App\{Widget as Alias, function helper as help, const READY as Ready, FunctionThing, ConstantThing};
