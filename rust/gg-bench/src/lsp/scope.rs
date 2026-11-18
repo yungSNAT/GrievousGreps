@@ -259,10 +259,10 @@ mod tests {
             scope("x", 13, (3, 3), Some(2)),
             scope("describe('a') callback", 12, (30, 40), None),
         ];
-        assert_eq!(caller_chain(&scopes, (3, 10)), vec![1, 2]);
-        assert_eq!(caller_chain(&scopes, (15, 0)), vec![1]);
-        assert!(caller_chain(&scopes, (35, 0)).is_empty());
-        assert!(caller_chain(&scopes, (60, 0)).is_empty());
+        assert_eq!(caller_chain(&scopes, (3, 10), "mod.py"), vec![1, 2]);
+        assert_eq!(caller_chain(&scopes, (15, 0), "mod.py"), vec![1]);
+        assert!(caller_chain(&scopes, (35, 0), "mod.py").is_empty());
+        assert!(caller_chain(&scopes, (60, 0), "mod.py").is_empty());
     }
 
     #[test]
@@ -270,7 +270,17 @@ mod tests {
         // typescript-language-server reports `const main = async () => { ... }` as a constant, not a
         // function, so a lone module-level value may be a function whose calls it makes.
         let scopes = vec![scope("main", 14, (5, 20), None)];
-        assert_eq!(caller_chain(&scopes, (6, 4)), vec![0]);
+        assert_eq!(caller_chain(&scopes, (6, 4), "src/main.ts"), vec![0]);
+        assert_eq!(caller_chain(&scopes, (6, 4), "src/main.mjs"), vec![0]);
+    }
+
+    #[test]
+    fn a_python_module_level_value_is_no_caller() {
+        // `CONFIG = make()` at module level: pyright reports CONFIG as a value, and a Python value
+        // holds no function body but a lambda's, so the call is at module level, as the truth has it.
+        let scopes = vec![scope("CONFIG", 13, (5, 7), None)];
+        assert!(caller_chain(&scopes, (6, 4), "pkg/settings.py").is_empty());
+        assert_eq!(caller_chain(&scopes, (6, 4), "src/lib.rs"), vec![0]);
     }
 
     #[test]
