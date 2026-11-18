@@ -45,7 +45,7 @@ export function installShareSyncHook(home: string): HookResult {
   const loaded = readJsonObject(path);
   if (loaded === "unparseable") return "unparseable";
   try {
-    if (writeOwned("claude-global-shim", join(globalHelpersDir(home), "graft-hooks.cjs"), hooksShim(), 0o755).action === "skipped-unparseable") return "failed";
+    if (writeOwned("claude-global-shim", join(globalHelpersDir(home), "graft-hooks.cjs"), hooksShim(true), 0o755).action === "skipped-unparseable") return "failed";
     const root = loaded.root;
     const hooks = root.hooks && typeof root.hooks === "object" && !Array.isArray(root.hooks) ? root.hooks : (root.hooks = {});
     const groups: Group[] = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : (hooks.SessionStart = []);

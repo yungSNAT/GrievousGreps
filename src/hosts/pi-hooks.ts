@@ -172,7 +172,7 @@ export default function ${fn}(pi: any): void {
 export function installPiHooks(home: string, name: Brand = 'graft'): ConfigWrite[] {
   const targets = piHookTargets(home, name);
   if (targets.length === 0) return [];
-  const shimWrite = writeOwned('pi-hook-shim', targets[0].path, hooksShim(), 0o755);
+  const shimWrite = writeOwned('pi-hook-shim', targets[0].path, hooksShim(true), 0o755);
   if (name === 'trail') {
     rmSync(piExtensionPathFor(home, 'graft'), { force: true });
     rmSync(piShimPathFor(home, 'graft'), { force: true });
