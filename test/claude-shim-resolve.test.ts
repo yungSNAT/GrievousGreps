@@ -14,13 +14,13 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
+import { chmodSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, symlinkSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { hooksShim, installHintPath, rememberInstall } from '../src/claude/shim-template.js';
 import { learningId } from '../src/notes/learning-fields.js';
-import { tmpRepo } from './helpers.js';
+import { tmpRepo, viaShare } from './helpers.js';
 import { jsLit } from './escape.js';
 
 /** A fake installed package whose hooks entry records that it ran. */
@@ -93,6 +93,7 @@ function trailHomeOf(root: string): string { return join(root, 'trail-home'); }
 function runShim(root: string, projectDir: string, opts: { remembered?: string; pathDirs?: string[]; userLevel?: boolean; shimPath?: string; cwd?: string; env?: NodeJS.ProcessEnv } = {}): string | null {
   const shimPath = opts.shimPath ?? (opts.userLevel ? join(root, 'user-helpers', 'graft-hooks.cjs') : join(projectDir, '.claude', 'helpers', 'graft-hooks.cjs'));
   const marker = join(root, 'loaded.txt');
+  rmSync(marker, { force: true }); // a run that loads nothing must not read an earlier run's marker
   mkdirSync(dirname(shimPath), { recursive: true });
   writeFileSync(shimPath, hooksShim(opts.userLevel));
   const { preload, env } = isolate(root, opts.pathDirs);
@@ -506,6 +507,61 @@ test('a user-level shim never imports a remembered install inside the project', 
   const p = project(root);
   const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
   assert.equal(runShim(root, p, { remembered: inside, userLevel: true }), null);
+});
+
+/** An install of this distribution outside the project, found through its command on PATH (the Windows
+ * npm layout): the folder to put on PATH. A project copy the shim wrongly took would win over it. */
+function ownOnPath(root: string): string {
+  const npmDir = join(root, 'npm');
+  fakeInstall(join(npmDir, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  for (const bin of ['trail', 'trail.cmd']) writeFileSync(join(npmDir, bin), '');
+  return npmDir;
+}
+
+// Node's real path keeps a share's spelling, so \\127.0.0.1\C$\...\project shows nothing of the project.
+test('a user-level shim never imports the project\'s copy named through this machine\'s share', { skip: process.platform !== 'win32' }, (t) => {
+  const root = tmpRepo('shim-user-level-share');
+  const p = project(root);
+  const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  for (const b of ['trail', 'trail.cmd']) writeFileSync(join(p, b), '');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const npmDir = ownOnPath(root);
+  const [sharedCopy, sharedProject, sharedOwn] = [inside, p, own].map(viaShare);
+  if (sharedCopy === null || sharedProject === null || sharedOwn === null) return t.skip("this machine's administrative share cannot be reached");
+  assert.equal(runShim(root, p, { remembered: sharedCopy, userLevel: true, pathDirs: [npmDir] }), '0.28.0+gg', 'a remembered install');
+  assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [sharedProject] }), '0.28.0+gg', 'a trail command in the project on PATH');
+  assert.equal(runShim(root, p, { remembered: sharedOwn, userLevel: true }), '0.28.0+gg', 'an install outside the project, through the share');
+});
+
+// A drive letter mapped to a share of a folder inside the project names it from the share's root, which no
+// path above it relates to the project; its real path is the share's. A folder link to the share stands in
+// for the drive, as mapping one would change the machine.
+test('a user-level shim never imports the project\'s copy through a link to a share of its node_modules', { skip: process.platform !== 'win32' }, (t) => {
+  const root = tmpRepo('shim-user-level-share-link');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const shared = viaShare(join(p, 'node_modules'));
+  if (shared === null) return t.skip("this machine's administrative share cannot be reached");
+  try {
+    symlinkSync(shared, join(root, 'drive'), 'dir');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('this Windows account cannot make folder links');
+    throw e;
+  }
+  const remembered = join(root, 'drive', '@equitybot', 'grievousgreps', 'dist', 'claude');
+  assert.equal(runShim(root, p, { remembered, userLevel: true, pathDirs: [ownOnPath(root)] }), '0.28.0+gg');
+});
+
+// A project folder that cannot be read (here it does not exist) has no identity, so a share could be it.
+test('a user-level shim takes no copy through a share when the project has no identity to read', { skip: process.platform !== 'win32' }, (t) => {
+  const root = tmpRepo('shim-user-level-share-unknown');
+  const gone = join(root, 'gone');
+  const newer = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.29.0+gg', '@equitybot/grievousgreps');
+  const shared = viaShare(newer);
+  if (shared === null) return t.skip("this machine's administrative share cannot be reached");
+  const pathDirs = [ownOnPath(root)];
+  assert.equal(runShim(root, gone, { remembered: newer, userLevel: true, pathDirs }), '0.29.0+gg', 'by its drive it is used');
+  assert.equal(runShim(root, gone, { remembered: shared, userLevel: true, pathDirs }), '0.28.0+gg', 'through the share it is not');
 });
 
 /** An npm in `dir` that answers `root -g` with `globalRoot` and leaves `mark` when given:
