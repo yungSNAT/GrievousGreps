@@ -120,10 +120,14 @@ pub fn clean_scope(name: &str) -> String {
 /// The names of the definition around a position, outermost first, as Serena's column maps a
 /// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value inside
 /// a definition gives way to the definition. Empty at module level. A lone module-level value
-/// stays: typescript-language-server reports a function held in a `const` as a value.
-pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
+/// stays, as typescript-language-server reports a function held in a `const` as a value, except
+/// in a Python file (`path`), where a value holds no function body but a lambda's, so a call in
+/// `CONFIG = make()` is at module level. Known limit: a call in a module-level lambda
+/// (`f = lambda: g()`) reads as module level too.
+pub fn caller_chain(scopes: &[Scope], at: (u64, u64), path: &str) -> Vec<usize> {
     let mut chain = enclosing(scopes, at);
-    while chain.len() > 1 && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
+    let keep = usize::from(!(path.ends_with(".py") || path.ends_with(".pyi")));
+    while chain.len() > keep && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
         chain.pop();
     }
     chain
@@ -259,10 +263,10 @@ mod tests {
             scope("x", 13, (3, 3), Some(2)),
             scope("describe('a') callback", 12, (30, 40), None),
         ];
-        assert_eq!(caller_chain(&scopes, (3, 10)), vec![1, 2]);
-        assert_eq!(caller_chain(&scopes, (15, 0)), vec![1]);
-        assert!(caller_chain(&scopes, (35, 0)).is_empty());
-        assert!(caller_chain(&scopes, (60, 0)).is_empty());
+        assert_eq!(caller_chain(&scopes, (3, 10), "mod.py"), vec![1, 2]);
+        assert_eq!(caller_chain(&scopes, (15, 0), "mod.py"), vec![1]);
+        assert!(caller_chain(&scopes, (35, 0), "mod.py").is_empty());
+        assert!(caller_chain(&scopes, (60, 0), "mod.py").is_empty());
     }
 
     #[test]
@@ -270,7 +274,17 @@ mod tests {
         // typescript-language-server reports `const main = async () => { ... }` as a constant, not a
         // function, so a lone module-level value may be a function whose calls it makes.
         let scopes = vec![scope("main", 14, (5, 20), None)];
-        assert_eq!(caller_chain(&scopes, (6, 4)), vec![0]);
+        assert_eq!(caller_chain(&scopes, (6, 4), "src/main.ts"), vec![0]);
+        assert_eq!(caller_chain(&scopes, (6, 4), "src/main.mjs"), vec![0]);
+    }
+
+    #[test]
+    fn a_python_module_level_value_is_no_caller() {
+        // `CONFIG = make()` at module level: pyright reports CONFIG as a value, and a Python value
+        // holds no function body but a lambda's, so the call is at module level, as the truth has it.
+        let scopes = vec![scope("CONFIG", 13, (5, 7), None)];
+        assert!(caller_chain(&scopes, (6, 4), "pkg/settings.py").is_empty());
+        assert_eq!(caller_chain(&scopes, (6, 4), "src/lib.rs"), vec![0]);
     }
 
     #[test]
