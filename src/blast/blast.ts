@@ -16,16 +16,26 @@
 import { impactOfMany, type EdgeHit } from "../graph/traverse.js";
 import type { GraphV1, NodeV1 } from "../graph/types.js";
 import { dirLabel, moduleIndex, parentDir, shortLabel, type ModuleIndex } from "./modules.js";
-import type { ChangedFile } from "./diff.js";
+import type { ChangedFile, LineRange } from "./diff.js";
+import { wordRe } from "./evidence.js";
 import type { Owner, Reviewer } from "./owners.js";
 
 const SPAN_RE = /^L(\d+)-L(\d+)$/;
+
+/** A file's lines from the checkout, or null when it cannot be read. */
+export type LineReader = (path: string) => string[] | null;
 
 export interface BlastOptions {
   /** BFS depth over incoming edges; `Infinity` for the full closure. */
   depth: number;
   /** Concept/directory labels. Built from the context dir when omitted. */
   modules?: ModuleIndex;
+  /** Reads the checkout, to find where a declaration ends and which of a caller's
+   * lines name the changed symbol. Without it a declaration is its first line, and a
+   * caller counts as edited when any line of its span changed. */
+  read?: LineReader;
+  /** Also list the test files the change reaches ({@link BlastReport.tests}). */
+  tests?: boolean;
 }
 
 /** A changed symbol the walk started from. */
@@ -37,6 +47,37 @@ export interface Seed {
   span: string;
   /** True for a whole-file seed (an added file, or a change outside any symbol). */
   wholeFile: boolean;
+  /** A changed line falls in the declaration: from the span's first line to the end
+   * of its signature. Its callers can then need editing too ({@link LeftBehind}). */
+  declarationChanged?: true;
+}
+
+/** A caller of a symbol whose declaration changed, where the diff did not edit the call. */
+export interface LeftBehind {
+  /** The changed symbol it calls. */
+  seed: { id: string; name: string };
+  id: string;
+  name: string;
+  kind: string;
+  path: string;
+  span: string;
+  /** The caller's first line naming the changed symbol, when the file could be read. */
+  line?: number;
+  /** The call edge is inferred: a lead, not a fact. */
+  inferred?: true;
+}
+
+/** A test file the change reaches over the full closure, whatever `--depth` says. */
+export interface TestReach {
+  path: string;
+  /** Hops from the nearest changed symbol; 0 for a test file the diff edits. */
+  depth: number;
+  /** The diff edits this file. */
+  changed?: true;
+  /** Every reached symbol in it is inferred. */
+  inferred?: true;
+  /** Its reached symbols, nearest first. */
+  symbols: string[];
 }
 
 /** One dependent symbol, and how the walk reached it. */
@@ -150,6 +191,12 @@ export interface BlastReport {
    * calls whose owner is ambiguous outside Rust. An empty list is therefore not
    * proof that every call resolved. */
   unresolved?: UnresolvedName[];
+  /** Callers a declaration change left unedited. Only `calls` edges count, and a
+   * caller still naming a symbol the diff removed or renamed is not found: the graph
+   * is built after the change. */
+  leftBehind?: LeftBehind[];
+  /** Test files the change reaches. Present only when asked for (`--tests`). */
+  tests?: TestReach[];
 }
 
 export interface UnresolvedName {
@@ -222,6 +269,8 @@ export function blastRadius(
   /** Merged dependents, keyed by node id, at the shallowest depth any file reached
    * them — plus which changed files did the reaching. */
   const merged = new Map<string, { hit: Impacted; from: Set<string> }>();
+  /** Symbol seeds whose declaration the diff changed. */
+  const declaredSeeds: NodeV1[] = [];
 
   for (const file of changed) {
     if (file.status === "deleted") {
@@ -238,7 +287,12 @@ export function blastRadius(
     // file: the unit of change is the file itself.
     const symbolSeeds = file.ranges.length > 0 ? seedsForFile(graph, file.path, file.ranges) : [];
     for (const node of symbolSeeds) {
-      seeds.push({ id: node.id, name: node.name, kind: node.kind, path: node.path, span: node.span, wholeFile: false });
+      const declared = declarationChanged(node, file.ranges, opts.read);
+      if (declared) declaredSeeds.push(node);
+      seeds.push({
+        id: node.id, name: node.name, kind: node.kind, path: node.path, span: node.span, wholeFile: false,
+        ...(declared ? { declarationChanged: true as const } : {}),
+      });
     }
     if (symbolSeeds.length === 0) {
       seeds.push({
@@ -296,7 +350,155 @@ export function blastRadius(
     testModules: grouped.testModules,
     areas: changedAreas(graph, changed, seedNodes, index, grouped.modules),
     unresolved: unresolvedForSeeds(graph, seeds),
+    leftBehind: callersLeftBehind(graph, declaredSeeds, changed, opts.read),
+    ...(opts.tests ? { tests: testsReached(graph, [...seedNodes.values()].flat(), changed) } : {}),
   };
+}
+
+/** Lines searched for the end of a signature before falling back to the first line.
+ * The search reads the span line by line, and a longer signature is rare. */
+const MAX_DECLARATION_LINES = 40;
+
+const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+const overlaps = (ranges: LineRange[], start: number, end: number): boolean =>
+  ranges.some((r) => r.start <= end && r.end >= start);
+
+/**
+ * The last line of a symbol's declaration: where the signature the graph recorded
+ * ends. Found by reading the span until its whitespace-collapsed text contains that
+ * signature, which is how a parameter on the third line of a wrapped signature counts.
+ * The first line when the file cannot be read, or the signature is not found (the
+ * file moved on from the graph).
+ */
+function declarationEnd(node: NodeV1, span: { start: number; end: number }, read?: LineReader): number {
+  const signature = node.signature ? collapse(node.signature) : "";
+  const lines = signature ? read?.(node.path) : null;
+  if (!lines) return span.start;
+  const last = Math.min(span.end, span.start + MAX_DECLARATION_LINES - 1, lines.length);
+  let text = "";
+  for (let n = span.start; n <= last; n++) {
+    const line = collapse(lines[n - 1]);
+    if (line) text = text ? `${text} ${line}` : line;
+    if (text.includes(signature)) return n;
+  }
+  return span.start;
+}
+
+/** Whether a changed range falls in `node`'s declaration ({@link declarationEnd}). */
+function declarationChanged(node: NodeV1, ranges: LineRange[], read?: LineReader): boolean {
+  const span = spanBounds(node.span);
+  if (!span) return false;
+  return overlaps(ranges, span.start, declarationEnd(node, span, read));
+}
+
+/**
+ * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
+ * to look at (null when none could be found).
+ *
+ * With the file readable, the call is the caller's lines naming the symbol, and it
+ * counts as edited when any of them changed: an updated call beside an untouched
+ * import is not left behind. Without the file, or with no line naming it (a call
+ * through an alias), any changed line in the caller's span counts.
+ */
+function callSite(caller: NodeV1, name: string, ranges: LineRange[], read?: LineReader): "edited" | number | null {
+  const span = spanBounds(caller.span);
+  if (!span) return null;
+  const lines = read?.(caller.path);
+  if (lines) {
+    const re = wordRe(name);
+    const naming: number[] = [];
+    for (let n = span.start; n <= Math.min(span.end, lines.length); n++) if (re.test(lines[n - 1])) naming.push(n);
+    if (naming.length > 0) return naming.some((n) => overlaps(ranges, n, n)) ? "edited" : naming[0];
+  }
+  return overlaps(ranges, span.start, span.end) ? "edited" : null;
+}
+
+/** Methods a class's callers reach when they construct it: `Foo(...)`, `new Foo(...)`. */
+const CONSTRUCTORS = new Set(["constructor", "__init__"]);
+
+/**
+ * The callers of each changed declaration whose call the diff did not edit: the
+ * call sites a signature change can leave behind. Direct `calls` edges only, since a
+ * declaration change breaks the call, not what calls the caller. A changed
+ * `constructor` or `__init__` stands for its class, since a call constructing the
+ * class targets the class.
+ */
+function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedFile[], read?: LineReader): LeftBehind[] {
+  if (declared.length === 0) return [];
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  /** Edge targets whose callers to check, and the changed symbol each stands for. */
+  const watched = new Map(declared.map((n) => [n.id, n]));
+  for (const seed of declared) {
+    if (seed.kind !== "method" || !CONSTRUCTORS.has(seed.name) || !seed.owner) continue;
+    const span = spanBounds(seed.span);
+    const owner = graph.nodes.find((n) => {
+      const b = n.kind === "class" && n.path === seed.path && n.name === seed.owner ? spanBounds(n.span) : null;
+      return b !== null && span !== null && b.start <= span.start && b.end >= span.end;
+    });
+    if (owner && !watched.has(owner.id)) watched.set(owner.id, seed);
+  }
+  const rangesOf = new Map(changed.map((f) => [f.path, f.ranges]));
+  const found = new Map<string, LeftBehind>();
+  for (const e of graph.edges) {
+    if (e.relation !== "calls" || e.source === e.target) continue;
+    const seed = watched.get(e.target);
+    const target = seed ? byId.get(e.target) : undefined;
+    const caller = target ? byId.get(e.source) : undefined;
+    if (!seed || !target || !caller) continue;
+    const key = `${seed.id}\0${caller.id}`;
+    const prev = found.get(key);
+    // A second edge between the same pair adds nothing but certainty.
+    if (prev) {
+      if (e.confidence !== "inferred") delete prev.inferred;
+      continue;
+    }
+    const site = callSite(caller, target.name, rangesOf.get(caller.path) ?? [], read);
+    if (site === "edited") continue;
+    found.set(key, {
+      seed: { id: seed.id, name: seed.name },
+      id: caller.id, name: caller.name, kind: caller.kind, path: caller.path, span: caller.span,
+      ...(site === null ? {} : { line: site }),
+      ...(e.confidence === "inferred" ? { inferred: true as const } : {}),
+    });
+  }
+  return [...found.values()].sort((a, b) =>
+    a.path.localeCompare(b.path) || (a.line ?? 0) - (b.line ?? 0) || a.name.localeCompare(b.name) || a.seed.name.localeCompare(b.seed.name));
+}
+
+/**
+ * The test files the change reaches, over the full closure from every seed.
+ *
+ * Not capped by `--depth`: the question is which tests to run, and a test two hops
+ * further out still runs the changed code. A test file the diff edits is listed at
+ * depth 0. As with the test signal, a test that drives the code through a CLI or a
+ * spawned process has no edge, so it is not found.
+ */
+function testsReached(graph: GraphV1, seeds: NodeV1[], changed: ChangedFile[]): TestReach[] {
+  const indexed = new Set(graph.nodes.filter((n) => n.kind === "file").map((n) => n.path));
+  const byPath = new Map<string, { reach: TestReach; definite: boolean; hits: { name: string; depth: number }[] }>();
+  for (const f of changed) {
+    if (f.status === "deleted" || !indexed.has(f.path) || !TEST_PATH.test(f.path)) continue;
+    byPath.set(f.path, { reach: { path: f.path, depth: 0, changed: true, symbols: [] }, definite: true, hits: [] });
+  }
+  for (const h of impactOfMany(graph, seeds, Number.POSITIVE_INFINITY, "in")) {
+    if (!hasNode(h) || !TEST_PATH.test(h.node.path)) continue;
+    let entry = byPath.get(h.node.path);
+    if (!entry) {
+      entry = { reach: { path: h.node.path, depth: h.depth, symbols: [] }, definite: false, hits: [] };
+      byPath.set(h.node.path, entry);
+    }
+    entry.reach.depth = Math.min(entry.reach.depth, h.depth);
+    if (!h.inferred) entry.definite = true;
+    if (h.node.kind !== "file") entry.hits.push({ name: h.node.name, depth: h.depth });
+  }
+  return [...byPath.values()]
+    .map(({ reach, definite, hits }) => ({
+      ...reach,
+      ...(definite ? {} : { inferred: true as const }),
+      symbols: [...new Set(hits.sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name)).map((s) => s.name))],
+    }))
+    .sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
 }
 
 /**
@@ -422,8 +624,9 @@ export function blastRadiusIn(
   changed: ChangedFile[],
   basis: string,
   depth: number,
+  extra: Pick<BlastOptions, "read" | "tests"> = {},
 ): BlastReport {
-  return blastRadius(graph, changed, basis, { depth, modules: moduleIndex(contextDir) });
+  return blastRadius(graph, changed, basis, { depth, modules: moduleIndex(contextDir), ...extra });
 }
 
 function hasNode(h: EdgeHit): h is EdgeHit & { node: NodeV1 } {
