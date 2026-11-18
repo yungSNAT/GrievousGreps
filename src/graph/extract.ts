@@ -1016,7 +1016,7 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
           const recvAttr = recvType || ctx.lang !== "python" ? undefined : pythonAttrReceiver(callee.receiver, ctx);
           // Go: `pkg.Fn()` through an import no local shadows names the imported package.
           const goPackage =
-            !bound && callee.receiver && node.startIndex < (ctx.goLocals.get(callee.receiver) ?? Infinity)
+            !recvType && !goResult && callee.receiver && node.startIndex < (ctx.goLocals.get(callee.receiver) ?? Infinity)
               ? ctx.goImports.get(callee.receiver)
               : undefined;
           edges.push(
