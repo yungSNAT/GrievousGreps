@@ -21,4 +21,16 @@ Symbols are picked and truth is derived as [unseen/](../unseen/README.md#how-sym
 | uber-go/zap @ 4892335 | Go | gopls |
 | FluentValidation/FluentValidation @ 5903fa6 | C# | csharp-ls 0.28.0 (Roslyn), with the .NET SDK the checkout needs |
 
-The server versions are recorded with the truth.
+## Truth
+
+The truth in `truth/` was derived on Linux on 18 November 2026 (UTC), from 04:05 to 04:25, with `gg-bench` built from the preregistration commit `9252e6c`: pyright 1.1.414, typescript-language-server 6.1.0 with h3's TypeScript 7.0.2, rust-analyzer 0.3.3121, gopls v0.24.0 and csharp-ls 0.28.0 with the .NET SDK 10.0.404. h3's dependencies were installed with the pnpm its `devEngines` names, 12.3.4, from its lockfile; a first derivation of h3 without them was discarded before any tool ran.
+
+| Repository | Candidates derived | Required rows | Call lines | Optional rows |
+| --- | ---: | ---: | ---: | ---: |
+| loguru | 56 | 45 | 91 | 0 |
+| h3 | 19 | 61 | 397 | 1 |
+| toml | 69 | 35 | 48 | 0 |
+| zap | 17 | 115 | 152 | 3 |
+| fluentvalidation | 32 | 101 | 120 | 0 |
+
+h3's `use` has 297 of its 397 call lines. The limits in [unseen/](../unseen/README.md#limits) apply here too.
