@@ -7,7 +7,7 @@
  * synced. Only places Claude Code already ran in, or Trail already knows, are
  * looked at: nothing searches the disk.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "../util/program.js";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";

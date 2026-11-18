@@ -15,7 +15,7 @@
  * the browser's) are left out: they hold no words and are most of the bytes.
  * So are thinking signatures, opaque bytes of Anthropic's.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../util/program.js";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { basename, join } from "node:path";
@@ -322,7 +322,7 @@ export function bundleSession(session: SessionFile, who: string[] = whoIAm()): B
  */
 export function whoIAm(extra: string[] = []): string[] {
   const git = (key: string) => {
-    const r = spawnSync("git", ["config", "--global", "--get", key], { encoding: "utf8", timeout: 3000, windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+    const r = spawnSync("git", ["config", "--global", "--get", key], { encoding: "utf8", timeout: 3000, windowsHide: true });
     return r.status === 0 ? r.stdout.trim() : "";
   };
   let login = "";

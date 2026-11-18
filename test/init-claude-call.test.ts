@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callClaude, whyLine } from "../src/init/claude-call.js";
@@ -28,6 +28,16 @@ test("an expired login is 'not signed in', from the JSON result or from plain st
   assert.deepEqual(await callClaude(json, "x", "m", 10_000, ASK), { ok: false, why: "not_signed_in" });
   const plain = standIn(`console.error("Not logged in · Please run /login"); process.exit(1);`);
   assert.deepEqual(await callClaude(plain, "x", "m", 10_000, ASK), { ok: false, why: "not_signed_in" });
+});
+
+test("Claude Code runs in a new empty folder of its own, removed afterwards, so the folder it runs in never holds it", posixOnly, async () => {
+  const bin = standIn(`console.log(JSON.stringify({ structured_output: { findings: [{ cwd: process.cwd(), entries: require("fs").readdirSync(".") }] } }));`);
+  const r = await callClaude<{ cwd: string; entries: string[] }>(bin, "x", "m", 10_000, ASK);
+  assert.ok(r.ok, JSON.stringify(r));
+  const [{ cwd, entries }] = r.findings;
+  assert.notEqual(cwd, realpathSync(tmpdir()), "it ran in the temp folder itself");
+  assert.deepEqual(entries, []);
+  assert.equal(existsSync(cwd), false, "its folder was left behind");
 });
 
 test("no such program is 'not installed'; a call past its time is 'timed out'", posixOnly, async () => {

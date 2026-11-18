@@ -12,7 +12,7 @@
  * review, and uploads the repo the usual way, which leaves a dropped learning
  * dropped.
  */
-import { spawn } from "node:child_process";
+import { spawn } from "../util/program.js";
 import { createHash } from "node:crypto";
 import { graftCliPath } from "../claude/paths.js";
 import { noteAuthor } from "../notes/git-facts.js";

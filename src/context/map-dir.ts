@@ -12,7 +12,7 @@
  * place the first time anyone asks where the map is, so a session never
  * rebuilds what's already on disk.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../util/program.js";
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { repoWiredForTrail } from "../brand.js";
@@ -51,7 +51,7 @@ function moveOldMap(root: string, to: string): void {
   const from = join(root, GRAFT_MAP_DIR);
   if (!existsSync(join(from, "INDEX.md")) && !existsSync(join(from, ".graph"))) return;
   try {
-    execFileSync("git", ["ls-files", "--error-unmatch", "--", "graft/INDEX.md"], { cwd: root, stdio: "ignore", timeout: 3000, windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+    execFileSync("git", ["ls-files", "--error-unmatch", "--", "graft/INDEX.md"], { cwd: root, stdio: "ignore", timeout: 3000, windowsHide: true });
     return;
   } catch {
     // untracked, or not a git checkout: ours to move

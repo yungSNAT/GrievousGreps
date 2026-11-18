@@ -6,7 +6,8 @@
  * a server that is missing, slow, or errors degrades to "no enrichment", never a
  * crash — the AST graph stands on its own.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn } from "../../util/program.js";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { win32 } from "node:path";
@@ -43,9 +44,8 @@ export function npmShimEntry(shimPath: string, shimText: string): string | null 
  * being mapped supply the `node` the shim runs (it searches the cwd and any relative PATH
  * entry) and breaks on `&`/`%`/`^` in the install path, so instead run the shim's entry
  * point with Node directly: the node.exe beside the shim, as the shim itself prefers, else
- * the Node running graft, without NODE_OPTIONS: graft loads the cwd's `.env` into its own
- * environment, so a checkout could set `NODE_OPTIONS=--require ./x.js` and have that Node
- * run its code. Any other `.cmd` is spawned as before (and fails cleanly: no enrichment). */
+ * the Node running graft, without NODE_OPTIONS: a `NODE_OPTIONS=--require ./x.js` in the caller's environment would
+ * have that Node run code the person did not choose. Any other `.cmd` is spawned as before (and fails cleanly: no enrichment). */
 export function spawnSpec(
   command: string,
   args: string[],

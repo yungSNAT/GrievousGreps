@@ -2,16 +2,16 @@
  * Asking the person's own Claude Code, headless, for `trail init`: finding a
  * copy to run and making the one call.
  */
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { findProgram, spawn, spawnSync } from "../util/program.js";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { flatLine } from "../notes/flatten.js";
 
-/** Whether `claude` (Claude Code) is on PATH. */
-function claudeOnPath(): boolean {
-  const r = spawnSync("claude", ["--version"], { stdio: "ignore", timeout: 10_000, windowsHide: true }); // NOSONAR: the person's own claude, found through PATH on purpose
-  return r.status === 0;
+/** `claude` (Claude Code) on PATH by its absolute path (util/program.ts), when it answers `--version`. */
+function claudeOnPath(): string | null {
+  const claude = findProgram("claude");
+  return claude && spawnSync(claude, ["--version"], { stdio: "ignore", timeout: 10_000, windowsHide: true }).status === 0 ? claude : null;
 }
 
 /** `[2, 1, 296]` from `anthropic.claude-code-2.1.296-darwin-arm64`; null for anything else. */
@@ -21,14 +21,15 @@ function extensionVersion(name: string): number[] | null {
 }
 
 /**
- * The Claude Code to run: `claude` on PATH, else a standalone install's copy,
+ * The Claude Code to run, by its absolute path: `claude` on PATH, else a standalone install's copy,
  * else the newest copy the VS Code, Cursor, VS Code Insiders or Windsurf
  * extension keeps. Someone who only uses the extension has no `claude` on
  * PATH, and without this their past sessions are never read. Null when
  * there's none.
  */
-export function claudeBin(home: string = homedir(), onPath: () => boolean = claudeOnPath): string | null {
-  if (onPath()) return "claude";
+export function claudeBin(home: string = homedir(), onPath: () => string | null = claudeOnPath): string | null {
+  const found = onPath();
+  if (found) return found;
   const exe = process.platform === "win32" ? "claude.exe" : "claude";
   for (const p of [join(home, ".local", "bin", exe), join(home, ".claude", "local", exe)]) if (existsSync(p)) return p;
   const copies: { version: number[]; path: string }[] = [];
@@ -182,17 +183,21 @@ export function callClaude<T>(
       "--disable-slash-commands",
     ];
     let finished = false;
+    // A new empty folder of its own to run in, so the folder it runs in never holds the program.
+    let room: string | undefined;
     const finish = (answer: ClaudeAnswer<T>) => {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
+      if (room) try { rmSync(room, { recursive: true, force: true }); } catch { /* still in use: the temp folder keeps it */ }
       done(answer);
     };
     let timedOut = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let child;
     try {
-      child = spawn(bin, args, { cwd: tmpdir(), env: { ...process.env, TRAIL_NO_HOOKS: "1" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+      room = mkdtempSync(join(tmpdir(), "trail-claude-"));
+      child = spawn(bin, args, { cwd: room, env: { ...process.env, TRAIL_NO_HOOKS: "1" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     } catch (e) {
       finish({ ok: false, why: (e as NodeJS.ErrnoException)?.code === "ENOENT" ? "not_installed" : "failed" });
       return;

@@ -53,6 +53,8 @@ trail --version
 
 `npm link` points the commands at this folder, so keep it. The folder measured about 610 MB with its development dependencies. Installing writes nothing to your agents' settings.
 
+Trail starts git, gh and the other programs it uses by their absolute paths from your `PATH`, never from the repository it works in, its subfolders or a `node_modules/.bin` folder, nor through a link that passes through the repository or its subfolders (when trail works in your home folder or a drive root, only that folder itself is passed over for that reason, not the folders under it). Running `trail` itself through `npx` or a package script inside a repository you don't trust lets that repository choose what runs before trail starts, so install it as above and call it as `trail`, or by its absolute path.
+
 A repository already wired to upstream with `npx` keeps starting upstream's package until you run `trail init` there, which replaces those entries in `.cursor/mcp.json` with the installed command and removes them from `.mcp.json`. `~/.codex/config.toml` changes only with `--global`.
 
 To update a clone, run `git pull`, `npm ci` and `npm run build` in the folder. `trail upgrade` refuses on this build, because the package on npm is upstream's.
@@ -258,6 +260,7 @@ This table lists what the code changes from upstream `a44da3d` (30 October 2026,
 | Usage stats | On by default in published builds, with a notice on first run, unless `DO_NOT_TRACK` or CI is set. `trail telemetry disable` stops them. A build from source has no key, so it sends none | Off by default, and no key in the build |
 | Daily npm version check | On by default, unless `DO_NOT_TRACK` is set | Off unless `GRAFT_UPDATE_CHECK=1` |
 | Workspace background reads | The sign-in link is on wherever usage stats are, and `TRAIL_CLOUD` overrides that. In a repository that keeps learnings, `trail` sessions also run a background `git fetch` and `gh` reads unless `TRAIL_NO_FETCH` is set | Off unless `TRAIL_CLOUD=1` or you sign in |
+| The working folder's `.env` | Loaded into trail's environment, so a checkout's `.env` can set `GIT_CONFIG_*` for your git | Not read: set the provider and key for `build --deep` and area naming, and any other trail variable, in your environment |
 | Symlinks planted in a repository or output folder | Followed | Refuses to write through them. A link swapped in between the check and the write is out of scope ([SECURITY.md](SECURITY.md)) |
 | Writes outside the repository | `trail init` adds hooks to `~/.claude` and `~/.codex` unless you pass `--no-global`, and `trail login` adds MCP servers | Only with `--global`, on either command, or `trail init --connect` |
 | npm on Windows | The update check fails on the `npm.cmd` shim | Starts npm through the shell |

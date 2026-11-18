@@ -10,7 +10,7 @@
  * learning only gets a warning. `--anyway` saves past the checks, for when
  * one of them is wrong.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "../util/program.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { trailOwnPath } from "./git-facts.js";
@@ -185,7 +185,7 @@ export function namesRepoSymbol(repo: string, names: string[]): boolean {
   if (!names.length) return false;
   for (const name of names) {
     try {
-      execFileSync("git", ["grep", "-q", "-w", "-F", "-e", name, "--", ".", ":(exclude).trail", ":(exclude).claude", ":(exclude)*.md"], { // NOSONAR: the person's own git, found through PATH on purpose
+      execFileSync("git", ["grep", "-q", "-w", "-F", "-e", name, "--", ".", ":(exclude).trail", ":(exclude).claude", ":(exclude)*.md"], {
         cwd: repo,
         stdio: "ignore",
         windowsHide: true,
@@ -207,7 +207,7 @@ export function namesRepoSymbol(repo: string, names: string[]): boolean {
 export function trackedFiles(repo: string, files: string[]): Set<string> {
   if (!files.length) return new Set();
   try {
-    const out = execFileSync("git", ["ls-files", "-z", "--", ...files], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true }); // NOSONAR: the person's own git, found through PATH on purpose
+    const out = execFileSync("git", ["ls-files", "-z", "--", ...files], { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
     return new Set(out.split("\0").filter(Boolean));
   } catch {
     return new Set(files.filter((f) => existsSync(join(repo, f))));
