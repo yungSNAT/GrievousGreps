@@ -23,7 +23,7 @@ Symbols are picked and truth is derived as [unseen/](../unseen/README.md#how-sym
 
 ## Truth
 
-The truth in `truth/` was derived on Linux on 18 November 2026 (UTC), from 04:05 to 04:25, with `gg-bench` built from the preregistration commit `9252e6c`: pyright 1.1.414, typescript-language-server 6.1.0 with h3's TypeScript 7.0.2, rust-analyzer 0.3.3121, gopls v0.24.0 and csharp-ls 0.28.0 with the .NET SDK 10.0.404. h3's dependencies were installed with the pnpm its `devEngines` names, 12.3.4, from its lockfile; a first derivation of h3 without them was discarded before any tool ran.
+The truth in `truth/` was derived on Linux on 18 November 2026 (UTC), from 04:05 to 04:25, with `gg-bench` built from the preregistration commit `9252e6c`: pyright 1.1.414, typescript-language-server 6.1.0, rust-analyzer 0.3.3121, gopls v0.24.0 and csharp-ls 0.28.0 with the .NET SDK 10.0.404. For h3 this departs from the table above: h3's own TypeScript, 7.0.2, provides no `tsserver.js`, so typescript-language-server used its bundled TypeScript 6.0.3. h3's dependencies were installed with the pnpm its `devEngines` names, 12.3.4, from its lockfile; a first derivation of h3 without them, which picked the same 10 symbols with the same call counts, was discarded before any tool ran.
 
 | Repository | Candidates derived | Required rows | Call lines | Optional rows |
 | --- | ---: | ---: | ---: | ---: |
@@ -33,4 +33,4 @@ The truth in `truth/` was derived on Linux on 18 November 2026 (UTC), from 04:05
 | zap | 17 | 115 | 152 | 3 |
 | fluentvalidation | 32 | 101 | 120 | 0 |
 
-h3's `use` has 297 of its 397 call lines. The limits in [unseen/](../unseen/README.md#limits) apply here too.
+h3's `use` has 297 of its 397 call lines. The 5 were chosen by the criteria above, with no candidate list or random draw; zap was chosen whilst the Go receiver fix (#110) was in review, and #110 moved zap from 0.03 to 0.31. The build scored in the README, `4be1b3b`, has the graph code of `cc81761`, pushed at 03:54:05 before the set was chosen; only a test file and #109's hook shim changed afterwards. The limits in [unseen/](../unseen/README.md#limits) apply here too.
