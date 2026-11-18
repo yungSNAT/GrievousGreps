@@ -126,18 +126,20 @@ const real = (p) => { try { return fs.realpathSync.native(p); } catch { return n
 const both = (p) => [path.resolve(p), real(p)].filter(Boolean).map(fold);
 const within = (base, p) => { const r = path.relative(base, p); return !(r === '..' || r.startsWith('..' + path.sep) || path.isAbsolute(r)); };
 
-// The working folders work, each as given and as its real path; a filesystem root or the
-// home folder counts only as itself, so it is left out (no candidate is that folder).
+// The working folders work, each as given and as its real path. A filesystem root or the
+// home folder holds every folder the person installs to, so it counts only as its own
+// node_modules, the dependencies a project there would have.
 function folders(work) {
   const home = both(os.homedir());
-  return work.flatMap(both).filter((d) => path.dirname(d) !== d && !home.includes(d));
+  return work.flatMap(both).map((d) => (path.dirname(d) === d || home.includes(d) ? path.join(d, 'node_modules') : d));
 }
 const inside = (here, p) => both(p).some((x) => here.some((h) => within(h, x)));
 
 // For the working folders work, the real folder of a PATH entry trail may take a program
 // from, else null, under the rules of trail's src/util/program.ts: only an absolute entry,
-// never one at or under a working folder, a node_modules/.bin folder or Yarn's bin folder,
-// each tested as listed and as its real path.
+// never one at or under a working folder (see folders), a node_modules/.bin folder or Yarn's
+// bin folder, each tested as listed and as its real path. program.ts passes over only the
+// home folder or root itself; its node_modules here is the stricter of the two.
 function pathRule(work) {
   const here = folders(work);
   const yarn = process.env.BERRY_BIN_FOLDER;
