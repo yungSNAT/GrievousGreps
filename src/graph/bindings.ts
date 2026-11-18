@@ -751,6 +751,13 @@ function javaNewTypeName(value: SyntaxNode | null | undefined): string | null {
 
 function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): void {
   const scopePath = scope.join(".");
+  // A func literal's local shadows only from its declaration and in its block, which a lookup cannot
+  // see, so where an enclosing scope gives the name another type, the literal's binding names none.
+  const outer = scope.at(-1)?.startsWith("@") ? (name: string) => bindings.lookup(scope.slice(0, -1), name) : () => null;
+  const setLocal = (name: string, type: string) => {
+    const prior = outer(name);
+    bindings.setGo(scopePath, name, prior === null || prior === type ? type : "?");
+  };
   if (node.type === "parameter_declaration") {
     // A function type's parameters (`var cb func(l *Logger)`) name no variable here.
     if (!GO_FUNCTIONS.has(node.parent?.parent?.type ?? "")) return;
@@ -761,12 +768,12 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   if (node.type === "var_spec") {
     const name = node.childForFieldName("name");
     const type = goTypeName(node.childForFieldName("type"));
-    if (name?.type === "identifier" && type) bindings.setGo(scopePath, name.text, type);
+    if (name?.type === "identifier" && type) setLocal(name.text, type);
     const values = node.childForFieldName("value")?.namedChildren ?? [];
     const first = values[0];
     if (name?.type === "identifier" && !type && values.length === 1 && first?.type === "call_expression") {
       const result = goCallResult(first);
-      if (result) bindings.setGo(scopePath, name.text, result);
+      if (result) setLocal(name.text, result);
     }
     return;
   }
@@ -796,7 +803,7 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
       // One call on the right gives its first result to the first name; `a, b := f(), g()` pairs them.
       typeName = goCallResult(expr);
     }
-    if (typeName) bindings.setGo(scopePath, nameNode.text, typeName);
+    if (typeName) setLocal(nameNode.text, typeName);
   }
 }
 
