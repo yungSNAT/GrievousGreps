@@ -487,8 +487,9 @@ test("Go extraction: a function's result of another package's type, and test fil
         "func qualified() { l, _ := logtest.NewNullLogger(); l.SetLevel(1) }\n" +
         "func outside() { b := logtest.NewBuffer(); b.SetLevel(1) }\n",
     "main_test.go":
-      'package main\n\nimport "example.com/app/logtest"\n\n' +
-        "func TestLevel() { l, _ := logtest.NewNullLogger(); l.SetLevel(1); l.Check() }\n",
+      'package main\n\nimport (\n\t"example.com/app/log"\n\t"example.com/app/logtest"\n)\n\n' +
+        "func TestLevel() { l, _ := logtest.NewNullLogger(); l.SetLevel(1); l.Check() }\n" +
+        "func TestParam(l *log.Logger) { l.Check() }\n",
   });
 
   const calls = (source: string) =>
@@ -499,4 +500,5 @@ test("Go extraction: a function's result of another package's type, and test fil
   assert.deepEqual(calls("main.go#outside"), []);
   // A test file reaches a method in another package's ordinary files, never in its test files.
   assert.deepEqual(calls("main_test.go#TestLevel"), ["log/logger.go#Logger.SetLevel"]);
+  assert.deepEqual(calls("main_test.go#TestParam"), []);
 });
