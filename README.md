@@ -38,7 +38,7 @@ npm install -g --allow-git=root git+https://github.com/yungSNAT/GrievousGreps.gi
 trail --version
 ```
 
-npm 12 refuses a package from git unless `--allow-git` allows it, and `root` allows only the one named. With npm 12.2.2 and Node 26.13.1 on Linux, on 16 November 2026 (UTC) at `2a68b91`, the install took 103 s and 131 MiB of disk, and both commands printed `0.28.0+gg`, without the commit. npm 12 also skipped the package's `postinstall` script, which prints a hint; the commands work without it. To update, run the same command.
+npm 12 refuses a package from git unless `--allow-git` allows it, and `root` allows only the one named. With npm 12.2.2 and Node 26.13.1 on Linux, on 16 November 2026 (UTC) at `2a68b91`, the install took 103 s and 131 MiB of disk. At `1244ddf` on 18 November both commands printed `0.28.0+gg.1244ddf626b8`, the version and the commit. npm 12 also skipped the package's `postinstall` script, which prints a hint; the commands work without it. To update, run the same command.
 
 To work on the code, build it from a clone and link the commands instead:
 
@@ -51,7 +51,7 @@ npm link
 trail --version
 ```
 
-`npm link` points the commands at this folder, so keep it. The folder measured about 610 MB with its development dependencies. Installing writes nothing to your agents' settings.
+`npm link` points the commands at this folder, so keep it. The folder measured about 640 MB with its development dependencies. Installing writes nothing to your agents' settings.
 
 Trail starts git, gh and the other programs it uses by their absolute paths from your `PATH`, never from the repository it works in, its subfolders or a `node_modules/.bin` folder, nor through a link that passes through the repository or its subfolders (when trail works in your home folder or a drive root, only that folder itself is passed over for that reason, not the folders under it). Running `trail` itself through `npx` or a package script inside a repository you don't trust lets that repository choose what runs before trail starts, so install it as above and call it as `trail`, or by its absolute path.
 
