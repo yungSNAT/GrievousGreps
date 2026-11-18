@@ -268,6 +268,14 @@ mod tests {
     }
 
     #[test]
+    fn a_module_level_constant_holding_a_function_is_the_caller() {
+        // typescript-language-server reports `const main = async () => { ... }` as a constant, not a
+        // function, so a lone module-level value may be a function whose calls it makes.
+        let scopes = vec![scope("main", 14, (5, 20), None)];
+        assert_eq!(caller_chain(&scopes, (6, 4)), vec![0]);
+    }
+
+    #[test]
     fn a_module_level_value_is_no_caller() {
         // module > variable CONFIG, whose value calls the target: the call is at module level.
         let scopes = vec![
