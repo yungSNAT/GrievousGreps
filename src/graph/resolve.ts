@@ -438,6 +438,36 @@ export function resolveEdges(
     return type && rustTextName(type);
   };
 
+  // Go: the functions named `name` in the package an import path names, its test files aside.
+  const goPackageFunctions = (specifier: string, name: string): NodeV1[] => {
+    const dir = hasGoModules ? goImportDir(specifier, opts.goModules!) : null;
+    return (dir ? (goFilesByDir.get(dir) ?? []) : [])
+      .filter((f) => !f.endsWith("_test.go"))
+      .flatMap((f) => perFileName.get(f)?.get(name) ?? [])
+      .filter((n) => n.kind === "function");
+  };
+  // Go: the one method `type.name` declared in a package folder; test files only for a test file's call.
+  const goMethodIn = (dir: string, type: string, name: string, file: string): NodeV1 | undefined => {
+    const found = (ownerMethod.get(`${type}.${name}`) ?? []).filter(
+      (n) => posix.dirname(toPosixPath(n.path)) === dir && (file.endsWith("_test.go") || !n.path.endsWith("_test.go")),
+    );
+    return found.length === 1 ? found[0] : undefined;
+  };
+  // Go: the method a member call reaches through a receiver of another package's type, or one holding a
+  // function's result, whose type is that function's first result, declared in the function's own package.
+  const goHeldTarget = (e: RawEdge): NodeV1 | undefined => {
+    if (e.goType) {
+      const dir = hasGoModules ? goImportDir(e.goType.specifier, opts.goModules!) : null;
+      return dir ? goMethodIn(dir, e.goType.name, e.name!, e.file) : undefined;
+    }
+    const { fn, specifier } = e.goResult!;
+    const found = specifier
+      ? goPackageFunctions(specifier, fn)
+      : (globalName.get(fn) ?? []).filter((n) => n.kind === "function" && n.path.endsWith(".go") && sameGoPackage(e.file, n.path));
+    const called = found.length === 1 ? found[0]! : undefined;
+    return called?.returns ? goMethodIn(posix.dirname(toPosixPath(called.path)), called.returns, e.name!, e.file) : undefined;
+  };
+
   const tsModules = new Map<string, TsModule>();
   for (const e of rawEdges) if (e.tsModule) tsModules.set(e.file, e.tsModule);
   const tsCtx: TsCtx = { modules: tsModules, perFileName, byId, paths: opts.tsPaths ?? [], packages: opts.tsPackages ?? [], unmanifested: opts.tsUnmanifested ?? new Set(), repoPaths: tsRepoPaths(byId) };
@@ -575,12 +605,13 @@ export function resolveEdges(
       }
       // Go: a package-qualified call names the imported package's directory.
       if (e.specifier && e.file.endsWith(".go")) {
-        const dir = hasGoModules ? goImportDir(e.specifier, opts.goModules!) : null;
-        const candidates = (dir ? (goFilesByDir.get(dir) ?? []) : [])
-          .filter((f) => !f.endsWith("_test.go"))
-          .flatMap((f) => perFileName.get(f)?.get(e.name!) ?? [])
-          .filter((n) => n.kind === "function");
+        const candidates = goPackageFunctions(e.specifier, e.name!);
         if (candidates.length === 1) add(e.source, candidates[0].id, "calls", "extracted");
+        continue;
+      }
+      if (e.goResult || e.goType) {
+        const hit = goHeldTarget(e);
+        if (hit && hit.id !== e.source) add(e.source, hit.id, "calls", "inferred");
         continue;
       }
       if (e.viaMember) {

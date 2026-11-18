@@ -62,7 +62,8 @@ export interface NodeV1 {
   // index) key off a stored field instead of re-deriving it by slicing `id`,
   // which breaks once ids can carry a dedup ordinal (`Cache.get~2`).
   owner?: string;
-  // Rust: the return type as written, which a receiver's type is read through.
+  // Rust: the return type as written, which a receiver's type is read through. Go functions:
+  // the first result's bare type name (`*log.Logger` → `Logger`), for a receiver holding it.
   returns?: string;
   // Elixir modules: the full module name (`Shop.Payments.Gateway`). A nested `defmodule
   // Inner` is named by its bare last segment, and `defmodule Payments.Gateway` after an
