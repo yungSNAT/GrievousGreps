@@ -154,7 +154,7 @@ test("a call into an in-repo module whose name does not resolve is said, with th
     const home = mkdtempSync(join(tmpdir(), "py-roots-home-"));
     const r = spawnSync(process.execPath, ["--import", "tsx", join(process.cwd(), "src/cli.ts"), "callers", name, root], {
       encoding: "utf8",
-      env: { ...process.env, HOME: home, USERPROFILE: home, DO_NOT_TRACK: "1", TRAIL_CLOUD: "0", DOTENV_CONFIG_PATH: "NUL" },
+      env: { ...process.env, HOME: home, USERPROFILE: home, DO_NOT_TRACK: "1", TRAIL_CLOUD: "0" },
     });
     return r.stdout + r.stderr;
   };
@@ -195,7 +195,7 @@ test("the warning for a genuine rebinding says what happened", async () => {
   const home = mkdtempSync(join(tmpdir(), "py-roots-home-"));
   const r = spawnSync(process.execPath, ["--import", "tsx", join(process.cwd(), "src/cli.ts"), "callers", "f", root], {
     encoding: "utf8",
-    env: { ...process.env, HOME: home, USERPROFILE: home, DO_NOT_TRACK: "1", TRAIL_CLOUD: "0", DOTENV_CONFIG_PATH: "NUL" },
+    env: { ...process.env, HOME: home, USERPROFILE: home, DO_NOT_TRACK: "1", TRAIL_CLOUD: "0" },
   });
   assert.match(r.stdout + r.stderr, /consumer\.py#run \(an assignment or a second import gives it more than one target\)/);
   assert.doesNotMatch(r.stdout + r.stderr, /conditional import/);

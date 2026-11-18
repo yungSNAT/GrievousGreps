@@ -260,6 +260,7 @@ This table lists what the code changes from upstream `a44da3d` (30 October 2026,
 | Usage stats | On by default in published builds, with a notice on first run, unless `DO_NOT_TRACK` or CI is set. `trail telemetry disable` stops them. A build from source has no key, so it sends none | Off by default, and no key in the build |
 | Daily npm version check | On by default, unless `DO_NOT_TRACK` is set | Off unless `GRAFT_UPDATE_CHECK=1` |
 | Workspace background reads | The sign-in link is on wherever usage stats are, and `TRAIL_CLOUD` overrides that. In a repository that keeps learnings, `trail` sessions also run a background `git fetch` and `gh` reads unless `TRAIL_NO_FETCH` is set | Off unless `TRAIL_CLOUD=1` or you sign in |
+| The working folder's `.env` | Loaded into trail's environment, so a checkout's `.env` can set `GIT_CONFIG_*` for your git | Not read: set the provider and key for `build --deep` and area naming, and any other trail variable, in your environment |
 | Symlinks planted in a repository or output folder | Followed | Refuses to write through them. A link swapped in between the check and the write is out of scope ([SECURITY.md](SECURITY.md)) |
 | Writes outside the repository | `trail init` adds hooks to `~/.claude` and `~/.codex` unless you pass `--no-global`, and `trail login` adds MCP servers | Only with `--global`, on either command, or `trail init --connect` |
 | npm on Windows | The update check fails on the `npm.cmd` shim | Starts npm through the shell |
