@@ -522,6 +522,24 @@ test('a user-level shim never imports the project\'s copy named through this mac
   assert.equal(runShim(root, p, { remembered: sharedOwn, userLevel: true }), '0.28.0+gg', 'an install outside the project, through the share');
 });
 
+// A drive letter mapped to a share of a folder inside the project names it from the share's root, which no
+// path above it relates to the project; its real path is the share's. A folder link to the share stands in
+// for the drive, as mapping one would change the machine.
+test('a user-level shim never imports the project\'s copy through a link to a share of its node_modules', { skip: process.platform !== 'win32' }, (t) => {
+  const root = tmpRepo('shim-user-level-share-link');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const shared = viaShare(join(p, 'node_modules'));
+  if (shared === null) return t.skip("this machine's administrative share cannot be reached");
+  try {
+    symlinkSync(shared, join(root, 'drive'), 'dir');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('this Windows account cannot make folder links');
+    throw e;
+  }
+  assert.equal(runShim(root, p, { remembered: join(root, 'drive', '@equitybot', 'grievousgreps', 'dist', 'claude'), userLevel: true }), null);
+});
+
 /** An npm in `dir` that answers `root -g` with `globalRoot` and leaves `mark` when given:
  * `npm` for POSIX, and for Windows `npm.cmd` with the npm-cli.js beside it, which the shim runs. */
 function fakeNpm(dir: string, globalRoot: string, mark?: string): void {
