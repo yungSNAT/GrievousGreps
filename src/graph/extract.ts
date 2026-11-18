@@ -8,7 +8,7 @@
  */
 import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
-import { collectBindings, goReceiverVarOf, goTypeName, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
+import { collectBindings, goLiteralScope, goReceiverVarOf, goTypeName, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
 import { parseDepth, type SyntaxNode } from "./depth-parser.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 
@@ -475,6 +475,8 @@ export interface WalkCtx {
   pythonImportedNames: ReadonlySet<string>;
   goImports: ReadonlyMap<string, string>;
   goLocals: ReadonlyMap<string, number>;
+  /** Go: the func literals around the walk, as bindings.ts's scope segments, which `scope` (the ids') leaves out. */
+  goLiterals: readonly string[];
   // R6 (Phase 2): which list we're inside while walking an `R6Class(...)` call's
   // arguments — set only for the direct span of a `public =`/`private =`/
   // `active =` `list(...)`'s own entries (see walk()'s special-cased `argument`
@@ -511,7 +513,7 @@ interface DefDescriptor {
   // ordinary ctx.enclosingClass fallback instead, so they leave this unset.
   owner?: string;
   arity?: number; // declared parameter count — overload disambiguation (Java)
-  returns?: string; // Go functions: the first result's bare type name
+  returns?: string; // Go functions: the first result's type name, `<import path>.T` for another package's
   variadic?: boolean; // last parameter is a vararg, so `arity` is a minimum
 }
 
@@ -595,6 +597,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     pythonLocalRebound: new Map(),
     goImports,
     goLocals: new Map(),
+    goLiterals: [],
     rR6Access: null,
     rGenerics,
     rSuperClass: null,
@@ -1115,7 +1118,8 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
     }
   }
 
-  for (const child of node.namedChildren) walk(child, ctx, out, edges, minted);
+  const inner = ctx.lang === "go" && node.type === "func_literal" ? { ...ctx, goLiterals: [...ctx.goLiterals, goLiteralScope(node)] } : ctx;
+  for (const child of node.namedChildren) walk(child, inner, out, edges, minted);
 }
 
 /**
@@ -2094,16 +2098,18 @@ function tsWrappedFunction(declarator: SyntaxNode): SyntaxNode | null {
 /** Go definition shapes: top-level funcs, receiver methods, and named types
  * (struct / interface / type alias). Methods carry no nesting — they're qualified
  * by their receiver type (`User.Save`) so calls can resolve and cards read clearly. */
-function describeGo(node: SyntaxNode, _ctx: WalkCtx): DefDescriptor | null {
+function describeGo(node: SyntaxNode, ctx: WalkCtx): DefDescriptor | null {
   if (node.type === "function_declaration") {
     const name = node.childForFieldName("name")?.text;
     if (!name) return null;
     const body = node.childForFieldName("body");
     const result = node.childForFieldName("result");
     const first = result?.type === "parameter_list" ? result.namedChildren[0]?.childForFieldName("type") : result;
-    // Only a type of this package: one written `pkg.T` would need that file's imports to find.
-    const type = goTypeName(first ?? null);
-    const returns = type && !type.includes(".") ? type : undefined;
+    // A type of this package by its name; another package's (`pkg.T`) by its import path, `<path>.T`.
+    const type = goTypeName(first ?? null) ?? undefined;
+    const dot = type?.indexOf(".") ?? -1;
+    const from = dot < 0 ? undefined : ctx.goImports.get(type!.slice(0, dot));
+    const returns = dot < 0 ? type : from === undefined ? undefined : `${from}.${type!.slice(dot + 1)}`;
     return { name, kind: "function", headerEnd: body ? body.startIndex : node.endIndex, hashNode: node, returns };
   }
 

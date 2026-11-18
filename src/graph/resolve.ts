@@ -446,10 +446,11 @@ export function resolveEdges(
       .flatMap((f) => perFileName.get(f)?.get(name) ?? [])
       .filter((n) => n.kind === "function");
   };
-  // Go: the one method `type.name` declared in a package folder; test files only for a test file's call.
+  // Go: the one method `type.name` declared in a package folder; its test files only for a call in that folder's.
   const goMethodIn = (dir: string, type: string, name: string, file: string): NodeV1 | undefined => {
+    const ownTests = file.endsWith("_test.go") && posix.dirname(toPosixPath(file)) === dir;
     const found = (ownerMethod.get(`${type}.${name}`) ?? []).filter(
-      (n) => posix.dirname(toPosixPath(n.path)) === dir && (file.endsWith("_test.go") || !n.path.endsWith("_test.go")),
+      (n) => posix.dirname(toPosixPath(n.path)) === dir && (ownTests || !n.path.endsWith("_test.go")),
     );
     return found.length === 1 ? found[0] : undefined;
   };
@@ -464,8 +465,12 @@ export function resolveEdges(
     const found = specifier
       ? goPackageFunctions(specifier, fn)
       : (globalName.get(fn) ?? []).filter((n) => n.kind === "function" && n.path.endsWith(".go") && sameGoPackage(e.file, n.path));
-    const called = found.length === 1 ? found[0]! : undefined;
-    return called?.returns ? goMethodIn(posix.dirname(toPosixPath(called.path)), called.returns, e.name!, e.file) : undefined;
+    const returns = found.length === 1 ? found[0]!.returns : undefined;
+    if (!returns) return undefined;
+    // `T` is in the function's own folder; `<import path>.T` in the folder that path names.
+    const dot = returns.lastIndexOf(".");
+    const dir = dot < 0 ? posix.dirname(toPosixPath(found[0]!.path)) : hasGoModules ? goImportDir(returns.slice(0, dot), opts.goModules!) : null;
+    return dir ? goMethodIn(dir, returns.slice(dot + 1), e.name!, e.file) : undefined;
   };
 
   const tsModules = new Map<string, TsModule>();

@@ -35,8 +35,8 @@ export class FileBindings {
     this.map.set(`${scopePath}|${name}`, type);
   }
 
-  /** Go: a name given 2 different types in one scope (2 func literals' parameters, a shadowing
-   * block) gets `?`, which names no type, rather than whichever came last. */
+  /** Go: a name given 2 different types in one scope (a shadowing block) gets `?`, which names no
+   * type, rather than whichever came last. */
   setGo(scopePath: string, name: string, type: string): void {
     const prior = this.map.get(`${scopePath}|${name}`);
     this.set(scopePath, name, prior === undefined || prior === type ? type : "?");
@@ -76,6 +76,7 @@ export function defName(node: SyntaxNode, lang: Language): string | null {
     if (node.type === "function_declaration" || node.type === "type_spec") {
       return node.childForFieldName("name")?.text ?? null;
     }
+    if (node.type === "func_literal") return goLiteralScope(node);
     return null;
   }
   if (lang === "r") return rDefName(node);
@@ -209,7 +210,13 @@ function goReceiverTypeOf(node: SyntaxNode): string | null {
   return type?.type === "type_identifier" ? type.text : null;
 }
 
-type RecvCtx = Pick<WalkCtx, "scope" | "enclosingClass" | "goReceiverVar" | "lang" | "bindings" | "rSuperClass">;
+/** Go: the scope segment of a func literal, whose parameters and locals are its own. It names no
+ * definition, so extract.ts keeps it in `goLiterals`, out of the ids. */
+export function goLiteralScope(node: SyntaxNode): string {
+  return `@${node.startIndex}`;
+}
+
+type RecvCtx = Pick<WalkCtx, "scope" | "goLiterals" | "enclosingClass" | "goReceiverVar" | "lang" | "bindings" | "rSuperClass">;
 
 /** Resolves a call site's receiver text (from `calleeName`) to a bound type
  * name, given the enclosing walk state. `self`/`cls`/`this`/the Go receiver
@@ -239,7 +246,7 @@ export function resolveRecvType(
   if (ctx.lang === "php" && !receiver.startsWith("$")) return receiver;
   return (
     (ctx.lang === "go" && receiver === ctx.goReceiverVar ? ctx.enclosingClass : undefined) ??
-    ctx.bindings.lookup(ctx.scope, receiver) ??
+    ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver) ??
     // Swift type-member call `Animal.staticThing()`: an uppercase receiver with no
     // local binding is the type itself (Swift naming: types are UpperCamelCase,
     // values lowerCamelCase — and a shadowing binding was already tried above).
@@ -744,6 +751,13 @@ function javaNewTypeName(value: SyntaxNode | null | undefined): string | null {
 
 function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): void {
   const scopePath = scope.join(".");
+  // A func literal's local shadows only from its declaration and in its block, which a lookup cannot
+  // see, so where an enclosing scope gives the name another type, the literal's binding names none.
+  const outer = scope.at(-1)?.startsWith("@") ? (name: string) => bindings.lookup(scope.slice(0, -1), name) : () => null;
+  const setLocal = (name: string, type: string) => {
+    const prior = outer(name);
+    bindings.setGo(scopePath, name, prior === null || prior === type ? type : "?");
+  };
   if (node.type === "parameter_declaration") {
     // A function type's parameters (`var cb func(l *Logger)`) name no variable here.
     if (!GO_FUNCTIONS.has(node.parent?.parent?.type ?? "")) return;
@@ -754,12 +768,12 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   if (node.type === "var_spec") {
     const name = node.childForFieldName("name");
     const type = goTypeName(node.childForFieldName("type"));
-    if (name?.type === "identifier" && type) bindings.setGo(scopePath, name.text, type);
+    if (name?.type === "identifier" && type) setLocal(name.text, type);
     const values = node.childForFieldName("value")?.namedChildren ?? [];
     const first = values[0];
     if (name?.type === "identifier" && !type && values.length === 1 && first?.type === "call_expression") {
       const result = goCallResult(first);
-      if (result) bindings.setGo(scopePath, name.text, result);
+      if (result) setLocal(name.text, result);
     }
     return;
   }
@@ -789,7 +803,7 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
       // One call on the right gives its first result to the first name; `a, b := f(), g()` pairs them.
       typeName = goCallResult(expr);
     }
-    if (typeName) bindings.setGo(scopePath, nameNode.text, typeName);
+    if (typeName) setLocal(nameNode.text, typeName);
   }
 }
 
