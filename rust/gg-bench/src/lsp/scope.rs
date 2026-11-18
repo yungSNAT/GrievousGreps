@@ -122,7 +122,8 @@ pub fn clean_scope(name: &str) -> String {
 /// a definition gives way to the definition. Empty at module level. A lone module-level value
 /// stays, as typescript-language-server reports a function held in a `const` as a value, except
 /// in a Python file (`path`), where a value holds no function body but a lambda's, so a call in
-/// `CONFIG = make()` is at module level.
+/// `CONFIG = make()` is at module level. Known limit: a call in a module-level lambda
+/// (`f = lambda: g()`) reads as module level too.
 pub fn caller_chain(scopes: &[Scope], at: (u64, u64), path: &str) -> Vec<usize> {
     let mut chain = enclosing(scopes, at);
     let keep = usize::from(!(path.ends_with(".py") || path.ends_with(".pyi")));
