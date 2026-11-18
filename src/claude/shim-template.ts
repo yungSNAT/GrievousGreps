@@ -338,7 +338,7 @@ function liveFiles(learnings, files) {
 ${FLAT_LINE_JS}`;
 
 export function statuslineShim(): string { return shim('statusline.js', 'm.main()'); }
-export function hooksShim(): string { return shim('hooks.js', 'm.main(process.argv[2])', OFFER_TRAIL, true); }
+export function hooksShim(_userLevel = false): string { return shim('hooks.js', 'm.main(process.argv[2])', OFFER_TRAIL, true); }
 
 /** Where `rememberInstall` writes, and the shims read: `<trail home>/install.json`. */
 export function installHintPath(home: string = homedir(), env: NodeJS.ProcessEnv = process.env): string {

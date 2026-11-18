@@ -87,18 +87,20 @@ function trailHomeOf(root: string): string { return join(root, 'trail-home'); }
  * (if given) as this machine's install, with `pathDirs` on PATH. The shim is the
  * project's own copy in `.claude/helpers`, or with `userLevel` a copy outside the
  * project, as `~/.claude`, `~/.codex` and `~/.pi` hold. Returns the version of the
- * install that actually got loaded (or null if none did).
+ * install that actually got loaded (or null if none did). `shimPath` places the shim
+ * elsewhere, `cwd` is the child's working folder and `env` is added to its environment.
  */
-function runShim(root: string, projectDir: string, opts: { remembered?: string; pathDirs?: string[]; userLevel?: boolean } = {}): string | null {
-  const shimPath = opts.userLevel ? join(root, 'user-helpers', 'graft-hooks.cjs') : join(projectDir, '.claude', 'helpers', 'graft-hooks.cjs');
+function runShim(root: string, projectDir: string, opts: { remembered?: string; pathDirs?: string[]; userLevel?: boolean; shimPath?: string; cwd?: string; env?: NodeJS.ProcessEnv } = {}): string | null {
+  const shimPath = opts.shimPath ?? (opts.userLevel ? join(root, 'user-helpers', 'graft-hooks.cjs') : join(projectDir, '.claude', 'helpers', 'graft-hooks.cjs'));
   const marker = join(root, 'loaded.txt');
   mkdirSync(dirname(shimPath), { recursive: true });
-  writeFileSync(shimPath, hooksShim());
+  writeFileSync(shimPath, hooksShim(opts.userLevel));
   const { preload, env } = isolate(root, opts.pathDirs);
   if (opts.remembered) rememberInstall(join(root, 'home'), env, opts.remembered);
   const res = spawnSync(process.execPath, ['--require', preload, shimPath, 'session-start'], {
+    cwd: opts.cwd,
     encoding: 'utf8',
-    env: { ...process.env, ...env, MARKER: marker, CLAUDE_PROJECT_DIR: projectDir },
+    env: { ...process.env, ...env, MARKER: marker, CLAUDE_PROJECT_DIR: projectDir, ...opts.env },
   });
   assert.equal(res.status, 0, `shim exited ${res.status}: ${res.stderr}`);
   return existsSync(marker) ? readFileSync(marker, 'utf8') : null;
@@ -467,6 +469,78 @@ test('a user-level shim never follows a trail command inside the project or a no
   for (const d of [bin, p]) for (const b of ['trail', 'trail.cmd']) writeFileSync(join(d, b), '');
   const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [bin, p] }), '0.28.0+gg');
+});
+
+// Where the shim's file sits says nothing about which kind it is when the project is the home
+// folder or a drive root, as both kinds then sit under it: the writer says which.
+test('a user-level shim stays user-level when the home folder is the project', () => {
+  const root = tmpRepo('shim-user-level-home');
+  const home = join(root, 'home');
+  fakeInstall(join(home, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const shimPath = join(home, '.claude', 'helpers', 'graft-hooks.cjs');
+  assert.equal(runShim(root, home, { remembered: own, userLevel: true, shimPath, cwd: home, env: { HOME: home, USERPROFILE: home } }), '0.28.0+gg');
+});
+
+test('a user-level shim never imports a remembered install inside the project', () => {
+  const root = tmpRepo('shim-user-level-remembered');
+  const p = project(root);
+  const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  assert.equal(runShim(root, p, { remembered: inside, userLevel: true }), null);
+});
+
+/** An npm in `dir` that answers `root -g` with `globalRoot` and leaves `mark` when given:
+ * `npm` for POSIX, and for Windows `npm.cmd` with the npm-cli.js beside it, which the shim runs. */
+function fakeNpm(dir: string, globalRoot: string, mark?: string): void {
+  const js = [...(mark ? [`require('fs').writeFileSync(${jsLit(mark)}, '');`] : []), `console.log(${jsLit(globalRoot)});`].join('\n');
+  const cli = join(dir, 'node_modules', 'npm', 'bin');
+  mkdirSync(cli, { recursive: true });
+  writeFileSync(join(cli, 'npm-cli.js'), js);
+  writeFileSync(join(dir, 'npm.cmd'), '@exit /b 7\r\n');
+  writeFileSync(join(dir, 'npm'), `#!${process.execPath}\n${js}\n`);
+  chmodSync(join(dir, 'npm'), 0o755);
+}
+
+test('a user-level shim never imports from a global root inside the project', () => {
+  const root = tmpRepo('shim-user-level-global');
+  const p = project(root);
+  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  fakeNpm(join(root, 'npm-bin'), join(p, 'node_modules'));
+  assert.equal(runShim(root, p, { userLevel: true, pathDirs: [join(root, 'npm-bin')] }), null);
+});
+
+test('a user-level shim never runs an npm in the project, with the working folder below it', () => {
+  const root = tmpRepo('shim-user-level-npm');
+  const p = project(root);
+  const sub = join(p, 'sub');
+  mkdirSync(sub);
+  const mark = join(root, 'ran-npm');
+  fakeNpm(join(p, 'tools'), join(root, 'nowhere'), mark);
+  assert.equal(runShim(root, p, { userLevel: true, cwd: sub, pathDirs: [join(p, 'tools')] }), null);
+  assert.equal(existsSync(mark), false, "the project's npm ran");
+});
+
+test('a user-level shim never follows a node_modules/.bin outside the project', () => {
+  const root = tmpRepo('shim-user-level-outside-bin');
+  const p = project(root);
+  const tools = join(root, 'tools');
+  fakeInstall(join(tools, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const bin = join(tools, 'node_modules', '.bin');
+  mkdirSync(bin, { recursive: true });
+  for (const b of ['trail', 'trail.cmd']) writeFileSync(join(bin, b), '');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [bin] }), '0.28.0+gg');
+});
+
+test('the project\'s own shim still finds an install through a node_modules/.bin outside the project', () => {
+  const root = tmpRepo('shim-repo-outside-bin');
+  const p = project(root);
+  const tools = join(root, 'tools');
+  fakeInstall(join(tools, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const bin = join(tools, 'node_modules', '.bin');
+  mkdirSync(bin, { recursive: true });
+  for (const b of ['trail', 'trail.cmd']) writeFileSync(join(bin, b), '');
+  assert.equal(runShim(root, p, { pathDirs: [bin] }), '0.28.0+gg');
 });
 
 test('the project\'s own shim still uses the project\'s own copy, as a dev dependency installs it', () => {
