@@ -120,10 +120,13 @@ pub fn clean_scope(name: &str) -> String {
 /// The names of the definition around a position, outermost first, as Serena's column maps a
 /// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value inside
 /// a definition gives way to the definition. Empty at module level. A lone module-level value
-/// stays: typescript-language-server reports a function held in a `const` as a value.
-pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
+/// stays, as typescript-language-server reports a function held in a `const` as a value, except
+/// in a Python file (`path`), where a value holds no function body but a lambda's, so a call in
+/// `CONFIG = make()` is at module level.
+pub fn caller_chain(scopes: &[Scope], at: (u64, u64), path: &str) -> Vec<usize> {
     let mut chain = enclosing(scopes, at);
-    while chain.len() > 1 && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
+    let keep = usize::from(!(path.ends_with(".py") || path.ends_with(".pyi")));
+    while chain.len() > keep && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
         chain.pop();
     }
     chain
