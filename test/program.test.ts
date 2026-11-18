@@ -6,11 +6,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, parse } from "node:path";
+import { join, parse, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { openBrowser } from "../src/util/browser.js";
 import { admitted, execFileSync, findProgram, spawn, spawnSync } from "../src/util/program.js";
+import { viaShare } from "./helpers.js";
 
 const has = (...files: string[]) => (p: string) => files.includes(p);
 /** Folders as given, with no links: these cases name folders that need not exist. */
@@ -313,6 +314,85 @@ test("findProgram (Windows): a \\\\?\\ PATH entry to the checkout's link out of 
   tool(join(top, "outside-bin"));
   symlinkSync(join(top, "outside-bin"), join(repo, "tools"), "junction");
   assert.equal(find(`\\\\?\\${join(repo, "tools")}`, repo), null);
+});
+
+test("findProgram (Windows): the checkout named through this machine's share is still the checkout's", { skip: !win }, (t) => {
+  const top = scratch(t);
+  const repo = join(top, "repo");
+  const name = parse(tool(join(repo, "tools"))).base;
+  tool(join(top, "outside"));
+  const [tools, shared, outside] = [join(repo, "tools"), repo, join(top, "outside")].map(viaShare);
+  if (tools === null || shared === null || outside === null) return t.skip("this machine's administrative share cannot be reached");
+  assert.equal(find(tools, repo), null, "a PATH entry through \\\\127.0.0.1\\<drive>$");
+  assert.equal(find(join(repo, "tools"), shared), null, "the working folder through the share, the PATH entry by its drive");
+  assert.equal(admitted(join(tools, name), { cwd: repo }), false, "a program path through the share");
+  assert.notEqual(find(outside, repo), null, "a folder outside the checkout through the share is used");
+});
+
+/** Identities (`dev:ino`) of folders that need not exist; any other path has none, except this
+ * process's working folder, which is always a working folder and has one on a volume of its own. */
+const ids = (known: Record<string, string>) => {
+  const all: Record<string, string> = { [win32.resolve(process.cwd())]: "9:1", [posix.resolve(process.cwd())]: "9:1", ...known };
+  return (path: string) => all[path] ?? null;
+};
+
+test("findProgram: a folder that is the working folder by identity, or under it, is passed over however PATH spells it", () => {
+  // \\srv\C$ is C:\ itself; \\srv\inner is C:\top\repo\inner and \\srv\near is C:\top\near, which no path above them shows;
+  // \\srv\far is on another volume.
+  const identity = ids({
+    "C:\\": "1:1", "C:\\top": "1:2", "C:\\top\\repo": "1:3", "C:\\top\\repo\\bin": "1:4", "C:\\top\\other": "1:5",
+    "\\\\srv\\C$\\": "1:1", "\\\\srv\\C$\\top": "1:2", "\\\\srv\\C$\\top\\repo": "1:3", "\\\\srv\\C$\\top\\repo\\bin": "1:4", "\\\\srv\\C$\\top\\other": "1:5",
+    "\\\\srv\\inner\\": "1:6", "\\\\srv\\near\\": "1:7", "\\\\srv\\far\\": "2:1",
+  });
+  const look = (entry: string, cwd = "C:\\top\\repo") =>
+    findProgram("git", { platform: "win32", env: { PATH: entry }, cwd, isFile: (f) => f.endsWith("\\git.exe"), ...asGiven, identity });
+  assert.equal(look("\\\\srv\\C$\\top\\repo\\bin"), null, "the checkout's folder through a share");
+  assert.equal(look("\\\\srv\\C$\\top\\repo"), null, "the checkout itself through a share");
+  assert.equal(look("C:\\top\\repo\\bin", "\\\\srv\\C$\\top\\repo"), null, "the working folder through a share, the entry by its drive");
+  assert.equal(look("\\\\srv\\C$\\top\\other"), "\\\\srv\\C$\\top\\other\\git.exe", "the same share outside the checkout is used");
+  assert.equal(look("\\\\srv\\inner"), null, "a share whose root may stand inside the checkout, on its volume");
+  assert.equal(look("\\\\srv\\near"), null, "a share on the checkout's volume that is not the volume's root: where it stands is unknown");
+  assert.equal(look("\\\\srv\\far"), "\\\\srv\\far\\git.exe", "a share on another volume is used");
+  assert.equal(look("\\\\srv\\near", "\\\\srv\\far"), "\\\\srv\\near\\git.exe", "a share on no working folder's volume is used");
+});
+
+test("findProgram: with a working folder of no identity, no share is used; drive folders still are", () => {
+  // C:\top\repo has no identity (stat failed, or its file system gives no file number): a share could be it.
+  const identity = ids({ "C:\\": "1:1", "D:\\": "2:1", "D:\\tools": "2:2", "\\\\srv\\far\\": "3:1" });
+  const look = (entry: string) =>
+    findProgram("git", { platform: "win32", env: { PATH: entry }, cwd: "C:\\top\\repo", isFile: (f) => f.endsWith("\\git.exe"), ...asGiven, identity });
+  assert.equal(look("\\\\srv\\far"), null, "a share, which could name the working folder");
+  assert.equal(look("D:\\tools"), "D:\\tools\\git.exe", "a folder on a drive, judged by spelling as before");
+});
+
+test("findProgram (Windows spelling): a drive letter whose root stands inside the checkout is judged by its real path", () => {
+  // Z: is mapped to the share \\srv\inner (C:\top\repo\inner), so its real path is the share's; Y: is a subst
+  // drive for C:\top\repo\inner and X: one for C:\top\other, whose real paths are on C:.
+  const realpath = (path: string) => {
+    for (const [from, to] of [["Z:\\", "\\\\srv\\inner\\"], ["Y:\\", "C:\\top\\repo\\inner\\"], ["X:\\", "C:\\top\\other\\"]]) {
+      if (path.startsWith(from)) return to + path.slice(from.length);
+    }
+    return path;
+  };
+  const identity = ids({
+    "C:\\": "1:1", "C:\\top": "1:2", "C:\\top\\repo": "1:3", "C:\\top\\repo\\inner": "1:6", "C:\\top\\other": "1:5",
+    "\\\\srv\\inner\\": "1:6", "Z:\\": "1:6", "Y:\\": "1:6", "X:\\": "1:5",
+  });
+  const look = (entry: string) =>
+    findProgram("git", { platform: "win32", env: { PATH: entry }, cwd: "C:\\top\\repo", isFile: (f) => f.endsWith("\\git.exe"), realpath, folders: () => [], identity });
+  assert.equal(look("Z:\\bin"), null, "a mapped drive for a share inside the checkout");
+  assert.equal(look("Y:\\tools"), null, "a subst drive for a folder inside the checkout");
+  assert.equal(look("X:\\tools"), "C:\\top\\other\\tools\\git.exe", "a subst drive for a folder outside the checkout is used");
+});
+
+test("findProgram (POSIX): a folder that is the working folder by identity (a bind mount), or under it, is passed over; the root passes over only itself", () => {
+  const identity = ids({ "/": "1:1", "/repo": "1:2", "/repo/bin": "1:3", "/mnt": "1:4", "/mnt/alias": "1:2", "/mnt/alias/bin": "1:3", "/opt": "1:5", "/opt/bin": "1:6" });
+  const look = (path: string, cwd = "/repo") =>
+    findProgram("git", { platform: "linux", env: { PATH: path }, cwd, isFile: (f) => f.endsWith("/git"), ...asGiven, identity });
+  assert.equal(look("/mnt/alias/bin:/opt/bin"), "/opt/bin/git", "the checkout's bin through a bind mount is passed over");
+  assert.equal(look("/mnt/alias"), null, "the checkout itself through a bind mount");
+  assert.equal(look("/repo/bin", "/mnt/alias"), null, "the working folder through a bind mount, the entry by its own path");
+  assert.equal(look("/opt/bin", "/"), "/opt/bin/git", "the root as the working folder passes over only itself");
 });
 
 test("admitted (Windows): .. is taken out of the path as written before links are followed, as Windows does", { skip: !win }, (t) => {
