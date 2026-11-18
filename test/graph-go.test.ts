@@ -476,8 +476,8 @@ test("Go extraction: a receiver's type names its package, and a guess is dropped
 
 test("Go extraction: a function's result of another package's type, and test files, reach the right method", async () => {
   const graph = await goModuleGraph({
-    "log/logger.go": "package log\n\ntype Logger struct{}\n\nfunc (l *Logger) SetLevel(v int) {}\n",
-    "log/logger_test.go": "package log\n\nfunc (l *Logger) Check() {}\n",
+    "log/logger.go": "package log\n\ntype Logger struct{}\n\nfunc New() *Logger { return &Logger{} }\nfunc (l *Logger) SetLevel(v int) {}\n",
+    "log/logger_test.go": "package log\n\nfunc (l *Logger) Check() {}\nfunc TestOwn() { l := New(); l.SetLevel(1); l.Check() }\n",
     "logtest/null.go":
       'package logtest\n\nimport (\n\t"bytes"\n\tlg "example.com/app/log"\n)\n\n' +
         "func NewNullLogger() (*lg.Logger, int) { return nil, 0 }\n" +
@@ -501,6 +501,8 @@ test("Go extraction: a function's result of another package's type, and test fil
   // A test file reaches a method in another package's ordinary files, never in its test files.
   assert.deepEqual(calls("main_test.go#TestLevel"), ["log/logger.go#Logger.SetLevel"]);
   assert.deepEqual(calls("main_test.go#TestParam"), []);
+  // A test file in the method's own folder reaches both its ordinary files and its test files.
+  assert.deepEqual(calls("log/logger_test.go#TestOwn"), ["log/logger.go#Logger.SetLevel", "log/logger_test.go#Logger.Check"]);
 });
 
 test("Go extraction: a func literal's local does not type a captured variable it does not yet shadow", async () => {
@@ -520,4 +522,72 @@ test("Go extraction: a func literal's local does not type a captured variable it
   // The call before the declaration, or outside its block, is the captured *A's: never B.M.
   assert.deepEqual(calls("before"), []);
   assert.deepEqual(calls("outside"), []);
+});
+
+test("Go extraction: a func literal's parameter or local named like the method's receiver hides the receiver", async () => {
+  const graph = await goModuleGraph({
+    "main.go":
+      "package main\n\n" +
+        "type Logger struct{}\ntype Entry struct{}\n\n" +
+        "func (l *Logger) SetLevel(v int) {}\nfunc (e *Entry) SetLevel(v int) {}\n" +
+        "func run(f func(*Entry)) {}\n" +
+        "func (l *Logger) Param() { run(func(l *Entry) { l.SetLevel(1) }) }\n" +
+        "func (l *Logger) Local() { run(func(*Entry) { l := &Entry{}; l.SetLevel(1) }) }\n" +
+        "func (l *Logger) Captured() { run(func(*Entry) { l.SetLevel(1) }) }\n",
+  });
+
+  const calls = (fn: string) =>
+    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}`).map((e) => e.target);
+  assert.deepEqual(calls("Param"), ["main.go#Entry.SetLevel"]);
+  // The local follows a captured receiver of another type, so the name gets no type rather than the receiver's.
+  assert.deepEqual(calls("Local"), []);
+  assert.deepEqual(calls("Captured"), ["main.go#Logger.SetLevel"]);
+});
+
+test("Go extraction: a type parameter names no type, though the package declares one of that name", async () => {
+  const graph = await goModuleGraph({
+    "main.go":
+      "package main\n\n" +
+        "type Mer interface{ M() }\n" +
+        "type T struct{}\ntype B struct{}\n" +
+        "type Box[T Mer] struct{ v T }\n\n" +
+        "func (t *T) M() {}\nfunc (b *B) M() {}\n" +
+        "func Wrap[T any](v T) T { return v }\n" +
+        "func result(b *B) { x := Wrap(b); x.M() }\n" +
+        "func Each[T Mer](v T) { v.M() }\n" +
+        "func (b *Box[T]) Call(v T) { v.M() }\n" +
+        "func plain(t *T) { t.M() }\n",
+  });
+
+  const reachesT = (source: string) =>
+    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#${source}` && e.target === "main.go#T.M");
+  for (const source of ["result", "Each", "Call"]) assert.deepEqual(reachesT(source), [], source);
+  assert.equal(reachesT("plain").length, 1);
+});
+
+test("Go extraction: an import without an alias is named by its package clause, not its path", async () => {
+  const graph = await goModuleGraph({
+    "util/log/log.go":
+      "package logger\n\ntype Logger struct{}\n\nfunc New() *Logger { return &Logger{} }\nfunc (l *Logger) Info() {}\n",
+    "wrap/wrap.go":
+      'package wrap\n\nimport (\n\t"example.com/app/util/log"\n\t"github.com/x/golog"\n)\n\n' +
+        "var _ = logger.New\n\nfunc Make() *log.Logger { return nil }\n",
+    "main.go":
+      'package main\n\nimport (\n\t"example.com/app/util/log"\n\t"example.com/app/wrap"\n\t"github.com/x/golog"\n)\n\n' +
+        "var _ = logger.New\n\n" +
+        "func viaType(l *log.Logger) { l.Info() }\n" +
+        "func viaCall() { log.New() }\n" +
+        "func viaResult() { l := log.New(); l.Info() }\n" +
+        "func viaOtherFile() { w := wrap.Make(); w.Info() }\n",
+    "alias.go": 'package main\n\nimport lg "example.com/app/util/log"\n\nfunc viaAlias() { l := lg.New(); l.Info() }\n',
+  });
+
+  const calls = (fn: string) =>
+    graph.edges
+      .filter((e) => e.relation === "calls" && e.source.endsWith(`.go#${fn}`) && e.target.startsWith("util/"))
+      .map((e) => e.target)
+      .sort();
+  // `log` names github.com/x/golog's package here, as util/log's package is logger.
+  for (const fn of ["viaType", "viaCall", "viaResult", "viaOtherFile"]) assert.deepEqual(calls(fn), [], fn);
+  assert.deepEqual(calls("viaAlias"), ["util/log/log.go#Logger.Info", "util/log/log.go#New"]);
 });
