@@ -75,7 +75,7 @@ export function versionLine(moduleUrl: string): string {
  * Node's installer, nvm-windows and `npm i -g npm` make: Node is the node.exe beside the shim, else
  * `node` from PATH, and npm is node_modules/npm/bin/npm-cli.js under the global prefix the shim's
  * npm-prefix.js prints, when that file exists, else the one beside the shim. Unlike the shim,
- * npm-prefix.js runs in npm's own folder, so the working folder's .npmrc does not name the prefix;
+ * npm-prefix.js runs in npm's own folder in global mode, so no project's .npmrc names the prefix;
  * an older npm with no npm-prefix.js gets the npm-cli.js beside the shim. Each must keep to
  * util/program.ts's rules, or nothing runs. A `.cmd` with no npm-cli.js beside it, such as mise's
  * shims, which hand on to another program through cmd.exe, is not run. */
@@ -94,8 +94,11 @@ function npmSync(args: readonly string[], options: SpawnSyncOptions) {
   let cli = join(bin(dirname(npm)), "npm-cli.js");
   const prefixScript = join(bin(dirname(npm)), "npm-prefix.js");
   if (existsSync(prefixScript)) {
-    // In npm's own folder, not the working folder, whose .npmrc would otherwise name the prefix.
-    const prefix = run(prefixScript, [], { ...options, cwd: dirname(npm), encoding: "utf8" }).stdout?.toString().trim().split(/\r?\n/).pop();
+    // In npm's own folder and in global mode, which reads no project's .npmrc: run in the working
+    // folder, its .npmrc would name the prefix, and a folder above npm's that makes npm's folder a
+    // workspace would name it from npm's own folder.
+    const env = Object.fromEntries(Object.entries(options.env ?? process.env).filter(([k]) => k.toLowerCase() !== "npm_config_global"));
+    const prefix = run(prefixScript, [], { ...options, cwd: dirname(npm), env: { ...env, npm_config_global: "true" }, encoding: "utf8" }).stdout?.toString().trim().split(/\r?\n/).pop();
     if (prefix && existsSync(join(bin(prefix), "npm-cli.js"))) cli = join(bin(prefix), "npm-cli.js");
   }
   if (!existsSync(cli)) throw new Error(`npm's npm-cli.js is not beside ${npm}`);

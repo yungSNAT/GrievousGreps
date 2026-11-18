@@ -50,7 +50,7 @@ export const refused = (path: string) => `${path} was not started: trail starts 
  * and of 2 spellings Node gives the child the first in sort order (`PATH` before `Path`). */
 function envValue(env: NodeJS.ProcessEnv, name: string, win: boolean): string | undefined {
   if (!win) return env[name];
-  const key = Object.keys(env).filter((k) => k.toUpperCase() === name).sort()[0];
+  const key = Object.keys(env).filter((k) => k.toUpperCase() === name).sort((a, b) => Number(a > b) - Number(a < b))[0];
   return key === undefined ? undefined : env[key];
 }
 
@@ -79,10 +79,16 @@ function runnable(path: string, win: boolean): boolean {
  * The folders the system passes through to reach `file`: where each link on the way stands (the
  * link itself when it stands for a folder, the folder holding it when it stands for the file) and
  * the real folder at the end; null when the path does not resolve. A `..` steps back from the
- * folder reached so far, as POSIX takes it; Windows has already removed `..` from the path as written.
+ * folder reached so far, as POSIX takes it; Windows removes `..` from the path as written, and from
+ * a link's target put in its place, before it follows any link.
  */
 function linkFolders(p: typeof posix, file: string): string[] | null {
-  const split = (path: string) => path.split(p === win32 ? /[\\/]+/ : /\/+/).filter((part) => part !== "" && part !== ".");
+  const win = p === win32;
+  const split = (path: string) => path.split(win ? /[\\/]+/ : /\/+/).filter((part) => part !== "" && part !== ".");
+  // Windows keeps `..` in a `\\?\` path, which resolve() removes. Node's fs calls (the lstat below,
+  // realpath in allows) remove it in the same way first, so the trace and the real path agree; that
+  // the system then opens such a path as resolved or not at all, NTFS having no `..` entry, is untested.
+  if (win) file = p.resolve(file);
   let at = p.parse(file).root;
   let todo = split(file.slice(at.length));
   const found: string[] = [];
@@ -105,6 +111,12 @@ function linkFolders(p: typeof posix, file: string): string[] | null {
     }
     if (++links > 40) return null;
     found.push(todo.length > 0 ? next : at);
+    if (win) {
+      const rest = p.resolve(at, target, ...todo);
+      at = p.parse(rest).root;
+      todo = split(rest.slice(at.length));
+      continue;
+    }
     const root = p.parse(target).root;
     if (root) at = root;
     todo = [...split(target.slice(root.length)), ...todo];
@@ -143,7 +155,13 @@ function rules(opts: FindOptions) {
   const allows = (file: string, entry: string[]) => {
     const traced = (opts.folders ?? ((f: string) => linkFolders(p, f)))(file);
     const realFile = real(file);
-    return traced !== null && realFile !== null && !entry.some(passedOver) && ![p.dirname(realFile), ...traced].some((d) => inTree(fold(d)));
+    if (traced === null || realFile === null || entry.some(passedOver)) return false;
+    // Each link also where it really stands (its folder's real path), so `\\?\` and 8.3 spellings match the working folder.
+    const stands = traced.map((d) => {
+      const parent = real(p.dirname(d));
+      return parent === null ? d : p.join(parent, p.basename(d));
+    });
+    return ![p.dirname(realFile), ...traced, ...stands].some((d) => inTree(fold(d)));
   };
   return { win, p, env, real, allows };
 }
@@ -157,7 +175,7 @@ function rules(opts: FindOptions) {
  * over only itself, as every folder the person installs to is under one of them. Each test is
  * made on the entry as listed (made absolute) and on its real path; the working-folder test is
  * also made on where each link on the way to the program stands (a link to the program file
- * included) and on the program's real folder, with each working folder taken both ways too, so a
+ * included), as traced and in its folder's real path, and on the program's real folder, with each working folder taken both ways too, so a
  * link in either direction does not bring a tree's folder back; letter case is ignored on Windows.
  * On Windows each folder is tried with PATHEXT's endings in its order (`.COM;.EXE;.BAT;.CMD` when
  * unset), keeping those Node can start without a shell: `.com` and `.exe`, and `.cmd` when `cmd`
@@ -188,7 +206,6 @@ export function locateProgram(name: string, opts: FindOptions = {}): Located {
       const written = win ? p.join(listed, name + ending) : `${listed}/${name}${ending}`;
       if (allows(written, [p.resolve(listed), dir, p.dirname(p.resolve(written))])) return { path: file, skipped };
       skipped ??= file;
-      break;
     }
   }
   return { path: null, skipped };
@@ -199,8 +216,9 @@ export const findProgram = (name: string, opts: FindOptions = {}): string | null
 
 /** Whether `file` is an absolute path that keeps to locateProgram's rules, links followed. */
 export function admitted(file: string, opts: FindOptions = {}): boolean {
-  const { win, p, allows } = rules(opts);
-  return absolute(file, win) && allows(file, [p.dirname(p.resolve(file))]);
+  const { win, p, real, allows } = rules(opts);
+  const dir = p.dirname(p.resolve(file));
+  return absolute(file, win) && allows(file, [dir, real(dir) ?? dir]);
 }
 
 const isBare = (name: string) => !name.includes("/") && !(process.platform === "win32" && name.includes("\\"));

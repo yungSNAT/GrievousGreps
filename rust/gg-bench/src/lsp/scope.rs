@@ -118,11 +118,14 @@ pub fn clean_scope(name: &str) -> String {
 }
 
 /// The names of the definition around a position, outermost first, as Serena's column maps a
-/// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value inside
-/// a definition gives way to the definition. Empty at module level.
+/// reference: scope-only symbols and anonymous callbacks drop out, and an innermost value gives
+/// way to the definition around it. Empty at module level, a module-level value's included.
 pub fn caller_chain(scopes: &[Scope], at: (u64, u64)) -> Vec<usize> {
     let mut chain = enclosing(scopes, at);
-    while chain.len() > 1 && LOCAL.contains(&scopes[chain[chain.len() - 1]].kind) {
+    while chain
+        .last()
+        .is_some_and(|&inner| LOCAL.contains(&scopes[inner].kind))
+    {
         chain.pop();
     }
     chain
@@ -262,6 +265,16 @@ mod tests {
         assert_eq!(caller_chain(&scopes, (15, 0)), vec![1]);
         assert!(caller_chain(&scopes, (35, 0)).is_empty());
         assert!(caller_chain(&scopes, (60, 0)).is_empty());
+    }
+
+    #[test]
+    fn a_module_level_value_is_no_caller() {
+        // module > variable CONFIG, whose value calls the target: the call is at module level.
+        let scopes = vec![
+            scope("mod.py", 2, (0, 100), None),
+            scope("CONFIG", 13, (5, 7), Some(0)),
+        ];
+        assert!(caller_chain(&scopes, (6, 4)).is_empty());
     }
 
     #[test]

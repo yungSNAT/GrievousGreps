@@ -6,3 +6,9 @@ jahala/tilth MIT (its README, read 16 November; the API answered Not Found for t
 justrach/codedb BSD-3-Clause
 redhat-et/ripwire Apache-2.0
 yoanbernabeu/grepai MIT
+
+GitHub repository API (/repos/{owner}/{repo}, license field), read 2026-11-17T20:15Z
+FalkorDB/Auryn MIT
+harshkedia177/axon none (no licence file; its package axoniq 1.0.1 declares License-Expression: MIT)
+nikolai-vysotskyi/trace-mcp MIT
+zzet/gortex Apache-2.0

@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { delimiter, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import {
   formatVersionReport,
   resolvePackageJsonPath,
@@ -291,4 +291,36 @@ test("getNpmViewVersion (Windows): a node.exe beside npm.cmd that links into the
     throw e;
   }
   assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
+});
+
+test("getNpmViewVersion (Windows): a working folder that makes npm's folder its workspace does not choose the npm that runs", onWindows, (t) => {
+  const realNpm = join(dirname(process.execPath), 'node_modules', 'npm');
+  if (!existsSync(join(realNpm, 'bin', 'npm-prefix.js'))) return t.skip('no npm-prefix.js beside this node');
+  const { top } = npmScene(t);
+  // The home folder as the working folder counts only as itself, so the folders under it may be run from.
+  const keep = { USERPROFILE: process.env.USERPROFILE, npm_config_userconfig: process.env.npm_config_userconfig, npm_config_prefix: process.env.npm_config_prefix };
+  t.after(() => {
+    for (const [k, v] of Object.entries(keep)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  });
+  process.chdir(top);
+  process.env.USERPROFILE = top;
+  delete process.env.npm_config_prefix;
+  process.env.npm_config_userconfig = join(top, 'user.npmrc');
+  writeFileSync(join(top, 'user.npmrc'), `prefix=${join(top, 'chosen')}\n`);
+  npmAt(join(top, 'chosen'), '8.8.8');
+  const mark = join(top, 'ran');
+  npmAt(join(top, 'vendor'), '7.7.7', { mark });
+  writeFileSync(join(top, 'package.json'), JSON.stringify({ name: 'w', workspaces: ['npm'] }));
+  writeFileSync(join(top, '.npmrc'), `prefix=${join(top, 'vendor')}\n`);
+  mkdirSync(join(top, 'npm', 'node_modules'), { recursive: true });
+  writeFileSync(join(top, 'npm', 'npm.cmd'), '@exit /b 7\r\n');
+  writeFileSync(join(top, 'npm', 'package.json'), JSON.stringify({ name: 'n' }));
+  const link = join(top, 'npm', 'node_modules', 'npm');
+  symlinkSync(realNpm, link, 'junction');
+  try {
+    assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '8.8.8' });
+    assert.equal(existsSync(mark), false, "the npm the workspace root's .npmrc named ran");
+  } finally {
+    unlinkSync(link); // the link only, before the scene's folders are removed
+  }
 });
