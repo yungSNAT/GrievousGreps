@@ -3,7 +3,7 @@ import { parse } from "smol-toml";
 import type { RustTargets } from "./resolve.js";
 
 type Table = Record<string, unknown>;
-const isTable = (v: unknown): v is Table => typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Date);
+export const isTable = (v: unknown): v is Table => typeof v === "object" && v !== null && !Array.isArray(v) && !(v instanceof Date);
 const optionalString = (v: unknown) => v === undefined || typeof v === "string";
 
 /** The kinds of target Cargo can find by itself, and the folder it finds each in. */
