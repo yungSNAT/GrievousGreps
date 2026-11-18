@@ -35,8 +35,8 @@ export class FileBindings {
     this.map.set(`${scopePath}|${name}`, type);
   }
 
-  /** Go: a name given 2 different types in one scope (2 func literals' parameters, a shadowing
-   * block) gets `?`, which names no type, rather than whichever came last. */
+  /** Go: a name given 2 different types in one scope (a shadowing block) gets `?`, which names no
+   * type, rather than whichever came last. */
   setGo(scopePath: string, name: string, type: string): void {
     const prior = this.map.get(`${scopePath}|${name}`);
     this.set(scopePath, name, prior === undefined || prior === type ? type : "?");
@@ -76,6 +76,7 @@ export function defName(node: SyntaxNode, lang: Language): string | null {
     if (node.type === "function_declaration" || node.type === "type_spec") {
       return node.childForFieldName("name")?.text ?? null;
     }
+    if (node.type === "func_literal") return goLiteralScope(node);
     return null;
   }
   if (lang === "r") return rDefName(node);
@@ -209,7 +210,13 @@ function goReceiverTypeOf(node: SyntaxNode): string | null {
   return type?.type === "type_identifier" ? type.text : null;
 }
 
-type RecvCtx = Pick<WalkCtx, "scope" | "enclosingClass" | "goReceiverVar" | "lang" | "bindings" | "rSuperClass">;
+/** Go: the scope segment of a func literal, whose parameters and locals are its own. It names no
+ * definition, so extract.ts keeps it in `goLiterals`, out of the ids. */
+export function goLiteralScope(node: SyntaxNode): string {
+  return `@${node.startIndex}`;
+}
+
+type RecvCtx = Pick<WalkCtx, "scope" | "goLiterals" | "enclosingClass" | "goReceiverVar" | "lang" | "bindings" | "rSuperClass">;
 
 /** Resolves a call site's receiver text (from `calleeName`) to a bound type
  * name, given the enclosing walk state. `self`/`cls`/`this`/the Go receiver
@@ -239,7 +246,7 @@ export function resolveRecvType(
   if (ctx.lang === "php" && !receiver.startsWith("$")) return receiver;
   return (
     (ctx.lang === "go" && receiver === ctx.goReceiverVar ? ctx.enclosingClass : undefined) ??
-    ctx.bindings.lookup(ctx.scope, receiver) ??
+    ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver) ??
     // Swift type-member call `Animal.staticThing()`: an uppercase receiver with no
     // local binding is the type itself (Swift naming: types are UpperCamelCase,
     // values lowerCamelCase — and a shadowing binding was already tried above).
