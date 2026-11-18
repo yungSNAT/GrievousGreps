@@ -1,0 +1,30 @@
+Upstream: overall 1410/4403 = 0.3202 / precision 1380/1472 = 0.9375 / silent 77 (21 repositories)
+  Python: 234/1121 = 0.2087 / precision 234/234 = 1.0000 / silent 38 (7 repositories)
+  TypeScript: 895/1129 = 0.7927 / precision 865/882 = 0.9807 / silent 15 (7 repositories)
+  Rust: 281/2153 = 0.1305 / precision 281/356 = 0.7893 / silent 24 (7 repositories)
+Patched: overall 4333/4403 = 0.9841 / precision 4435/4680 = 0.9476 / silent 7 (21 repositories)
+  Python: 1121/1121 = 1.0000 / precision 1126/1128 = 0.9982 / silent 0 (7 repositories)
+  TypeScript: 1119/1129 = 0.9911 / precision 1174/1210 = 0.9702 / silent 4 (7 repositories)
+  Rust: 2093/2153 = 0.9721 / precision 2135/2342 = 0.9116 / silent 3 (7 repositories)
+| Repository | Upstream | Patched |
+| attrs | 14/282 | 282/282 |
+| axum | 61/127 | 126/127 |
+| click | 12/401 | 401/401 |
+| flask | 11/33 | 33/33 |
+| hono | 28/40 | 34/40 |
+| httpx | 22/42 | 42/42 |
+| jotai | 52/58 | 58/58 |
+| mdbook | 37/51 | 51/51 |
+| query | 69/73 | 73/73 |
+| radix | 185/252 | 252/252 |
+| rayon | 69/226 | 224/226 |
+| rich | 75/132 | 132/132 |
+| ripgrep | 25/45 | 45/45 |
+| seaborn | 35/147 | 147/147 |
+| structlog | 65/84 | 84/84 |
+| table | 269/397 | 397/397 |
+| tokio | 32/894 | 838/894 |
+| tracing | 2/749 | 749/749 |
+| trpc | 208/221 | 221/221 |
+| vue | 84/88 | 84/88 |
+| zola | 55/61 | 60/61 |
