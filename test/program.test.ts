@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, parse } from "node:path";
+import { join, parse, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { openBrowser } from "../src/util/browser.js";
@@ -329,8 +329,12 @@ test("findProgram (Windows): the checkout named through this machine's share is 
   assert.notEqual(find(outside, repo), null, "a folder outside the checkout through the share is used");
 });
 
-/** Identities (`dev:ino`) of folders that need not exist; any other path has none. */
-const ids = (known: Record<string, string>) => (path: string) => known[path] ?? null;
+/** Identities (`dev:ino`) of folders that need not exist; any other path has none, except this
+ * process's working folder, which is always a working folder and has one on a volume of its own. */
+const ids = (known: Record<string, string>) => {
+  const all: Record<string, string> = { [win32.resolve(process.cwd())]: "9:1", [posix.resolve(process.cwd())]: "9:1", ...known };
+  return (path: string) => all[path] ?? null;
+};
 
 test("findProgram: a folder that is the working folder by identity, or under it, is passed over however PATH spells it", () => {
   // \\srv\C$ is C:\ itself; \\srv\inner is C:\top\repo\inner and \\srv\near is C:\top\near, which no path above them shows;
@@ -350,6 +354,15 @@ test("findProgram: a folder that is the working folder by identity, or under it,
   assert.equal(look("\\\\srv\\near"), null, "a share on the checkout's volume that is not the volume's root: where it stands is unknown");
   assert.equal(look("\\\\srv\\far"), "\\\\srv\\far\\git.exe", "a share on another volume is used");
   assert.equal(look("\\\\srv\\near", "\\\\srv\\far"), "\\\\srv\\near\\git.exe", "a share on no working folder's volume is used");
+});
+
+test("findProgram: with a working folder of no identity, no share is used; drive folders still are", () => {
+  // C:\top\repo has no identity (stat failed, or its file system gives no file number): a share could be it.
+  const identity = ids({ "C:\\": "1:1", "D:\\": "2:1", "D:\\tools": "2:2", "\\\\srv\\far\\": "3:1" });
+  const look = (entry: string) =>
+    findProgram("git", { platform: "win32", env: { PATH: entry }, cwd: "C:\\top\\repo", isFile: (f) => f.endsWith("\\git.exe"), ...asGiven, identity });
+  assert.equal(look("\\\\srv\\far"), null, "a share, which could name the working folder");
+  assert.equal(look("D:\\tools"), "D:\\tools\\git.exe", "a folder on a drive, judged by spelling as before");
 });
 
 test("findProgram (Windows spelling): a drive letter whose root stands inside the checkout is judged by its real path", () => {
