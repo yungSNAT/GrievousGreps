@@ -25,7 +25,7 @@ import type { GraphV1 } from "./types.js";
 
 const KINDS = new Set<string>([
   "file", "class", "function", "method", "interface",
-  "type", "enum", "struct", "module", "constant", "variable",
+  "type", "enum", "struct", "module", "constant", "variable", "resource",
 ]);
 const RELATIONS = new Set<string>([
   "contains", "calls", "imports", "references", "implements", "extends",

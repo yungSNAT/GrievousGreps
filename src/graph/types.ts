@@ -29,7 +29,10 @@ export type Kind =
   // breadth tier's kinds read truthfully in cards/skeleton.
   | "module"
   | "constant"
-  | "variable";
+  | "variable"
+  // A Dockerfile stage, a compose service, volume or network, or a Kubernetes object
+  // (`deploy.ts`); `signature` says which.
+  | "resource";
 
 /** How confident we are an edge is true, best-first. The hand-written AST
  * resolver assigns `extracted`/`inferred`; the opt-in LSP enrichment pass
@@ -80,7 +83,8 @@ export interface NodeV1 {
   // How the node was extracted. "ast" = a first-class hand-written extractor
   // (TS/JS/Python/Go, full-fidelity). "generic" = the tags.scm breadth tier
   // (signature-only; symbols + bare edges, no scope-aware binding).
-  origin: "ast" | "generic";
+  // "deploy" = a Dockerfile, compose file or Kubernetes manifest (`deploy.ts`).
+  origin: "ast" | "generic" | "deploy";
   body_hash: string; // sha256 of the definition text; the Tier-2 re-run trigger
   chars?: number; // byte length of the WHOLE file (file nodes only); the baseline
   //                 `ask` uses to estimate tokens saved vs reading the file whole

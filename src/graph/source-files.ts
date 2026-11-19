@@ -14,6 +14,7 @@ import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "..
 import { languageOf, depthExtensions } from "./extract.js";
 import { genericLangOf, genericExtensions } from "./generic.js";
 import { containerLangOf, containerExtensions } from "./container.js";
+import { deployFormatOf } from "./deploy.js";
 
 /** Every extension graft has a parser for (depth + breadth + container), sorted
  * and de-duped — the authoritative answer to "what does `-e` actually support". */
@@ -78,14 +79,15 @@ export function listSourceFiles(
 ): string[] {
   const selected = normalizeExtensions(extensions);
   // A file is a source file if a depth-tier grammar (languageOf), a breadth-tier
-  // grammar (genericLangOf) or a container (containerLangOf) claims its extension.
+  // grammar (genericLangOf) or a container (containerLangOf) claims its extension, or,
+  // with no `-e` selection, if its name makes it a deployment file (deployFormatOf).
   // All three must agree here or `build` and `check` would enumerate different sets.
   return filterByOnlyDirs(
     repoFiles.filter(
       (f) =>
         !f.startsWith(outDir) &&
         (!selected || selected.includes(extname(f).toLowerCase())) &&
-        (languageOf(f) !== null || genericLangOf(f) !== null || containerLangOf(f) !== null),
+        (languageOf(f) !== null || genericLangOf(f) !== null || containerLangOf(f) !== null || (!selected && deployFormatOf(f) !== null)),
     ),
     root,
     onlyDirs,

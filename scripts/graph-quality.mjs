@@ -16,7 +16,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-const KINDS = new Set(["file","class","function","method","interface","type","enum","struct","module","constant","variable"]);
+const KINDS = new Set(["file","class","function","method","interface","type","enum","struct","module","constant","variable","resource"]);
 const RELATIONS = new Set(["contains","calls","imports","references","implements","extends"]);
 const CONFIDENCE = new Set(["lsp_resolved","lsp_dispatch","extracted","inferred"]);
 

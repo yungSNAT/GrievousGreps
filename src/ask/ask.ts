@@ -51,6 +51,7 @@ import { readSourceFile } from "../util/source.js";
 import { readFileInside, resolveInside } from "../util/safe-fs.js";
 import { counts, tokenize, type AskIndex, type AskIndexDoc } from "./index-file.js";
 import { cmd, tag } from "../brand.js";
+import { deployFormatOf } from "../graph/deploy.js";
 import { formatNoteHits, learningSavingsLine, type NoteHit } from "../notes/notes.js";
 
 export interface AskHit {
@@ -1305,7 +1306,8 @@ function inlineSource(root: string, hits: AskHit[], graph: GraphV1 | null, full:
   }
   for (const h of hits) {
     const s = parseSpan(h.pointer);
-    if (!s) continue;
+    // A deployment file's text can hold a Secret's or an environment's values: pointer only.
+    if (!s || deployFormatOf(s.path)) continue;
     const crux = cruxByPointer.get(h.pointer);
     if (crux) {
       h.code = `${crux}\n… (crux — full definition at ${h.pointer}; rerun with --full)`;
