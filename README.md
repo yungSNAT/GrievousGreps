@@ -69,10 +69,13 @@ trail callers <symbol>               # who calls it
 trail callers <symbol> --direction out   # what it calls
 trail map                            # directory clusters, hubs and hotspots
 trail grep <pattern>                 # every occurrence, grouped by enclosing symbol
+trail ask "<question>"               # the files and symbols that answer it, ranked
 trail viz                            # an interactive viewer of the graph, served on localhost
 ```
 
 `trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx's 1,301 code nodes it was 1,016,743 bytes at `57122b3` on 19 November, with no script or style loaded from elsewhere ([output](benchmark/results/2026-11-19/README.md)); at `88c214e` on 16 November it was the same size, from an export not kept.
+
+`trail ask` ranks files by the question's words and, by default, by its meaning, and merges the 2 rankings. Meaning comes from [potion-code-16M-v2](https://huggingface.co/minishlab/potion-code-16M-v2/tree/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b) (MIT), a 33 MB static embedding model in the package's `models/` folder, which runs in Node on the CPU with no account, no download and no network. `trail build` embeds each source file in chunks of whole lines into the map's `.cache/ask-vectors.bin`, and later builds embed only the files that changed. On [semble's benchmark](#against-the-alternatives) this raised NDCG@10 from 0.750 to 0.792 at `fe83325` on 19 November (UTC), with `TRAIL_SEMANTIC=0` and without it on the same commit. Set `TRAIL_SEMANTIC=0` to rank by words only; the next build removes the vectors. A query from a folder of several repositories ranks by words only.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
@@ -281,7 +284,7 @@ Stay on upstream if you want a published package and `trail upgrade`, or support
 
 ## Network and privacy
 
-Telemetry is off by default. A build from source also has no telemetry key, so it sends no usage events even if you turn them on. [TELEMETRY.md](TELEMETRY.md) lists every event in upstream's contract.
+Telemetry is off by default. A build from source also has no telemetry key, so it sends no usage events even if you turn them on. [TELEMETRY.md](TELEMETRY.md) lists every event in upstream's contract. `trail ask`'s embedding model is in the package and runs locally, so building and querying its vectors uses no network.
 
 These use the network when you run them:
 
@@ -319,6 +322,8 @@ Fixes and languages ported from upstream pull requests and other forks, each MIT
 | cookerpapa | [#354](https://github.com/trailhq/Trail-Code/pull/354) | Bash function symbols |
 | David Pruñonosa | [#444](https://github.com/trailhq/Trail-Code/pull/444) | Svelte and Astro components |
 | datrixlab | [#317](https://github.com/trailhq/Trail-Code/pull/317), [#315](https://github.com/trailhq/Trail-Code/pull/315), taken from [Ercaner1988/Graft](https://github.com/Ercaner1988/Graft) | Cached parse errors re-parsed; the argument cap in the file walker |
+
+`trail ask`'s embedding model, [potion-code-16M-v2](https://huggingface.co/minishlab/potion-code-16M-v2), is MIT; [models/potion-code-16M-v2/NOTICE.md](models/potion-code-16M-v2/NOTICE.md) gives its source, revision and hashes.
 
 The banner's lettering and emblem are drawn from Cascadia Mono and Besley glyphs (SIL OFL 1.1).
 
