@@ -46,6 +46,17 @@ function traceDepth(depth: unknown): number {
   return typeof depth === 'number' && Number.isFinite(depth) && depth >= 1 ? Math.floor(depth) : 1;
 }
 
+/** `graft_trace_calls`'s direction: absent (or null, which some clients send for
+ * an omitted field) is "in"; anything outside the schema's enum is refused, as
+ * the CLI's `--direction` is, rather than read as "in". */
+function traceDirection(direction: unknown): Direction | null {
+  if (direction === undefined || direction === null) return 'in';
+  return direction === 'in' || direction === 'out' ? direction : null;
+}
+
+const badDirectionText = (direction: unknown): string =>
+  `graft_trace_calls: direction must be "in" or "out", got ${JSON.stringify(direction)}`;
+
 function unknownSymbolText(query: string): string {
   return `no symbol "${query}" in the graph — check spelling or run \`${cmd('graft build')}\``;
 }
@@ -158,8 +169,10 @@ async function callWorkspaceTool(
     case 'graft_trace_calls': {
       const symbol = String(args.symbol ?? args.file ?? '');
       if (!symbol) return { text: 'graft_trace_calls requires a symbol', isError: true };
+      const direction = traceDirection(args.direction);
+      if (!direction) return { text: badDirectionText(args.direction), isError: true };
       const { text, found } = federateCallers(root, dirOverride, symbol, {
-        direction: args.direction === 'out' ? 'out' : 'in',
+        direction,
         depth: traceDepth(args.depth),
         in: typeof args.in === 'string' && args.in ? args.in : undefined,
       });
@@ -292,6 +305,8 @@ async function callSingleTool(
         // never the FILE id) aren't silently dropped.
         const symbol = String(args.symbol ?? args.file ?? '');
         if (!symbol) return { text: 'graft_trace_calls requires a symbol', isError: true };
+        const direction = traceDirection(args.direction);
+        if (!direction) return { text: badDirectionText(args.direction), isError: true };
         const w = loadGraphCached(contextDirFor(root, dirOverride));
         if (!w) return { text: noGraph(), isError: true };
         const inOpt = typeof args.in === 'string' && args.in ? { in: args.in } : {};
@@ -300,7 +315,6 @@ async function callSingleTool(
           const unresolved = unresolvedNoteFor(w, 'in', symbol);
           return { text: unresolved ? `${unresolved.trim()}\n${noSymbolText(w, symbol) ?? unknownSymbolText(symbol)}` : unknownSymbolText(symbol), isError: true };
         }
-        const direction: Direction = args.direction === 'out' ? 'out' : 'in';
         const depth = traceDepth(args.depth);
         const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(w, m, direction, depth) }));
         const body = callerBlocks(w, direction, depth > 1, results).join('\n\n');

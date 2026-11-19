@@ -44,6 +44,7 @@ import { enrichGraph, type EnrichStats } from "./enrich.js";
 import { readGraph, writeGraph, wiringPath } from "./write.js";
 import { writeCards, writeIndex, writeCovers, type CardStats } from "./cards.js";
 import { writeAskIndex } from "../ask/index-file.js";
+import { writeVectors } from "../ask/vectors.js";
 import { deployFormatOf, extractDeploy, resolveDeploy, type DeployFormat, type DeployRef } from "./deploy.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
 import type { GraphV1, Kind, NodeV1, Relation, ScopeV1, UnresolvedCallV1 } from "./types.js";
@@ -227,7 +228,7 @@ function readGoModules(root: string, repoFiles: string[]): GoModule[] {
   for (const f of repoFiles) {
     if (basename(f) !== "go.mod") continue;
     try {
-      const m = readFileSync(f, "utf8").match(/^\s*module\s+(\S+)/m);
+      const m = readFileSync(f, "utf8").match(/^[^\S\r\n\u2028\u2029]*module\s+(\S+)/m);
       if (!m) continue;
       const rel = relPosix(root, dirname(f));
       mods.push({ module: m[1], dir: rel === "" ? "." : rel });
@@ -318,7 +319,7 @@ function readTsImports(root: string, repoFiles: string[]): { tsPaths: TsPaths[];
     }
   }
   if (present.has("pnpm-workspace.yaml")) {
-    for (const m of (readFileInside(root, join(root, "pnpm-workspace.yaml")) ?? "").matchAll(/^\s*-\s*['"]?([^'"\s#!]+)/gm)) workspaces.push(m[1]);
+    for (const m of (readFileInside(root, join(root, "pnpm-workspace.yaml")) ?? "").matchAll(/^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm)) workspaces.push(m[1]);
   }
   // A workspace folder holding files and no package.json: its name is in the repo, unprovably.
   const manifested = new Set(tsPackages.map((p) => p.dir).concat([...present].filter((f) => posix.basename(f) === "package.json").map((f) => posix.dirname(f))));
@@ -653,6 +654,12 @@ export async function buildGraph(
     writeAskIndex(outDir, graph);
   } catch (err) {
     errors.push(`ask-index: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // `ask`'s semantic layer: chunk vectors of every indexed file, unchanged files reused.
+  try {
+    writeVectors(outDir, [...sources].map(([path, source]) => ({ path, hash: entries[path].hash, source })));
+  } catch (err) {
+    errors.push(`ask-vectors: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // The fingerprint claims exactly one thing: "the graph on disk was built from

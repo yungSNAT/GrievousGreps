@@ -15,8 +15,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyNames, clusterHash, sanitize, type Cluster, type Namer } from "../src/blast/name.js";
+import { applyNames, ChatNamer, clusterHash, sanitize, type Cluster, type Namer } from "../src/blast/name.js";
 import type { BlastReport, ImpactedModule } from "../src/blast/blast.js";
+import type { ChatModel, ChatRequest, ChatResponse } from "../src/ai/llm/types.js";
 import type { GraphV1 } from "../src/graph/types.js";
 
 function graph(hashes: Record<string, string>): GraphV1 {
@@ -160,4 +161,86 @@ test("blast name: a model's answer is untrusted text and is stripped before rend
   assert.equal(sanitize("Pipe | Table"), "Pipe Table");
   assert.equal(sanitize("  spaced   out  "), "spaced out");
   assert.equal(sanitize("An Extremely Long Feature Name That Never Fits A Circle").length <= 31, true);
+});
+
+/** A model that records the request and answers with one forced tool call. */
+function recordNamesModel(args: unknown): ChatModel & { last?: ChatRequest } {
+  const m: ChatModel & { last?: ChatRequest } = {
+    label: "fake:blast-name",
+    async create(req: ChatRequest): Promise<ChatResponse> {
+      m.last = req;
+      const toolCalls = [{ id: "1", name: "record_names", args }];
+      return {
+        text: "", toolCalls, usage: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 },
+        stopReason: "tool_calls", assistant: { role: "assistant", content: "", toolCalls },
+      };
+    },
+  };
+  return m;
+}
+
+test("blast name: the production namer keeps only clean names for keys it was given", async () => {
+  const model = recordNamesModel({
+    names: [
+      { key: "k1", name: 'Query "Freshness" | Gate' },
+      { key: "k2", name: "MIXED" },
+      { key: "k3" },
+      { name: "No Key At All" },
+      { key: "k4", name: "<>|" },
+    ],
+  });
+  const out = await new ChatNamer(model).name([{ key: "k1", files: ["src/a.ts"], symbols: ["a"] }]);
+
+  assert.deepEqual([...out], [["k1", "Query Freshness Gate"]],
+    "a name is stripped; 'mixed', a missing key or name, and a name that strips to nothing are all left out");
+  assert.deepEqual(model.last?.responseFormat, { kind: "tool", name: "record_names" }, "the answer is a forced tool call");
+  assert.deepEqual(model.last?.tools?.map((t) => t.name), ["record_names"]);
+});
+
+test("blast name: the production namer answers nothing when the model makes no tool call", async () => {
+  const model = recordNamesModel(undefined);
+  const out = await new ChatNamer(model).name([{ key: "k1", files: ["src/a.ts"], symbols: [] }]);
+  assert.equal(out.size, 0);
+});
+
+test("blast name: the prompt lists each cluster's key, its first 10 files and its first 8 symbols", async () => {
+  const model = recordNamesModel({ names: [] });
+  const files = Array.from({ length: 12 }, (_, i) => `src/f${i}.ts`);
+  const symbols = Array.from({ length: 10 }, (_, i) => `sym${i}`);
+  await new ChatNamer(model).name([
+    { key: "wide", files, symbols },
+    { key: "bare", files: ["src/x.ts"], symbols: [] },
+  ]);
+
+  const user = model.last?.messages.find((m) => m.role === "user")?.content ?? "";
+  assert.equal(user, [
+    `key: wide\n  files: ${files.slice(0, 10).join(", ")}\n  symbols: ${symbols.slice(0, 8).join(", ")}`,
+    "key: bare\n  files: src/x.ts\n  symbols: (none extracted)",
+  ].join("\n\n"));
+});
+
+test("blast name: a later batch failing keeps the names an earlier batch returned", async () => {
+  const contextDir = dir();
+  const paths = Array.from({ length: 13 }, (_, i) => `src/m${i}.ts`);
+  const g = graph(Object.fromEntries(paths.map((p, i) => [p, `h${i}`])));
+  const r = report(paths.map((p, i) => mod(`src/m${i}/`, [p], [`sym${i}`])));
+  const sizes: number[] = [];
+
+  const stats = await applyNames(g, r, {
+    contextDir,
+    namer: {
+      async name(clusters) {
+        sizes.push(clusters.length);
+        if (sizes.length > 1) throw new Error("429 rate limited");
+        return new Map(clusters.map((c) => [c.key, `Area ${c.symbols[0]}`]));
+      },
+    },
+  });
+
+  assert.deepEqual(sizes, [12, 1], "12 clusters a call, then the rest");
+  assert.match(stats.error ?? "", /rate limited/);
+  assert.deepEqual([stats.named, stats.declined], [12, 1]);
+  assert.equal(r.modules[0].label, "Area sym0");
+  assert.equal(r.modules[12].label, "sym12", "the cluster in the failed batch keeps its backstop");
+  assert.equal(r.modules[12].labelSource, "symbol");
 });

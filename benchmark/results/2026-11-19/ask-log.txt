@@ -1,0 +1,47 @@
+ask tree: 57122b3 plus the ask branch's files; tool 0.28.0+gg.57122b3f4cb4
+kept before this attempt: 0 repositories
+=== ask 2026-11-19T05:46:08Z load 10.26 9.94 11.39
+ask exit 0 2026-11-19T06:10:04Z
+Node v26.13.1, 2026-11-19 UTC
+Tool: <path>/dist/bin/graft.js (0.28.0+gg.57122b3f4cb4)
+Set: benchmark/ask/semble, 1251 questions in 63 repositories; 0 failed
+
+| Set | Queries | NDCG@10 | hit@1 | hit@3 | hit@10 |
+| --- | --- | --- | --- | --- | --- |
+| All | 1251 | 0.750 | 0.543 | 0.793 | 0.932 |
+| architecture | 344 | 0.694 | 0.451 | 0.735 | 0.910 |
+| semantic | 703 | 0.748 | 0.543 | 0.791 | 0.927 |
+| symbol | 204 | 0.851 | 0.696 | 0.897 | 0.985 |
+| bash | 60 | 0.867 | 0.833 | 0.900 | 0.933 |
+| c | 60 | 0.665 | 0.417 | 0.700 | 0.867 |
+| cpp | 60 | 0.732 | 0.483 | 0.833 | 0.950 |
+| csharp | 60 | 0.784 | 0.600 | 0.833 | 0.950 |
+| elixir | 58 | 0.814 | 0.603 | 0.879 | 0.983 |
+| go | 58 | 0.752 | 0.569 | 0.707 | 0.931 |
+| haskell | 60 | 0.697 | 0.417 | 0.783 | 0.933 |
+| java | 61 | 0.720 | 0.492 | 0.754 | 0.885 |
+| javascript | 60 | 0.878 | 0.750 | 0.900 | 0.967 |
+| kotlin | 60 | 0.660 | 0.333 | 0.733 | 0.933 |
+| lua | 60 | 0.781 | 0.550 | 0.867 | 0.983 |
+| php | 60 | 0.751 | 0.650 | 0.767 | 0.883 |
+| python | 184 | 0.780 | 0.549 | 0.826 | 0.951 |
+| ruby | 58 | 0.755 | 0.534 | 0.810 | 0.931 |
+| rust | 60 | 0.616 | 0.450 | 0.617 | 0.800 |
+| scala | 59 | 0.744 | 0.559 | 0.763 | 0.932 |
+| swift | 53 | 0.755 | 0.528 | 0.774 | 0.962 |
+| typescript | 60 | 0.670 | 0.433 | 0.700 | 0.933 |
+| zig | 60 | 0.769 | 0.550 | 0.850 | 0.967 |
+
+Misses at 3 (no relevant file among the first 3):
+
+| Repository | Category | Query | First relevant | Relevant | First 3 returned |
+| --- | --- | --- | --- | --- | --- |
+| aiohttp | semantic | request and response object internals | 8 | aiohttp/client_reqrep.py | web_response.py, client.py, web_protocol.py |
+| aiohttp | semantic | response streaming and payload | none | aiohttp/streams.py | payload.py, web_response.py, multipart.py |
+| aiohttp | semantic | HTTP exception types and error responses | 9 | aiohttp/web_exceptions.py | http_exceptions.py, helpers.py, web_urldispatcher.py |
+| aiohttp | architecture | how chunked transfer encoding is parsed | 5 | aiohttp/http_parser.py | client_reqrep.py, http_exceptions.py, web_response.py |
+| aiohttp | architecture | how DNS resolution is handled asynchronously | 10 | aiohttp/resolver.py | tracing.py, connector.py, client_exceptions.py |
+| aiohttp | architecture | how backpressure and flow control work in streaming | none | aiohttp/streams.py | _websocket/writer.py, hdrs.py, payload.py |
+=== wave 6 rules on the same answers
+TABLES MATCH
+DONE 2026-11-19T06:10:05Z

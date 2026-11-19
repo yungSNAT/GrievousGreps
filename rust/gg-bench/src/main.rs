@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
+use gg_bench::ask::AskOptions;
 use gg_bench::lsp::{Ask, LspOptions};
 use gg_bench::run::{self, Options};
 use gg_bench::score::{Repo, score_symbol, summarise};
@@ -47,6 +48,36 @@ enum Command {
     /// truth/<repo>.json, as tsc-truth.mjs does with the TypeScript compiler. With `--pick` it
     /// first chooses the symbols by a fixed rule, for a repository that has no truth yet.
     LspTruth(LspTruthArgs),
+    /// Ask a tool each question of a file-retrieval set in semble's format and print NDCG@10,
+    /// hit@1, hit@3 and hit@10, then every question with no relevant file among the first 3.
+    /// The answers are kept under the work folder's `answers/`.
+    Ask(AskArgs),
+}
+
+/// The retrieval set beside this crate: semble's, as vendored in benchmark/ask/semble.
+const ASK_SET: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../benchmark/ask/semble");
+
+#[derive(Args)]
+struct AskArgs {
+    /// The build to measure: dist/bin/graft.js.
+    #[arg(long)]
+    tool: PathBuf,
+    /// The set: repos.json and annotations/.
+    #[arg(long, default_value = ASK_SET)]
+    set: PathBuf,
+    /// Comma-separated repository names; all of them by default.
+    #[arg(long)]
+    repos: Option<String>,
+    /// Ask only the questions of this category, such as `symbol`.
+    #[arg(long)]
+    category: Option<String>,
+    /// Scratch folder for checkouts, answers and the tool's home [default: grievousgreps-benchmark
+    /// in the temporary folder].
+    #[arg(long)]
+    work: Option<PathBuf>,
+    /// The Node that runs the tool.
+    #[arg(long, default_value = "node")]
+    node: OsString,
 }
 
 #[derive(Args)]
@@ -165,6 +196,25 @@ fn lsp_truth_command(bench: PathBuf, args: LspTruthArgs) -> Result<String, Strin
     })
 }
 
+fn ask_command(args: AskArgs) -> Result<String, String> {
+    let tool = absolute(&args.tool)?;
+    if !tool.exists() {
+        return Err(format!("{} does not exist.", tool.display()));
+    }
+    let set = absolute(&args.set)?;
+    let repos = gg_bench::ask::select(&set, args.repos.as_deref())?;
+    let work = work_folder(args.work)?;
+    gg_bench::process::lower_priority();
+    gg_bench::ask::run(&AskOptions {
+        set,
+        node: args.node,
+        tool,
+        repos,
+        category: args.category,
+        work,
+    })
+}
+
 fn run_command(bench: PathBuf, args: RunArgs) -> Result<String, String> {
     let tool = absolute(
         &args
@@ -236,6 +286,7 @@ fn main() -> ExitCode {
         Command::Score { repo, answers } => score_command(&cli.bench, &repo, &answers),
         Command::Lsp(args) => lsp_command(cli.bench, args),
         Command::LspTruth(args) => lsp_truth_command(cli.bench, args),
+        Command::Ask(args) => ask_command(args),
     };
     match result {
         Ok(out) => {

@@ -517,6 +517,18 @@ test("workspace graft_trace_calls walks depth \"all\" as the single-repository t
   }
 });
 
+test("workspace graft_trace_calls refuses a direction outside \"in\" and \"out\"", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    const r = await callTool(p, "graft_trace_calls", { symbol: "helperThing", direction: "callees" });
+    assert.equal(r.isError, true);
+    assert.match(r.text, /direction must be "in" or "out", got "callees"/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("grep federation merges groups across children with child-prefixed paths", async () => {
   const p = workspaceFx(REPOS);
   await buildWorkspace(p);
@@ -562,6 +574,8 @@ test("workspace grep scopes to an exact child and its indexed paths", async () =
     const ask = federateAsk(p, undefined, "handler", { in: "./repoA/src/" });
     assert.ok(ask.hits.length > 0);
     assert.ok(ask.hits.every((hit) => hit.pointer.startsWith("repoA/src/")));
+    assert.throws(() => federateAsk(p, undefined, "handler", { in: "repoA/nowhere" }),
+      /nothing indexed under "nowhere\/"/);
   } finally {
     rmSync(p, { recursive: true, force: true });
   }
@@ -592,6 +606,54 @@ test("workspace grep CLI forwards scopes and rejects invalid paths", async () =>
         "--in", "repoA/src", "--json", "--no-refresh"], { encoding: "utf8" });
     assert.equal(noHits.status, 0);
     assert.equal(JSON.parse(noHits.stdout).totalHits, 0);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace map --json gives each repository's own map, paths prefixed, and names an unbuilt one", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    const map = (dir: string) => spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "map", dir, "--json", "--no-refresh"], { encoding: "utf8" });
+    const both = map(p);
+    assert.equal(both.status, 0, both.stderr);
+    assert.deepEqual(JSON.parse(both.stdout).repos.map((x: { repo: string }) => x.repo), ["repoA", "repoB"]);
+    assert.deepEqual(JSON.parse(both.stdout).missing, []);
+    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
+    const r = map(p);
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(out.repos.map((x: { repo: string }) => x.repo), ["repoA"]);
+    assert.deepEqual(out.missing, ["repoB"]);
+    assert.match(r.stderr, /1 of 2 workspace repos have graphs.*repoB/);
+    const own = JSON.parse(map(join(p, "repoA")).stdout);
+    assert.ok(own.hotspots.length > 0 && own.dirs.length > 0);
+    const unprefix = (s: string) => s.replace(/"path": "repoA\//g, '"path": "');
+    assert.ok(!/"path": "(?!repoA\/)/.test(JSON.stringify(out.repos[0].map, null, 1)), "every path is prefixed");
+    assert.deepEqual(JSON.parse(unprefix(JSON.stringify(out.repos[0].map, null, 1))), own);
+
+    rmSync(contextDirFor(join(p, "repoA")), { recursive: true, force: true });
+    const none = map(p);
+    assert.equal(none.status, 0, none.stderr);
+    assert.deepEqual(JSON.parse(none.stdout), { repos: [], missing: ["repoA", "repoB"] });
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace ask exits 1, and graft_find_code errors, on a sub-scope with nothing indexed", async () => {
+  const p = workspaceFx(GREP_REPOS);
+  try {
+    await buildWorkspace(p);
+    const r = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "ask", "handler", p, "--in", "repoA/nowhere", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /nothing indexed under "nowhere\/"/);
+    const tool = await callTool(p, "graft_find_code", { query: "handler", in: "repoA/nowhere" });
+    assert.equal(tool.isError, true);
+    assert.match(tool.text, /nothing indexed under "nowhere\/"/);
   } finally {
     rmSync(p, { recursive: true, force: true });
   }

@@ -27,8 +27,8 @@ import { readFileInside, resolveInside, trustedBaseFor, writeFileInside } from "
 import { contextDirFor } from "../context/node-file.js";
 import { checkGraph } from "./check.js";
 import { loadGraphCached } from "./load.js";
-import { buildRepoMap, formatRepoMap } from "./map.js";
-import { discoverWorkspaceChildren } from "./scopes.js";
+import { buildRepoMap, formatRepoMap, type DirEntry, type Hub, type RepoMap } from "./map.js";
+import { assertPrefixIndexed, discoverWorkspaceChildren } from "./scopes.js";
 import { mainWorktreeRoot } from "./seed.js";
 import { callerBlocks, callersSavings, matchJson, type MatchJson } from "./traverse-cli.js";
 import { edgeWalk, resolveSymbol, type Direction } from "./traverse.js";
@@ -306,8 +306,11 @@ export function federateAsk(
   const fileTopLock = opts.fileTopLock ?? true;
 
   // `--in` scopes to a single child (and, past the first segment, a sub-scope
-  // within it). A prefix naming no known child at all is a caller mistake.
+  // within it). A prefix naming no known child at all is a caller mistake, and so
+  // is a sub-scope with nothing indexed in that child, as grep and callers report.
   const { onlyChild, childIn } = resolveWorkspaceIn(wg, opts.in);
+  const scoped = wg.loaded.find((l) => l.child === onlyChild);
+  if (scoped && childIn) assertPrefixIndexed(scoped.graph, childIn);
 
   // Pass 1: run each child's ask; keep its hits + RAW top-hit coverage.
   const runs: ChildRun[] = [];
@@ -652,6 +655,37 @@ export function federateGrep(
   return { result, coverage: coverageNote(wg) };
 }
 
+/** Each loaded child's own map, the `maxDirs` budget split evenly across them. */
+function childMaps(wg: WorkspaceGraphs, maxDirs?: number): { child: string; map: RepoMap }[] {
+  const perChild = maxDirs !== undefined && wg.loaded.length > 0
+    ? Math.max(1, Math.floor(maxDirs / wg.loaded.length))
+    : undefined;
+  return wg.loaded.map(({ child, graph }) =>
+    ({ child, map: buildRepoMap(graph, perChild !== undefined ? { maxDirs: perChild } : {}) }));
+}
+
+/** `graft map --json` from a workspace: each child's single-repository map, with
+ * every directory and hub path prefixed by the child so it opens from the parent. */
+export function federateMapJson(
+  root: string,
+  override: string | undefined,
+  opts: { maxDirs?: number } = {},
+): { json: { repos: { repo: string; map: RepoMap }[]; missing: string[] }; coverage: string } {
+  const wg = loadWorkspaceGraphs(root, override);
+  const repos = childMaps(wg, opts.maxDirs).map(({ child, map }) => {
+    const hub = (h: Hub): Hub => ({ ...h, path: `${child}/${h.path}` });
+    const dir = (d: DirEntry): DirEntry => ({ ...d, path: `${child}/${d.path}`, hubs: d.hubs.map(hub) });
+    const prefixed: RepoMap = {
+      ...map,
+      dirs: map.dirs.map(dir),
+      hotspots: map.hotspots.map(hub),
+      ...(map.scopes ? { scopes: map.scopes.map((s) => ({ ...s, dirs: s.dirs.map(dir) })) } : {}),
+    };
+    return { repo: child, map: prefixed };
+  });
+  return { json: { repos, missing: wg.missing }, coverage: coverageNote(wg) };
+}
+
 /** One `graft map` section per child (each child's own map, budget split evenly
  * across the loaded children), joined under `<child>/` headers. */
 export function federateMap(
@@ -660,14 +694,8 @@ export function federateMap(
   opts: { maxDirs?: number } = {},
 ): string {
   const wg = loadWorkspaceGraphs(root, override);
-  const perChild = opts.maxDirs !== undefined && wg.loaded.length > 0
-    ? Math.max(1, Math.floor(opts.maxDirs / wg.loaded.length))
-    : undefined;
-
-  const sections = wg.loaded.map(({ child, graph }) => {
-    const map = buildRepoMap(graph, perChild !== undefined ? { maxDirs: perChild } : {});
-    return `## ${child}/\n${formatRepoMap(map).trimEnd()}`;
-  });
+  const sections = childMaps(wg, opts.maxDirs).map(({ child, map }) =>
+    `## ${child}/\n${formatRepoMap(map).trimEnd()}`);
   const head = `workspace map — ${wg.loaded.length} repo(s)`;
   const parts = [head, "", sections.join("\n\n")];
   const cov = coverageNote(wg);

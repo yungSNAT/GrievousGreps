@@ -1213,8 +1213,8 @@ grouped(program.command("map"), GROUP.find)
       maxDirsW = n;
     }
     await refreshBefore(dir, opts); // after arg validation: a bad flag shouldn't cost a rebuild
-    if (!opts.json && readWorkspace(root, globalOpts.dir)) {
-      runWorkspaceMap(root, globalOpts.dir, { maxDirs: maxDirsW });
+    if (readWorkspace(root, globalOpts.dir)) {
+      runWorkspaceMap(root, globalOpts.dir, { maxDirs: maxDirsW, json: opts.json });
       return;
     }
     const { buildRepoMap, formatRepoMap } = await import("./graph/map.js");
