@@ -216,7 +216,7 @@ function leftBehindLine(r: BlastReport): string | null {
   const behind = r.leftBehind ?? [];
   if (behind.length === 0) return null;
   const named = behind.slice(0, MAX_LEFT_BEHIND_NAMED).map((c) => `\`${c.name}\` (\`${callerAt(c)}\`)${c.inferred ? INFERRED_MARK : ""}`);
-  const more = behind.length > MAX_LEFT_BEHIND_NAMED ? `, +${behind.length - MAX_LEFT_BEHIND_NAMED} more` : "";
+  const more = behind.length > MAX_LEFT_BEHIND_NAMED ? `, +${behind.length - MAX_LEFT_BEHIND_NAMED} more, all in \`--format json\`` : "";
   return `⚠️ **${plural(behind.length, "caller")} left behind** by a changed declaration: ${named.join(", ")}${more}. The diff did not edit ${behind.length === 1 ? "its call" : "their calls"}.`;
 }
 
@@ -416,7 +416,7 @@ function detailSections(r: BlastReport, symbols: number, evidence?: (s: Impacted
     out.push(`<summary><strong>Tests reaching this change</strong> — ${r.tests.length === 0 ? "none found" : plural(r.tests.length, "test file")}, full closure</summary>`);
     out.push("");
     for (const t of r.tests.slice(0, MAX_TESTS_LISTED)) out.push(`- \`${t.path}\` — ${testReachLabel(t)}`);
-    if (r.tests.length > MAX_TESTS_LISTED) out.push(`- …${r.tests.length - MAX_TESTS_LISTED} more`);
+    if (r.tests.length > MAX_TESTS_LISTED) out.push(`- …${r.tests.length - MAX_TESTS_LISTED} more, all in \`--format json\``);
     out.push("");
     out.push(`_Note: ${NO_EDGE_NOTE}._`);
     out.push("");

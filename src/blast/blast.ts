@@ -271,7 +271,8 @@ export function blastRadius(
   const merged = new Map<string, { hit: Impacted; from: Set<string> }>();
   /** Symbol seeds whose declaration the diff changed. */
   const declaredSeeds: NodeV1[] = [];
-  const removed = removedBlocks(changed);
+  /** Every hunk's removed lines: where a declaration moved as it stood is found. */
+  const removed = changed.flatMap((f) => f.hunks.map((h) => squashLines(removedText(h))));
 
   for (const file of changed) {
     if (file.status === "deleted") {
@@ -360,7 +361,14 @@ export function blastRadius(
  * by line, and a longer signature or call is rare. */
 const MAX_WRAPPED_LINES = 40;
 
-const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
+/**
+ * Declaration text as compared: whitespace dropped, and a comma before a closing
+ * bracket, so wrapping or unwrapping a signature (a formatter's trailing comma
+ * included) compares equal.
+ */
+const squash = (text: string): string => dropClosingCommas(text).replace(/\s+/g, "");
+
+const dropClosingCommas = (text: string): string => text.replace(/,(?=\s*[)\]}>])/g, "");
 
 const overlaps = (ranges: LineRange[], start: number, end: number): boolean =>
   ranges.some((r) => r.start <= end && r.end >= start);
@@ -369,72 +377,113 @@ const overlaps = (ranges: LineRange[], start: number, end: number): boolean =>
  * lines fell past the text cap is never taken for one, so a long deletion reads as an edit. */
 const pureDeletion = (h: Hunk): boolean => h.dropped === 0 && !h.lines.some((l) => l.sign === "+");
 
-/** One side of a hunk, whitespace collapsed. */
-const side = (h: Hunk, sign: "+" | "-"): string => collapse(h.lines.filter((l) => l.sign === sign).map((l) => l.text).join(" "));
+const removedText = (h: Hunk): string[] => h.lines.filter((l) => l.sign === "-").map((l) => l.text);
 
 /**
- * The post-image lines a file's diff added or rewrote: its ranges less its pure
- * deletions, whose range is the line before the gap. With no hunk text, the ranges.
+ * Whether the file's diff touches lines `start` to `end` of the post-image. A pure
+ * deletion counts only when its gap lies inside, before line `end`: deleting a
+ * function's first statement, or the line after a call, leaves the gap after it.
+ * With no hunk text, the ranges.
  */
-function addedRanges(file: ChangedFile): LineRange[] {
-  if (file.hunks.length === 0) return file.ranges;
-  return file.hunks.filter((h) => !pureDeletion(h)).map((h) => ({ start: h.start, end: h.end }));
-}
-
-/**
- * Whether one of the file's hunks changes the text of lines `start` to `end`.
- *
- * A pure deletion counts only when its gap lies inside, before line `end`: deleting a
- * function's first statement leaves the gap after the signature's last line. A hunk
- * whose two sides match once whitespace is collapsed (a reflowed signature, or a line
- * git removed and re-added as it was) changes nothing. With no hunk text, the ranges.
- */
-function editsLines(file: ChangedFile, start: number, end: number): boolean {
+function touches(file: ChangedFile | undefined, start: number, end: number): boolean {
+  if (!file) return false;
   if (file.hunks.length === 0) return overlaps(file.ranges, start, end);
-  return file.hunks.some((h) =>
-    pureDeletion(h) ? h.start >= start && h.start < end : h.start <= end && h.end >= start && (h.dropped > 0 || side(h, "-") !== side(h, "+")));
+  return file.hunks.some((h) => (pureDeletion(h) ? h.start >= start && h.start < end : h.start <= end && h.end >= start));
 }
 
-/** The diff's removed lines, collapsed, one block per hunk, each line between newlines. */
-function removedBlocks(changed: ChangedFile[]): string[] {
-  return changed.flatMap((f) =>
-    f.hunks.map((h) => `\n${h.lines.filter((l) => l.sign === "-").map((l) => collapse(l.text)).filter(Boolean).join("\n")}\n`));
+/** Lines {@link squash}ed into one string, and the offset each line starts at. */
+interface Squashed {
+  text: string;
+  starts: Set<number>;
 }
+
+function squashLines(lines: string[]): Squashed {
+  let text = "";
+  const starts = new Set<number>();
+  // Commas go over the joined lines, so one ending a line before the next line's bracket goes too.
+  for (const line of dropClosingCommas(lines.join("\n")).split("\n")) {
+    starts.add(text.length);
+    text += line.replace(/\s+/g, "");
+  }
+  return { text, starts };
+}
+
+/** Whether `needle` occurs in `hay` starting where one of its lines starts. */
+function atLineStart(hay: Squashed, needle: string): boolean {
+  for (let at = hay.text.indexOf(needle); at >= 0; at = hay.text.indexOf(needle, at + 1)) {
+    if (hay.starts.has(at)) return true;
+  }
+  return false;
+}
+
+/**
+ * The pre-image of post-image lines `start` to `end`, rebuilt from the hunks: each
+ * hunk touching them gives its removed lines where it stands, every other line is
+ * unchanged context. Widened to whole hunks, since a hunk's removed lines cannot be
+ * split by line.
+ */
+function preImage(file: ChangedFile, lines: string[], start: number, end: number): Squashed {
+  const near = file.hunks.filter((h) => h.start <= end && h.end >= start);
+  const from = Math.min(start, ...near.filter((h) => !pureDeletion(h)).map((h) => h.start));
+  const to = Math.max(end, ...near.map((h) => h.end));
+  const old: string[] = [];
+  let n = from;
+  while (n <= to) {
+    const rewritten = near.find((h) => !pureDeletion(h) && h.start === n);
+    if (rewritten) {
+      old.push(...removedText(rewritten));
+      n = rewritten.end + 1;
+      continue;
+    }
+    if (n <= lines.length) old.push(lines[n - 1]);
+    for (const h of near) if (pureDeletion(h) && h.start === n) old.push(...removedText(h));
+    n++;
+  }
+  return squashLines(old);
+}
+
+const count = (text: string, ch: string): number => text.split(ch).length - 1;
 
 /**
  * A symbol's declaration: from the span's first line to where the signature the graph
- * recorded ends. Found by reading the span until its whitespace-collapsed text contains
- * that signature, which is how a parameter on the third line of a wrapped signature
- * counts. Just the first line when the signature is not found (the file moved on from
- * the graph); no text when the file cannot be read.
+ * recorded ends, and its text up to one character past the signature: enough to see a
+ * return type removed, not so much that a body on the same line counts. Found by reading the
+ * span until its squashed text contains the signature, which is how a parameter on
+ * the third line of a wrapped signature counts. A signature left with a parenthesis
+ * open (the generic tier stores only a signature's first line) runs on to where it
+ * closes, and its text to the end of that line. Just the first line when the
+ * signature is not found (the file moved on from the graph).
  */
-function declaration(node: NodeV1, span: { start: number; end: number }, read?: LineReader): { end: number; lines: string[] } {
-  const file = read?.(node.path);
-  if (!file || span.start > file.length) return { end: span.start, lines: [] };
-  const signature = node.signature ? collapse(node.signature) : "";
-  const last = Math.min(span.end, span.start + MAX_WRAPPED_LINES - 1, file.length);
-  const lines: string[] = [];
+function declaration(node: NodeV1, span: { start: number; end: number }, lines: string[]): { end: number; text: string } {
+  const last = Math.min(span.end, span.start + MAX_WRAPPED_LINES - 1, lines.length);
+  const signature = node.signature ? squash(node.signature) : "";
   for (let n = span.start; signature && n <= last; n++) {
-    const line = collapse(file[n - 1]);
-    if (line) lines.push(line);
-    if (lines.join(" ").includes(signature)) return { end: n, lines };
+    const text = squashLines(lines.slice(span.start - 1, n)).text;
+    const at = text.indexOf(signature);
+    if (at < 0) continue;
+    if (count(signature, "(") <= count(signature, ")")) return { end: n, text: text.slice(0, at + signature.length + 1) };
+    const end = Math.max(n, callEnd(lines, span.start, 0, last));
+    return { end, text: squashLines(lines.slice(span.start - 1, end)).text };
   }
-  const first = collapse(file[span.start - 1]);
-  return { end: span.start, lines: first ? [first] : [] };
+  return { end: span.start, text: squash(lines[span.start - 1] ?? "") };
 }
 
 /**
- * Whether the diff changed `node`'s declaration ({@link declaration}): a hunk edits its
- * lines ({@link editsLines}), and they are not among the diff's removed lines as they
- * stand. Found there, the declaration moved, from another file or within this one.
+ * Whether the diff changed `node`'s declaration ({@link declaration}): the diff
+ * touches its lines, and its text is not in their rebuilt pre-image, nor among any
+ * hunk's removed lines (a declaration moved as it stood). Either is compared from the
+ * start of a line, so a dropped `async` or `export` still counts. With no file to read,
+ * any touch of the first line counts; with no hunk text, any touch of the declaration.
  */
-function declarationChanged(node: NodeV1, file: ChangedFile, removed: string[], read?: LineReader): boolean {
+function declarationChanged(node: NodeV1, file: ChangedFile, removed: Squashed[], read?: LineReader): boolean {
   const span = spanBounds(node.span);
   if (!span) return false;
-  const decl = declaration(node, span, read);
-  if (!editsLines(file, span.start, decl.end)) return false;
-  const block = `\n${decl.lines.join("\n")}\n`;
-  return decl.lines.length === 0 || !removed.some((r) => r.includes(block));
+  const lines = read?.(node.path);
+  if (!lines || span.start > lines.length) return touches(file, span.start, span.start);
+  const decl = declaration(node, span, lines);
+  if (!touches(file, span.start, decl.end)) return false;
+  if (file.hunks.length === 0) return true;
+  return ![preImage(file, lines, span.start, decl.end), ...removed].some((old) => atLineStart(old, decl.text));
 }
 
 /**
@@ -455,33 +504,45 @@ function callEnd(lines: string[], n: number, at: number, last: number): number {
   return n;
 }
 
+/** A line that starts with a comment: its mention of a name is no call. */
+const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|#|--)/;
+
 /**
  * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
  * to look at (null when none could be found).
  *
- * With the file readable, a call runs from a line naming the symbol to where its
- * parentheses close ({@link callEnd}), and the caller counts as edited when any of
- * its calls changed: an updated call beside an untouched import is not left behind.
- * Without the file, or with no line naming it (a call through an alias), any changed
- * line in the caller's span counts.
+ * With the file readable, a call is the name followed by `(` (after `!`, `?.` or
+ * type arguments), running to where that parenthesis closes ({@link callEnd}), so a
+ * changed argument on a later line counts. Any call the diff left alone leaves the
+ * caller behind, whatever happened to its other calls. With no call of that shape (a
+ * JSX element, a decorator, `new Foo`), a changed line naming it counts as the edit.
+ * Lines that start with a comment are skipped; strings are not parsed. Without the
+ * file, or with no line naming it (a call through an alias), any changed line in the
+ * caller's span counts.
  */
-function callSite(caller: NodeV1, name: string, ranges: LineRange[], read?: LineReader): "edited" | number | null {
+function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, read?: LineReader): "edited" | number | null {
   const span = spanBounds(caller.span);
   if (!span) return null;
   const lines = read?.(caller.path);
   if (lines) {
-    const re = wordRe(name);
+    const named = wordRe(name);
+    const called = new RegExp(`${named.source}\\s*(?:(?:!|\\?\\.)\\s*)?(?:<[^<>()]*>\\s*)?\\(`);
     const last = Math.min(span.end, lines.length);
-    let first: number | null = null;
+    let calls = 0;
+    const mentions: number[] = [];
     for (let n = span.start; n <= last; n++) {
-      const at = re.exec(lines[n - 1])?.index;
-      if (at === undefined) continue;
-      if (overlaps(ranges, n, callEnd(lines, n, at, last))) return "edited";
-      first ??= n;
+      const text = lines[n - 1];
+      if (COMMENT_LINE.test(text)) continue;
+      const call = called.exec(text);
+      if (call) {
+        calls++;
+        if (!touches(file, n, callEnd(lines, n, call.index, last))) return n;
+      } else if (named.test(text)) mentions.push(n);
     }
-    if (first !== null) return first;
+    if (calls > 0) return "edited";
+    if (mentions.length > 0) return mentions.some((n) => touches(file, n, n)) ? "edited" : mentions[0];
   }
-  return overlaps(ranges, span.start, span.end) ? "edited" : null;
+  return touches(file, span.start, span.end) ? "edited" : null;
 }
 
 /** Methods a class's callers reach when they construct it: `Foo(...)`, `new Foo(...)`. */
@@ -508,7 +569,7 @@ function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedF
     });
     if (owner && !watched.has(owner.id)) watched.set(owner.id, seed);
   }
-  const rangesOf = new Map(changed.map((f) => [f.path, addedRanges(f)]));
+  const fileOf = new Map(changed.map((f) => [f.path, f]));
   const found = new Map<string, LeftBehind>();
   for (const e of graph.edges) {
     if (e.relation !== "calls" || e.source === e.target) continue;
@@ -523,7 +584,7 @@ function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedF
       if (e.confidence !== "inferred") delete prev.inferred;
       continue;
     }
-    const site = callSite(caller, target.name, rangesOf.get(caller.path) ?? [], read);
+    const site = callSite(caller, target.name, fileOf.get(caller.path), read);
     if (site === "edited") continue;
     found.set(key, {
       seed: { id: seed.id, name: seed.name },

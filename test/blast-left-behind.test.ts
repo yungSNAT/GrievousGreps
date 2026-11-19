@@ -123,6 +123,31 @@ test("blast: a changed argument on a later line of a wrapped call is an edit to 
   );
 });
 
+test("blast: deleting an argument line of a wrapped call is an edit to the call", () => {
+  const wrapped = { ...files, "c.ts": ["export function total(): number {", "  return add(", "    1,", "  );", "}"] };
+  const g = graph();
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, span: "L1-L5" } : n));
+  // `    2,` was deleted after line 3: git places the gap at line 3, inside the call.
+  const c: ChangedFile = { path: "c.ts", status: "modified", ranges: [{ start: 3, end: 3 }], hunks: [hunk(3, 3, [["-", "    2,"]])] };
+  const report = blastRadius(g, [at("a.ts", 3), c], "test", { depth: 2, read: (p) => wrapped[p] ?? null });
+  assert.deepEqual(report.leftBehind?.map((x) => x.name), ["sum"]);
+});
+
+test("blast: a caller whose second call was left alone is left behind at that call, and a comment is no call", () => {
+  const twice = {
+    ...files,
+    "c.ts": ["export function total(): number {", "  // add(1, 2) was add(1)", "  const x = add(1, 2);", "  return add(3) + x;", "}"],
+  };
+  const g = graph();
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, span: "L1-L5" } : n));
+  const opts = { depth: 2, read: (p: string) => twice[p] ?? null };
+  const updatedFirst = blastRadius(g, [at("a.ts", 3), at("c.ts", 2, 3), at("d.ts", 2)], "test", opts);
+  assert.deepEqual(updatedFirst.leftBehind?.map((x) => [x.name, x.line]), [["total", 4]]);
+  // Only the comment changed: both calls are left behind, and the first is the one named.
+  const commentOnly = blastRadius(g, [at("a.ts", 3), at("c.ts", 2), at("d.ts", 2)], "test", opts);
+  assert.deepEqual(commentOnly.leftBehind?.map((x) => [x.name, x.line]), [["total", 3]]);
+});
+
 test("blast: with no file to read, the first line is the declaration and any edit in a caller's span counts", () => {
   assert.deepEqual(blastRadius(graph(), [at("a.ts", 3)], "test", { depth: 2 }).leftBehind, [], "line 3 is past the first line");
   const report = blastRadius(graph(), [at("a.ts", 1), at("d.ts", 3)], "test", { depth: 2 });
@@ -164,7 +189,7 @@ test("blast: the Markdown line names 5 left-behind callers and counts the rest",
   }
   const md = markdownReport(blastRadius(g, [at("a.ts", 1)], "test", { depth: 1 }));
   assert.match(md, /\*\*9 callers left behind\*\*/);
-  assert.match(md, /, \+4 more\. The diff did not edit their calls\./);
+  assert.match(md, /, \+4 more, all in `--format json`\. The diff did not edit their calls\./);
 });
 
 function git(dir: string, ...args: string[]): void {
@@ -243,6 +268,51 @@ test("blast CLI: a body edit reports no caller left behind, nor does deleting th
   assert.deepEqual((deleted.changed as { ranges: unknown }[])[0].ranges, [{ start: 4, end: 4 }]);
   assert.deepEqual(deleted.seeds.map((s) => [s.name, s.declarationChanged]), [["add", undefined]]);
   assert.deepEqual(deleted.leftBehind, []);
+});
+
+test("blast CLI: wrapping a signature as a formatter does, trailing comma included, is no declaration change", (t) => {
+  const oneLine = "export function add(a: number, b: number): number {\n  return a + b;\n}\n";
+  const d = builtRepo(t, { ...TS_TREE, "src/math.ts": oneLine });
+  writeFileSync(join(d, "src/math.ts"), TS_TREE["src/math.ts"]);
+  const report = blastJson([d]);
+  assert.deepEqual(report.seeds.map((s) => [s.name, s.declarationChanged]), [["add", undefined]]);
+  assert.deepEqual(report.leftBehind, []);
+});
+
+test("blast CLI: a const arrow's one-line body is not its declaration, its parameters are", (t) => {
+  const inc = "export const inc = (n: number): number => n + 1;\n";
+  const d = builtRepo(t, {
+    "src/inc.ts": inc,
+    "src/use.ts": 'import { inc } from "./inc.js";\nexport function twice(n: number): number {\n  return inc(inc(n));\n}\n',
+  });
+  writeFileSync(join(d, "src/inc.ts"), inc.replace("n + 1", "n + 2"));
+  const body = blastJson([d]);
+  assert.deepEqual(body.seeds.map((s) => [s.name, s.declarationChanged]), [["inc", undefined]]);
+  assert.deepEqual(body.leftBehind, []);
+
+  writeFileSync(join(d, "src/inc.ts"), inc.replace("(n: number)", "(n: number, by: number)"));
+  assert.deepEqual(blastJson([d]).leftBehind?.map((c) => [c.name, c.line]), [["twice", 3]]);
+});
+
+test("blast CLI: a Rust signature wrapped over several lines counts a change on its third line", (t) => {
+  const lib = "pub fn add(\n    a: u32,\n    b: u32,\n) -> u32 {\n    a + b\n}\n\npub fn total() -> u32 {\n    add(1, 2)\n}\n";
+  const d = builtRepo(t, { "Cargo.toml": '[package]\nname = "m"\nversion = "0.1.0"\nedition = "2021"\n', "src/lib.rs": lib });
+  writeFileSync(join(d, "src/lib.rs"), lib.replace("b: u32,", "b: u64,"));
+  const report = blastJson([d]);
+  assert.equal(report.seeds.find((s) => s.name === "add")?.declarationChanged, true);
+  assert.deepEqual(report.leftBehind?.map((c) => [c.seed.name, c.name, c.line]), [["add", "total", 9]]);
+
+  writeFileSync(join(d, "src/lib.rs"), lib.replace("a + b", "b + a"));
+  assert.deepEqual(blastJson([d]).leftBehind, [], "a body edit");
+});
+
+test("blast CLI: a decorated Python function's parameters are its declaration", (t) => {
+  const geo = "import functools\n\n\n@functools.cache\ndef area(w, h):\n    return w * h\n";
+  const d = builtRepo(t, { "geo.py": geo, "use.py": "from geo import area\n\n\ndef square(s):\n    return area(s, s)\n" });
+  writeFileSync(join(d, "geo.py"), geo.replace("def area(w, h):", "def area(w, h, d):"));
+  assert.deepEqual(blastJson([d]).leftBehind?.map((c) => [c.name, c.line]), [["square", 5]]);
+  writeFileSync(join(d, "geo.py"), geo.replace("w * h", "h * w"));
+  assert.deepEqual(blastJson([d]).leftBehind, [], "a body edit");
 });
 
 test("blast CLI: a Python __init__ change names the calls that construct the class", (t) => {
