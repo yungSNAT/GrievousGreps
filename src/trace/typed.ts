@@ -89,7 +89,7 @@ function answerForm(typed: string): string {
   return String(typed ?? '').replace(/[\u2018\u2019]/g, "'").toLowerCase().trim()
     .replace(TRAILING_EMOJI, '')
     .replace(/^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g, '')
-    .replace(/(?<!\s)\s*,\s*/g, ' ')
+    .replace(/,/g, ' ')
     .replace(/\s+/g, ' ');
 }
 
