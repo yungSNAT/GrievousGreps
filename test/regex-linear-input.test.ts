@@ -61,3 +61,39 @@ test("the rewritten regexes keep their answers", () => {
   assert.equal(classifyFor("retire", "no, leave it for now", false), "no");
   assert.equal(classifyFor("retire", "retire it 👍", false), "retire");
 });
+
+test("a no whose rest is about the offer still reads across a CR or Unicode line break", () => {
+  for (const sep of ["\r", "\u2028", "\u2029", " \r "]) assert.equal(classifyFor("retire", `no${sep}retire`, false), "no", JSON.stringify(sep));
+  for (const sep of ["\r", "\u2028"]) quick("classifyFor", () => classifyFor("retire", `no${sep.repeat(N)}x`, false));
+});
+
+/** Each rewritten pattern beside the one it replaced: same matches, captures and replacements. */
+const PAIRS: [string, RegExp, RegExp][] = [
+  ["go module", /^\s*module\s+(\S+)/m, /^[^\S\r\n\u2028\u2029]*module\s+(\S+)/m],
+  ["pnpm", /^\s*-\s*['"]?([^'"\s#!]+)/gm, /^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm],
+  ["where", /^\s*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm, /^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm],
+  ["package_dir", /^\s*package_dir\s*=\s*(?:\r?\n\s*)?=\s*(\S+)/gm, /^[^\S\r\n\u2028\u2029]*package_dir\s*=\s*=\s*(\S+)/gm],
+  ["trailing emoji", /[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u, /(?<![\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}])[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u],
+  ["outer punctuation", /^[\s.!?,;:]+|[\s.!?,;:]+$/g, /^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g],
+  ["comma", /\s*,\s*/g, /(?<!\s)\s*,\s*/g],
+  ["first clause", /\s*(?:[,:;.!]|\s-\s|\s\u2014\s|$)/, /(?<!\s)\s*(?:[,:;.!]|\s-\s|\s\u2014\s|$)/],
+  ["no about", /^(no|nope|nah|not now)\b[\s,.;:!]+.*\b(retire|replace|leave|keep|later|for now|not now)\b/, /^(no|nope|nah|not now)\b(?:[\s,.;:!]*[\n\r\u2028\u2029]|[\s,.;:!]).*\b(retire|replace|leave|keep|later|for now|not now)\b/],
+];
+const SAMPLES = [
+  "", " ", "x", "module a", "\n\n  module  a/b \n", "\r\n\tmodule x\r\n", "\u2028 module y", "-a\n  - 'pkg/*'\n -\n  b\n\r- \"c\"",
+  "[options]\npackage_dir =\n    = src\nwhere=lib", "  where = [\"a\", 'b']\n\npythonpath = \"x\"", "package_dir\n=\n\n=\n src",
+  "yes 👍🏽 ", "ok 👨‍👩‍👧", "  ,. yes !! ", ".,;", "a , b,c ,  d", "go on - now", "ok \u2014 sure", "ok", "  ", "no, leave it for now",
+  "no \nretire", "no \rretire", "no\u2028 \u2029keep", "nope ,, later", "no retire", "no\r\r later x", "noretire",
+];
+
+test("each rewritten pattern gives what the one it replaced gave", () => {
+  for (const [name, before, after] of PAIRS) {
+    for (const s of SAMPLES) {
+      const label = `${name} on ${JSON.stringify(s)}`;
+      assert.equal(s.replace(after, "<>"), s.replace(before, "<>"), label);
+      assert.deepEqual(s.split(after), s.split(before), label);
+      if (before.global) assert.deepEqual([...s.matchAll(after)].map((m) => [...m]), [...s.matchAll(before)].map((m) => [...m]), label);
+      else assert.deepEqual(after.exec(s)?.slice(), before.exec(s)?.slice(), label);
+    }
+  }
+});
