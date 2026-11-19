@@ -28,8 +28,8 @@
    "strings/string_view.h",
    "flags/flag.h",
    "strings/substitute.h",
-   "base/attributes.h",
    "strings/internal/generic_printer_internal.h",
+   "base/attributes.h",
    "container/inlined_vector_benchmark.cc",
    "strings/match.h",
    "status/status.h",
@@ -46,7 +46,7 @@
    "strings/str_cat_test.cc",
    "strings/internal/generic_printer_internal.h",
    "strings/str_join.h",
-   "strings/cord_test.cc"
+   "strings/substitute_benchmark.cc"
   ],
   "absl::StrSplit and StrJoin for string splitting and joining": [
    "strings/str_join.h",
@@ -77,8 +77,8 @@
    "time/time.cc",
    "time/time_benchmark.cc",
    "time/simulated_clock.h",
-   "synchronization/internal/kernel_timeout_test.cc",
    "time/duration_benchmark.cc",
+   "synchronization/internal/kernel_timeout_test.cc",
    "time/format.cc",
    "time/duration.cc",
    "time/time_test.cc",
@@ -118,16 +118,16 @@
    "base/macros.h",
    "log/log_streamer.h",
    "log/absl_log.h",
-   "log/internal/check_op.h"
+   "log/internal/log_sink_set.h"
   ],
   "absl::Span for non-owning sequence view": [
    "types/span.h",
    "types/any_span.h",
-   "base/attributes.h",
    "strings/internal/generic_printer_internal.h",
+   "base/attributes.h",
    "strings/string_view.h",
-   "log/structured.h",
    "types/any_span_benchmark.cc",
+   "log/structured.h",
    "meta/type_traits_test.cc",
    "status/status.h",
    "strings/match.h"
@@ -154,7 +154,7 @@
    "hash/hash.h",
    "container/flat_hash_set.h",
    "container/flat_hash_map.h",
-   "container/internal/hash_function_defaults.h"
+   "hash/hash_benchmark.cc"
   ],
   "absl::Notification for one-time event signaling between threads": [
    "synchronization/notification.h",
@@ -169,16 +169,16 @@
    "time/simulated_clock_test.cc"
   ],
   "absl::AnyInvocable for move-only callable wrapper": [
-   "functional/any_invocable.h",
    "functional/internal/any_invocable.h",
+   "functional/any_invocable.h",
    "log/internal/check_op.h",
-   "functional/function_ref.h",
    "functional/function_type_benchmark.cc",
-   "functional/function_ref_test.cc",
+   "functional/function_ref.h",
    "hash/hash_benchmark.cc",
+   "functional/function_ref_test.cc",
    "base/nullability.h",
-   "base/attributes.h",
-   "strings/internal/str_format/bind.h"
+   "strings/internal/str_format/bind.h",
+   "base/attributes.h"
   ],
   "absl::btree_map and btree_set sorted containers": [
    "container/btree_map.h",
@@ -190,7 +190,7 @@
    "container/linked_hash_map.h",
    "strings/internal/cord_rep_btree_reader.h",
    "container/btree_test.cc",
-   "container/btree_set.h"
+   "random/internal/nanobenchmark.cc"
   ],
   "absl::StrFormat and string formatting API": [
    "strings/str_format.h",
@@ -214,7 +214,7 @@
    "hash/internal/spy_hash_state.h",
    "strings/internal/cord_internal.h",
    "container/internal/raw_hash_set.h",
-   "container/internal/hashtable_debug.h"
+   "container/linked_hash_map_benchmark.cc"
   ],
   "Status": [
    "status/status.h",
@@ -361,8 +361,8 @@
    "Decoding/Internal.hs",
    "Internal/UnescapeFromText.hs",
    "Internal/Unescape.hs",
-   "Decoding/ByteString/Lazy.hs",
    "Decoding/Text.hs",
+   "Decoding/ByteString/Lazy.hs",
    "Decoding/ByteString.hs"
   ],
   "how optional fields use (.:?) with a default value via (.!=)": [
@@ -383,19 +383,19 @@
    "TH.hs",
    "Encoding.hs",
    "Types/FromJSON.hs",
-   "RFC8785.hs",
    "Types/Internal.hs",
+   "RFC8785.hs",
    "Types/Class.hs",
    "Decoding/Conversion.hs",
    "Decoding.hs"
   ],
   "how Key type is used as object field identifier": [
    "TH.hs",
-   "Types/FromJSON.hs",
    "Types/Internal.hs",
+   "Types/FromJSON.hs",
    "Types/ToJSON.hs",
-   "Key.hs",
    "KeyMap.hs",
+   "Key.hs",
    "Internal/Functions.hs",
    "Encoding/Internal.hs",
    "Encoding/Builder.hs",
@@ -503,8 +503,8 @@
    "client_ws.py",
    "web_ws.py",
    "client.py",
-   "_websocket/reader_py.py",
    "_websocket/writer.py",
+   "_websocket/reader_py.py",
    "_websocket/models.py",
    "client_proto.py",
    "client_exceptions.py",
@@ -515,8 +515,8 @@
    "web_protocol.py",
    "client.py",
    "web_response.py",
-   "client_exceptions.py",
    "tracing.py",
+   "client_exceptions.py",
    "web_fileresponse.py",
    "client_reqrep.py",
    "web_urldispatcher.py",
@@ -668,8 +668,8 @@
    "tracing.py"
   ],
   "TCPConnector": [
-   "client_exceptions.py",
    "connector.py",
+   "client_exceptions.py",
    "client.py",
    "__init__.py",
    "cookiejar.py",
@@ -782,8 +782,8 @@
    "Features/MultipartFormData.swift",
    "Core/Session.swift",
    "Features/URLEncodedFormEncoder.swift",
-   "Core/AFError.swift",
    "Core/ParameterEncoder.swift",
+   "Core/AFError.swift",
    "Features/ResponseSerialization.swift",
    "Core/ParameterEncoding.swift",
    "Features/Concurrency.swift",
@@ -815,8 +815,8 @@
   ],
   "how URL query parameters are encoded from Encodable values": [
    "Core/ParameterEncoding.swift",
-   "Core/ParameterEncoder.swift",
    "Core/Session.swift",
+   "Core/ParameterEncoder.swift",
    "Features/URLEncodedFormEncoder.swift",
    "Features/MultipartFormData.swift",
    "Core/AFError.swift",
@@ -877,8 +877,8 @@
    "Core/Session.swift",
    "Features/EventMonitor.swift",
    "Core/SessionDelegate.swift",
-   "Core/Request.swift",
    "Features/RequestInterceptor.swift",
+   "Core/Request.swift",
    "Features/AuthenticationInterceptor.swift",
    "Core/DataRequest.swift",
    "Features/Concurrency.swift",
@@ -935,8 +935,8 @@
   ],
   "how upload requests stream data to the server": [
    "Core/UploadRequest.swift",
-   "Features/Concurrency.swift",
    "Features/MultipartUpload.swift",
+   "Features/Concurrency.swift",
    "Core/DataStreamRequest.swift",
    "Core/Session.swift",
    "Features/Combine.swift",
@@ -958,8 +958,8 @@
    "Extensions/StringEncoding+Alamofire.swift"
   ],
   "URLConvertible": [
-   "Core/Session.swift",
    "Core/URLConvertible+URLRequestConvertible.swift",
+   "Core/Session.swift",
    "Core/AFError.swift",
    "Core/UploadRequest.swift",
    "Core/ParameterEncoding.swift",
@@ -1032,8 +1032,8 @@
    "utils.js"
   ],
   "InterceptorManager": [
-   "core/Axios.js",
    "core/InterceptorManager.js",
+   "core/Axios.js",
    "utils.js",
    "adapters/http.js",
    "defaults/transitional.js",
@@ -1046,8 +1046,8 @@
   "mergeConfig": [
    "core/mergeConfig.js",
    "helpers/resolveConfig.js",
-   "core/Axios.js",
    "utils.js",
+   "core/Axios.js",
    "core/dispatchRequest.js",
    "adapters/http.js",
    "axios.js",
@@ -1137,7 +1137,7 @@
    "adapters/xhr.js",
    "helpers/shouldBypassProxy.js",
    "core/transformData.js",
-   "core/Axios.js"
+   "helpers/spread.js"
   ],
   "error types and axios-specific error enrichment": [
    "core/AxiosError.js",
@@ -1276,8 +1276,8 @@
   "Json extractor and response for deserializing and serializing JSON bodies": [
    "json.rs",
    "lib.rs",
-   "extract/rejection.rs",
    "response/sse.rs",
+   "extract/rejection.rs",
    "extract/path/mod.rs",
    "test_helpers/test_client.rs",
    "middleware/from_extractor.rs",
@@ -1330,8 +1330,8 @@
    "boxed.rs",
    "test_helpers/test_client.rs",
    "middleware/response_axum_body.rs",
-   "extract/state.rs",
-   "middleware/mod.rs"
+   "middleware/mod.rs",
+   "extract/state.rs"
   ],
   "Form extractor for parsing URL-encoded request bodies": [
    "form.rs",
@@ -1465,12 +1465,12 @@
    "plugins/available/autojump.plugin.bash",
    "template/bashrc.template.bash",
    "scripts/reloader.bash",
-   "bash_it.sh"
+   "plugins/available/go.plugin.bash"
   ],
   "function to enable a bash-it component like plugin or alias": [
    "lib/helpers.bash",
-   "lib/utilities.bash",
    "plugins/available/alias-completion.plugin.bash",
+   "lib/utilities.bash",
    "install.sh",
    "lib/search.bash",
    "completion/available/aliases.completion.bash",
@@ -1583,8 +1583,8 @@
    "plugins/available/autojump.plugin.bash",
    "install.sh",
    "lib/helpers.bash",
-   "bash_it.sh",
    "plugins/available/aws.plugin.bash",
+   "bash_it.sh",
    "plugins/available/base.plugin.bash"
   ],
   "ssh agent plugin for managing ssh keys": [
@@ -1612,16 +1612,16 @@
    "plugins/available/docker-machine.plugin.bash"
   ],
   "node version manager nvm integration": [
-   "plugins/available/nvm.plugin.bash",
    "themes/base.theme.bash",
+   "plugins/available/nvm.plugin.bash",
    "completion/available/nvm.completion.bash",
    "plugins/available/node.plugin.bash",
    "aliases/available/node.aliases.bash",
    "themes/barbuk/barbuk.theme.bash",
    "lib/helpers.bash",
-   "completion/available/npm.completion.bash",
    "themes/gitline/powerline.base.bash",
-   "plugins/available/nodenv.plugin.bash"
+   "completion/available/npm.completion.bash",
+   "themes/powerline/powerline.base.bash"
   ],
   "rvm ruby version manager plugin": [
    "plugins/available/rvm.plugin.bash",
@@ -1644,8 +1644,8 @@
    "uninstall.sh",
    "completion/available/dmidecode.completion.bash",
    "plugins/available/basher.plugin.bash",
-   "lib/preview.bash",
-   "themes/rjorgenson/rjorgenson.theme.bash"
+   "themes/rjorgenson/rjorgenson.theme.bash",
+   "lib/preview.bash"
   ],
   "hub github cli aliases and helpers": [
    "plugins/available/hub.plugin.bash",
@@ -1678,8 +1678,8 @@
    "plugins/available/percol.plugin.bash",
    "completion/available/git_flow_avh.completion.bash",
    "bash_it.sh",
-   "plugins/available/basher.plugin.bash",
    "plugins/available/osx-timemachine.plugin.bash",
+   "plugins/available/basher.plugin.bash",
    "completion/available/dotnet.completion.bash",
    "test/test_helper.bash"
   ],
@@ -1703,8 +1703,8 @@
    "bats-core/tracing.bash",
    "bats-core/warnings.bash",
    "bats-core/common.bash",
-   "bats-core/formatter.bash",
    "bats-core/preprocessing.bash",
+   "bats-core/formatter.bash",
    "bats-core/validator.bash"
   ],
   "how bats loads external helper libraries with load": [
@@ -1781,8 +1781,8 @@
    "bats-core/test_functions.bash",
    "bats-core/validator.bash",
    "bats-core/preprocessing.bash",
-   "bats-core/formatter.bash",
    "bats-core/tracing.bash",
+   "bats-core/formatter.bash",
    "bats-core/common.bash",
    "bats-core/warnings.bash",
    "bats-core/semaphore.bash"
@@ -1881,8 +1881,8 @@
    "bats-core/test_functions.bash",
    "bats-core/tracing.bash",
    "bats-core/common.bash",
-   "bats-core/preprocessing.bash",
    "bats-core/semaphore.bash",
+   "bats-core/preprocessing.bash",
    "bats-core/formatter.bash",
    "bats-core/warnings.bash",
    "bats-core/validator.bash"
@@ -1949,15 +1949,15 @@
   ],
   "how Validated accumulates errors across independent computations": [
    "cats/data/Validated.scala",
-   "cats/data/EitherT.scala",
    "cats/syntax/validated.scala",
+   "cats/data/EitherT.scala",
    "cats/data/IorT.scala",
    "cats/syntax/applicativeError.scala",
    "cats/instances/either.scala",
    "cats/ApplicativeError.scala",
    "cats/syntax/either.scala",
-   "cats/syntax/option.scala",
-   "cats/syntax/package.scala"
+   "cats/syntax/package.scala",
+   "cats/syntax/option.scala"
   ],
   "how EitherT combines the Either monad with another effect": [
    "cats/data/EitherT.scala",
@@ -1979,8 +1979,8 @@
    "cats/Foldable.scala",
    "cats/Monad.scala",
    "cats/data/Ior.scala",
-   "cats/data/Cokleisli.scala",
    "cats/data/IndexedStateT.scala",
+   "cats/data/Cokleisli.scala",
    "cats/data/Validated.scala"
   ],
   "how Eval provides lazy and memoized evaluation": [
@@ -2056,8 +2056,8 @@
    "cats/Parallel.scala"
   ],
   "Functor": [
-   "cats/Functor.scala",
    "cats/syntax/functor.scala",
+   "cats/Functor.scala",
    "cats/FunctorFilter.scala",
    "cats/data/Nested.scala",
    "cats/syntax/functorFilter.scala",
@@ -2077,19 +2077,19 @@
    "cats/Bifunctor.scala",
    "cats/data/OptionT.scala",
    "cats/instances/parallel.scala",
-   "cats/data/Binested.scala"
+   "cats/syntax/package.scala"
   ],
   "Validated": [
    "cats/data/Validated.scala",
    "cats/syntax/validated.scala",
    "cats/data/EitherT.scala",
-   "cats/instances/either.scala",
    "cats/syntax/either.scala",
+   "cats/instances/either.scala",
    "cats/data/IorT.scala",
    "cats/data/Ior.scala",
    "cats/data/package.scala",
    "cats/syntax/applicativeError.scala",
-   "cats/syntax/option.scala"
+   "cats/syntax/package.scala"
   ],
   "Kleisli": [
    "cats/data/Kleisli.scala",
@@ -2298,8 +2298,8 @@
    "middleware/basic_auth.go"
   ],
   "route grouping with sub-routers": [
-   "context.go",
    "mux.go",
+   "context.go",
    "middleware/route_headers.go",
    "tree.go",
    "chi.go",
@@ -2376,8 +2376,8 @@
    "io/circe/Json.scala",
    "io/circe/SeqDecoder.scala",
    "io/circe/JsonObject.scala",
-   "io/circe/KeyDecoder.scala",
    "io/circe/NonEmptySeqDecoder.scala",
+   "io/circe/KeyDecoder.scala",
    "io/circe/cursor/ArrayCursor.scala",
    "io/circe/Printer.scala",
    "io/circe/HCursor.scala",
@@ -2444,8 +2444,8 @@
    "io/circe/KeyDecoder.scala"
   ],
   "JsonNumber representation for precise numeric values": [
-   "io/circe/Json.scala",
    "io/circe/JsonNumber.scala",
+   "io/circe/Json.scala",
    "io/circe/JsonObject.scala",
    "io/circe/Decoder.scala",
    "io/circe/Encoder.scala",
@@ -2456,8 +2456,8 @@
    "io/circe/cursor/ArrayCursor.scala"
   ],
   "how circe derives Encoder and Decoder instances for case classes": [
-   "io/circe/Decoder.scala",
    "io/circe/Encoder.scala",
+   "io/circe/Decoder.scala",
    "io/circe/NonEmptySeqDecoder.scala",
    "io/circe/Codec.scala",
    "io/circe/SeqDecoder.scala",
@@ -2662,8 +2662,8 @@
    "decorators.py"
   ],
   "help text formatting and usage rendering": [
-   "core.py",
    "formatting.py",
+   "core.py",
    "exceptions.py",
    "decorators.py",
    "utils.py",
@@ -2692,15 +2692,15 @@
    "_compat.py",
    "core.py",
    "utils.py",
-   "decorators.py",
    "shell_completion.py",
+   "decorators.py",
    "formatting.py",
    "types.py"
   ],
   "global context stack and current context access": [
    "globals.py",
-   "core.py",
    "decorators.py",
+   "core.py",
    "termui.py",
    "_termui_impl.py",
    "testing.py",
@@ -2725,8 +2725,8 @@
    "shell_completion.py",
    "core.py",
    "types.py",
-   "parser.py",
    "utils.py",
+   "parser.py",
    "termui.py",
    "_termui_impl.py",
    "_compat.py",
@@ -2734,8 +2734,8 @@
    "__init__.py"
   ],
   "how pass_context passes the Context as the first argument": [
-   "core.py",
    "decorators.py",
+   "core.py",
    "parser.py",
    "globals.py",
    "shell_completion.py",
@@ -2777,8 +2777,8 @@
    "__init__.py",
    "_termui_impl.py",
    "_compat.py",
-   "shell_completion.py",
    "termui.py",
+   "shell_completion.py",
    "testing.py"
   ],
   "Command": [
@@ -2920,8 +2920,8 @@
    "powershell_completions.go",
    "completions.go",
    "zsh_completions.go",
-   "bash_completionsV2.go",
    "command.go",
+   "bash_completionsV2.go",
    "bash_completions.go",
    "shell_completions.go",
    "flag_groups.go",
@@ -3053,8 +3053,8 @@
    "shell_completions.go",
    "bash_completions.go",
    "completions.go",
-   "args.go",
    "doc/man_docs.go",
+   "args.go",
    "command_win.go",
    "command_notwin.go",
    "active_help.go"
@@ -3083,7 +3083,7 @@
    "concurrent/AtomicSafeInitializer.java",
    "StringEscapeUtils.java",
    "function/Functions.java",
-   "Strings.java"
+   "builder/StandardToStringStyle.java"
   ],
   "argument validation helpers and exception rules": [
    "time/FastDatePrinter.java",
@@ -3093,9 +3093,9 @@
    "concurrent/ConcurrentException.java",
    "SystemProperties.java",
    "Validate.java",
-   "LocaleUtils.java",
    "exception/DefaultExceptionContext.java",
-   "RandomStringUtils.java"
+   "LocaleUtils.java",
+   "time/FastDateFormat.java"
   ],
   "reflection-based equals implementation": [
    "builder/EqualsBuilder.java",
@@ -3153,8 +3153,8 @@
    "StringUtils.java",
    "Conversion.java",
    "reflect/TypeLiteral.java",
-   "builder/ReflectionToStringBuilder.java",
    "concurrent/AtomicSafeInitializer.java",
+   "builder/ReflectionToStringBuilder.java",
    "package-info.java"
   ],
   "null-safe object utility methods and identity helpers": [
@@ -3266,8 +3266,8 @@
    "exception/ContextedRuntimeException.java"
   ],
   "how EqualsBuilder and HashCodeBuilder enforce value equality contracts": [
-   "builder/EqualsBuilder.java",
    "builder/HashCodeBuilder.java",
+   "builder/EqualsBuilder.java",
    "text/StrBuilder.java",
    "AnnotationUtils.java",
    "ArrayUtils.java",
@@ -3433,7 +3433,7 @@
    "sockaddr.h",
    "http1.c",
    "urldata.h",
-   "ftplistparser.c"
+   "vquic/curl_quiche.c"
   ],
   "how progress reporting works during a transfer": [
    "progress.c",
@@ -3457,7 +3457,7 @@
    "sendf.c",
    "imap.c",
    "md4.c",
-   "easy.c"
+   "md5.c"
   ],
   "how the easy interface wraps the multi interface for synchronous use": [
    "multi.c",
@@ -3490,14 +3490,14 @@
    "openldap.c",
    "vquic/vquic-tls.c",
    "cfilters.c",
-   "easyoptions.c",
    "smb.c",
+   "easyoptions.c",
    "vtls/vtls.c",
    "urldata.h"
   ],
   "how SSL is configured on a connection": [
-   "vtls/vtls.c",
    "vtls/vtls_int.h",
+   "vtls/vtls.c",
    "vtls/openssl.c",
    "vtls/vtls_scache.c",
    "vtls/wolfssl.c",
@@ -3582,8 +3582,8 @@
    "SqlMapper.DapperRowMetaObject.cs"
   ],
   "Execute and ExecuteScalar for running SQL commands": [
-   "SqlMapper.Async.cs",
    "SqlMapper.cs",
+   "SqlMapper.Async.cs",
    "CommandDefinition.cs",
    "SqlMapper.IParameterCallbacks.cs",
    "SqlMapper.Settings.cs",
@@ -3717,8 +3717,8 @@
    "SqlMapper.IDataReader.cs",
    "SqlMapper.GridReader.cs",
    "SqlMapper.cs",
-   "SqlMapper.Async.cs",
    "SqlMapper.GridReader.Async.cs",
+   "SqlMapper.Async.cs",
    "WrappedReader.cs",
    "WrappedDataReader.cs",
    "SqlMapper.TypeDeserializerCache.cs",
@@ -3726,8 +3726,8 @@
    "CommandDefinition.cs"
   ],
   "QueryFirst and QuerySingle for single-row queries": [
-   "SqlMapper.Async.cs",
    "SqlMapper.cs",
+   "SqlMapper.Async.cs",
    "SqlMapper.GridReader.cs",
    "SqlMapper.GridReader.Async.cs",
    "SqlMapper.Settings.cs",
@@ -3763,8 +3763,8 @@
   ],
   "wrapping IDbConnection extension methods": [
    "SqlMapper.cs",
-   "CommandDefinition.cs",
    "SqlMapper.Async.cs",
+   "CommandDefinition.cs",
    "WrappedReader.cs",
    "SqlMapper.GridReader.cs",
    "SqlMapper.Identity.cs",
@@ -3817,8 +3817,8 @@
    "repo/schema.ex",
    "type.ex",
    "schema/loader.ex",
-   "adapter/schema.ex",
    "changeset.ex",
+   "adapter/schema.ex",
    "query.ex",
    "repo/queryable.ex",
    "multi.ex"
@@ -3875,8 +3875,8 @@
    "association.ex",
    "changeset.ex",
    "schema.ex",
-   "query.ex",
    "repo/preloader.ex",
+   "query.ex",
    "query/planner.ex",
    "embedded.ex",
    "changeset/relation.ex",
@@ -3969,8 +3969,8 @@
   ],
   "Multi for composing multiple database operations in a transaction": [
    "multi.ex",
-   "repo.ex",
    "repo/transaction.ex",
+   "repo.ex",
    "repo/schema.ex",
    "query.ex",
    "adapter/transaction.ex",
@@ -4194,8 +4194,8 @@
    "org/jetbrains/exposed/v1/core/statements/InsertStatement.kt",
    "org/jetbrains/exposed/v1/core/statements/Statement.kt",
    "org/jetbrains/exposed/v1/core/AbstractQuery.kt",
-   "org/jetbrains/exposed/v1/core/OpBuilder.kt",
-   "org/jetbrains/exposed/v1/core/datetime/InstantColumnType.kt"
+   "org/jetbrains/exposed/v1/core/datetime/InstantColumnType.kt",
+   "org/jetbrains/exposed/v1/core/OpBuilder.kt"
   ],
   "index and unique constraint definition on tables": [
    "org/jetbrains/exposed/v1/core/Table.kt",
@@ -4243,7 +4243,7 @@
    "org/jetbrains/exposed/v1/core/vendors/SQLServerDialect.kt",
    "org/jetbrains/exposed/v1/core/vendors/MysqlDialect.kt",
    "org/jetbrains/exposed/v1/core/vendors/FunctionProvider.kt",
-   "org/jetbrains/exposed/v1/core/statements/BatchInsertStatement.kt"
+   "org/jetbrains/exposed/v1/core/vendors/DatabaseDialect.kt"
   ],
   "Table": [
    "org/jetbrains/exposed/v1/core/TableDepthGraph.kt",
@@ -4302,8 +4302,8 @@
   "response sending and content negotiation": [
    "response.js",
    "utils.js",
-   "express.js",
    "request.js",
+   "express.js",
    "application.js",
    "view.js"
   ],
@@ -4325,16 +4325,16 @@
   ],
   "utility functions for content type detection and MIME handling": [
    "response.js",
-   "request.js",
    "utils.js",
+   "request.js",
    "application.js",
    "express.js",
    "view.js"
   ],
   "how sub-applications are mounted with use() and path prefix stripping": [
    "application.js",
-   "request.js",
    "view.js",
+   "request.js",
    "response.js",
    "express.js",
    "utils.js"
@@ -4344,8 +4344,8 @@
    "express.js",
    "response.js",
    "utils.js",
-   "request.js",
-   "view.js"
+   "view.js",
+   "request.js"
   ],
   "application": [
    "application.js",
@@ -4359,8 +4359,8 @@
    "response.js",
    "utils.js",
    "express.js",
-   "application.js",
    "request.js",
+   "application.js",
    "view.js"
   ],
   "JSON response serialization and JSONP callback support": [
@@ -4415,8 +4415,8 @@
    "request.js",
    "response.js",
    "utils.js",
-   "application.js",
    "express.js",
+   "application.js",
    "view.js"
   ],
   "request hostname and IP address resolution behind proxies": [
@@ -4508,8 +4508,8 @@
   "middleware stack and CORS": [
    "middleware/cors.py",
    "applications.py",
-   "middleware/__init__.py",
    "middleware/asyncexitstack.py",
+   "middleware/__init__.py",
    "routing.py",
    "middleware/gzip.py",
    "middleware/wsgi.py",
@@ -4521,13 +4521,13 @@
    "datastructures.py",
    "__init__",
    "_compat/__init__.py",
-   "__init__.py",
    "__main__",
-   "dependencies/utils.py",
+   "__init__.py",
    "logger",
-   "applications.py",
+   "dependencies/utils.py",
    "requests",
-   "routing.py"
+   "applications.py",
+   "staticfiles"
   ],
   "response model serialization": [
    "routing.py",
@@ -4607,11 +4607,11 @@
    "param_functions.py",
    "__main__",
    "dependencies/utils.py",
-   "_compat/shared.py",
    "logger",
-   "datastructures.py",
+   "_compat/shared.py",
    "requests",
-   "applications.py"
+   "datastructures.py",
+   "staticfiles"
   ],
   "how does exception propagation work through dependency injection": [
    "dependencies/utils.py",
@@ -4642,8 +4642,8 @@
    "routing.py",
    "security/open_id_connect_url.py",
    "security/http.py",
-   "exception_handlers.py",
    "security/oauth2.py",
+   "exception_handlers.py",
    "applications.py",
    "security/api_key.py",
    "security/__init__.py",
@@ -4674,8 +4674,8 @@
    "datastructures.py"
   ],
   "OAuth2PasswordBearer": [
-   "security/__init__.py",
    "security/oauth2.py",
+   "security/__init__.py",
    "openapi/docs.py",
    "openapi/models.py",
    "applications.py",
@@ -4820,8 +4820,8 @@
    "sansio/blueprints.py"
   ],
   "how does Flask select which error handler to invoke for an exception": [
-   "app.py",
    "sansio/app.py",
+   "app.py",
    "sansio/scaffold.py",
    "cli.py",
    "sansio/blueprints.py",
@@ -4883,8 +4883,8 @@
    "templating.py",
    "sansio/app.py",
    "sansio/blueprints.py",
-   "__init__.py",
    "helpers.py",
+   "__init__.py",
    "app.py",
    "sansio/scaffold.py",
    "debughelpers.py",
@@ -4991,8 +4991,8 @@
   ],
   "color and text style formatting for terminal output": [
    "color.h",
-   "base.h",
    "chrono.h",
+   "base.h",
    "format.h",
    "compile.h",
    "xchar.h",
@@ -5026,8 +5026,8 @@
    "xchar.h"
   ],
   "ostream integration for writing to std::ostream": [
-   "os.h",
    "ostream.h",
+   "os.h",
    "xchar.h",
    "format.h",
    "std.h",
@@ -5040,8 +5040,8 @@
   "printf-compatible formatting with fmt::printf and fmt::sprintf": [
    "printf.h",
    "base.h",
-   "color.h",
    "format.h",
+   "color.h",
    "format-inl.h",
    "xchar.h",
    "compile.h",
@@ -5372,8 +5372,8 @@
    "render/yaml.go",
    "render/render.go",
    "routergroup.go",
-   "render/text.go",
-   "test_helpers.go"
+   "test_helpers.go",
+   "render/text.go"
   ],
   "Engine": [
    "gin.go",
@@ -5445,8 +5445,8 @@
    "src/main/java/com/google/gson/InstanceCreator.java",
    "src/test/java/com/google/gson/GsonTest.java",
    "src/test/java/com/google/gson/GsonBuilderTest.java",
-   "src/main/java/com/google/gson/ExclusionStrategy.java",
    "src/main/java/com/google/gson/internal/bind/SerializationDelegatingTypeAdapter.java",
+   "src/main/java/com/google/gson/ExclusionStrategy.java",
    "src/main/java/com/google/gson/stream/JsonWriter.java"
   ],
   "reflection-based field serialization and deserialization": [
@@ -5498,8 +5498,8 @@
    "src/main/java/com/google/gson/reflect/TypeToken.java"
   ],
   "streaming JSON writer and token generation": [
-   "src/main/java/com/google/gson/Gson.java",
    "src/main/java/com/google/gson/stream/JsonWriter.java",
+   "src/main/java/com/google/gson/Gson.java",
    "src/main/java/com/google/gson/TypeAdapter.java",
    "src/main/java/com/google/gson/internal/bind/JsonTreeWriter.java",
    "src/main/java/com/google/gson/stream/JsonToken.java",
@@ -5929,9 +5929,9 @@
    "org/http4s/UrlForm.scala",
    "org/http4s/internal/parsing/Cookies.scala",
    "org/http4s/multipart/PartReceiver.scala",
-   "org/http4s/Message.scala",
    "org/http4s/internal/parsing/Rfc3986.scala",
-   "org/http4s/MessageFailure.scala"
+   "org/http4s/Message.scala",
+   "org/http4s/internal/parsing/Rfc4648.scala"
   ],
   "EntityEncoder for serializing response bodies": [
    "org/http4s/EntityEncoder.scala",
@@ -5953,8 +5953,8 @@
    "org/http4s/headers/Access-Control-Expose-Headers.scala",
    "org/http4s/headers/Trailer.scala",
    "org/http4s/Headers.scala",
-   "org/http4s/Message.scala",
    "org/http4s/MimeDB.scala",
+   "org/http4s/Message.scala",
    "org/http4s/internal/Logger.scala"
   ],
   "Uri parsing and construction": [
@@ -5971,8 +5971,8 @@
   ],
   "how Kleisli and OptionT power the Http and HttpRoutes algebra": [
    "org/http4s/syntax/KleisliSyntax.scala",
-   "org/http4s/AuthedRoutes.scala",
    "org/http4s/HttpRoutes.scala",
+   "org/http4s/AuthedRoutes.scala",
    "org/http4s/package.scala",
    "org/http4s/Http.scala",
    "org/http4s/ContextRoutes.scala",
@@ -6051,7 +6051,7 @@
    "org/http4s/syntax/KleisliSyntax.scala",
    "org/http4s/HttpVersion.scala",
    "org/http4s/TransferCoding.scala",
-   "org/http4s/multipart/PartReceiver.scala"
+   "org/http4s/package.scala"
   ],
   "cookie parsing and Set-Cookie header handling": [
    "org/http4s/headers/Set-Cookie.scala",
@@ -6102,8 +6102,8 @@
    "org/http4s/EntityEncoder.scala"
   ],
   "HttpRoutes": [
-   "org/http4s/ContextRoutes.scala",
    "org/http4s/syntax/KleisliSyntax.scala",
+   "org/http4s/ContextRoutes.scala",
    "org/http4s/HttpRoutes.scala",
    "org/http4s/package.scala",
    "org/http4s/AuthedRoutes.scala",
@@ -6153,8 +6153,8 @@
   ],
   "authentication and credentials": [
    "_auth.py",
-   "_client.py",
    "_config.py",
+   "_client.py",
    "_api.py",
    "_status_codes.py",
    "_transports/default.py",
@@ -6285,8 +6285,8 @@
   ],
   "how does streaming response body iteration work": [
    "_auth.py",
-   "_content.py",
    "_exceptions.py",
+   "_content.py",
    "_models.py",
    "_client.py",
    "_transports/default.py",
@@ -6351,8 +6351,8 @@
    "_transports/default.py",
    "__init__.py",
    "_main.py",
-   "_status_codes.py",
    "_types.py",
+   "_status_codes.py",
    "_transports/mock.py"
   ],
   "HTTPStatusError": [
@@ -6368,8 +6368,8 @@
    "_types.py"
   ],
   "URL": [
-   "_client.py",
    "_urls.py",
+   "_client.py",
    "_models.py",
    "_utils.py",
    "_config.py",
@@ -6439,7 +6439,7 @@
    "cfg/MapperConfig.java",
    "jsontype/package-info.java",
    "jsontype/SubtypeResolver.java",
-   "DatabindContext.java"
+   "cfg/BaseSettings.java"
   ],
   "ObjectMapper": [
    "ObjectMapper.java",
@@ -6484,22 +6484,22 @@
    "annotation/JsonTypeResolver.java",
    "jsontype/impl/AsArrayTypeDeserializer.java",
    "jsontype/impl/AsPropertyTypeDeserializer.java",
-   "deser/impl/ObjectIdReader.java",
    "type/TypeFactory.java",
+   "deser/impl/ObjectIdReader.java",
    "annotation/JsonTypeIdResolver.java",
    "deser/std/FromStringDeserializer.java"
   ],
   "writing and serializing Java objects to JSON with configuration": [
-   "ObjectMapper.java",
    "util/NativeImageUtil.java",
-   "ObjectWriter.java",
+   "ObjectMapper.java",
    "json/JsonMapper.java",
+   "ObjectWriter.java",
    "cfg/JsonNodeFeature.java",
    "util/RawValue.java",
    "annotation/JsonPOJOBuilder.java",
    "ser/SerializationContextExt.java",
-   "SerializationContext.java",
-   "deser/jackson/JsonNodeDeserializer.java"
+   "deser/jackson/JsonNodeDeserializer.java",
+   "SerializationContext.java"
   ],
   "bean deserialization from JSON properties": [
    "deser/bean/BeanDeserializerBase.java",
@@ -6511,7 +6511,7 @@
    "deser/bean/BuilderBasedDeserializer.java",
    "deser/DeserializerFactory.java",
    "ValueDeserializer.java",
-   "deser/ValueDeserializerModifier.java"
+   "deser/bean/BeanAsArrayBuilderDeserializer.java"
   ],
   "bean serialization of Java object fields to JSON": [
    "ser/BeanSerializerFactory.java",
@@ -6519,8 +6519,8 @@
    "jsonFormatVisitors/JsonObjectFormatVisitor.java",
    "ser/UnrolledBeanSerializer.java",
    "ser/SerializerFactory.java",
-   "JacksonSerializable.java",
    "ser/bean/UnwrappingBeanSerializer.java",
+   "JacksonSerializable.java",
    "introspect/POJOPropertiesCollector.java",
    "ser/Serializers.java",
    "ser/bean/BeanAsArraySerializer.java"
@@ -6571,7 +6571,7 @@
    "cfg/DatatypeFeature.java",
    "cfg/DateTimeFeature.java",
    "ObjectReader.java",
-   "SerializationConfig.java"
+   "cfg/JsonNodeFeature.java"
   ],
   "how the mapper resolves a deserializer for a given Java type": [
    "jsontype/TypeDeserializer.java",
@@ -6583,7 +6583,7 @@
    "deser/ValueDeserializerModifier.java",
    "cfg/DeserializationContexts.java",
    "jsontype/impl/AsExternalTypeDeserializer.java",
-   "deser/DeserializerCache.java"
+   "deser/std/ReferenceTypeDeserializer.java"
   ],
   "ObjectReader": [
    "ObjectReader.java",
@@ -6660,8 +6660,8 @@
    "CoroutineStart.kt"
   ],
   "Job interface and coroutine lifecycle management": [
-   "CoroutineScope.kt",
    "Job.kt",
+   "CoroutineScope.kt",
    "CompletableJob.kt",
    "CoroutineStart.kt",
    "AbstractCoroutine.kt",
@@ -6697,8 +6697,8 @@
   ],
   "Flow interface and cold stream definition": [
    "flow/Flow.kt",
-   "flow/Builders.kt",
    "flow/StateFlow.kt",
+   "flow/Builders.kt",
    "flow/SharedFlow.kt",
    "flow/FlowCollector.kt",
    "flow/operators/Context.kt",
@@ -6753,7 +6753,7 @@
    "channels/BroadcastChannel.kt",
    "JobSupport.kt",
    "CoroutineScope.kt",
-   "Await.kt"
+   "CancellableContinuationImpl.kt"
   ],
   "Mutex and Semaphore for coroutine synchronization": [
    "CoroutineDispatcher.kt",
@@ -6765,7 +6765,7 @@
    "CoroutineExceptionHandler.kt",
    "internal/CoroutineExceptionHandlerImpl.common.kt",
    "Builders.common.kt",
-   "CoroutineStart.kt"
+   "Debug.common.kt"
   ],
   "withContext for switching coroutine dispatcher context": [
    "CoroutineContext.common.kt",
@@ -6805,8 +6805,8 @@
   ],
   "coroutine exception handling and CoroutineExceptionHandler": [
    "CoroutineExceptionHandler.kt",
-   "CoroutineScope.kt",
    "internal/CoroutineExceptionHandlerImpl.common.kt",
+   "CoroutineScope.kt",
    "internal/DispatchedTask.kt",
    "CancellableContinuationImpl.kt",
    "JobSupport.kt",
@@ -6825,11 +6825,11 @@
    "JobSupport.kt",
    "channels/Channel.kt",
    "intrinsics/Cancellable.kt",
-   "channels/Produce.kt"
+   "internal/Scopes.kt"
   ],
   "delay and withTimeout suspending time functions": [
-   "Delay.kt",
    "Timeout.kt",
+   "Delay.kt",
    "EventLoop.common.kt",
    "selects/OnTimeout.kt",
    "flow/Migration.kt",
@@ -6903,8 +6903,8 @@
   ],
   "how HTTP caching stores and validates cached responses": [
    "io/ktor/client/plugins/cache/HttpCache.kt",
-   "io/ktor/client/plugins/cache/HttpCacheLegacy.kt",
    "io/ktor/client/plugins/cache/storage/HttpCacheStorage.kt",
+   "io/ktor/client/plugins/cache/HttpCacheLegacy.kt",
    "io/ktor/client/plugins/cache/HttpCacheEntry.kt",
    "io/ktor/client/call/SavedCall.kt",
    "io/ktor/client/HttpClient.kt",
@@ -7094,11 +7094,11 @@
    "io/ktor/client/plugins/cookies/HttpCookies.kt"
   ],
   "HTTP client engine abstraction and engine factory": [
-   "io/ktor/client/engine/HttpClientEngine.kt",
    "io/ktor/client/engine/HttpClientEngineFactory.kt",
+   "io/ktor/client/engine/HttpClientEngine.kt",
    "io/ktor/client/engine/HttpClientEngineBase.kt",
-   "io/ktor/client/HttpClient.kt",
    "io/ktor/client/engine/HttpClientEngineCapability.kt",
+   "io/ktor/client/HttpClient.kt",
    "io/ktor/client/HttpClientConfig.kt",
    "io/ktor/client/engine/HttpClientEngineConfig.kt",
    "io/ktor/client/request/HttpRequest.kt",
@@ -7153,7 +7153,7 @@
    "Queue/DatabaseQueue.php",
    "Queue/RedisQueue.php",
    "Queue/WorkerOptions.php",
-   "Foundation/Providers/ArtisanServiceProvider.php"
+   "Queue/WorkerStopReason.php"
   ],
   "session store behavior": [
    "Session/SessionManager.php",
@@ -7187,8 +7187,8 @@
    "Routing/Contracts/ControllerDispatcher.php",
    "Foundation/Http/Middleware/PreventRequestsDuringMaintenance.php",
    "Routing/AbstractRouteCollection.php",
-   "Foundation/Console/RouteListCommand.php",
    "Foundation/Testing/Concerns/MakesHttpRequests.php",
+   "Foundation/Console/RouteListCommand.php",
    "Routing/Middleware/ThrottleRequests.php"
   ],
   "route parameter binding and model resolution": [
@@ -7210,10 +7210,10 @@
    "Http/Concerns/InteractsWithInput.php",
    "Broadcasting/Broadcasters/Broadcaster.php",
    "Http/Middleware/HandleCors.php",
-   "Broadcasting/BroadcastController.php",
    "Contracts/Console/PromptsForMissingInput.php",
-   "Foundation/Application.php",
-   "Support/ValidatedInput.php"
+   "Broadcasting/BroadcastController.php",
+   "Support/ValidatedInput.php",
+   "Foundation/Application.php"
   ],
   "HTTP response construction and headers": [
    "Filesystem/FilesystemAdapter.php",
@@ -7228,8 +7228,8 @@
    "Foundation/Exceptions/Handler.php"
   ],
   "service container dependency injection and binding resolution": [
-   "Container/Container.php",
    "Contracts/Container/BindingResolutionException.php",
+   "Container/Container.php",
    "Routing/RouteBinding.php",
    "Contracts/Container/CircularDependencyException.php",
    "Contracts/Container/Container.php",
@@ -7237,7 +7237,7 @@
    "Routing/CallableDispatcher.php",
    "Log/LogServiceProvider.php",
    "Support/Traits/CapsuleManagerTrait.php",
-   "Container/ContextualBindingBuilder.php"
+   "Cookie/CookieServiceProvider.php"
   ],
   "database query builder and fluent SQL interface": [
    "Contracts/Database/Query/Builder.php",
@@ -7245,11 +7245,11 @@
    "Database/Query/Grammars/MySqlGrammar.php",
    "Validation/DatabasePresenceVerifierInterface.php",
    "Database/ConnectionInterface.php",
-   "Database/Query/Grammars/Grammar.php",
    "Database/Schema/SqlServerBuilder.php",
-   "Database/Query/Processors/PostgresProcessor.php",
+   "Database/Query/Grammars/Grammar.php",
    "Database/Schema/MySqlBuilder.php",
-   "Database/Connection.php"
+   "Database/Query/Processors/PostgresProcessor.php",
+   "Support/Fluent.php"
   ],
   "event dispatching and listener registration": [
    "Events/Dispatcher.php",
@@ -7257,8 +7257,8 @@
    "Foundation/Console/ListenerMakeCommand.php",
    "Routing/PendingSingletonResourceRegistration.php",
    "Support/Testing/Fakes/EventFake.php",
-   "Contracts/Events/Dispatcher.php",
    "Routing/PendingResourceRegistration.php",
+   "Contracts/Events/Dispatcher.php",
    "Events/NullDispatcher.php",
    "Bus/Dispatcher.php",
    "Database/Eloquent/Concerns/HasEvents.php"
@@ -7273,7 +7273,7 @@
    "Container/Attributes/Cache.php",
    "Cache/FailoverStore.php",
    "Cache/MemoizedStore.php",
-   "Console/Scheduling/CacheEventMutex.php"
+   "Foundation/MaintenanceModeManager.php"
   ],
   "validation rules and error message collection": [
    "Validation/Rules/Email.php",
@@ -7281,8 +7281,8 @@
    "Validation/ConditionalRules.php",
    "Validation/Rules/File.php",
    "Foundation/Validation/ValidatesRequests.php",
-   "Console/Concerns/ConfiguresPrompts.php",
    "Session/Store.php",
+   "Console/Concerns/ConfiguresPrompts.php",
    "Foundation/Providers/FoundationServiceProvider.php",
    "Mail/SentMessage.php",
    "Validation/Rule.php"
@@ -7297,7 +7297,7 @@
    "Queue/CallQueuedHandler.php",
    "Routing/Route.php",
    "Http/Client/Factory.php",
-   "Routing/PendingSingletonResourceRegistration.php"
+   "Validation/Rules/Password.php"
   ],
   "how the application bootstraps and registers service providers": [
    "Contracts/Foundation/Application.php",
@@ -7410,8 +7410,8 @@
    "init.lua"
   ],
   "how lazy.nvim checks for plugin updates from git": [
-   "init.lua",
    "status.lua",
+   "init.lua",
    "manage/checker.lua",
    "view/diff.lua",
    "view/render.lua",
@@ -7739,8 +7739,8 @@
    "unix/linux.c",
    "unix/async.c",
    "unix/kqueue.c",
-   "unix/os390.c",
    "unix/sunos.c",
+   "unix/os390.c",
    "win/fs-event.c",
    "unix/fsevents.c",
    "unix/internal.h",
@@ -7772,8 +7772,8 @@
    "win/fs.c"
   ],
   "shared library dlopen and dlsym wrapper": [
-   "unix/dl.c",
    "win/dl.c",
+   "unix/dl.c",
    "unix/fsevents.c",
    "uv-common.c",
    "unix/fs.c",
@@ -7781,7 +7781,7 @@
    "unix/process.c",
    "win/pipe.c",
    "win/winapi.h",
-   "win/fs-event.c"
+   "win/handle-inl.h"
   ],
   "network interface address enumeration": [
    "unix/os390.c",
@@ -7955,8 +7955,8 @@
   ],
   "how the sequence pool manages buffer reuse during serialization": [
    "SequencePool.cs",
-   "BufferWriter.cs",
    "MessagePackSerializerOptions.cs",
+   "BufferWriter.cs",
    "Internal/Sequence`1.cs",
    "MessagePackWriter.cs",
    "SequenceReader.cs",
@@ -8113,8 +8113,8 @@
   ],
   "how mini.pick implements a fuzzy finder picker": [
    "pick.lua",
-   "extra.lua",
    "fuzzy.lua",
+   "extra.lua",
    "starter.lua",
    "snippets.lua",
    "completion.lua",
@@ -8245,8 +8245,8 @@
   ],
   "how mini.jump implements single-character jump navigation": [
    "jump.lua",
-   "bracketed.lua",
    "jump2d.lua",
+   "bracketed.lua",
    "snippets.lua",
    "keymap.lua",
    "test.lua",
@@ -8431,8 +8431,8 @@
    "distill/inference.py",
    "inference/model.py",
    "train/base.py",
-   "__init__.py",
    "distill/distillation.py",
+   "__init__.py",
    "train/classifier.py",
    "persistence/hf.py",
    "tokenizer/tokenizer.py"
@@ -8546,8 +8546,8 @@
    "quantization.py"
   ],
   "quantize": [
-   "model.py",
    "quantization.py",
+   "model.py",
    "distill/distillation.py",
    "vocabulary_quantization.py",
    "__init__.py",
@@ -8558,8 +8558,8 @@
    "tokenizer/tokenizer.py"
   ],
   "Tokenizer": [
-   "distill/distillation.py",
    "tokenizer/tokenizer.py",
+   "distill/distillation.py",
    "tokenizer/__init__.py",
    "model.py",
    "train/utils.py",
@@ -8616,8 +8616,8 @@
    "Handler/ErrorLogHandler.php",
    "Handler/AmqpHandler.php",
    "Handler/ChromePHPHandler.php",
-   "Handler/CouchDBHandler.php",
-   "LogRecord.php"
+   "LogRecord.php",
+   "Handler/CouchDBHandler.php"
   ],
   "Logger": [
    "Registry.php",
@@ -8673,8 +8673,8 @@
    "Handler/ErrorLogHandler.php",
    "Handler/HandlerInterface.php",
    "Handler/AbstractProcessingHandler.php",
-   "Handler/DeduplicationHandler.php",
    "LogRecord.php",
+   "Handler/DeduplicationHandler.php",
    "Processor/IntrospectionProcessor.php",
    "DateTimeImmutable.php",
    "Handler/FallbackGroupHandler.php"
@@ -8701,7 +8701,7 @@
    "Handler/Slack/SlackRecord.php",
    "Handler/HandlerWrapper.php",
    "Level.php",
-   "Handler/PHPConsoleHandler.php"
+   "LogRecord.php"
   ],
   "group handler to broadcast log records to multiple handlers": [
    "Handler/GroupHandler.php",
@@ -8784,8 +8784,8 @@
    "Handler/LogEntriesHandler.php",
    "Handler/PsrHandler.php",
    "LogRecord.php",
-   "Handler/SlackWebhookHandler.php",
-   "Handler/SyslogUdpHandler.php"
+   "Handler/SyslogUdpHandler.php",
+   "Handler/SlackWebhookHandler.php"
   ],
   "RotatingFileHandler": [
    "Handler/RotatingFileHandler.php",
@@ -8794,10 +8794,10 @@
    "Handler/StreamHandler.php",
    "Handler/ErrorLogHandler.php",
    "Handler/FormattableHandlerInterface.php",
-   "Handler/FilterHandler.php",
    "LogRecord.php",
+   "Handler/FilterHandler.php",
    "Handler/SamplingHandler.php",
-   "Handler/HandlerWrapper.php"
+   "Level.php"
   ],
   "PsrLogMessageProcessor": [
    "Processor/PsrLogMessageProcessor.php",
@@ -8820,8 +8820,8 @@
    "JsonConverter.cs",
    "Converters/DiscriminatedUnionConverter.cs",
    "Serialization/DefaultContractResolver.cs",
-   "TypeNameHandling.cs",
    "Utilities/ConvertUtils.cs",
+   "TypeNameHandling.cs",
    "JsonTextReader.cs",
    "Linq/JToken.cs"
   ],
@@ -8859,7 +8859,7 @@
    "Linq/JTokenWriter.cs",
    "Utilities/JsonTokenUtils.cs",
    "Serialization/JsonSerializerInternalBase.cs",
-   "JsonSerializer.cs"
+   "JsonWriterException.cs"
   ],
   "JsonTextReader for reading JSON from text input": [
    "JsonTextReader.cs",
@@ -8895,7 +8895,7 @@
    "Linq/JObject.Async.cs",
    "Schema/JsonSchemaModel.cs",
    "Linq/JTokenReader.cs",
-   "Linq/JContainer.cs"
+   "Schema/JsonSchemaModelBuilder.cs"
   ],
   "JObject for dynamic JSON object manipulation": [
    "Linq/JObject.cs",
@@ -8929,8 +8929,8 @@
    "Serialization/JsonSerializerInternalReader.cs",
    "Serialization/JsonSerializerInternalWriter.cs",
    "JsonConvert.cs",
-   "Linq/JToken.cs",
    "Linq/JsonCloneSettings.cs",
+   "Linq/JToken.cs",
    "Linq/JsonMergeSettings.cs"
   ],
   "contract resolver and how JSON property names are determined": [
@@ -9010,8 +9010,8 @@
    "Converters/IsoDateTimeConverter.cs",
    "JsonSerializer.cs",
    "Bson/BsonWriter.cs",
-   "Converters/BsonObjectIdConverter.cs",
    "DateFormatHandling.cs",
+   "Converters/BsonObjectIdConverter.cs",
    "Schema/JsonSchemaModel.cs",
    "Utilities/DateTimeUtils.cs",
    "JsonWriter.cs",
@@ -9068,8 +9068,8 @@
    "detail/string_concat.hpp"
   ],
   "JSON parser and tokenizer": [
-   "detail/input/parser.hpp",
    "json.hpp",
+   "detail/input/parser.hpp",
    "detail/input/json_sax.hpp",
    "detail/json_pointer.hpp",
    "detail/conversions/from_json.hpp",
@@ -9301,16 +9301,16 @@
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm downloads a Node.js tarball from the remote": [
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm resolves an alias or version string to a concrete version": [
@@ -9325,8 +9325,8 @@
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm finds the nearest .nvmrc file by walking up the directory tree": [
@@ -9349,8 +9349,8 @@
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm detects whether a version is already installed": [
@@ -9381,24 +9381,24 @@
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm detects and uses system Node.js as a fallback": [
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm installs the latest npm for a given Node.js version": [
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm processes and validates the contents of an .nvmrc file": [
@@ -9421,8 +9421,8 @@
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm checks curl supports libz compression": [
@@ -9437,8 +9437,8 @@
    "nvm.sh",
    "install.sh",
    "update_test_mocks.sh",
-   "test/common.sh",
    "test/slow/nvm reinstall-packages/test-npmlink/index.js",
+   "test/common.sh",
    "rename_test.sh"
   ],
   "how nvm sanitizes the auth header in download requests": [
@@ -9465,8 +9465,8 @@
    "Readers/EPUB.hs",
    "Readers/Jira.hs",
    "Readers/Txt2Tags.hs",
-   "Readers/Creole.hs",
    "Readers/ODT/StyleReader.hs",
+   "Readers/Creole.hs",
    "Chunks.hs",
    "Readers/LaTeX.hs",
    "Readers/Man.hs"
@@ -9522,8 +9522,8 @@
   "how pandoc applies document transforms like header shifting": [
    "Transforms.hs",
    "Readers/Mdoc.hs",
-   "Readers/ODT.hs",
    "Writers/OpenDocument.hs",
+   "Readers/ODT.hs",
    "Readers/Native.hs",
    "Readers/HTML.hs",
    "Readers/Haddock.hs",
@@ -9549,10 +9549,10 @@
    "Writers/LaTeX/Citation.hs",
    "Readers/Jira.hs",
    "Parsing/Citations.hs",
-   "Readers/BibTeX.hs",
    "Writers/JATS.hs",
-   "Readers/EndNote.hs",
+   "Readers/BibTeX.hs",
    "Writers/XML.hs",
+   "Readers/EndNote.hs",
    "Readers/RIS.hs"
   ],
   "how pandoc options control output format and extensions": [
@@ -9571,11 +9571,11 @@
    "Readers/Jira.hs",
    "Readers/Muse.hs",
    "Readers/Haddock.hs",
-   "Readers/LaTeX.hs",
    "Writers/BBCode.hs",
+   "Readers/LaTeX.hs",
    "Readers/TWiki.hs",
-   "Readers/Native.hs",
    "Writers/Markdown/Table.hs",
+   "Readers/Native.hs",
    "Readers/Org/Blocks.hs",
    "Writers/Powerpoint.hs"
   ],
@@ -9583,10 +9583,10 @@
    "Writers/Docx/OpenXML.hs",
    "MediaBag.hs",
    "App.hs",
-   "Class/PandocIO.hs",
    "SelfContained.hs",
-   "Class/PandocMonad.hs",
+   "Class/PandocIO.hs",
    "Writers/MediaWiki.hs",
+   "Class/PandocMonad.hs",
    "Writers/ChunkedHTML.hs",
    "Chunks.hs",
    "Writers/FB2.hs"
@@ -9611,9 +9611,9 @@
    "Readers/Native.hs",
    "Readers/Org/Blocks.hs",
    "Writers/ODT.hs",
-   "Readers/ODT.hs",
    "Writers/XML.hs",
-   "Readers/Haddock.hs"
+   "Readers/ODT.hs",
+   "Version.hs"
   ],
   "how pandoc handles Lua filter scripting": [
    "Scripting.hs",
@@ -9643,8 +9643,8 @@
    "Writers/Math.hs",
    "Writers/LaTeX.hs",
    "Parsing/Math.hs",
-   "Error.hs",
    "Readers/LaTeX/Math.hs",
+   "Error.hs",
    "Writers/Ms.hs",
    "Readers/HTML.hs",
    "Writers/Haddock.hs",
@@ -9682,8 +9682,8 @@
    "Writers/HTML.hs",
    "Writers/EPUB.hs",
    "Writers/TEI.hs",
-   "Writers/Native.hs",
    "Writers/Powerpoint/Presentation.hs",
+   "Writers/Native.hs",
    "Readers/Jira.hs",
    "Writers/Haddock.hs"
   ],
@@ -9704,8 +9704,8 @@
   "how Phoenix routes are defined and dispatched to controller actions": [
    "phoenix/router/resource.ex",
    "phoenix/router.ex",
-   "phoenix/controller/pipeline.ex",
    "phoenix/verified_routes.ex",
+   "phoenix/controller/pipeline.ex",
    "phoenix/controller.ex",
    "mix/tasks/phx.routes.ex",
    "phoenix/logger.ex",
@@ -9714,8 +9714,8 @@
    "phoenix/exceptions.ex"
   ],
   "controller actions and request handling helpers": [
-   "phoenix/controller.ex",
    "phoenix/router/resource.ex",
+   "phoenix/controller.ex",
    "phoenix/router.ex",
    "phoenix/controller/pipeline.ex",
    "phoenix/router/helpers.ex",
@@ -9726,8 +9726,8 @@
    "phoenix/logger.ex"
   ],
   "real-time channel messaging, topics, and join/leave": [
-   "phoenix/channel.ex",
    "phoenix/presence.ex",
+   "phoenix/channel.ex",
    "phoenix/channel/server.ex",
    "phoenix/logger.ex",
    "phoenix/socket.ex",
@@ -9872,8 +9872,8 @@
   "naming conventions for controllers and view modules": [
    "phoenix/controller.ex",
    "mix/phoenix.ex",
-   "mix/tasks/phx.gen.html.ex",
    "phoenix/naming.ex",
+   "mix/tasks/phx.gen.html.ex",
    "mix/tasks/phx.gen.json.ex",
    "phoenix/endpoint/render_errors.ex",
    "phoenix/code_reloader/mix_listener.ex",
@@ -10115,8 +10115,8 @@
    "ssl.ex",
    "conn.ex",
    "test.ex",
-   "parsers/multipart.ex",
    "rewrite_on.ex",
+   "parsers/multipart.ex",
    "adapters/cowboy.ex",
    "static.ex",
    "conn/adapter.ex",
@@ -10124,8 +10124,8 @@
    "session/store.ex"
   ],
   "request path parameter extraction in Plug.Router": [
-   "router.ex",
    "router/utils.ex",
+   "router.ex",
    "conn.ex",
    "method_override.ex",
    "parsers.ex",
@@ -10148,8 +10148,8 @@
    "conn/utils.ex"
   ],
   "Router": [
-   "router.ex",
    "router/utils.ex",
+   "router.ex",
    "conn.ex",
    "ssl.ex",
    "static.ex",
@@ -10399,7 +10399,7 @@
    "v1/decorator.py",
    "deprecated/config.py",
    "_internal/_fields.py",
-   "main.py"
+   "warnings.py"
   ],
   "Field": [
    "_internal/_generate_schema.py",
@@ -10521,7 +10521,7 @@
    "multipart/uploaded_file.rb",
    "multipart/parser.rb",
    "multipart/generator.rb",
-   "events.rb"
+   "mock"
   ],
   "serving a file index page for a folder on disk": [
    "static.rb",
@@ -10575,8 +10575,8 @@
    "lint.rb",
    "constants.rb",
    "builder.rb",
-   "mock_request.rb",
    "tempfile_reaper.rb",
+   "mock_request.rb",
    "headers.rb",
    "bad_request.rb",
    "config.rb",
@@ -10647,11 +10647,11 @@
   ],
   "engine configuration and load paths": [
    "engine.rb",
-   "application/configuration.rb",
    "engine/configuration.rb",
+   "application/configuration.rb",
    "paths.rb",
-   "application.rb",
    "application/routes_reloader.rb",
+   "application.rb",
    "railtie.rb",
    "railtie/configuration.rb",
    "generators/rails/plugin/plugin_generator.rb",
@@ -10690,8 +10690,8 @@
    "application/default_middleware_stack.rb",
    "application/bootstrap.rb",
    "commands/console/irb_console.rb",
-   "commands/app/update_command.rb",
-   "generators/rails/application_record/application_record_generator.rb"
+   "generators/rails/application_record/application_record_generator.rb",
+   "commands/app/update_command.rb"
   ],
   "Rails::Engine": [
    "engine.rb",
@@ -10787,7 +10787,7 @@
    "command.rb",
    "paths.rb",
    "railtie.rb",
-   "autoloaders.rb"
+   "code_statistics_calculator.rb"
   ],
   "default middleware stack configuration": [
    "application/default_middleware_stack.rb",
@@ -10903,8 +10903,8 @@
    "rdb.c",
    "server.h",
    "server.c",
-   "rdb.h",
    "redis-check-rdb.c",
+   "rdb.h",
    "replication.c",
    "db.c",
    "module.c",
@@ -11005,7 +11005,7 @@
    "atomicvar",
    "crc16_slottable",
    "sentinel.c",
-   "ae_epoll.c"
+   "debugmacro"
   ],
   "expiring keys set with EXPIRE or TTL commands": [
    "expire.c",
@@ -11036,8 +11036,8 @@
    "module.c",
    "acl.c",
    "sentinel.c",
-   "server.c",
    "server.h",
+   "server.c",
    "config.c",
    "redis-benchmark.c",
    "redismodule.h",
@@ -11118,8 +11118,8 @@
  },
  "redux": {
   "store creation and dispatch lifecycle": [
-   "applyMiddleware.ts",
    "createStore.ts",
+   "applyMiddleware.ts",
    "types/store.ts",
    "types/middleware.ts",
    "index.ts",
@@ -11130,8 +11130,8 @@
    "utils/isPlainObject.ts"
   ],
   "middleware pipeline composition": [
-   "applyMiddleware.ts",
    "types/middleware.ts",
+   "applyMiddleware.ts",
    "index.ts",
    "compose.ts",
    "types/store.ts",
@@ -11144,8 +11144,8 @@
   "combining reducers and validating reducer shape": [
    "combineReducers.ts",
    "types/reducers.ts",
-   "createStore.ts",
    "index.ts",
+   "createStore.ts",
    "types/store.ts",
    "applyMiddleware.ts",
    "types/actions.ts",
@@ -11198,8 +11198,8 @@
    "index.ts",
    "utils/kindOf.ts",
    "applyMiddleware.ts",
-   "types/middleware.ts",
-   "utils/actionTypes.ts"
+   "utils/actionTypes.ts",
+   "types/middleware.ts"
   ],
   "how combineReducers validates reducer return values in development": [
    "combineReducers.ts",
@@ -11215,11 +11215,11 @@
   ],
   "store type definition and dispatch overloads": [
    "createStore.ts",
-   "types/middleware.ts",
    "types/store.ts",
+   "types/middleware.ts",
    "applyMiddleware.ts",
-   "bindActionCreators.ts",
    "index.ts",
+   "bindActionCreators.ts",
    "types/actions.ts",
    "utils/kindOf.ts",
    "types/reducers.ts",
@@ -11238,8 +11238,8 @@
    "utils/kindOf.ts"
   ],
   "middleware type signature and API shape": [
-   "applyMiddleware.ts",
    "types/middleware.ts",
+   "applyMiddleware.ts",
    "index.ts",
    "createStore.ts",
    "types/store.ts",
@@ -11253,10 +11253,10 @@
    "combineReducers.ts",
    "types/reducers.ts",
    "createStore.ts",
-   "index.ts",
    "types/store.ts",
-   "types/actions.ts",
+   "index.ts",
    "types/middleware.ts",
+   "types/actions.ts",
    "applyMiddleware.ts",
    "utils/kindOf.ts",
    "utils/isAction.ts"
@@ -11335,8 +11335,8 @@
   ],
   "bindActionCreators": [
    "bindActionCreators.ts",
-   "index.ts",
    "types/actions.ts",
+   "index.ts",
    "utils/actionTypes.ts",
    "combineReducers.ts",
    "utils/isAction.ts",
@@ -11348,8 +11348,8 @@
   "Middleware": [
    "applyMiddleware.ts",
    "types/middleware.ts",
-   "createStore.ts",
    "index.ts",
+   "createStore.ts",
    "types/store.ts",
    "compose.ts",
    "combineReducers.ts",
@@ -11364,8 +11364,8 @@
    "adapters.py",
    "auth.py",
    "cookies.py",
-   "__init__.py",
    "models.py",
+   "__init__.py",
    "api.py",
    "compat.py",
    "utils.py",
@@ -11376,8 +11376,8 @@
    "auth.py",
    "models.py",
    "utils.py",
-   "adapters.py",
    "status_codes.py",
+   "adapters.py",
    "exceptions.py",
    "_internal_utils.py",
    "cookies.py",
@@ -11444,8 +11444,8 @@
    "status_codes.py"
   ],
   "SSL certificate verification": [
-   "adapters.py",
    "sessions.py",
+   "adapters.py",
    "help.py",
    "certs.py",
    "api.py",
@@ -11657,8 +11657,8 @@
    "serde_derive/src/de/tuple.rs",
    "serde_derive/src/de/struct_.rs",
    "test_suite/tests/test_gen.rs",
-   "serde_core/src/private/seed.rs",
    "serde_derive/src/de/enum_.rs",
+   "serde_core/src/private/seed.rs",
    "test_suite/tests/ui/with-variant/skip_de_newtype_field.rs"
   ],
   "value-based deserialization for self-describing formats": [
@@ -11683,7 +11683,7 @@
    "serde_derive/src/internals/ast.rs",
    "serde_derive/src/de/struct_.rs",
    "test_suite/tests/test_de.rs",
-   "serde_derive/src/de/identifier.rs"
+   "serde_derive/src/internals/symbol.rs"
   ],
   "how serde_derive generates Serialize impl with serialize_field and serialize_struct": [
    "serde_core/src/ser/mod.rs",
@@ -11773,8 +11773,8 @@
    "serde_core/src/de/mod.rs",
    "serde_derive/src/internals/receiver.rs",
    "serde_derive/src/lib.rs",
-   "serde/src/lib.rs",
    "serde/src/private/de.rs",
+   "serde/src/lib.rs",
    "serde_core/src/ser/mod.rs",
    "serde_derive/src/pretend.rs",
    "serde/src/private/ser.rs",
@@ -11916,8 +11916,8 @@
    "sinatra/middleware/logger.rb"
   ],
   "how the Rack middleware stack is assembled before requests are handled": [
-   "sinatra/base.rb",
    "sinatra/middleware/logger.rb",
+   "sinatra/base.rb",
    "sinatra/show_exceptions.rb",
    "sinatra/main.rb",
    "sinatra/version.rb",
@@ -11927,8 +11927,8 @@
   "case-insensitive hash for request params": [
    "sinatra/base.rb",
    "sinatra/indifferent_hash.rb",
-   "sinatra/main.rb",
    "sinatra/show_exceptions.rb",
+   "sinatra/main.rb",
    "sinatra/middleware/logger.rb",
    "sinatra/version.rb",
    "sinatra.rb"
@@ -11936,8 +11936,8 @@
   "Sinatra::Base": [
    "sinatra/base.rb",
    "sinatra/main.rb",
-   "sinatra/middleware/logger.rb",
    "sinatra/version.rb",
+   "sinatra/middleware/logger.rb",
    "sinatra/show_exceptions.rb",
    "sinatra/indifferent_hash.rb",
    "sinatra.rb"
@@ -11956,8 +11956,8 @@
    "sinatra/base.rb",
    "sinatra/main.rb",
    "sinatra/indifferent_hash.rb",
-   "sinatra/middleware/logger.rb",
    "sinatra/version.rb",
+   "sinatra/middleware/logger.rb",
    "sinatra.rb"
   ],
   "Sinatra::Helpers": [
@@ -11965,8 +11965,8 @@
    "sinatra/version.rb",
    "sinatra/main.rb",
    "sinatra/middleware/logger.rb",
-   "sinatra.rb",
    "sinatra/indifferent_hash.rb",
+   "sinatra.rb",
    "sinatra/show_exceptions.rb"
   ],
   "IndifferentHash": [
@@ -11999,8 +11999,8 @@
   "show_exceptions middleware for development error pages": [
    "sinatra/show_exceptions.rb",
    "sinatra/base.rb",
-   "sinatra/main.rb",
    "sinatra/middleware/logger.rb",
+   "sinatra/main.rb",
    "sinatra/indifferent_hash.rb",
    "sinatra.rb",
    "sinatra/version.rb"
@@ -12077,8 +12077,8 @@
    "Typealiases.swift"
   ],
   "how content hugging and compression resistance priorities are exposed through snp": [
-   "ConstraintView+Extensions.swift",
    "ConstraintViewDSL.swift",
+   "ConstraintView+Extensions.swift",
    "ConstraintMaker.swift",
    "Debugging.swift",
    "ConstraintDSL.swift",
@@ -12415,8 +12415,8 @@
    "middleware/wsgi.py"
   ],
   "how the Starlette application delegates routing and lifespan to Router": [
-   "applications.py",
    "routing.py",
+   "applications.py",
    "requests.py",
    "schemas.py",
    "endpoints.py",
@@ -12465,8 +12465,8 @@
    "actions/state.lua"
   ],
   "how telescope actions map keys to picker operations": [
-   "init.lua",
    "mappings.lua",
+   "init.lua",
    "actions/utils.lua",
    "actions/init.lua",
    "pickers.lua",
@@ -12588,8 +12588,8 @@
    "themes.lua",
    "actions/layout.lua",
    "pickers.lua",
-   "builtin/__internal.lua",
    "pickers/layout.lua",
+   "builtin/__internal.lua",
    "pickers/window.lua",
    "pickers/layout_strategies.lua",
    "config.lua",
@@ -12688,8 +12688,8 @@
    "sync/rwlock.rs",
    "fs/open_options.rs",
    "sync/barrier.rs",
-   "runtime/blocking/sharded_queue.rs",
    "task/task_local.rs",
+   "runtime/blocking/sharded_queue.rs",
    "net/windows/named_pipe.rs",
    "sync/batch_semaphore.rs",
    "net/unix/pipe.rs"
@@ -12726,8 +12726,8 @@
    "runtime/metrics/runtime.rs",
    "runtime/context/blocking.rs",
    "task/mod.rs",
-   "runtime/runtime.rs",
    "runtime/task/state.rs",
+   "runtime/runtime.rs",
    "sync/mutex.rs"
   ],
   "how tasks that are not Send can run on a single thread": [
@@ -12740,7 +12740,7 @@
    "task/local.rs",
    "task/mod.rs",
    "runtime/runtime.rs",
-   "runtime/mod.rs"
+   "runtime/scheduler/multi_thread/handle/metrics.rs"
   ],
   "waiting for any of several futures to complete": [
    "task/mod.rs",
@@ -12751,8 +12751,8 @@
    "io/util/buf_stream.rs",
    "macros/select.rs",
    "macros/join.rs",
-   "macros/try_join.rs",
-   "sync/oneshot.rs"
+   "sync/oneshot.rs",
+   "macros/try_join.rs"
   ],
   "how the runtime builder configures thread pool size and flavour": [
    "runtime/builder.rs",
@@ -12817,8 +12817,8 @@
   "JoinSet": [
    "task/join_set.rs",
    "runtime/task/state.rs",
-   "runtime/task/harness.rs",
    "runtime/task/join.rs",
+   "runtime/task/harness.rs",
    "io/join.rs",
    "macros/try_join.rs",
    "util/idle_notified_set.rs",
@@ -12836,7 +12836,7 @@
    "sync/mutex.rs",
    "sync/once_cell.rs",
    "sync/tests/loom_semaphore_batch.rs",
-   "sync/tests/loom_mpsc.rs"
+   "task/spawn.rs"
   ],
   "MissedTickBehavior": [
    "time/interval.rs",
@@ -12883,8 +12883,8 @@
    "runtime/scheduler/multi_thread/stats.rs",
    "io/async_fd.rs",
    "macros/join.rs",
-   "fs/mod.rs",
-   "fuzz"
+   "fuzz",
+   "fs/mod.rs"
   ],
   "how the tokio runtime builder configures and starts the multi-thread scheduler": [
    "runtime/builder.rs",
@@ -12945,8 +12945,8 @@
    "unstable-core-do-not-import/http/contentTypeParsers.ts",
    "unstable-core-do-not-import/router.ts",
    "unstable-core-do-not-import/http/types.ts",
-   "unstable-core-do-not-import/http/parseConnectionParams.ts",
-   "unstable-core-do-not-import/transformer.ts"
+   "unstable-core-do-not-import/transformer.ts",
+   "unstable-core-do-not-import/http/parseConnectionParams.ts"
   ],
   "how HTTP requests are resolved to tRPC procedures": [
    "@trpc/server/rpc.ts",
@@ -13018,7 +13018,7 @@
    "adapters/node-http/incomingMessageToRequest.ts",
    "@trpc/server/index.ts",
    "unstable-core-do-not-import/utils.ts",
-   "adapters/aws-lambda/index.ts"
+   "unstable-core-do-not-import/stream/jsonl.ts"
   ],
   "WebSocket adapter for real-time subscriptions": [
    "adapters/ws.ts",
@@ -13335,8 +13335,8 @@
    "Sessions/SessionsConfiguration.swift"
   ],
   "CORS middleware for cross-origin resource sharing": [
-   "Middleware/CORSMiddleware.swift",
    "Middleware/Middleware.swift",
+   "Middleware/CORSMiddleware.swift",
    "Deprecations/CORSMiddleware+AllowOriginSetting.swift",
    "Concurrency/AsyncMiddleware.swift",
    "Middleware/MiddlewareConfiguration.swift",
@@ -13380,7 +13380,7 @@
    "Cache/Request+Cache.swift",
    "Services/Req+Service.swift",
    "Response/ResponseCodable.swift",
-   "Concurrency/ResponseCodable+Concurrency.swift"
+   "Request/Request+BodyStream.swift"
   ],
   "Middleware": [
    "Middleware/Middleware.swift",
@@ -13428,9 +13428,9 @@
    "node/plugins/index.ts",
    "node/project.ts",
    "node/cli/cli-api.ts",
-   "node/reporters/verbose.ts",
    "types/module-locations.ts",
-   "node/cli/cli-config.ts"
+   "node/reporters/verbose.ts",
+   "runtime/workers/init.ts"
   ],
   "expect assertion API and matchers": [
    "integrations/chai/index.ts",
@@ -13514,7 +13514,7 @@
    "node/reporters/summary.ts",
    "node/cache/results.ts",
    "node/test-run.ts",
-   "node/config/resolveConfig.ts"
+   "typecheck/typechecker.ts"
   ],
   "how vitest initializes worker threads for parallel test execution": [
    "runtime/workers/vmThreads.ts",
@@ -13695,11 +13695,11 @@
   "how xmonad kills a window and cleans up its state": [
    "Operations.hs",
    "Core.hs",
-   "Config.hs",
    "StackSet.hs",
+   "Config.hs",
    "Main.hs",
-   "Layout.hs",
-   "ManageHook.hs"
+   "ManageHook.hs",
+   "Layout.hs"
   ],
   "how xmonad uses withDisplay to get the X11 Display handle": [
    "Operations.hs"
@@ -13755,16 +13755,16 @@
    "ManageHook.hs",
    "Core.hs",
    "Main.hs",
-   "Layout.hs",
-   "StackSet.hs"
+   "StackSet.hs",
+   "Layout.hs"
   ],
   "how xmonad handles floating windows separately from tiled ones": [
    "Operations.hs",
    "Config.hs",
    "StackSet.hs",
    "Core.hs",
-   "Layout.hs",
    "Main.hs",
+   "Layout.hs",
    "ManageHook.hs"
   ],
   "how xmonad's runX executes an X action with its config and state": [
@@ -13854,8 +13854,8 @@
    "example/simple.zig"
   ],
   "how zig-clap streaming parser processes arguments one token at a time": [
-   "clap/streaming.zig",
    "example/streaming-clap.zig",
+   "clap/streaming.zig",
    "clap.zig",
    "example/subcommands.zig",
    "example/simple-ex.zig",
@@ -13967,8 +13967,8 @@
    "build.zig",
    "example/subcommands.zig",
    "example/simple-ex.zig",
-   "clap/parsers.zig",
    "example/help.zig",
+   "clap/parsers.zig",
    "example/simple.zig",
    "example/usage.zig",
    "example/streaming-clap.zig"
@@ -14049,8 +14049,8 @@
  "zig": {
   "how AutoHashMap provides a hash map with auto-derived hash and equality": [
    "array_hash_map.zig",
-   "hash/auto_hash.zig",
    "hash_map.zig",
+   "hash/auto_hash.zig",
    "std.zig",
    "hash.zig",
    "crypto/tls/Client.zig",
@@ -14066,8 +14066,8 @@
    "multi_array_list.zig",
    "testing.zig",
    "process.zig",
-   "heap/debug_allocator.zig",
    "unicode.zig",
+   "heap/debug_allocator.zig",
    "Build.zig",
    "heap/memory_pool.zig"
   ],
@@ -14090,8 +14090,8 @@
    "zig/llvm/Builder.zig",
    "heap/FixedBufferAllocator.zig",
    "math/big/int.zig",
-   "Random/benchmark.zig",
    "zig/string_literal.zig",
+   "Random/benchmark.zig",
    "zig/ErrorBundle.zig",
    "zig/perf_test.zig"
   ],
@@ -14104,8 +14104,8 @@
    "zig/AstGen.zig",
    "zon/parse.zig",
    "json/Scanner.zig",
-   "json/dynamic_test.zig",
-   "json/test.zig"
+   "json/test.zig",
+   "json/dynamic_test.zig"
   ],
   "how the JSON scanner tokenizes a JSON byte stream": [
    "json.zig",
@@ -14115,8 +14115,8 @@
    "json/Stringify.zig",
    "json/dynamic.zig",
    "json/scanner_test.zig",
-   "json/static_test.zig",
    "os/windows.zig",
+   "json/static_test.zig",
    "json/test.zig"
   ],
   "how Thread.spawn creates and starts a new OS thread": [
@@ -14136,12 +14136,12 @@
    "http/test.zig",
    "crypto/codecs/asn1/der/Decoder.zig",
    "Io/test.zig",
-   "compress/lzma2.zig",
    "crypto/Certificate.zig",
+   "compress/lzma2.zig",
    "Io/net.zig",
    "tar/test.zig",
-   "fs/path.zig",
-   "hash_map.zig"
+   "hash_map.zig",
+   "fs/path.zig"
   ],
   "how std.mem.sort and sortUnstable sort a slice in place": [
    "mem.zig",
@@ -14159,13 +14159,13 @@
    "Build/Cache/Directory.zig",
    "fs.zig",
    "fs/path.zig",
-   "fs/test.zig",
    "posix.zig",
+   "fs/test.zig",
    "process.zig",
    "crypto/codecs/asn1/test.zig",
    "process/Child.zig",
-   "debug/SelfInfo/Windows.zig",
-   "os/windows.zig"
+   "os/windows.zig",
+   "debug/SelfInfo/Windows.zig"
   ],
   "how std.process.args returns command-line argument iterator": [
    "process/Child.zig",
@@ -14176,8 +14176,8 @@
    "posix/test.zig",
    "Build/Step/CheckObject.zig",
    "crypto/benchmark.zig",
-   "Build/Step/Compile.zig",
-   "macho.zig"
+   "macho.zig",
+   "Build/Step/Compile.zig"
   ],
   "how comptime hash functions are auto-derived for arbitrary types": [
    "hash_map.zig",
@@ -14188,8 +14188,8 @@
    "zon/Serializer.zig",
    "crypto/hash_composition.zig",
    "zig.zig",
-   "meta.zig",
-   "std.zig"
+   "std.zig",
+   "meta.zig"
   ],
   "how std.fmt.parseInt parses a string to an integer": [
    "fmt.zig",
@@ -14240,16 +14240,16 @@
    "crypto/phc_encoding.zig"
   ],
   "how std.mem.span converts a null-terminated pointer to a slice": [
-   "mem.zig",
    "zig/Zir.zig",
+   "mem.zig",
    "mem/Allocator.zig",
    "zon/parse.zig",
    "zig/AstGen.zig",
    "Io/Writer.zig",
    "debug/Coverage.zig",
    "zig/Zoir.zig",
-   "json/Stringify.zig",
-   "zig/ErrorBundle.zig"
+   "zig/ErrorBundle.zig",
+   "json/Stringify.zig"
   ],
   "how std.testing.checkAllAllocationFailures tests allocator failure paths": [
    "testing.zig",
@@ -14257,23 +14257,23 @@
    "zon/parse.zig",
    "fs/path.zig",
    "heap/FixedBufferAllocator.zig",
-   "mem.zig",
    "zig/system/NativePaths.zig",
+   "mem.zig",
    "zig/parser_test.zig",
-   "fs/test.zig",
-   "math/big/int.zig"
+   "math/big/int.zig",
+   "fs/test.zig"
   ],
   "how std.mem.zeroes initializes a type to all zero bytes": [
    "mem.zig",
    "debug/Dwarf/expression.zig",
    "math/big/int.zig",
    "Io/Writer.zig",
-   "crypto/chacha20.zig",
    "simd.zig",
+   "crypto/chacha20.zig",
    "os/windows/nls.zig",
-   "crypto/keccak_p.zig",
    "dynamic_library.zig",
-   "Io/net.zig"
+   "crypto/keccak_p.zig",
+   "crypto/pcurves/common.zig"
   ],
   "how the JSON scanner feeds input incrementally and emits tokens": [
    "json/Scanner.zig",
@@ -14350,8 +14350,8 @@
    "DiagnosticsCollection.zig"
   ],
   "how zls finds all references to a symbol across the project": [
-   "features/document_symbol.zig",
    "features/references.zig",
+   "features/document_symbol.zig",
    "zls.zig",
    "analysis.zig",
    "main.zig",
@@ -14474,8 +14474,8 @@
    "configuration.zig",
    "tools/config_gen.zig",
    "main.zig",
-   "DocumentStore.zig",
    "build_runner/check.zig",
+   "DocumentStore.zig",
    "zls.zig",
    "features/diagnostics.zig",
    "features/code_actions.zig",
@@ -14563,8 +14563,8 @@
    "v4/core/schemas.ts",
    "v3/types.ts",
    "v4/locales/km.ts",
-   "v3/tests/error.test.ts",
    "v4/core/parse.ts",
+   "v3/tests/error.test.ts",
    "v3/helpers/parseUtil.ts"
   ],
   "ZodCheck and check execution pipeline for string min max and number range validations": [
@@ -14637,7 +14637,7 @@
    "v4/mini/tests/assignability.test.ts",
    "v4/classic/tests/assignability.test.ts",
    "v4/classic/tests/transform.test.ts",
-   "v4/classic/tests/object.test.ts"
+   "v4/core/json-schema-processors.ts"
   ],
   "how safeParse returns a success/error result without throwing": [
    "v4/core/parse.ts",
@@ -14645,8 +14645,8 @@
    "v4/core/schemas.ts",
    "v4/classic/parse.ts",
    "v3/tests/async-parsing.test.ts",
-   "v4/classic/tests/async-parsing.test.ts",
    "v4/core/util.ts",
+   "v4/classic/tests/async-parsing.test.ts",
    "v3/tests/safeparse.test.ts",
    "v3/tests/error.test.ts",
    "v4/classic/schemas.ts"

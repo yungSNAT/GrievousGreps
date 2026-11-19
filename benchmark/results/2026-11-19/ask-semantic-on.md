@@ -1,6 +1,6 @@
-# gg-bench ask on semble's 1,251 questions at `fe83325`, semantic ranking on
+# gg-bench ask on semble's 1,251 questions at `df2cf79`, semantic ranking on
 
-The tool built at `fe83325` (branch `ryan/semantic-ask-2026-11-19`) was asked every question on the benchmark machine (Linux) from 10:23:25 to 10:50:40 UTC on 19 November 2026, with its default ranking: words and meaning merged. `gg-bench ask` from #125's branch at `658ba18` graded it, whose code differs from `8b3b71f` (#125 merged) only by moving its unit tests to `ask/tests.rs` ([cmd-ask-semantic.sh](cmd-ask-semantic.sh), run with `MODE=on`). Local paths are replaced by `<path>`. [ask-semantic-on-files.json](ask-semantic-on-files.json) holds the files each answer ranked, the first 10 distinct per question. [ask-semantic-off.md](ask-semantic-off.md) is the same commit with `TRAIL_SEMANTIC=0`.
+The tool built at `df2cf79` (branch `ryan/semantic-ask-2026-11-19`) was asked every question on the benchmark machine (Linux) from 14:26 to 14:58 UTC on 19 November 2026, in 2 attempts (the first stopped at its 30-minute limit after 61 repositories; the second asked the other 2), with its default ranking: words and meaning merged. `gg-bench ask` from #125's branch at `658ba18` graded it, whose code differs from `8b3b71f` (#125 merged) only by moving its unit tests to `ask/tests.rs` ([cmd-ask-semantic.sh](cmd-ask-semantic.sh), run with `MODE=on`). Local paths are replaced by `<path>`. [ask-semantic-on-files.json](ask-semantic-on-files.json) holds the files each answer ranked, the first 10 distinct per question. [ask-semantic-off.md](ask-semantic-off.md) is `fe83325` with `TRAIL_SEMANTIC=0`.
 
 ```text
 Node v26.13.1, 2026-11-19 UTC
@@ -11,29 +11,29 @@ Set: benchmark/ask/semble, 1251 questions in 63 repositories; 0 failed
 
 | Set | Queries | NDCG@10 | hit@1 | hit@3 | hit@10 |
 | --- | --- | --- | --- | --- | --- |
-| All | 1251 | 0.792 | 0.596 | 0.841 | 0.949 |
-| architecture | 344 | 0.768 | 0.549 | 0.817 | 0.922 |
-| semantic | 703 | 0.793 | 0.602 | 0.846 | 0.952 |
-| symbol | 204 | 0.828 | 0.652 | 0.863 | 0.985 |
-| bash | 60 | 0.885 | 0.833 | 0.883 | 0.950 |
-| c | 60 | 0.731 | 0.500 | 0.750 | 0.917 |
-| cpp | 60 | 0.823 | 0.650 | 0.883 | 0.983 |
-| csharp | 60 | 0.750 | 0.533 | 0.817 | 0.950 |
-| elixir | 58 | 0.864 | 0.707 | 0.931 | 0.983 |
-| go | 58 | 0.864 | 0.690 | 0.914 | 0.931 |
+| All | 1251 | 0.794 | 0.598 | 0.841 | 0.949 |
+| architecture | 344 | 0.765 | 0.532 | 0.817 | 0.922 |
+| semantic | 703 | 0.797 | 0.609 | 0.846 | 0.952 |
+| symbol | 204 | 0.836 | 0.672 | 0.863 | 0.985 |
+| bash | 60 | 0.882 | 0.833 | 0.883 | 0.950 |
+| c | 60 | 0.724 | 0.483 | 0.750 | 0.917 |
+| cpp | 60 | 0.819 | 0.633 | 0.883 | 0.983 |
+| csharp | 60 | 0.761 | 0.567 | 0.817 | 0.950 |
+| elixir | 58 | 0.853 | 0.672 | 0.948 | 0.983 |
+| go | 58 | 0.871 | 0.707 | 0.914 | 0.931 |
 | haskell | 60 | 0.761 | 0.583 | 0.800 | 0.917 |
-| java | 61 | 0.757 | 0.541 | 0.820 | 0.918 |
-| javascript | 60 | 0.861 | 0.667 | 0.933 | 0.967 |
-| kotlin | 60 | 0.742 | 0.533 | 0.833 | 0.950 |
-| lua | 60 | 0.869 | 0.733 | 0.900 | 0.983 |
-| php | 60 | 0.694 | 0.500 | 0.683 | 0.900 |
-| python | 184 | 0.800 | 0.527 | 0.853 | 0.962 |
-| ruby | 58 | 0.807 | 0.603 | 0.897 | 0.966 |
+| java | 61 | 0.762 | 0.541 | 0.803 | 0.918 |
+| javascript | 60 | 0.880 | 0.700 | 0.933 | 0.967 |
+| kotlin | 60 | 0.742 | 0.517 | 0.833 | 0.950 |
+| lua | 60 | 0.873 | 0.733 | 0.900 | 0.983 |
+| php | 60 | 0.688 | 0.483 | 0.683 | 0.900 |
+| python | 184 | 0.810 | 0.549 | 0.853 | 0.962 |
+| ruby | 58 | 0.802 | 0.586 | 0.897 | 0.966 |
 | rust | 60 | 0.703 | 0.517 | 0.750 | 0.883 |
-| scala | 59 | 0.818 | 0.627 | 0.898 | 0.966 |
-| swift | 53 | 0.786 | 0.528 | 0.774 | 0.981 |
+| scala | 59 | 0.825 | 0.644 | 0.898 | 0.966 |
+| swift | 53 | 0.792 | 0.547 | 0.774 | 0.981 |
 | typescript | 60 | 0.701 | 0.533 | 0.733 | 0.933 |
-| zig | 60 | 0.822 | 0.650 | 0.900 | 0.967 |
+| zig | 60 | 0.818 | 0.633 | 0.900 | 0.967 |
 
 Misses at 3 (no relevant file among the first 3):
 
@@ -53,7 +53,7 @@ Misses at 3 (no relevant file among the first 3):
 | fastapi | symbol | Depends | 5 | fastapi/params.py | dependencies/utils.py, param_functions.py, routing.py |
 | flask | architecture | how are routes registered | 4 | src/flask/sansio/scaffold.py | cli.py, sansio/blueprints.py, sansio/app.py |
 | flask | semantic | g | 6 | src/flask/globals.py | json/tag.py, helpers.py, sansio/app.py |
-| httpx | architecture | how does streaming response body iteration work | 4 | httpx/_models.py | _auth.py, _content.py, _exceptions.py |
+| httpx | architecture | how does streaming response body iteration work | 4 | httpx/_models.py | _auth.py, _exceptions.py, _content.py |
 | model2vec | semantic | reducing embedding precision to smaller integer representations | 8 | model2vec/quantization.py | model.py, train/base.py, persistence/persistence.py |
 | model2vec | architecture | how PCA reduces embedding dimensionality | 4 | model2vec/distill/distillation.py | distill/inference.py, model.py, quantization.py |
 | pydantic | architecture | how are model fields declared and constrained | none | pydantic/fields.py | v1/types.py, v1/schema.py, json_schema.py |
@@ -81,6 +81,7 @@ Misses at 3 (no relevant file among the first 3):
 | commons-lang | semantic | argument validation helpers and exception rules | 7 | src/main/java/org/apache/commons/lang3/Validate.java | time/FastDatePrinter.java, exception/ContextedRuntimeException.java, exception/ContextedException.java |
 | commons-lang | semantic | number parsing with defaults and range checks | 4 | src/main/java/org/apache/commons/lang3/math/NumberUtils.java | CharRange.java, time/FastDateParser.java, IntegerRange.java |
 | jackson-databind | architecture | polymorphic type resolution | none | src/main/java/tools/jackson/databind/jsontype/impl/StdTypeResolverBuilder.java | AnnotationIntrospector.java, introspect/JacksonAnnotationIntrospector.java, cfg/MapperBuilder.java |
+| jackson-databind | semantic | writing and serializing Java objects to JSON with configuration | 4 | src/main/java/tools/jackson/databind/ObjectWriter.java | util/NativeImageUtil.java, ObjectMapper.java, json/JsonMapper.java |
 | jackson-databind | semantic | bean deserialization from JSON properties | 5 | src/main/java/tools/jackson/databind/deser/bean/BeanDeserializer.java | deser/bean/BeanDeserializerBase.java, deser/bean/BeanAsArrayDeserializer.java, ser/BeanSerializerFactory.java |
 | jackson-databind | semantic | bean serialization of Java object fields to JSON | none | src/main/java/tools/jackson/databind/ser/BeanSerializer.java | ser/BeanSerializerFactory.java, ser/bean/BeanSerializerBase.java, jsonFormatVisitors/JsonObjectFormatVisitor.java |
 | jackson-databind | architecture | deserialization context and error accumulation during parsing | 4 | src/main/java/tools/jackson/databind/DeserializationContext.java | ObjectMapper.java, ObjectReader.java, deser/impl/ErrorThrowingDeserializer.java |
@@ -133,7 +134,7 @@ Misses at 3 (no relevant file among the first 3):
 | ktor | symbol | HttpClientCall | 5 | ktor-client/ktor-client-core/common/src/io/ktor/client/call/HttpClientCall.kt | io/ktor/client/call/SavedCall.kt, io/ktor/client/call/DelegatedCall.kt, io/ktor/client/HttpClient.kt |
 | cats | architecture | how Monad composes dependent effectful computations with flatMap | 5 | core/src/main/scala/cats/Monad.scala | cats/FlatMap.scala, cats/syntax/flatMap.scala, cats/CommutativeFlatMap.scala |
 | cats | semantic | how natural transformations map between type constructors | none | core/src/main/scala/cats/arrow/FunctionK.scala | cats/CommutativeFlatMap.scala, cats/CoflatMap.scala, cats/Functor.scala |
-| alamofire | semantic | how URL query parameters are encoded from Encodable values | 4 | Source/Features/URLEncodedFormEncoder.swift | Core/ParameterEncoding.swift, Core/ParameterEncoder.swift, Core/Session.swift |
+| alamofire | semantic | how URL query parameters are encoded from Encodable values | 4 | Source/Features/URLEncodedFormEncoder.swift | Core/ParameterEncoding.swift, Core/Session.swift, Core/ParameterEncoder.swift |
 | alamofire | semantic | how download requests save responses to disk | 5 | Source/Core/DownloadRequest.swift | Core/Session.swift, Core/SessionDelegate.swift, Features/Combine.swift |
 | serde | semantic | standard library type Deserialize implementations | none | serde_core/src/de/impls.rs | serde/src/private/de.rs, serde_core/src/de/mod.rs, serde_derive/src/de.rs |
 | serde | symbol | Visitor | 4 | serde_core/src/de/mod.rs | serde/src/private/de.rs, serde_core/src/de/impls.rs, serde_core/src/de/value.rs |
@@ -148,7 +149,6 @@ Misses at 3 (no relevant file among the first 3):
 | nlohmann-json | architecture | how to_json serializes a custom C++ type to JSON | 6 | include/nlohmann/detail/conversions/to_json.hpp | json.hpp, detail/meta/type_traits.hpp, detail/json_custom_base_class.hpp |
 | nlohmann-json | semantic | iterator implementation for JSON arrays and objects | none | include/nlohmann/detail/iterators/iter_impl.hpp | detail/iterators/internal_iterator.hpp, detail/iterators/json_reverse_iterator.hpp, json.hpp |
 | phoenix | architecture | how channels handle incoming messages and replies | none | lib/phoenix/channel.ex | phoenix/socket.ex, phoenix/channel/server.ex, phoenix/debug.ex |
-| phoenix | semantic | naming conventions for controllers and view modules | 4 | lib/phoenix/naming.ex | phoenix/controller.ex, mix/phoenix.ex, mix/tasks/phx.gen.html.ex |
 | axum | architecture | how extractors implement FromRequest and FromRequestParts | none | axum/src/extract/mod.rs | middleware/from_extractor.rs, extract/path/mod.rs, extract/query.rs |
 | axum | semantic | error handling and how errors are converted to responses | 6 | axum/src/error_handling/mod.rs | lib.rs, extract/path/mod.rs, response/mod.rs |
 | axum | semantic | BoxedIntoRoute and type-erased route storage | none | axum/src/routing/route.rs | boxed.rs, routing/mod.rs, routing/method_routing.rs |
@@ -176,7 +176,7 @@ Misses at 3 (no relevant file among the first 3):
 | circe | architecture | how circe parses a JSON string into a Json value | none | modules/core/shared/src/main/scala/io/circe/Parser.scala | io/circe/Json.scala, io/circe/JsonObject.scala, io/circe/JsonNumber.scala |
 | http4s | semantic | Headers and individual Header types | 7 | core/shared/src/main/scala/org/http4s/Headers.scala | org/http4s/headers/HeaderCompanion.scala, org/http4s/Header.scala, org/http4s/headers/Access-Control-Allow-Headers.scala |
 | http4s | semantic | Uri parsing and construction | 9 | core/shared/src/main/scala/org/http4s/Uri.scala | org/http4s/internal/parsing/AuthRules.scala, org/http4s/internal/parsing/Rfc3986.scala, org/http4s/internal/parsing/Rfc2616.scala |
-| http4s | architecture | how Kleisli and OptionT power the Http and HttpRoutes algebra | 5 | core/shared/src/main/scala/org/http4s/Http.scala | org/http4s/syntax/KleisliSyntax.scala, org/http4s/AuthedRoutes.scala, org/http4s/HttpRoutes.scala |
+| http4s | architecture | how Kleisli and OptionT power the Http and HttpRoutes algebra | 5 | core/shared/src/main/scala/org/http4s/Http.scala | org/http4s/syntax/KleisliSyntax.scala, org/http4s/HttpRoutes.scala, org/http4s/AuthedRoutes.scala |
 | vapor | architecture | how Application configures and boots a Vapor server | 4 | Sources/Vapor/Application.swift | HTTP/Server/Application+HTTP+Server.swift, HTTP/Server/HTTPServer.swift, Server/Application+Servers.swift |
 | vapor | architecture | how routes are registered on the RoutesBuilder | 6 | Sources/Vapor/Routing/RoutesBuilder+Method.swift | Routing/RoutesBuilder+Group.swift, Routing/RoutesBuilder+Middleware.swift, Routing/RouteCollection.swift |
 | vapor | semantic | Content protocol for encoding and decoding request and response bodies | 7 | Sources/Vapor/Content/Content.swift | Response/Response.swift, Concurrency/ResponseCodable+Concurrency.swift, Request/Request.swift |
@@ -196,10 +196,10 @@ Misses at 3 (no relevant file among the first 3):
 | curl | semantic | how a new easy handle is initialized with default settings | 9 | lib/url.c | http2.c, vquic/curl_ngtcp2.c, vtls/schannel.c |
 | curl | semantic | how curl checks if HTTP If-Modified-Since condition is met | 9 | lib/transfer.c | http.c, http_proxy.c, http2.c |
 | curl | architecture | connection filter chain setup for proxies and TLS | none | lib/connect.c | url.c, vquic/vquic-tls.h, ftp.c |
-| curl | architecture | how SSL is configured on a connection | 6 | lib/url.c | vtls/vtls.c, vtls/vtls_int.h, vtls/openssl.c |
+| curl | architecture | how SSL is configured on a connection | 6 | lib/url.c | vtls/vtls_int.h, vtls/vtls.c, vtls/openssl.c |
 | curl | semantic | freeing all resources when closing an easy handle | 5 | lib/url.c | multi.c, easy.c, vtls/openssl.c |
 | redis | semantic | how Redis implements the SET command with options like NX, EX, PX | none | src/t_string.c | module.c, redis-trib.rb, t_hash.c |
-| redis | architecture | server startup initialization and configuration loading | 5 | src/server.c | rdb.c, module.c, acl.c |
+| redis | architecture | server startup initialization and configuration loading | 6 | src/server.c | rdb.c, module.c, acl.c |
 | redis | architecture | how Redis cluster handles slot assignment and routing | 5 | src/cluster.c | redis-cli.c, cluster_slot_stats.c, cluster_legacy.c |
 | libuv | semantic | file system operations like read write open stat | 6 | src/unix/fs.c | win/fs.c, win/pipe.c, unix/linux.c |
 | libuv | semantic | resolving hostnames asynchronously using the thread pool | none | src/unix/getaddrinfo.c | win/pipe.c, win/thread.c, unix/thread.c |
@@ -209,8 +209,8 @@ Misses at 3 (no relevant file among the first 3):
 | libuv | symbol | IDNA internationalized domain name encoding | 4 | src/idna.c | idna.h, win/pipe.c, win/winapi.h |
 | bats-core | semantic | how bats formats test result output | 4 | lib/bats-core/formatter.bash | bats-core/test_functions.bash, bats-core/preprocessing.bash, bats-core/common.bash |
 | aeson | architecture | how JSON encoding produces Encoding without materializing a Value | 4 | src/Data/Aeson/Encoding.hs | Encoding/Internal.hs, Types/ToJSON.hs, TH.hs |
-| aeson | semantic | how Key type is used as object field identifier | 6 | src/Data/Aeson/KeyMap.hs | TH.hs, Types/FromJSON.hs, Types/Internal.hs |
-| telescope.nvim | architecture | how telescope actions map keys to picker operations | 4 | lua/telescope/actions/init.lua | init.lua, mappings.lua, actions/utils.lua |
+| aeson | semantic | how Key type is used as object field identifier | 5 | src/Data/Aeson/KeyMap.hs | TH.hs, Types/Internal.hs, Types/FromJSON.hs |
+| telescope.nvim | architecture | how telescope actions map keys to picker operations | 4 | lua/telescope/actions/init.lua | mappings.lua, init.lua, actions/utils.lua |
 | telescope.nvim | architecture | how async_job runs an external command and streams results | 4 | lua/telescope/async_job.lua | finders/async_job_finder.lua, finders.lua, finders/async_oneshot_finder.lua |
 | lazy.nvim | architecture | how lazy.nvim loads a plugin on demand when its trigger fires | none | lua/lazy/core/loader.lua | init.lua, example.lua, view/render.lua |
 | lazy.nvim | semantic | how the lockfile pins plugin commits for reproducible installs | 5 | lua/lazy/manage/lock.lua | manage/init.lua, manage/task/git.lua, view/render.lua |
@@ -220,14 +220,14 @@ Misses at 3 (no relevant file among the first 3):
 | bash-it | semantic | battery level detection for shell prompt | 7 | lib/battery.bash | themes/powerline/powerline.base.bash, themes/gitline/powerline.base.bash, themes/powerturk/powerturk.theme.bash |
 | bash-it | semantic | color definitions and terminal color support | none | lib/colors.bash | themes/dulcie/dulcie.theme.bash, themes/powerturk/powerturk.theme.bash, themes/emperor/emperor.theme.bash |
 | bash-it | semantic | how tab completion scripts are sourced and activated | none | lib/completion.bash | completion/available/aliases.completion.bash, completion/available/lerna.completion.bash, plugins/available/osx.plugin.bash |
-| bash-it | symbol | node version manager nvm integration | 4 | plugins/available/node.plugin.bash | plugins/available/nvm.plugin.bash, themes/base.theme.bash, completion/available/nvm.completion.bash |
+| bash-it | symbol | node version manager nvm integration | 4 | plugins/available/node.plugin.bash | themes/base.theme.bash, plugins/available/nvm.plugin.bash, completion/available/nvm.completion.bash |
 | bash-it | semantic | bash-it utility functions for string manipulation | none | lib/utilities.bash | install.sh, lib/preexec.bash, completion/available/bash-it.completion.bash |
 | bash-it | semantic | bash-it main entry point and initialization | 6 | bash_it.sh | lib/helpers.bash, completion/available/bash-it.completion.bash, aliases/available/bash-it.aliases.bash |
 | pandoc | architecture | how the PandocMonad typeclass abstracts IO for readers and writers | none | Class.hs | Writers/BBCode.hs, Class/PandocIO.hs, Class/PandocMonad.hs |
 | pandoc | semantic | how pandoc reads a DocBook XML document | 8 | Readers/DocBook.hs | Writers/DocBook.hs, Writers/XML.hs, Readers/Docx/Parse.hs |
 | pandoc | semantic | how pandoc options control output format and extensions | 9 | Options.hs | Format.hs, App/OutputSettings.hs, Extensions.hs |
 | pandoc | semantic | how pandoc parses table structures in documents | none | Parsing/GridTable.hs | Readers/Jira.hs, Readers/Muse.hs, Readers/Haddock.hs |
-| pandoc | semantic | how pandoc fetches and embeds media into self-contained output | 5 | SelfContained.hs | Writers/Docx/OpenXML.hs, MediaBag.hs, App.hs |
+| pandoc | semantic | how pandoc fetches and embeds media into self-contained output | 4 | SelfContained.hs | Writers/Docx/OpenXML.hs, MediaBag.hs, App.hs |
 | pandoc | semantic | how pandoc handles TeX math in documents | none | TeX.hs | Writers/Math.hs, Writers/LaTeX.hs, Parsing/Math.hs |
 | pandoc | architecture | how pandoc parses generic parsing utilities for readers | none | Parsing/General.hs | Readers/Textile.hs, Readers/Txt2Tags.hs, Readers/Org/Blocks.hs |
 | pandoc | architecture | how pandoc generates PDF output via LaTeX or other backends | 4 | PDF.hs | Writers/LaTeX.hs, App.hs, Readers/LaTeX.hs |
