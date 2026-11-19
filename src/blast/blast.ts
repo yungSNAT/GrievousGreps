@@ -524,7 +524,9 @@ function opensQuote(text: string, i: number, rust: boolean): boolean {
  * starts a line comment instead ({@link HASH_COMMENTS}, {@link DASH_COMMENTS}; PHP
  * has both), and `#` only after whitespace there, so `$#` stays. Markers inside
  * quotes are text, so `"a // b"; f()` keeps `f()`; quotes pair within a line, with
- * backslash escapes. Blanked with spaces, so a column of the result is one of the line.
+ * backslash escapes. Regex literals, strings over several lines and other comment
+ * forms (`--[[ ]]`, `{- -}`) are read as code. Blanked with spaces, so a column of
+ * the result is one of the line.
  */
 function codeLines(lines: string[], from: number, to: number, path: string): string[] {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
@@ -554,7 +556,8 @@ function codeLines(lines: string[], from: number, to: number, path: string): str
         out += text[i] ?? "";
         continue;
       }
-      if (slash && text.startsWith("/*", i)) {
+      // `\/*` is an escaped slash in a regex literal (`/\/*$/`), never a comment.
+      if (slash && text.startsWith("/*", i) && text[i - 1] !== "\\") {
         block = true;
         out += "  ";
         i++;

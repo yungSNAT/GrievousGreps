@@ -192,25 +192,24 @@ function leftIn(path: string, src: string[], edited: number): unknown[] | undefi
   return report.leftBehind?.map((x) => [x.name, x.path, x.line]);
 }
 
-test("blast: comments are read by the file's syntax", () => {
-  assert.deepEqual(leftIn("c.py", ["def total():", "    x = add(1, 2)", "    return x // add(3)  # add("], 2), [["total", "c.py", 3]], "Python: `//` divides, `#` comments");
-  assert.deepEqual(
-    leftIn("c.go", ["func total() int {", "\t/* add(1) was", "\t   add(2) */", "\tx := add(1, 2)", "\t*out = add(3)", "\treturn x", "}"], 4),
-    [["total", "c.go", 5]],
-    "a block comment spans lines; a line starting with `*` outside one is code",
-  );
-  assert.deepEqual(
-    leftIn("c.swift", ["func total() -> Int {", "    let x = add(1, 2)", "    #expect(add(3) == 3)", "    return x", "}"], 2),
-    [["total", "c.swift", 3]],
-    "Swift: `#` is no comment",
-  );
-  assert.deepEqual(
-    leftIn("c.rs", ["fn total() -> i32 {", "    let x = add(1, 2);", "    const M: &'static str = \"it's // x\"; let y = add(3);", "    x + y", "}"], 2),
-    [["total", "c.rs", 3]],
-    "Rust: a lifetime opens no quote",
-  );
-  assert.deepEqual(leftIn("c.lua", ["local function total()", "  local x = add(1, 2)", "  return x -- add(2)", "end"], 2), [], "Lua: `--` comments");
-});
+/** Comments read by the file's syntax: [case, path, the caller's lines, its edited line, the left-behind line or none]. */
+const SYNTAX_CASES: [string, string, string[], number, number | null][] = [
+  ["Python: `//` divides, `#` comments", "c.py", ["def total():", "    x = add(1, 2)", "    return x // add(3)  # add("], 2, 3],
+  [
+    "a block comment spans lines; a line starting with `*` outside one is code", "c.go",
+    ["func total() int {", "\t/* add(1) was", "\t   add(2) */", "\tx := add(1, 2)", "\t*out = add(3)", "\treturn x", "}"], 4, 5,
+  ],
+  ["`\\/*` in a regex literal opens no block comment", "c.ts", ["export function total(): number {", "  const x = add(1, 2);", '  const t = s.replace(/\\/*$/, "");', "  return add(3) + x;", "}"], 2, 4],
+  ["Swift: `#` is no comment", "c.swift", ["func total() -> Int {", "    let x = add(1, 2)", "    #expect(add(3) == 3)", "    return x", "}"], 2, 3],
+  ["Rust: a lifetime opens no quote", "c.rs", ["fn total() -> i32 {", "    let x = add(1, 2);", "    const M: &'static str = \"it's // x\"; let y = add(3);", "    x + y", "}"], 2, 3],
+  ["Lua: `--` comments", "c.lua", ["local function total()", "  local x = add(1, 2)", "  return x -- add(2)", "end"], 2, null],
+];
+
+for (const [label, path, src, edited, line] of SYNTAX_CASES) {
+  test(`blast: comments by the file's syntax: ${label}`, () => {
+    assert.deepEqual(leftIn(path, src, edited), line === null ? [] : [["total", path, line]]);
+  });
+}
 
 test("blast: whitespace changed inside a default string is no declaration change", () => {
   // What a caller must pass is unchanged, so no call is left behind (round 2's S9, declined).
