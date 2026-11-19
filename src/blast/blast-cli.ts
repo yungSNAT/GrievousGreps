@@ -11,6 +11,7 @@ import { loadGraphCached } from "../graph/load.js";
 import type { GraphV1 } from "../graph/types.js";
 import { blastRadiusIn, type BlastReport } from "./blast.js";
 import { changedFiles, refExists } from "./diff.js";
+import { fileReader } from "./evidence.js";
 import { markdownReport, mermaidDiagram, textReport } from "./render.js";
 import { cmd } from "../brand.js";
 
@@ -36,6 +37,8 @@ export interface BlastCliOptions {
   owners?: boolean;
   /** The PR author: logins, names or emails to keep out of their own suggestions. */
   prAuthor?: string[];
+  /** Also list the test files the change reaches, over the full closure. */
+  tests?: boolean;
   /** The top-level `--dir` override. */
   globalDir?: string;
 }
@@ -91,7 +94,7 @@ export async function runBlastCommand(dir: string, opts: BlastCliOptions): Promi
     process.exit(1);
   }
 
-  const report = blastRadiusIn(graph, contextDir, diff.files, diff.basis, depth);
+  const report = blastRadiusIn(graph, contextDir, diff.files, diff.basis, depth, { read: fileReader(root), tests: opts.tests });
   if (opts.name) await nameClusters(graph, report, contextDir);
   // After naming, never before: a reviewer's reason cites area LABELS, and the
   // naming pass is what gives an area its final one.

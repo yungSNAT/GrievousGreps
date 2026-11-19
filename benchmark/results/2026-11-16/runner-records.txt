@@ -1,0 +1,63 @@
+Runner records of the 16 November runs, read 2026-11-19T03:54:45Z. PART lines are the runner's own log lines; times without Z are file modification times in UTC.
+
+## First and last runs
+PART serena-1 START 2026-11-16T07:33:54Z
+PART serena-1 START 2026-11-16T08:01:31Z
+PART gg-3 END 2026-11-16T18:09:25Z
+
+## Each tool's first part, and this tool's last answers (gg-rep1 and gg-rep2 are repeat passes, not scored; read 2026-11-19T04:13:23Z)
+PART serena-1 START 2026-11-16T07:33:54Z
+PART cbm-1 START 2026-11-16T13:09:16Z
+PART crg-1 START 2026-11-16T13:13:19Z
+PART cg-1 START 2026-11-16T13:38:13Z
+PART cgc-1 START 2026-11-16T13:44:01Z
+PART ax-1 START 2026-11-16T14:19:01Z
+PART rw-1 START 2026-11-16T16:11:52Z
+PART gf-1 START 2026-11-16T17:48:03Z
+PART tks-1 START 2026-11-16T18:01:20Z
+PART gg-1 START 2026-11-16T18:02:42Z
+gg last answer file: 2026-11-16 18:09:24 gg/zola/meta.json
+gg-rep1 last answer file: 2026-11-16 18:10:17 gg-rep1/hono/meta.json
+gg-rep2 last answer file: 2026-11-16 18:11:02 gg-rep2/hono/meta.json
+
+## Scoring (score.err is created when the scoring command starts)
+results/score.err 2026-11-16 18:17:30
+results/scores.json 2026-11-16 18:17:32
+results/table.md 2026-11-16 18:17:32
+
+## Upstream runs
+PART up029-1 START 2026-11-16T13:19:57Z
+runmjs up029-1 exit 0
+PART up029-1 END 2026-11-16T13:20:50Z
+PART up029-2 START 2026-11-16T13:20:50Z
+runmjs up029-2 exit 0
+PART up029-2 END 2026-11-16T13:21:55Z
+PART up029-3 START 2026-11-16T13:21:55Z
+runmjs up029-3 exit 0
+PART up029-3 END 2026-11-16T13:23:16Z
+PART upmain-1 START 2026-11-16T13:23:16Z
+runmjs upmain-1 exit 0
+PART upmain-1 END 2026-11-16T13:24:23Z
+PART upmain-2 START 2026-11-16T13:24:23Z
+runmjs upmain-2 exit 0
+PART upmain-2 END 2026-11-16T13:25:57Z
+PART upmain-3 START 2026-11-16T13:25:57Z
+runmjs upmain-3 exit 0
+PART upmain-3 END 2026-11-16T13:29:00Z
+
+## AxiomCode Graph, part 2
+PART ax-2 START 2026-11-16T14:22:11Z
+ax mdbook ok 0.0
+ax mdbook  exit 0
+ax query  exit 124
+ax radix ok 53.51
+ax radix  exit 0
+ax rayon ok 0.0
+ax rayon  exit 0
+ax rich ok 26.9
+ax rich  exit 0
+ax ripgrep ok 0.0
+ax ripgrep  exit 0
+ax seaborn ok 37.76
+ax seaborn  exit 0
+PART ax-2 END 2026-11-16T14:49:12Z
