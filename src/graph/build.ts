@@ -44,6 +44,7 @@ import { enrichGraph, type EnrichStats } from "./enrich.js";
 import { readGraph, writeGraph, wiringPath } from "./write.js";
 import { writeCards, writeIndex, writeCovers, type CardStats } from "./cards.js";
 import { writeAskIndex } from "../ask/index-file.js";
+import { writeVectors } from "../ask/vectors.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
 import type { GraphV1, Kind, NodeV1, Relation, ScopeV1, UnresolvedCallV1 } from "./types.js";
 import type { CruxSummarizer } from "../ai/crux.js";
@@ -620,6 +621,12 @@ export async function buildGraph(
     writeAskIndex(outDir, graph);
   } catch (err) {
     errors.push(`ask-index: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // `ask`'s semantic layer: chunk vectors of every indexed file, unchanged files reused.
+  try {
+    writeVectors(outDir, [...sources].map(([path, source]) => ({ path, hash: entries[path].hash, source })));
+  } catch (err) {
+    errors.push(`ask-vectors: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // The fingerprint claims exactly one thing: "the graph on disk was built from

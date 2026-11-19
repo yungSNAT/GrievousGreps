@@ -10,8 +10,9 @@
  *   - Everything else → lexical rank over concept nodes (prose) and wiring symbols
  *     (name + signature + summary), returning the best few with pointers.
  *
- * v1 is deterministic and $0 (term-overlap scoring, no LLM, no embeddings). The
- * output is markdown so it drops straight into an agent's context.
+ * Deterministic and $0: term-overlap scoring and graph rank, fused with a local static
+ * embedding model's file ranking (`vectors.ts`), no LLM and no network. The output is
+ * markdown so it drops straight into an agent's context.
  */
 import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -50,6 +51,7 @@ import {
 import { readSourceFile } from "../util/source.js";
 import { readFileInside, resolveInside } from "../util/safe-fs.js";
 import { counts, tokenize, type AskIndex, type AskIndexDoc } from "./index-file.js";
+import { denseFiles, embedQuery, fuseByFile, readVectors, semanticEnabled, type DenseFile } from "./vectors.js";
 import { cmd, tag } from "../brand.js";
 import { formatNoteHits, learningSavingsLine, type NoteHit } from "../notes/notes.js";
 
@@ -1398,6 +1400,10 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
       opts.includeRankingMetadata ?? false,
     );
   }
+  // Workspace federation (ranking metadata) and the raw baseline (no file-first) rank files themselves.
+  if (corpus.graph && result.mode !== "structural" && fileFirst && !opts.includeRankingMetadata) {
+    result = withSemantic(result, corpus.graph, outDir, query, limit, inPrefix);
+  }
   if (opts.source) {
     inlineSource(root, result.hits, corpus.graph, opts.full ?? false);
     if (result.ranking) {
@@ -1418,6 +1424,48 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
     result.saved = baselineFor(result.hits, corpus.graph);
   }
   return result;
+}
+
+/**
+ * Fuse a lexical result with the semantic ranking (`vectors.ts`): files ranked by their
+ * best chunk, merged with the lexical file order by reciprocal rank fusion. A file only
+ * the semantic ranking found is pointed at the smallest symbol spanning its best chunk,
+ * else at the chunk's lines. Off with `TRAIL_SEMANTIC=0`; a graph built before vectors
+ * existed answers lexically and says so.
+ */
+function withSemantic(result: AskResult, graph: GraphV1, outDir: string, query: string, limit: number, inPrefix?: string): AskResult {
+  if (!semanticEnabled()) return result;
+  const index = readVectors(outDir);
+  if (!index) {
+    const skipped = `semantic ranking skipped: no vectors yet — run \`${cmd("graft build")}\``;
+    return { ...result, note: result.note ? `${result.note}\n${skipped}` : skipped };
+  }
+  const dense = denseFiles(index, embedQuery(query), inPrefix ? (p) => pathUnderPrefix(p, inPrefix) : undefined);
+  if (!dense.length) return result;
+  const scoped = result.hits.some((h) => h.scope !== undefined);
+  const scopes = graph.meta.scopes ?? [];
+  const denseHit = (d: DenseFile): AskHit => {
+    let best: { node: NodeV1; size: number } | null = null;
+    for (const n of graph.nodes) {
+      if (n.path !== d.path || n.kind === "file") continue;
+      const m = /^L(\d+)-L(\d+)$/.exec(n.span);
+      if (!m || +m[1] > d.start || +m[2] < d.start) continue;
+      const size = +m[2] - +m[1];
+      if (!best || size < best.size) best = { node: n, size };
+    }
+    const n = best?.node;
+    return {
+      kind: "symbol",
+      title: n ? `${n.name} · ${n.kind}` : `${d.path} · file`,
+      pointer: n ? `${n.path}:${n.span}` : `${d.path}:L${d.start}-L${d.end}`,
+      snippet: n ? (n.summary?.split("\n")[0].trim() ?? n.signature ?? "") : "",
+      score: d.score,
+      ...(scoped ? { scope: scopeOf(d.path, scopes).prefix } : {}),
+    };
+  };
+  const hits = fuseByFile(result.hits, dense, limit, denseHit);
+  const found = result.mode === "empty" && hits.length > 0;
+  return { ...result, hits, ...(found ? { mode: "lexical" as const, note: undefined } : {}) };
 }
 
 // ── Skeleton view ────────────────────────────────────────────────────────────
