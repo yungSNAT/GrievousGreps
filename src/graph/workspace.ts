@@ -28,7 +28,7 @@ import { contextDirFor } from "../context/node-file.js";
 import { checkGraph } from "./check.js";
 import { loadGraphCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
-import { discoverWorkspaceChildren } from "./scopes.js";
+import { assertPrefixIndexed, discoverWorkspaceChildren } from "./scopes.js";
 import { mainWorktreeRoot } from "./seed.js";
 import { callerBlocks, callersSavings, matchJson, type MatchJson } from "./traverse-cli.js";
 import { edgeWalk, resolveSymbol, type Direction } from "./traverse.js";
@@ -306,8 +306,11 @@ export function federateAsk(
   const fileTopLock = opts.fileTopLock ?? true;
 
   // `--in` scopes to a single child (and, past the first segment, a sub-scope
-  // within it). A prefix naming no known child at all is a caller mistake.
+  // within it). A prefix naming no known child at all is a caller mistake, and so
+  // is a sub-scope with nothing indexed in that child, as grep and callers report.
   const { onlyChild, childIn } = resolveWorkspaceIn(wg, opts.in);
+  const scoped = wg.loaded.find((l) => l.child === onlyChild);
+  if (scoped && childIn) assertPrefixIndexed(scoped.graph, childIn);
 
   // Pass 1: run each child's ask; keep its hits + RAW top-hit coverage.
   const runs: ChildRun[] = [];
