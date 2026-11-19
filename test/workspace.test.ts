@@ -562,6 +562,8 @@ test("workspace grep scopes to an exact child and its indexed paths", async () =
     const ask = federateAsk(p, undefined, "handler", { in: "./repoA/src/" });
     assert.ok(ask.hits.length > 0);
     assert.ok(ask.hits.every((hit) => hit.pointer.startsWith("repoA/src/")));
+    assert.throws(() => federateAsk(p, undefined, "handler", { in: "repoA/nowhere" }),
+      /nothing indexed under "nowhere\/"/);
   } finally {
     rmSync(p, { recursive: true, force: true });
   }
@@ -592,6 +594,22 @@ test("workspace grep CLI forwards scopes and rejects invalid paths", async () =>
         "--in", "repoA/src", "--json", "--no-refresh"], { encoding: "utf8" });
     assert.equal(noHits.status, 0);
     assert.equal(JSON.parse(noHits.stdout).totalHits, 0);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace ask exits 1, and graft_find_code errors, on a sub-scope with nothing indexed", async () => {
+  const p = workspaceFx(GREP_REPOS);
+  try {
+    await buildWorkspace(p);
+    const r = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "ask", "handler", p, "--in", "repoA/nowhere", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /nothing indexed under "nowhere\/"/);
+    const tool = await callTool(p, "graft_find_code", { query: "handler", in: "repoA/nowhere" });
+    assert.equal(tool.isError, true);
+    assert.match(tool.text, /nothing indexed under "nowhere\/"/);
   } finally {
     rmSync(p, { recursive: true, force: true });
   }
