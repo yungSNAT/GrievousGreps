@@ -138,15 +138,26 @@ fn rank_of(files: &[String], target: &str) -> Option<usize> {
         .map(|i| i + 1)
 }
 
+/// A pointer without its trailing `:L<line>` or `:L<line>-L<line>`.
+fn pointer_file(pointer: &str) -> &str {
+    let Some((file, lines)) = pointer.rsplit_once(":L") else {
+        return pointer;
+    };
+    let numbered = lines
+        .split("-L")
+        .all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+    if numbered { file } else { pointer }
+}
+
 /// The first 10 distinct files of an `ask --json` answer, in rank order: each hit's `pointer`
-/// without its `:L<line>` suffix.
+/// without its line suffix.
 pub fn answer_files(answer: &Value) -> Vec<String> {
     let mut files: Vec<String> = Vec::new();
     for hit in answer["hits"].as_array().into_iter().flatten() {
         let Some(pointer) = hit["pointer"].as_str() else {
             continue;
         };
-        let file = pointer.rsplit_once(":L").map_or(pointer, |(file, _)| file);
+        let file = pointer_file(pointer);
         if !files.iter().any(|seen| seen == file) {
             files.push(file.to_owned());
         }
@@ -172,10 +183,16 @@ fn grade(task: &Task, files: &[String]) -> (f64, Option<usize>) {
     (ndcg_at_k(&ranks, every.len(), TOP_K), first)
 }
 
-/// One question's answer, scored.
+/// One question's answer, scored. The tool names files under `benchmark_root`, and semble's file
+/// baselines match each one by its full path, so a file is matched as `/<benchmark_root>/<file>`:
+/// `utils.py` then matches `pkg/utils.py`, not `pkg/openapi/utils.py`.
 fn graded_answer(repo: &SetRepo, task: &Task, answer: Option<&Value>) -> Graded {
     let files = answer.map(answer_files).unwrap_or_default();
-    let (ndcg, first) = grade(task, &files);
+    let root = repo.benchmark_root.as_deref().map_or(String::new(), |r| {
+        format!("/{}", r.replace('\\', "/").trim_matches('/'))
+    });
+    let in_checkout: Vec<String> = files.iter().map(|f| format!("{root}/{f}")).collect();
+    let (ndcg, first) = grade(task, &in_checkout);
     Graded {
         repo: repo.name.clone(),
         language: repo.language.clone(),
@@ -431,9 +448,28 @@ mod tests {
         ];
         hits.extend((0..12).map(|i| json!({ "pointer": format!("f{i}.py:L1") })));
         let got = answer_files(&json!({ "hits": hits }));
-        assert_eq!(got[..3], files(&["b.py", "a.py", "dir"]));
+        // Only a trailing line suffix is cut.
+        assert_eq!(got[..3], files(&["b.py", "a.py", "dir:Lx/c.py"]));
         assert_eq!(got.len(), TOP_K);
         assert!(answer_files(&json!({ "error": "x" })).is_empty());
+    }
+
+    #[test]
+    fn a_file_is_matched_under_the_benchmark_root_as_a_full_path() {
+        let repo = |root: Option<&str>| SetRepo {
+            name: "r".into(),
+            language: "python".into(),
+            url: String::new(),
+            revision: String::new(),
+            benchmark_root: root.map(str::to_owned),
+        };
+        let t = task(&["pkg/openapi/utils.py"], &[]);
+        let answer = json!({ "hits": [{ "pointer": "utils.py:L1" }, { "pointer": "openapi/utils.py:L1" }] });
+        let g = graded_answer(&repo(Some("pkg")), &t, Some(&answer));
+        assert_eq!(g.first, Some(2));
+        assert_eq!(g.files, files(&["utils.py", "openapi/utils.py"]));
+        let t = task(&["openapi/utils.py"], &[]);
+        assert_eq!(graded_answer(&repo(None), &t, Some(&answer)).first, Some(2));
     }
 
     #[test]
