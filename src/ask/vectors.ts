@@ -180,7 +180,8 @@ export function denseFiles(index: VectorIndex, query: Float32Array, keep: (path:
     for (let c = 0; c < n; c++, at += dim) {
       let dot = 0;
       for (let i = 0; i < dim; i++) dot += query[i] * F16[data[at + i]];
-      if (!top || dot > top.score) top = { path: f.path, score: dot, start: f.lines[2 * c], end: f.lines[2 * c + 1] };
+      // A chunk with no known token (a zero vector) or a damaged one (not finite) says nothing.
+      if (dot !== 0 && Number.isFinite(dot) && (!top || dot > top.score)) top = { path: f.path, score: dot, start: f.lines[2 * c], end: f.lines[2 * c + 1] };
     }
     if (top) best.push(top);
   }

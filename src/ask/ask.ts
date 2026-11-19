@@ -1383,7 +1383,7 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
       result = lexical(
         query,
         corpus,
-        limit,
+        lexLimit,
         graphRank,
         inPrefix,
         fileFirst,
@@ -1401,7 +1401,7 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
     result = lexical(
       query,
       corpus,
-      limit,
+      lexLimit,
       graphRank,
       inPrefix,
       fileFirst,

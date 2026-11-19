@@ -195,3 +195,25 @@ test("a build with TRAIL_SEMANTIC=0 writes no vectors", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a damaged or empty chunk vector never ranks its file", () => {
+  const NAN16 = 0x7e00;
+  const index = {
+    model: "m", dim: 2,
+    files: [{ path: "a.ts", hash: "1", lines: [1, 1] }, { path: "m.ts", hash: "2", lines: [1, 1] }, { path: "e.ts", hash: "3", lines: [1, 1] }, { path: "z.ts", hash: "4", lines: [1, 1] }],
+    data: Uint16Array.from([NAN16, 0, 0x3c00, 0, 0, 0, 0x2e66, 0]),
+  };
+  assert.deepEqual(denseFiles(index, Float32Array.from([1, 0])).map((d) => d.path), ["m.ts", "z.ts"]);
+});
+
+test("a short answer is the start of a longer one", async () => {
+  const root = fixture();
+  try {
+    await withEnv(undefined, () => buildGraph(root));
+    const long = await withEnv(undefined, () => ask(root, "values number", { limit: 10 }));
+    const short = await withEnv(undefined, () => ask(root, "values number", { limit: 2 }));
+    assert.deepEqual(short.hits.map((h) => h.pointer), long.hits.slice(0, 2).map((h) => h.pointer));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
