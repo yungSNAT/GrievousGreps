@@ -34,6 +34,15 @@ test("Python config files full of blank lines or spaces are read in linear time"
   assert.ok(roots.includes("lib"), "a where after the blank lines is still read");
 });
 
+test("pyproject.toml lists and tables that never close are read in linear time", () => {
+  for (const line of ["where = [", "packages = [", "package-dir = {"]) {
+    const dir = mkdtempSync(join(tmpdir(), "regex-linear-open-"));
+    writeFileSync(join(dir, "pyproject.toml"), `${`${line}\n`.repeat(N / 5)}where = ["lib"]\n`);
+    const roots = quick(`readPythonRoots on '${line}'`, () => readPythonRoots(dir, [join(dir, "pyproject.toml")]));
+    assert.ok(roots.includes("lib"), `a closed where after the open '${line}' lines is still read`);
+  }
+});
+
 test("a go.mod and a pnpm-workspace.yaml full of blank lines are read in linear time", async () => {
   const dir = mkdtempSync(join(tmpdir(), "regex-linear-ws-"));
   writeFileSync(join(dir, "go.mod"), `${"\n".repeat(N)}x\n`);
