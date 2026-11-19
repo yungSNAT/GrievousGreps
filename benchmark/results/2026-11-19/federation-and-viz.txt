@@ -1,0 +1,598 @@
+pinned 57122b3f4cb4a74f74dbe9fb5e1a3aa194ad8c42 2026-11-19T03:27:27Z node v26.13.1 trail 0.28.0+gg.57122b3f4cb4
+checkout click 2247b35ea1c47c727d7a06e51fa280e12a863ff6 dirty=0
+checkout flask d086db856be187255b8ec61ef409357393020f32 dirty=0
+checkout httpx b5addb64f0161ff6bfe94c124ef76f6a1fba5254 dirty=0
+##### viz --export on httpx
+init exit 0
+· no past Claude Code sessions about this repo on this machine yet
+· nothing came up on two or more days, so there's nothing to keep from your past sessions yet
+✓ learnings  .trail/learnings/ · a session that fixes a bug, takes a correction or opens a PR leaves one there, for your whole team
+· restart your agents so a new session picks up trail
+· commit .claude/settings.json and .trail/ and .github/ once: after that, teammates' Claude reads your learnings even before they install trail
+trail viz → <path>/fed/work/httpx/site/index.html (993 kB, 1 concept nodes, 1301 code nodes)
+export exit 0
+index.html bytes: 1016743
+external script/style refs: 0
+##### multi-repository folder build, 3 fresh copies
+load before run 1: 13.04 8.99 9.14
+run 1: trail build exit 0, 28.23 s
+✓ flask/: 1688 nodes, 3026 edges, 84 cards [bash, python]
+✓ httpx/: 1301 nodes, 3140 edges, 60 cards [python]
+✓ workspace: 3 repos federated → graft/workspace.json
+  graft/ is git-ignored — each teammate runs `trail build` to regenerate it locally.
+load before run 2: 14.73 9.73 9.38
+run 2: trail build exit 0, 26.14 s
+✓ flask/: 1688 nodes, 3026 edges, 84 cards [bash, python]
+✓ httpx/: 1301 nodes, 3140 edges, 60 cards [python]
+✓ workspace: 3 repos federated → graft/workspace.json
+  graft/ is git-ignored — each teammate runs `trail build` to regenerate it locally.
+load before run 3: 15.78 10.46 9.64
+run 3: trail build exit 0, 19.88 s
+✓ flask/: 1688 nodes, 3026 edges, 84 cards [bash, python]
+✓ httpx/: 1301 nodes, 3140 edges, 60 cards [python]
+✓ workspace: 3 repos federated → graft/workspace.json
+  graft/ is git-ignored — each teammate runs `trail build` to regenerate it locally.
+##### trail callers get_current_context from the folder
+exit 0
+[trail] tokens saved ≈ 17,765 (99%) at most, against reading the 5 file(s) whole
+
+## click/
+get_current_context · function · src/click/globals.py:L20-L41
+  calls ← new_func (src/click/decorators.py:L77-L93)
+  calls ← new_func (src/click/decorators.py:L33-L34)
+  calls ← new_func (src/click/decorators.py:L116-L119)
+  calls ← new_func (src/click/decorators.py:L45-L46)
+  calls ← resolve_color_default (src/click/globals.py:L54-L67)
+  calls ← debug (tests/test_chain.py:L8-L12)
+  calls ← foo (tests/test_context.py:L366-L368)
+  calls ← foo (tests/test_context.py:L345-L347)
+  calls ← get_language (tests/test_context.py:L149-L150)
+  calls ← set_language (tests/test_context.py:L146-L147)
+  calls ← test_global_context_object (tests/test_context.py:L130-L140)
+  calls ← cli (tests/test_context.py:L133-L136)
+  calls ← change_other_params (tests/test_context.py:L220-L235)
+  calls ← inspect_other_params (tests/test_context.py:L187-L197)
+  calls ← process_value (tests/test_context.py:L202-L218)
+  calls ← cli (tests/test_defaults.py:L336-L338)
+lines naming tests/test_cli.py: 0
+##### trail ask "current context" from the folder
+exit 0
+trail ask — "current context"  (lexical)
+
+1. [click/] get_current_context · function  [symbol]
+   click/src/click/globals.py:L20-L41
+   def get_current_context(silent: bool = False) -> Context | None
+
+2. [flask/] copy_current_request_context · function  [symbol]
+   flask/src/flask/ctx.py:L154-L206
+   def copy_current_request_context(f: F) -> F
+
+3. [httpx/] create_ssl_context · function  [symbol]
+   httpx/httpx/_config.py:L23-L69
+   def create_ssl_context( verify: ssl.SSLContext | str | bool = True, cert: CertTypes | None = None, trust_env: bool = True, ) -> ssl.SSLContext
+
+4. [click/] pass_context · function  [symbol]
+   click/src/click/decorators.py:L28-L36
+   def pass_context(f: t.Callable[te.Concatenate[Context, P], R]) -> t.Callable[P, R]
+
+5. [flask/] app_context · method  [symbol]
+   flask/src/flask/app.py:L1481-L1499
+   def app_context(self) -> AppContext
+
+6. [httpx/] request_context · function  [symbol]
+   httpx/httpx/_exceptions.py:L365-L377
+   def request_context( request: Request | None = None, ) -> typing.Iterator[None]
+
+7. [click/] _make_sub_context · method  [symbol]
+   click/src/click/core.py:L871-L877
+   def _make_sub_context(self, command: Command) -> Context
+
+8. [flask/] stream_with_context · function  [symbol]
+   flask/src/flask/helpers.py:L63-L148
+   def stream_with_context( generator_or_function: t.Iterator[t.AnyStr] | t.Callable[..., t.Iterator[t.AnyStr]], ) -> t.Iterator[t.AnyStr] | t.Callable[[t.Iterator[t.AnyStr]], t.Iterator[t.AnyStr]]
+
+matched in: click/ (3) · flask/ (3) · httpx/ (2)
+--- json
+{
+  "query": "current context",
+  "mode": "lexical",
+  "hits": [
+    {
+      "kind": "symbol",
+      "title": "get_current_context · function",
+      "pointer": "click/src/click/globals.py:L20-L41",
+      "snippet": "def get_current_context(silent: bool = False) -> Context | None",
+      "score": 1,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "copy_current_request_context · function",
+      "pointer": "flask/src/flask/ctx.py:L154-L206",
+      "snippet": "def copy_current_request_context(f: F) -> F",
+      "score": 1,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "create_ssl_context · function",
+      "pointer": "httpx/httpx/_config.py:L23-L69",
+      "snippet": "def create_ssl_context( verify: ssl.SSLContext | str | bool = True, cert: CertTypes | None = None, trust_env: bool = True, ) -> ssl.SSLContext",
+      "score": 1,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "pass_context · function",
+      "pointer": "click/src/click/decorators.py:L28-L36",
+      "snippet": "def pass_context(f: t.Callable[te.Concatenate[Context, P], R]) -> t.Callable[P, R]",
+      "score": 0.9838709677419354,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "app_context · method",
+      "pointer": "flask/src/flask/app.py:L1481-L1499",
+      "snippet": "def app_context(self) -> AppContext",
+      "score": 0.9838709677419354,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "request_context · function",
+      "pointer": "httpx/httpx/_exceptions.py:L365-L377",
+      "snippet": "def request_context( request: Request | None = None, ) -> typing.Iterator[None]",
+      "score": 0.9838709677419354,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "_make_sub_context · method",
+      "pointer": "click/src/click/core.py:L871-L877",
+      "snippet": "def _make_sub_context(self, command: Command) -> Context",
+      "score": 0.9682539682539681,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "stream_with_context · function",
+      "pointer": "flask/src/flask/helpers.py:L63-L148",
+      "snippet": "def stream_with_context( generator_or_function: t.Iterator[t.AnyStr] | t.Callable[..., t.Iterator[t.AnyStr]], ) -> t.Iterator[t.AnyStr] | t.Callable[[t.Iterator[t.AnyStr]], t.Iterator[t.AnyStr]]",
+      "score": 0.9682539682539681,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "request · method",
+      "pointer": "httpx/httpx/_models.py:L596-L604",
+      "snippet": "def request(self) -> Request",
+      "score": 0.9682539682539681,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "_resolve_context · function",
+      "pointer": "click/src/click/shell_completion.py:L696-L754",
+      "snippet": "def _resolve_context( cli: Command, ctx_args: cabc.MutableMapping[str, t.Any], prog_name: str, args: list[str], ) -> Context",
+      "score": 0.953125,
+      "scope": "click"
+    }
+  ],
+  "scopes": {
+    "federated": [
+      "click",
+      "flask",
+      "httpx"
+    ],
+    "alsoMatched": []
+  }
+}
+
+##### trail ask "application context" from the folder
+exit 0
+trail ask — "application context"  (lexical)
+
+1. [click/] get_current_context · function  [symbol]
+   click/src/click/globals.py:L20-L41
+   def get_current_context(silent: bool = False) -> Context | None
+
+2. [flask/] AppContext · class  [symbol]
+   flask/src/flask/ctx.py:L260-L525
+   class AppContext
+
+3. [httpx/] create_ssl_context · function  [symbol]
+   httpx/httpx/_config.py:L23-L69
+   def create_ssl_context( verify: ssl.SSLContext | str | bool = True, cert: CertTypes | None = None, trust_env: bool = True, ) -> ssl.SSLContext
+
+4. [click/] pass_context · function  [symbol]
+   click/src/click/decorators.py:L28-L36
+   def pass_context(f: t.Callable[te.Concatenate[Context, P], R]) -> t.Callable[P, R]
+
+5. [flask/] test_request_context · method  [symbol]
+   flask/src/flask/app.py:L1517-L1564
+   def test_request_context(self, *args: t.Any, **kwargs: t.Any) -> AppContext
+
+6. [httpx/] request_context · function  [symbol]
+   httpx/httpx/_exceptions.py:L365-L377
+   def request_context( request: Request | None = None, ) -> typing.Iterator[None]
+
+7. [click/] exit · method  [symbol]
+   click/src/click/core.py:L849-L857
+   def exit(self, code: int = 0) -> t.NoReturn
+
+8. [flask/] stream_with_context · function  [symbol]
+   flask/src/flask/helpers.py:L63-L148
+   def stream_with_context( generator_or_function: t.Iterator[t.AnyStr] | t.Callable[..., t.Iterator[t.AnyStr]], ) -> t.Iterator[t.AnyStr] | t.Callable[[t.Iterator[t.AnyStr]], t.Iterator[t.AnyStr]]
+
+matched in: click/ (3) · flask/ (3) · httpx/ (2)
+--- json
+{
+  "query": "application context",
+  "mode": "lexical",
+  "hits": [
+    {
+      "kind": "symbol",
+      "title": "get_current_context · function",
+      "pointer": "click/src/click/globals.py:L20-L41",
+      "snippet": "def get_current_context(silent: bool = False) -> Context | None",
+      "score": 1,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "AppContext · class",
+      "pointer": "flask/src/flask/ctx.py:L260-L525",
+      "snippet": "class AppContext",
+      "score": 1,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "create_ssl_context · function",
+      "pointer": "httpx/httpx/_config.py:L23-L69",
+      "snippet": "def create_ssl_context( verify: ssl.SSLContext | str | bool = True, cert: CertTypes | None = None, trust_env: bool = True, ) -> ssl.SSLContext",
+      "score": 1,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "pass_context · function",
+      "pointer": "click/src/click/decorators.py:L28-L36",
+      "snippet": "def pass_context(f: t.Callable[te.Concatenate[Context, P], R]) -> t.Callable[P, R]",
+      "score": 0.9838709677419354,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "test_request_context · method",
+      "pointer": "flask/src/flask/app.py:L1517-L1564",
+      "snippet": "def test_request_context(self, *args: t.Any, **kwargs: t.Any) -> AppContext",
+      "score": 0.9838709677419354,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "request_context · function",
+      "pointer": "httpx/httpx/_exceptions.py:L365-L377",
+      "snippet": "def request_context( request: Request | None = None, ) -> typing.Iterator[None]",
+      "score": 0.9838709677419354,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "exit · method",
+      "pointer": "click/src/click/core.py:L849-L857",
+      "snippet": "def exit(self, code: int = 0) -> t.NoReturn",
+      "score": 0.9682539682539681,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "stream_with_context · function",
+      "pointer": "flask/src/flask/helpers.py:L63-L148",
+      "snippet": "def stream_with_context( generator_or_function: t.Iterator[t.AnyStr] | t.Callable[..., t.Iterator[t.AnyStr]], ) -> t.Iterator[t.AnyStr] | t.Callable[[t.Iterator[t.AnyStr]], t.Iterator[t.AnyStr]]",
+      "score": 0.9682539682539681,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "_guess_content_type · function",
+      "pointer": "httpx/httpx/_multipart.py:L45-L53",
+      "snippet": "def _guess_content_type(filename: str | None) -> str | None",
+      "score": 0.9682539682539681,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "_resolve_context · function",
+      "pointer": "click/src/click/shell_completion.py:L696-L754",
+      "snippet": "def _resolve_context( cli: Command, ctx_args: cabc.MutableMapping[str, t.Any], prog_name: str, args: list[str], ) -> Context",
+      "score": 0.953125,
+      "scope": "click"
+    }
+  ],
+  "scopes": {
+    "federated": [
+      "click",
+      "httpx",
+      "flask"
+    ],
+    "alsoMatched": []
+  }
+}
+
+##### trail ask "parse command line options" from the folder
+exit 0
+trail ask — "parse command line options"  (lexical)
+
+1. [click/] parse_args · method  [symbol]
+   click/src/click/parser.py:L298-L314
+   def parse_args( self, args: list[str] ) -> tuple[dict[str, t.Any], list[str], list[CoreParameter]]
+
+2. [click/examples/aliases/] resolve_command · method  [symbol]
+   click/examples/aliases/aliases.py:L70-L73
+   def resolve_command(self, ctx, args): # always return the command's name, not the alias
+
+3. [click/examples/complex/] get_command · method  [symbol]
+   click/examples/complex/complex/cli.py:L40-L45
+   def get_command(self, ctx, name)
+
+4. [click/examples/imagepipe/] imagepipe.py · file  [symbol]
+   click/examples/imagepipe/imagepipe.py
+
+5. [flask/] parse_args · method  [symbol]
+   flask/src/flask/cli.py:L678-L688
+   def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]
+
+6. [flask/examples/tutorial/] init_db_command · function  [symbol]
+   flask/examples/tutorial/flaskr/db.py:L42-L45
+   def init_db_command()
+
+7. [httpx/] options · function  [symbol]
+   httpx/httpx/_api.py:L210-L243
+   def options( url: URL | str, *, params: QueryParamTypes | None = None, headers: HeaderTypes | None = None, cookies: CookieTypes | None = None, auth: AuthTypes | None = None, proxy: ProxyTypes | None = None, follow_redirects: bool = False, verify: ssl.SSLContext | str | bool = True, timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG, trust_env: bool = True, ) -> Response
+
+8. [click/] _parse_decls · method  [symbol]
+   click/src/click/core.py:L2528-L2530
+   def _parse_decls( self, decls: cabc.Sequence[str], expose_value: bool ) -> tuple[str, list[str], list[str]]
+
+matched in: click/ (2) · click/examples/aliases/ (1) · click/examples/complex/ (1) · click/examples/imagepipe/ (1) · flask/ (1) · flask/examples/tutorial/ (1) · httpx/ (1)
+--- json
+{
+  "query": "parse command line options",
+  "mode": "lexical",
+  "hits": [
+    {
+      "kind": "symbol",
+      "title": "parse_args · method",
+      "pointer": "click/src/click/parser.py:L298-L314",
+      "snippet": "def parse_args( self, args: list[str] ) -> tuple[dict[str, t.Any], list[str], list[CoreParameter]]",
+      "score": 1,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "resolve_command · method",
+      "pointer": "click/examples/aliases/aliases.py:L70-L73",
+      "snippet": "def resolve_command(self, ctx, args): # always return the command's name, not the alias",
+      "score": 1,
+      "scope": "click/examples/aliases"
+    },
+    {
+      "kind": "symbol",
+      "title": "get_command · method",
+      "pointer": "click/examples/complex/complex/cli.py:L40-L45",
+      "snippet": "def get_command(self, ctx, name)",
+      "score": 1,
+      "scope": "click/examples/complex"
+    },
+    {
+      "kind": "symbol",
+      "title": "imagepipe.py · file",
+      "pointer": "click/examples/imagepipe/imagepipe.py",
+      "snippet": "",
+      "score": 1,
+      "scope": "click/examples/imagepipe"
+    },
+    {
+      "kind": "symbol",
+      "title": "parse_args · method",
+      "pointer": "flask/src/flask/cli.py:L678-L688",
+      "snippet": "def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]",
+      "score": 1,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "init_db_command · function",
+      "pointer": "flask/examples/tutorial/flaskr/db.py:L42-L45",
+      "snippet": "def init_db_command()",
+      "score": 1,
+      "scope": "flask/examples/tutorial"
+    },
+    {
+      "kind": "symbol",
+      "title": "options · function",
+      "pointer": "httpx/httpx/_api.py:L210-L243",
+      "snippet": "def options( url: URL | str, *, params: QueryParamTypes | None = None, headers: HeaderTypes | None = None, cookies: CookieTypes | None = None, auth: AuthTypes | None = None, proxy: ProxyTypes | None = None, follow_redirects: bool = False, verify: ssl.SSLContext | str | bool = True, timeout: TimeoutTypes = DEFAULT_TIMEOUT_CONFIG, trust_env: bool = True, ) -> Response",
+      "score": 1,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "_parse_decls · method",
+      "pointer": "click/src/click/core.py:L2528-L2530",
+      "snippet": "def _parse_decls( self, decls: cabc.Sequence[str], expose_value: bool ) -> tuple[str, list[str], list[str]]",
+      "score": 0.9838709677419354,
+      "scope": "click"
+    },
+    {
+      "kind": "symbol",
+      "title": "cmd_status.py · file",
+      "pointer": "click/examples/complex/complex/commands/cmd_status.py",
+      "snippet": "",
+      "score": 0.9838709677419354,
+      "scope": "click/examples/complex"
+    },
+    {
+      "kind": "symbol",
+      "title": "on-create-command.sh · file",
+      "pointer": "flask/.devcontainer/on-create-command.sh",
+      "snippet": "",
+      "score": 0.9838709677419354,
+      "scope": "flask"
+    }
+  ],
+  "scopes": {
+    "federated": [
+      "click",
+      "httpx",
+      "flask/examples/tutorial",
+      "flask",
+      "click/examples/aliases",
+      "click/examples/complex",
+      "click/examples/imagepipe"
+    ],
+    "alsoMatched": []
+  }
+}
+
+##### trail ask "send an HTTP request" from the folder
+exit 0
+trail ask — "send an HTTP request"  (lexical)
+
+1. [flask/] send_from_directory · function  [symbol]
+   flask/src/flask/helpers.py:L543-L584
+   def send_from_directory( directory: os.PathLike[str] | str, path: os.PathLike[str] | str, **kwargs: t.Any, ) -> Response
+
+2. [httpx/] _send_single_request · method  [symbol]
+   httpx/httpx/_client.py:L1717-L1749
+   async def _send_single_request(self, request: Request) -> Response
+
+3. [flask/] send_static_file · method  [symbol]
+   flask/src/flask/app.py:L390-L410
+   def send_static_file(self, filename: str) -> Response
+
+4. [httpx/] send · function  [symbol]
+   httpx/httpx/_transports/asgi.py:L148-L167
+   async def send(message: typing.MutableMapping[str, typing.Any]) -> None
+
+5. [flask/] send_static_file · method  [symbol]
+   flask/src/flask/blueprints.py:L82-L102
+   def send_static_file(self, filename: str) -> Response
+
+6. [httpx/] Request · class  [symbol]
+   httpx/httpx/_models.py:L382-L512
+   class Request
+
+7. [flask/] trap_http_exception · method  [symbol]
+   flask/src/flask/sansio/app.py:L894-L927
+   def trap_http_exception(self, e: Exception) -> bool
+
+8. [httpx/] print_request_headers · function  [symbol]
+   httpx/httpx/_main.py:L147-L153
+   def print_request_headers(request: httpcore.Request, http2: bool = False) -> None
+
+matched in: flask/ (4) · httpx/ (4)
+also matched: click/ — narrow with --in click/
+--- json
+{
+  "query": "send an HTTP request",
+  "mode": "lexical",
+  "hits": [
+    {
+      "kind": "symbol",
+      "title": "send_from_directory · function",
+      "pointer": "flask/src/flask/helpers.py:L543-L584",
+      "snippet": "def send_from_directory( directory: os.PathLike[str] | str, path: os.PathLike[str] | str, **kwargs: t.Any, ) -> Response",
+      "score": 1,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "_send_single_request · method",
+      "pointer": "httpx/httpx/_client.py:L1717-L1749",
+      "snippet": "async def _send_single_request(self, request: Request) -> Response",
+      "score": 1,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "send_static_file · method",
+      "pointer": "flask/src/flask/app.py:L390-L410",
+      "snippet": "def send_static_file(self, filename: str) -> Response",
+      "score": 0.9838709677419354,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "send · function",
+      "pointer": "httpx/httpx/_transports/asgi.py:L148-L167",
+      "snippet": "async def send(message: typing.MutableMapping[str, typing.Any]) -> None",
+      "score": 0.9838709677419354,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "send_static_file · method",
+      "pointer": "flask/src/flask/blueprints.py:L82-L102",
+      "snippet": "def send_static_file(self, filename: str) -> Response",
+      "score": 0.9682539682539681,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "Request · class",
+      "pointer": "httpx/httpx/_models.py:L382-L512",
+      "snippet": "class Request",
+      "score": 0.9682539682539681,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "trap_http_exception · method",
+      "pointer": "flask/src/flask/sansio/app.py:L894-L927",
+      "snippet": "def trap_http_exception(self, e: Exception) -> bool",
+      "score": 0.953125,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "print_request_headers · function",
+      "pointer": "httpx/httpx/_main.py:L147-L153",
+      "snippet": "def print_request_headers(request: httpcore.Request, http2: bool = False) -> None",
+      "score": 0.953125,
+      "scope": "httpx"
+    },
+    {
+      "kind": "symbol",
+      "title": "before_app_request · method",
+      "pointer": "flask/src/flask/sansio/blueprints.py:L614-L621",
+      "snippet": "def before_app_request(self, f: T_before_request) -> T_before_request",
+      "score": 0.9384615384615385,
+      "scope": "flask"
+    },
+    {
+      "kind": "symbol",
+      "title": "handle_request · method",
+      "pointer": "httpx/httpx/_transports/base.py:L26-L59",
+      "snippet": "def handle_request(self, request: Request) -> Response",
+      "score": 0.9384615384615385,
+      "scope": "httpx"
+    }
+  ],
+  "scopes": {
+    "federated": [
+      "flask",
+      "httpx"
+    ],
+    "alsoMatched": [
+      {
+        "scope": "click",
+        "bestId": "click/examples/validation/validation.py:L15-L24"
+      }
+    ]
+  }
+}
+
+DONE 2026-11-19T03:29:21Z
