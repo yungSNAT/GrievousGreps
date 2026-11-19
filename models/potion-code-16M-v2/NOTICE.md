@@ -1,6 +1,6 @@
 # potion-code-16M-v2
 
-The static embedding model `trail ask` uses for semantic ranking, by MinishLab, copied unchanged from https://huggingface.co/minishlab/potion-code-16M-v2 at revision `e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b` on 19 November 2026. Its model card (`README.md` here) gives the licence as MIT and names no copyright line; `LICENSE` here is the MIT text, with the holder named as the publisher and the authors the card cites.
+The static embedding model `trail ask` uses for semantic ranking, by MinishLab, copied unchanged from https://huggingface.co/minishlab/potion-code-16M-v2 at revision `e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b` on 19 November 2026. Its model card (`README.md` here) gives the licence as MIT and names no copyright line; `LICENSE` here is the MIT text, with the holder named as the model's authors, as the card names no other.
 
 | File | Bytes | SHA-256 |
 | --- | --- | --- |

@@ -199,7 +199,9 @@ function readTable(fd: number, vocabRows: number): Table {
   }
   if (t?.dtype !== "F16" || t.shape?.length !== 2) throw new Error("model.safetensors: expected an F16 'embeddings' table");
   const [rows, dim] = t.shape as [number, number];
-  const [start, end] = t.data_offsets as [number, number];
+  const [start, end] = (t.data_offsets ?? []) as [number, number];
+  const counts = (...xs: unknown[]) => xs.every((x) => Number.isSafeInteger(x) && (x as number) >= 0);
+  if (!counts(rows, dim, start, end) || dim === 0 || end < start) throw new Error("model.safetensors: a bad table shape or offsets");
   const offset = 8 + headerLen + start;
   if (end - start !== rows * dim * 2 || offset + rows * dim * 2 > size) throw new Error("model.safetensors: the table runs past the file");
   if (rows < vocabRows) throw new Error(`model.safetensors: ${rows} rows for a vocabulary of ${vocabRows}`);
@@ -216,6 +218,7 @@ export function openEmbedder(opts: { whole?: boolean; dir?: string } = {}): Embe
   const tok = loadTokenizer(dir);
   const fd = openSync(join(dir, "model.safetensors"), "r");
   let table: Table;
+  let row: Buffer;
   let all: Uint16Array | null = null;
   try {
     table = readTable(fd, [...tok.vocab.values()].reduce((m, id) => Math.max(m, id + 1), 0));
@@ -224,12 +227,12 @@ export function openEmbedder(opts: { whole?: boolean; dir?: string } = {}): Embe
       readExact(fd, bytes, table.offset);
       all = new Uint16Array(bytes.buffer, bytes.byteOffset, table.rows * table.dim);
     }
+    row = Buffer.alloc(table.dim * 2);
   } catch (err) {
     closeSync(fd);
     throw err;
   }
   const { dim } = table;
-  const row = Buffer.alloc(dim * 2);
   const rowBits = new Uint16Array(row.buffer, row.byteOffset, dim);
   return {
     dim,

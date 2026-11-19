@@ -1450,12 +1450,13 @@ function withSemantic(result: AskResult, graph: GraphV1, outDir: string, query: 
   };
   const index = readVectors(outDir);
   if (!index) return skip(`no vectors yet — run \`${cmd("graft build")}\``);
-  let dense: DenseFile[];
+  let vector: Float32Array;
   try {
-    dense = denseFiles(index, embedQuery(query, modelDir), inPrefix ? (p) => pathUnderPrefix(p, inPrefix) : undefined);
+    vector = embedQuery(query, modelDir);
   } catch (err) {
     return skip(`the model is unreadable (${err instanceof Error ? err.message : String(err)})`);
   }
+  const dense = denseFiles(index, vector, inPrefix ? (p) => pathUnderPrefix(p, inPrefix) : undefined);
   if (!dense.length) return result;
   const scoped = result.hits.some((h) => h.scope !== undefined);
   const scopes = graph.meta.scopes ?? [];

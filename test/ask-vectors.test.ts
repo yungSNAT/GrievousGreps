@@ -208,11 +208,17 @@ test("a damaged or empty chunk vector never ranks its file", () => {
 
 test("a short answer is the start of a longer one", async () => {
   const root = fixture();
+  // Words of the query in every file, so the word ranking runs deeper than a short limit.
+  writeFileSync(join(root, "login.ts"), "// login credentials form: account, secret, values, number, canvas\nexport const loginFormLabels = ['account', 'secret'];\n");
   try {
     await withEnv(undefined, () => buildGraph(root));
-    const long = await withEnv(undefined, () => ask(root, "values number", { limit: 10 }));
-    const short = await withEnv(undefined, () => ask(root, "values number", { limit: 2 }));
-    assert.deepEqual(short.hits.map((h) => h.pointer), long.hits.slice(0, 2).map((h) => h.pointer));
+    for (const q of ["login credentials", "account secret values number", "canvas number account"]) {
+      const long = await withEnv(undefined, () => ask(root, q, { limit: 10 }));
+      for (const limit of [1, 2]) {
+        const short = await withEnv(undefined, () => ask(root, q, { limit }));
+        assert.deepEqual(short.hits.map((h) => h.pointer), long.hits.slice(0, limit).map((h) => h.pointer), `${q} at ${limit}`);
+      }
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
