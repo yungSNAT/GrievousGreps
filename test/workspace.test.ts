@@ -517,6 +517,18 @@ test("workspace graft_trace_calls walks depth \"all\" as the single-repository t
   }
 });
 
+test("workspace graft_trace_calls refuses a direction outside \"in\" and \"out\"", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    const r = await callTool(p, "graft_trace_calls", { symbol: "helperThing", direction: "callees" });
+    assert.equal(r.isError, true);
+    assert.match(r.text, /direction must be "in" or "out", got "callees"/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("grep federation merges groups across children with child-prefixed paths", async () => {
   const p = workspaceFx(REPOS);
   await buildWorkspace(p);
