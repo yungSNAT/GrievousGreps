@@ -32,3 +32,5 @@ These figures were in the README, but no output of their runs was kept, so they 
 - the number of code nodes in httpx's `trail viz --export` (1,301);
 - the time to build the 3-repository folder (10.5 s);
 - that `trail ask` from that folder ranked click's and flask's definitions together.
+
+All 3 were rerun at `57122b3` on 19 November with the output kept, in [../2026-11-19/](../2026-11-19/README.md).
