@@ -438,21 +438,23 @@ export function resolveEdges(
     return type && rustTextName(type);
   };
 
-  // Go: each folder's package name, from its ordinary files, and the import paths each file names without an alias.
-  const goPackageOf = new Map<string, string>();
+  // Go: each folder's package names, from its ordinary files (a build-ignored generator can say `package main`),
+  // and the import paths each file names without an alias.
+  const goPackagesOf = new Map<string, string[]>();
   const goBare = new Map<string, ReadonlySet<string>>();
   for (const e of rawEdges) {
     if (!e.goFile) continue;
     const file = toPosixPath(e.file);
-    if (!file.endsWith("_test.go") && !goPackageOf.has(posix.dirname(file))) goPackageOf.set(posix.dirname(file), e.goFile.package);
+    if (!file.endsWith("_test.go")) push(goPackagesOf, posix.dirname(file), e.goFile.package);
     goBare.set(file, new Set(e.goFile.bare));
   }
   // Go: the in-module folder an import path in `file` names. An import without an alias is named by its folder's
-  // package clause, but extract.ts took its path's last segment, so a folder whose package differs is not the one meant.
+  // package clause, but extract.ts took its path's last segment, so a folder no ordinary file of which declares that
+  // package is not the one meant.
   const goDirFrom = (specifier: string, file: string): string | null => {
     const dir = hasGoModules ? goImportDir(specifier, opts.goModules!) : null;
-    const pkg = dir === null ? undefined : goPackageOf.get(dir);
-    const guessed = goBare.get(toPosixPath(file))?.has(specifier) && pkg !== undefined && pkg !== specifier.split("/").at(-1);
+    const pkgs = dir === null ? undefined : goPackagesOf.get(dir);
+    const guessed = goBare.get(toPosixPath(file))?.has(specifier) && pkgs !== undefined && !pkgs.includes(specifier.split("/").at(-1)!);
     return guessed ? null : dir;
   };
   // Go: the functions named `name` in the package an import path in `file` names, its test files aside.

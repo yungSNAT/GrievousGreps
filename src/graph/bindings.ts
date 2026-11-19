@@ -758,15 +758,46 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   // A func literal's local shadows only from its declaration and in its block, which a lookup cannot
   // see, so where an enclosing scope gives the name another type, the literal's binding names none.
   const outer = scope.at(-1)?.startsWith("@") ? (name: string) => bindings.lookup(scope.slice(0, -1), name) : () => null;
+  const typed = new Set<string>();
   const setLocal = (name: string, type: string) => {
     const prior = outer(name);
+    typed.add(name);
     bindings.setGo(scopePath, name, prior === null || prior === type ? type : "?");
   };
+  // A parameter types the literal's whole body, so it takes its type whatever an enclosing scope says.
+  const setParam = (name: string, type: string) => {
+    typed.add(name);
+    bindings.setGo(scopePath, name, type);
+  };
+  bindGoTyped(node, scopePath, bindings, setLocal, setParam);
+  // A name the literal declares with no type read hides the enclosing scope's type all the same.
+  for (const name of goDeclaredNames(node)) if (!typed.has(name) && outer(name) !== null) bindings.setGo(scopePath, name, "?");
+}
+
+/** The variable names a Go declaration node introduces in its scope. */
+function goDeclaredNames(node: SyntaxNode): string[] {
+  const ids = (holder: SyntaxNode | null | undefined) =>
+    (holder?.namedChildren ?? []).filter((c) => c.type === "identifier" && c.text !== "_").map((c) => c.text);
+  if (node.type === "parameter_declaration" || node.type === "variadic_parameter_declaration") {
+    return GO_FUNCTIONS.has(node.parent?.parent?.type ?? "") ? ids(node) : [];
+  }
+  if (node.type === "var_spec") return ids(node);
+  if (node.type === "short_var_declaration") return ids(node.childForFieldName("left"));
+  if (node.type === "range_clause" || node.type === "receive_statement") {
+    return node.children.some((c) => c.type === ":=") ? ids(node.childForFieldName("left")) : [];
+  }
+  if (node.type === "type_switch_statement") return ids(node.childForFieldName("alias"));
+  return [];
+}
+
+type SetGo = (name: string, type: string) => void;
+
+function bindGoTyped(node: SyntaxNode, scopePath: string, bindings: FileBindings, setLocal: SetGo, setParam: SetGo): void {
   if (node.type === "parameter_declaration") {
     // A function type's parameters (`var cb func(l *Logger)`) name no variable here.
     if (!GO_FUNCTIONS.has(node.parent?.parent?.type ?? "")) return;
     const type = goTypeName(node.childForFieldName("type"));
-    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) bindings.setGo(scopePath, name.text, type);
+    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) setParam(name.text, type);
     return;
   }
   if (node.type === "var_spec") {
@@ -839,11 +870,11 @@ export function goTypeName(type: SyntaxNode | null): string | null {
   return base?.type === "type_identifier" && !isGoTypeParameter(base) ? base.text : null;
 }
 
-/** Whether a bare type name is a type parameter of a declaration around it: a generic function's or
- * type's (`[T any]`), or one a method's receiver names (`func (b *Box[T]) …`). */
+/** Whether a bare type name is a type parameter of the function around it: a generic function's
+ * (`[T any]`), or one a method's receiver names (`func (b *Box[T]) …`). */
 function isGoTypeParameter(name: SyntaxNode): boolean {
   for (let n = name.parent; n; n = n.parent) {
-    if (n.type === "function_declaration" || n.type === "type_spec") {
+    if (n.type === "function_declaration") {
       const decls = n.childForFieldName("type_parameters")?.namedChildren ?? [];
       if (decls.some((d) => d.namedChildren.some((c) => c.type === "identifier" && c.text === name.text))) return true;
     } else if (n.type === "method_declaration") {
