@@ -532,9 +532,11 @@ test("Go extraction: a func literal's parameter or local named like the method's
         "func (l *Logger) SetLevel(v int) {}\nfunc (e *Entry) SetLevel(v int) {}\n" +
         "func run(f func(*Entry)) {}\n" +
         "func runAll(f func([]Entry)) {}\n" +
+        "func runIface(f func(interface{ SetLevel(int) })) {}\n" +
         "func (l *Logger) Param() { run(func(l *Entry) { l.SetLevel(1) }) }\n" +
         "func (l *Logger) Local() { run(func(*Entry) { l := &Entry{}; l.SetLevel(1) }) }\n" +
         "func (l *Logger) Untyped() { runAll(func(l []Entry) { l.SetLevel(1) }) }\n" +
+        "func (l *Logger) Iface() { runIface(func(l interface{ SetLevel(int) }) { l.SetLevel(1) }) }\n" +
         "func (l *Logger) Ranged(xs []*Entry) { run(func(*Entry) { for _, l := range xs { l.SetLevel(1) } }) }\n" +
         "func (l *Logger) Captured() { run(func(*Entry) { l.SetLevel(1) }) }\n",
   });
@@ -542,13 +544,14 @@ test("Go extraction: a func literal's parameter or local named like the method's
   const calls = (fn: string) =>
     graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target);
   assert.deepEqual(
-    Object.fromEntries(["Param", "Local", "Untyped", "Ranged", "Captured"].map((fn) => [fn, calls(fn)])),
+    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Captured"].map((fn) => [fn, calls(fn)])),
     {
       Param: ["main.go#Entry.SetLevel"],
       // A local after a captured receiver of another type, or a name declared with no type read, gets no type
       // rather than the receiver's.
       Local: [],
       Untyped: [],
+      Iface: [],
       Ranged: [],
       Captured: ["main.go#Logger.SetLevel"],
     },
@@ -568,15 +571,19 @@ test("Go extraction: a type parameter names no type, though the package declares
         "func Each[T Mer](v T) { v.M() }\n" +
         "func (b *Box[T]) Call(v T) { v.M() }\n" +
         "func (b *Box[U]) Use(t *T) { t.M() }\n" +
-        "func plain(t *T) { t.M() }\n",
+        "func plain(t *T) { t.M() }\n" +
+        "type Concrete = T\n" +
+        "func Shadow[T any]() { { type T = Concrete; var x T; x.M() } }\n",
   });
 
   const reachesT = (source: string) =>
     graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#${source}` && e.target === "main.go#T.M").length;
+  // The generic method is in the graph, so its count says something.
+  assert.ok(graph.nodes.some((n) => n.id === "main.go#Call"));
   assert.deepEqual(
-    Object.fromEntries(["result", "Each", "Call", "Use", "plain"].map((fn) => [fn, reachesT(fn)])),
-    // A type parameter hides the package's T; another declaration's parameter does not.
-    { result: 0, Each: 0, Call: 0, Use: 1, plain: 1 },
+    Object.fromEntries(["result", "Each", "Call", "Use", "plain", "Shadow"].map((fn) => [fn, reachesT(fn)])),
+    // A type parameter hides the package's T; another declaration's parameter, or a block's own type, does not.
+    { result: 0, Each: 0, Call: 0, Use: 1, plain: 1, Shadow: 1 },
   );
 });
 
