@@ -191,7 +191,7 @@ export interface RawEdge {
   tsModule?: TsModule;
   /** Go: the file's package name, and the import paths it names without an alias, whose local name
    * extract.ts guesses from the path's last segment, for resolve.ts to check against that folder's package. */
-  goFile?: { package: string; bare: string[] };
+  goFile?: { package: string; ignored: boolean; bare: string[] };
   /** With pythonRebound: the module a def's own import of that name reads from. */
   pythonReboundModule?: string;
   /** With pythonReboundModule: the name that module exports, under an `as`. */
@@ -623,7 +623,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner: scope.split(".").pop()!, scope, fields: each } });
   }
   if (tsModule) rawEdges.push({ source: rel, relation: "imports", file: rel, tsModule });
-  if (goPackage) rawEdges.push({ source: rel, relation: "imports", file: rel, goFile: { package: goPackage, bare: goBareImports(goSpecs) } });
+  if (goPackage) rawEdges.push({ source: rel, relation: "imports", file: rel, goFile: { package: goPackage, ignored: goBuildIgnored(root), bare: goBareImports(goSpecs) } });
   return { nodes, rawEdges };
 }
 
@@ -1745,6 +1745,18 @@ function goImportSpecs(root: SyntaxNode): SyntaxNode[] {
 }
 
 /** A Go file's `package` clause name. */
+/** Whether a Go file's build constraint is `ignore`, as a generator run by `go run` has; no build includes it. */
+function goBuildIgnored(root: SyntaxNode): boolean {
+  const clause = root.namedChildren.find((c) => c.type === "package_clause");
+  return root.namedChildren.some(
+    (c) =>
+      c.type === "comment" &&
+      (!clause || c.startIndex < clause.startIndex) &&
+      (c.text.startsWith("//go:build") || c.text.startsWith("// +build")) &&
+      c.text.split(/\s+/).includes("ignore"),
+  );
+}
+
 function goPackageName(root: SyntaxNode): string | null {
   const clause = root.namedChildren.find((c) => c.type === "package_clause");
   return clause?.namedChildren.find((c) => c.type === "package_identifier")?.text ?? null;

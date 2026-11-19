@@ -42,6 +42,11 @@ export class FileBindings {
     this.set(scopePath, name, prior === undefined || prior === type ? type : "?");
   }
 
+  /** Whether `name` is bound in exactly this scope. */
+  has(scopePath: string, name: string): boolean {
+    return this.map.has(`${scopePath}|${name}`);
+  }
+
   /** Innermost-first: for scope ["a","b"] name "x", tries `a.b|x`, `a|x`, `|x`. */
   lookup(scope: string[], name: string): string | null {
     for (let i = scope.length; i >= 0; i--) {
@@ -771,7 +776,11 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   };
   bindGoTyped(node, scopePath, bindings, setLocal, setParam);
   // A name the literal declares with no type read hides the enclosing scope's type all the same.
-  for (const name of goDeclaredNames(node)) if (!typed.has(name) && outer(name) !== null) bindings.setGo(scopePath, name, "?");
+  // A `:=` naming a variable this literal already declared reuses it rather than shadowing it.
+  const reuses = (name: string) => node.type === "short_var_declaration" && bindings.has(scopePath, name);
+  for (const name of goDeclaredNames(node)) {
+    if (!typed.has(name) && !reuses(name) && outer(name) !== null) bindings.setGo(scopePath, name, "?");
+  }
 }
 
 /** The variable names a Go declaration node introduces in its scope. */
