@@ -538,13 +538,15 @@ test("Go extraction: a func literal's parameter or local named like the method's
         "func (l *Logger) Untyped() { runAll(func(l []Entry) { l.SetLevel(1) }) }\n" +
         "func (l *Logger) Iface() { runIface(func(l interface{ SetLevel(int) }) { l.SetLevel(1) }) }\n" +
         "func (l *Logger) Ranged(xs []*Entry) { run(func(*Entry) { for _, l := range xs { l.SetLevel(1) } }) }\n" +
+        "func (l *Logger) Received(ch chan *Entry) { run(func(*Entry) { l := <-ch; l.SetLevel(1) }) }\n" +
+        "func (l *Logger) AfterBlock(xs []*Entry) { run(func(*Entry) { for _, l := range xs { _ = l }; l.SetLevel(1) }) }\n" +
         "func (l *Logger) Captured() { run(func(*Entry) { l.SetLevel(1) }) }\n",
   });
 
   const calls = (fn: string) =>
     graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target);
   assert.deepEqual(
-    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Captured"].map((fn) => [fn, calls(fn)])),
+    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Captured"].map((fn) => [fn, calls(fn)])),
     {
       Param: ["main.go#Entry.SetLevel"],
       // A local after a captured receiver of another type, or a name declared with no type read, gets no type
@@ -553,6 +555,9 @@ test("Go extraction: a func literal's parameter or local named like the method's
       Untyped: [],
       Iface: [],
       Ranged: [],
+      Received: [],
+      // Accepted miss: a literal is one scope, so the range's l hides the receiver after its block too.
+      AfterBlock: [],
       Captured: ["main.go#Logger.SetLevel"],
     },
   );
@@ -573,7 +578,8 @@ test("Go extraction: a type parameter names no type, though the package declares
         "func (b *Box[U]) Use(t *T) { t.M() }\n" +
         "func plain(t *T) { t.M() }\n" +
         "type Concrete = T\n" +
-        "func Shadow[T any]() { { type T = Concrete; var x T; x.M() } }\n",
+        "func Shadow[T any]() { { type T = Concrete; var x T; x.M() } }\n" +
+        "func InCase[T any](v any) { switch v.(type) { case int: type T = Concrete; var x T; x.M() } }\n",
   });
 
   const reachesT = (source: string) =>
@@ -581,9 +587,9 @@ test("Go extraction: a type parameter names no type, though the package declares
   // The generic method is in the graph, so its count says something.
   assert.ok(graph.nodes.some((n) => n.id === "main.go#Call"));
   assert.deepEqual(
-    Object.fromEntries(["result", "Each", "Call", "Use", "plain", "Shadow"].map((fn) => [fn, reachesT(fn)])),
+    Object.fromEntries(["result", "Each", "Call", "Use", "plain", "Shadow", "InCase"].map((fn) => [fn, reachesT(fn)])),
     // A type parameter hides the package's T; another declaration's parameter, or a block's own type, does not.
-    { result: 0, Each: 0, Call: 0, Use: 1, plain: 1, Shadow: 1 },
+    { result: 0, Each: 0, Call: 0, Use: 1, plain: 1, Shadow: 1, InCase: 1 },
   );
 });
 
