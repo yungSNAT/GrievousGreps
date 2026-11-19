@@ -189,6 +189,9 @@ export interface RawEdge {
    * it and `name`. Empty for a bare call. */
   tsPath?: string[];
   tsModule?: TsModule;
+  /** Go: the file's package name, and the import paths it names without an alias, whose local name
+   * extract.ts guesses from the path's last segment, for resolve.ts to check against that folder's package. */
+  goFile?: { package: string; ignored: boolean; bare: string[] };
   /** With pythonRebound: the module a def's own import of that name reads from. */
   pythonReboundModule?: string;
   /** With pythonReboundModule: the name that module exports, under an `as`. */
@@ -546,7 +549,9 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     : EMPTY_MODULE_MAP;
   const pythonNamedImports = lang === "python" ? withoutPythonShadowedModules(pythonSymbols, root) : EMPTY_NAMED_IMPORTS;
   const importedSymbols = collectImportedSymbols(root, lang);
-  const goImports = lang === "go" ? collectGoImports(root) : new Map<string, string>();
+  const goSpecs = lang === "go" ? goImportSpecs(root) : [];
+  const goImports = collectGoImports(goSpecs);
+  const goPackage = lang === "go" ? goPackageName(root) : null;
   const rGenerics = lang === "r" ? collectRGenerics(root) : EMPTY_SET;
   const pythonExports = lang === "python" ? collectPythonExports(root) : null;
   const tsModule = lang === "typescript" || lang === "tsx" ? collectTsModule(root) : null;
@@ -618,6 +623,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner: scope.split(".").pop()!, scope, fields: each } });
   }
   if (tsModule) rawEdges.push({ source: rel, relation: "imports", file: rel, tsModule });
+  if (goPackage) rawEdges.push({ source: rel, relation: "imports", file: rel, goFile: { package: goPackage, ignored: goBuildIgnored(root), bare: goBareImports(goSpecs) } });
   return { nodes, rawEdges };
 }
 
@@ -1710,19 +1716,50 @@ function goHeld(bound: string, ctx: WalkCtx): Pick<RawEdge, "goResult" | "goType
   return specifier ? { goType: { name: bound.slice(dot + 1), specifier } } : null;
 }
 
-function collectGoImports(root: SyntaxNode): Map<string, string> {
+function collectGoImports(specs: SyntaxNode[]): Map<string, string> {
   const out = new Map<string, string>();
+  for (const node of specs) {
+    const spec = importSpecifier(node, "go");
+    const local = node.childForFieldName("name")?.text ?? spec?.split("/").at(-1);
+    if (spec && local) out.set(local, spec);
+  }
+  return out;
+}
+
+/** The import paths a Go file names without an alias. */
+function goBareImports(specs: SyntaxNode[]): string[] {
+  return specs.flatMap((node) => {
+    const spec = node.childForFieldName("name") ? null : importSpecifier(node, "go");
+    return spec ? [spec] : [];
+  });
+}
+
+function goImportSpecs(root: SyntaxNode): SyntaxNode[] {
+  const out: SyntaxNode[] = [];
   const visit = (node: SyntaxNode): void => {
-    if (node.type === "import_spec") {
-      const spec = importSpecifier(node, "go");
-      const local = node.childForFieldName("name")?.text ?? spec?.split("/").at(-1);
-      if (spec && local) out.set(local, spec);
-      return;
-    }
-    if (node.type === "source_file" || node.type.startsWith("import_")) node.namedChildren.forEach(visit);
+    if (node.type === "import_spec") out.push(node);
+    else if (node.type === "source_file" || node.type.startsWith("import_")) node.namedChildren.forEach(visit);
   };
   visit(root);
   return out;
+}
+
+/** A Go file's `package` clause name. */
+/** Whether a Go file's build constraint is just `ignore`, as a generator run by `go run` has; no build includes
+ * it. A constraint combining `ignore` with other tags (`ignore || linux`) is taken as built. */
+function goBuildIgnored(root: SyntaxNode): boolean {
+  const clause = root.namedChildren.find((c) => c.type === "package_clause");
+  return root.namedChildren.some(
+    (c) =>
+      c.type === "comment" &&
+      (!clause || c.startIndex < clause.startIndex) &&
+      ["//go:build ignore", "// +build ignore"].includes(c.text.trim()),
+  );
+}
+
+function goPackageName(root: SyntaxNode): string | null {
+  const clause = root.namedChildren.find((c) => c.type === "package_clause");
+  return clause?.namedChildren.find((c) => c.type === "package_identifier")?.text ?? null;
 }
 
 /** PHP `use` bindings: local alias → { exported name, FQN specifier }. */
