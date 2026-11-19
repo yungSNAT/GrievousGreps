@@ -148,6 +148,22 @@ test("blast: a caller whose second call was left alone is left behind at that ca
   assert.deepEqual(commentOnly.leftBehind?.map((x) => [x.name, x.line]), [["total", 3]]);
 });
 
+test("blast: every call starting on a line is checked, and a trailing or block comment is no call", () => {
+  // The inner call runs over lines 2 to 4 and the outer one to line 6; only the outer's argument changed.
+  const nested = {
+    ...files,
+    "c.ts": ["export function total(): number {", "  return add(add(", "    1,", "  ),", "    2, // add(", "  ); /* add( */", "}"],
+  };
+  const g = graph();
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, span: "L1-L7" } : n));
+  const opts = { depth: 2, read: (p: string) => nested[p] ?? null };
+  const outer = blastRadius(g, [at("a.ts", 3), at("c.ts", 5), at("d.ts", 2)], "test", opts);
+  assert.deepEqual(outer.leftBehind?.map((x) => [x.name, x.line]), [["total", 2]], "the inner call was left alone");
+  // Both calls edited: the `add(` in each comment is no call left alone.
+  const both = blastRadius(g, [at("a.ts", 3), at("c.ts", 3, 5), at("d.ts", 2)], "test", opts);
+  assert.deepEqual(both.leftBehind, []);
+});
+
 test("blast: with no file to read, the first line is the declaration and any edit in a caller's span counts", () => {
   assert.deepEqual(blastRadius(graph(), [at("a.ts", 3)], "test", { depth: 2 }).leftBehind, [], "line 3 is past the first line");
   const report = blastRadius(graph(), [at("a.ts", 1), at("d.ts", 3)], "test", { depth: 2 });

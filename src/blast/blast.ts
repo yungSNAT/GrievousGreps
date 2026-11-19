@@ -47,8 +47,9 @@ export interface Seed {
   span: string;
   /** True for a whole-file seed (an added file, or a change outside any symbol). */
   wholeFile: boolean;
-  /** A changed line falls in the declaration: from the span's first line to the end
-   * of its signature. Its callers can then need editing too ({@link LeftBehind}). */
+  /** The diff changed the declaration's text, from the span's first line to the end
+   * of its signature, whitespace and a comma before a closing bracket aside. Its
+   * callers can then need editing too ({@link LeftBehind}). */
   declarationChanged?: true;
 }
 
@@ -490,7 +491,8 @@ function declarationChanged(node: NodeV1, file: ChangedFile, removed: Squashed[]
  * The last line of a call whose name is on line `n` at column `at`: where the
  * parenthesis after the name closes, so a changed argument on a later line of a
  * wrapped call counts. Line `n` when no parenthesis follows the name on it. Strings
- * and comments are not parsed, and the scan stops after {@link MAX_WRAPPED_LINES}.
+ * and comments are not parsed, though {@link callSite} passes lines with comments
+ * blanked, and the scan stops after {@link MAX_WRAPPED_LINES}.
  */
 function callEnd(lines: string[], n: number, at: number, last: number): number {
   let depth = 0;
@@ -508,17 +510,27 @@ function callEnd(lines: string[], n: number, at: number, last: number): number {
 const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|#|--)/;
 
 /**
+ * A line with its comments blanked: a block comment within it, and a trailing `//`
+ * or `#` comment that follows whitespace (so `http://` and `a#b` stay). Blanked with
+ * spaces rather than cut, so a column found in the result is a column of the line.
+ */
+const codeOf = (text: string): string =>
+  text
+    .replace(/\/\*.*?\*\//g, (c) => " ".repeat(c.length))
+    .replace(/(^|\s)(?:\/\/|#).*$/, (c, lead: string) => lead + " ".repeat(c.length - lead.length));
+
+/**
  * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
  * to look at (null when none could be found).
  *
  * With the file readable, a call is the name followed by `(` (after `!`, `?.` or
  * type arguments), running to where that parenthesis closes ({@link callEnd}), so a
  * changed argument on a later line counts. Any call the diff left alone leaves the
- * caller behind, whatever happened to its other calls. With no call of that shape (a
- * JSX element, a decorator, `new Foo`), a changed line naming it counts as the edit.
- * Lines that start with a comment are skipped; strings are not parsed. Without the
- * file, or with no line naming it (a call through an alias), any changed line in the
- * caller's span counts.
+ * caller behind, whatever happened to its other calls, several on one line included.
+ * With no call of that shape (a JSX element, a decorator, `new Foo`), a changed line
+ * naming it counts as the edit. Comments are skipped ({@link codeOf}); strings are
+ * not parsed. Without the file, or with no line naming it (a call through an alias),
+ * any changed line in the caller's span counts.
  */
 function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, read?: LineReader): "edited" | number | null {
   const span = spanBounds(caller.span);
@@ -526,18 +538,20 @@ function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, r
   const lines = read?.(caller.path);
   if (lines) {
     const named = wordRe(name);
-    const called = new RegExp(`${named.source}\\s*(?:(?:!|\\?\\.)\\s*)?(?:<[^<>()]*>\\s*)?\\(`);
+    const called = new RegExp(`${named.source}\\s*(?:(?:!|\\?\\.)\\s*)?(?:<[^<>()]*>\\s*)?\\(`, "g");
     const last = Math.min(span.end, lines.length);
+    /** The span's lines with comments blanked, indexed as `lines` is. */
+    const code: string[] = [];
+    for (let n = span.start; n <= last; n++) code[n - 1] = COMMENT_LINE.test(lines[n - 1]) ? "" : codeOf(lines[n - 1]);
     let calls = 0;
     const mentions: number[] = [];
     for (let n = span.start; n <= last; n++) {
-      const text = lines[n - 1];
-      if (COMMENT_LINE.test(text)) continue;
-      const call = called.exec(text);
-      if (call) {
+      const found = [...code[n - 1].matchAll(called)];
+      for (const call of found) {
         calls++;
-        if (!touches(file, n, callEnd(lines, n, call.index, last))) return n;
-      } else if (named.test(text)) mentions.push(n);
+        if (!touches(file, n, callEnd(code, n, call.index, last))) return n;
+      }
+      if (found.length === 0 && named.test(code[n - 1])) mentions.push(n);
     }
     if (calls > 0) return "edited";
     if (mentions.length > 0) return mentions.some((n) => touches(file, n, n)) ? "edited" : mentions[0];
