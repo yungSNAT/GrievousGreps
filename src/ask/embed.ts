@@ -99,36 +99,26 @@ export function preTokenize(text: string): string[] {
   return words;
 }
 
-/** Token ids as model2vec's `tokenize` returns them: unknown tokens dropped. */
-export function tokenIds(tok: Tokenizer, text: string): number[] {
-  const ids: number[] = [];
-  for (const word of preTokenize(text.slice(0, tok.maxChars))) {
-    const chars = Array.from(word);
-    const pieces: number[] = [];
-    if (chars.length > tok.maxWordChars) pieces.push(tok.unk);
-    else {
-      for (let start = 0; start < chars.length; ) {
-        let end = chars.length;
-        let id: number | undefined;
-        for (; end > start; end--) {
-          id = tok.vocab.get((start > 0 ? "##" : "") + chars.slice(start, end).join(""));
-          if (id !== undefined) break;
-        }
-        if (id === undefined) {
-          pieces.length = 0;
-          pieces.push(tok.unk);
-          break;
-        }
-        pieces.push(id);
-        start = end;
-      }
-    }
-    for (const id of pieces) {
-      if (ids.length === MAX_TOKENS) return ids.filter((i) => i !== tok.unk);
-      ids.push(id);
-    }
+/** One word's WordPiece ids, longest match first; a word with no full split is one unknown token. */
+function wordPieces(tok: Tokenizer, word: string): number[] {
+  const chars = Array.from(word);
+  if (chars.length > tok.maxWordChars) return [tok.unk];
+  const pieces: number[] = [];
+  for (let start = 0; start < chars.length; ) {
+    let end = chars.length;
+    let id: number | undefined;
+    for (; end > start && id === undefined; end--) id = tok.vocab.get((start > 0 ? "##" : "") + chars.slice(start, end).join(""));
+    if (id === undefined) return [tok.unk];
+    pieces.push(id);
+    start = end + 1;
   }
-  return ids.filter((i) => i !== tok.unk);
+  return pieces;
+}
+
+/** Token ids as model2vec's `tokenize` returns them: at most 512 tokens, then unknown tokens dropped. */
+export function tokenIds(tok: Tokenizer, text: string): number[] {
+  const ids = preTokenize(text.slice(0, tok.maxChars)).flatMap((word) => wordPieces(tok, word));
+  return ids.slice(0, MAX_TOKENS).filter((id) => id !== tok.unk);
 }
 
 /** float16 bits to float32, indexed by every bit pattern. */
@@ -152,50 +142,30 @@ export function f16ToF32(bits: Uint16Array): Float32Array {
 
 const F32 = new Float32Array(1);
 const U32 = new Uint32Array(F32.buffer);
-/** float32 to the nearest float16 (ties to even); out of range saturates to infinity. */
+
+/** `v >>> s`, rounded to nearest, ties to even. */
+function roundShift(v: number, s: number): number {
+  const q = v >>> s;
+  const rest = v & ((1 << s) - 1);
+  const half = 1 << (s - 1);
+  return q + (rest > half || (rest === half && q & 1) ? 1 : 0);
+}
+
+/** One float32 as the nearest float16's bits; out of range saturates to infinity. */
+function toHalf(x: number): number {
+  F32[0] = x;
+  const bits = U32[0];
+  const sign = (bits >>> 16) & 0x8000;
+  const exp = ((bits >>> 23) & 0xff) - 112; // float32's bias 127 to float16's 15
+  const mant = bits & 0x7fffff;
+  if (exp >= 31) return sign | 0x7c00 | (exp === 143 && mant ? 0x200 : 0);
+  if (exp <= 0) return exp < -10 ? sign : sign | roundShift(mant | 0x800000, 14 - exp);
+  // A carry out of the mantissa raises the exponent, and past the top gives infinity, as it should.
+  return sign | roundShift((exp << 23) | mant, 13);
+}
+
 export function f32ToF16(values: Float32Array): Uint16Array {
-  const out = new Uint16Array(values.length);
-  for (let i = 0; i < values.length; i++) {
-    F32[0] = values[i];
-    const x = U32[0];
-    const sign = (x >>> 16) & 0x8000;
-    const exp = (x >>> 23) & 0xff;
-    let mant = x & 0x7fffff;
-    if (exp === 0xff) {
-      out[i] = sign | 0x7c00 | (mant ? 0x200 : 0);
-      continue;
-    }
-    let e = exp - 127 + 15;
-    if (e >= 31) {
-      out[i] = sign | 0x7c00;
-      continue;
-    }
-    if (e <= 0) {
-      if (e < -10) {
-        out[i] = sign;
-        continue;
-      }
-      mant |= 0x800000;
-      const shift = 14 - e;
-      const half = 1 << (shift - 1);
-      let m = mant >>> shift;
-      const rest = mant & ((1 << shift) - 1);
-      if (rest > half || (rest === half && m & 1)) m++;
-      out[i] = sign | m;
-      continue;
-    }
-    let m = mant >>> 13;
-    const rest = mant & 0x1fff;
-    if (rest > 0x1000 || (rest === 0x1000 && m & 1)) {
-      m++;
-      if (m === 0x400) {
-        m = 0;
-        e++;
-      }
-    }
-    out[i] = e >= 31 ? sign | 0x7c00 : sign | (e << 10) | m;
-  }
-  return out;
+  return Uint16Array.from(values, toHalf);
 }
 
 interface Table {
