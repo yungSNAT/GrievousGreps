@@ -42,6 +42,6 @@ Misses at 3 (no relevant file among the first 3):
 | aiohttp | architecture | how chunked transfer encoding is parsed | 5 | aiohttp/http_parser.py | client_reqrep.py, http_exceptions.py, web_response.py |
 | aiohttp | architecture | how DNS resolution is handled asynchronously | 10 | aiohttp/resolver.py | tracing.py, connector.py, client_exceptions.py |
 | aiohttp | architecture | how backpressure and flow control work in streaming | none | aiohttp/streams.py | _websocket/writer.py, hdrs.py, payload.py |
-=== the earlier scorer on the same answers
+=== wave 6 rules on the same answers
 TABLES MATCH
 DONE 2026-11-19T06:10:05Z
