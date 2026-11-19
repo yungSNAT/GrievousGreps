@@ -510,14 +510,37 @@ function callEnd(lines: string[], n: number, at: number, last: number): number {
 const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|#|--)/;
 
 /**
- * A line with its comments blanked: a block comment within it, and a trailing `//`
- * or `#` comment that follows whitespace (so `http://` and `a#b` stay). Blanked with
- * spaces rather than cut, so a column found in the result is a column of the line.
+ * A line with its comments blanked: a block comment, a trailing `//` comment (not in
+ * Python, where `//` divides) and a `#` comment that follows whitespace (so `a#b` and
+ * `this.#x` stay). Markers inside quotes are text, so `"a // b"; f()` keeps `f()`;
+ * quotes are paired within the line, with backslash escapes. Blanked with spaces
+ * rather than cut, so a column found in the result is a column of the line.
  */
-const codeOf = (text: string): string =>
-  text
-    .replace(/\/\*.*?\*\//g, (c) => " ".repeat(c.length))
-    .replace(/(^|\s)(?:\/\/|#).*$/, (c, lead: string) => lead + " ".repeat(c.length - lead.length));
+function codeOf(text: string, python: boolean): string {
+  let code = "";
+  let quote = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = "";
+      else if (ch === "\\") code += text[i++] ?? "";
+      code += text[i] ?? "";
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+    else if (text.startsWith("/*", i)) {
+      const close = text.indexOf("*/", i + 2);
+      const stop = close < 0 ? text.length : close + 2;
+      code += " ".repeat(stop - i);
+      i = stop - 1;
+      continue;
+    } else if ((!python && text.startsWith("//", i)) || (ch === "#" && (i === 0 || /\s/.test(text[i - 1])))) {
+      return code + " ".repeat(text.length - i);
+    }
+    code += ch;
+  }
+  return code;
+}
 
 /**
  * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
@@ -528,8 +551,8 @@ const codeOf = (text: string): string =>
  * changed argument on a later line counts. Any call the diff left alone leaves the
  * caller behind, whatever happened to its other calls, several on one line included.
  * With no call of that shape (a JSX element, a decorator, `new Foo`), a changed line
- * naming it counts as the edit. Comments are skipped ({@link codeOf}); strings are
- * not parsed. Without the file, or with no line naming it (a call through an alias),
+ * naming it counts as the edit. Comments are skipped ({@link codeOf}); a call-shaped
+ * name inside a string still counts. Without the file, or with no line naming it (a call through an alias),
  * any changed line in the caller's span counts.
  */
 function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, read?: LineReader): "edited" | number | null {
@@ -542,7 +565,8 @@ function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, r
     const last = Math.min(span.end, lines.length);
     /** The span's lines with comments blanked, indexed as `lines` is. */
     const code: string[] = [];
-    for (let n = span.start; n <= last; n++) code[n - 1] = COMMENT_LINE.test(lines[n - 1]) ? "" : codeOf(lines[n - 1]);
+    const python = /\.pyi?$/i.test(caller.path);
+    for (let n = span.start; n <= last; n++) code[n - 1] = COMMENT_LINE.test(lines[n - 1]) ? "" : codeOf(lines[n - 1], python);
     let calls = 0;
     const mentions: number[] = [];
     for (let n = span.start; n <= last; n++) {

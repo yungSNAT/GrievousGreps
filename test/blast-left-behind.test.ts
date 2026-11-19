@@ -164,6 +164,46 @@ test("blast: every call starting on a line is checked, and a trailing or block c
   assert.deepEqual(both.leftBehind, []);
 });
 
+test("blast: a comment marker inside quotes hides no call, and one with no space before it still starts a comment", () => {
+  const quoted = {
+    ...files,
+    "c.ts": [
+      "export function total(): number {", "  const x = add(1, 2);",
+      '  const note = "text // marker"; const y = add(3);', "  const tag = 'a #b'; const z = add(4);",
+      "  const n = 1;// add(2)", "  return x + y + z + n;", "}",
+    ],
+  };
+  const g = graph();
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, span: "L1-L7" } : n));
+  const opts = { depth: 2, read: (p: string) => quoted[p] ?? null };
+  const left = (...lines: number[]) =>
+    blastRadius(g, [at("a.ts", 3), at("c.ts", ...lines), at("d.ts", 2)], "test", opts).leftBehind?.map((x) => [x.name, x.line]);
+  assert.deepEqual(left(2, 3), [["total", 4]], "the call after a quoted `#`");
+  assert.deepEqual(left(2, 4), [["total", 3]], "the call after a quoted `//`");
+  assert.deepEqual(left(2, 3, 4), [], "`// add(2)` is a comment");
+});
+
+test("blast: in Python, `//` divides and `#` starts a comment", () => {
+  const g = graph();
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, path: "c.py" } : n));
+  const py = { ...files, "c.py": ["def total():", "    x = add(1, 2)", "    return x // add(3)  # add("] };
+  const report = blastRadius(g, [at("a.ts", 3), at("c.py", 2), at("d.ts", 2)], "test", { depth: 2, read: (p) => py[p] ?? null });
+  assert.deepEqual(report.leftBehind?.map((x) => [x.name, x.path, x.line]), [["total", "c.py", 3]]);
+});
+
+test("blast: whitespace changed inside a default string is no declaration change", () => {
+  // What a caller must pass is unchanged, so no call is left behind (round 2's S9, declined).
+  const g: GraphV1 = {
+    meta: { version: 1, nodeCount: 0, edgeCount: 0, languages: [] },
+    nodes: [node("g.ts", "L1-L3", { kind: "file" }), node("g.ts#greet", "L1-L3", { signature: 'function greet(s = "ab"): string' })],
+    edges: [],
+  };
+  const src = ['export function greet(s = "ab"): string {', "  return s;", "}"];
+  const file: ChangedFile = { path: "g.ts", status: "modified", ranges: [{ start: 1, end: 1 }], hunks: [hunk(1, 1, [["-", 'export function greet(s = "a b"): string {'], ["+", src[0]]])] };
+  const report = blastRadius(g, [file], "test", { depth: 2, read: (p) => (p === "g.ts" ? src : null) });
+  assert.equal(report.seeds.find((s) => s.name === "greet")?.declarationChanged, undefined);
+});
+
 test("blast: with no file to read, the first line is the declaration and any edit in a caller's span counts", () => {
   assert.deepEqual(blastRadius(graph(), [at("a.ts", 3)], "test", { depth: 2 }).leftBehind, [], "line 3 is past the first line");
   const report = blastRadius(graph(), [at("a.ts", 1), at("d.ts", 3)], "test", { depth: 2 });
