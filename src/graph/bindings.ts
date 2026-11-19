@@ -874,8 +874,8 @@ export function goTypeName(type: SyntaxNode | null): string | null {
  * (`[T any]`), or one a method's receiver names (`func (b *Box[T]) …`). */
 function isGoTypeParameter(name: SyntaxNode): boolean {
   for (let n = name.parent; n; n = n.parent) {
-    // A type the function declares in a block before the use hides its type parameter.
-    if (n.type === "block" && n.namedChildren.some((d) => d.type === "type_declaration" && d.startIndex < name.startIndex && declaresType(d, name.text))) {
+    // A type the function declares in a block or case body before the use hides its type parameter.
+    if (GO_STATEMENT_LISTS.has(n.type) && n.namedChildren.some((d) => d.type === "type_declaration" && d.startIndex < name.startIndex && declaresType(d, name.text))) {
       return false;
     }
     if (n.type === "function_declaration") {
@@ -891,6 +891,9 @@ function isGoTypeParameter(name: SyntaxNode): boolean {
   }
   return false;
 }
+
+/** The nodes that hold a Go function's statements directly. */
+const GO_STATEMENT_LISTS: ReadonlySet<string> = new Set(["block", "expression_case", "type_case", "communication_case", "default_case"]);
 
 function declaresType(declaration: SyntaxNode, text: string): boolean {
   return declaration.namedChildren.some((spec) => spec.childForFieldName("name")?.text === text);
