@@ -18,7 +18,7 @@ use crate::score::{
     score_symbol, summarise,
 };
 
-const MINUTE: Duration = Duration::from_secs(60);
+pub const MINUTE: Duration = Duration::from_secs(60);
 
 pub struct Options {
     /// The benchmark folder: repos.json and truth/.
@@ -133,32 +133,26 @@ pub fn remove(path: &Path) -> Result<(), String> {
 /// One shallow fetch of the pinned commit. Line endings stay as committed, so the truth's line
 /// numbers and the checkout agree on every platform.
 pub fn fetch_repo(repo: &Repo, work: &Path) -> Result<PathBuf, String> {
-    let dir = under(work, &["repos", &repo.name]);
+    let url = format!("https://github.com/{}", repo.repository);
+    fetch(&repo.name, &url, &repo.sha, work)
+}
+
+/// [`fetch_repo`] for any repository URL: `<work>/repos/<name>` at `sha`, fetched once.
+pub fn fetch(name: &str, url: &str, sha: &str, work: &Path) -> Result<PathBuf, String> {
+    let dir = under(work, &["repos", name]);
     if !dir.join(".git").exists() {
         remove(&dir)?;
         fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
         git(&["init", "--quiet"], &dir)?;
         git(&["config", "core.autocrlf", "false"], &dir)?;
         git(&["config", "core.longpaths", "true"], &dir)?;
-        git(
-            &[
-                "fetch",
-                "--quiet",
-                "--depth",
-                "1",
-                &format!("https://github.com/{}", repo.repository),
-                &repo.sha,
-            ],
-            &dir,
-        )?;
+        git(&["fetch", "--quiet", "--depth", "1", url, sha], &dir)?;
         git(&["checkout", "--quiet", "--detach", "FETCH_HEAD"], &dir)?;
     }
     let head = git(&["rev-parse", "HEAD"], &dir)?;
-    if head != repo.sha {
+    if head != sha {
         return Err(format!(
-            "{} is at {head}, expected {}. Delete {} and rerun.",
-            repo.name,
-            repo.sha,
+            "{name} is at {head}, expected {sha}. Delete {} and rerun.",
             dir.display()
         ));
     }
@@ -238,7 +232,7 @@ pub fn parse_result(stdout: &str) -> Option<Value> {
 
 /// The scratch home keeps the run away from your graphs, agent settings and hooks whatever the
 /// tool does, and the dotenv path keeps it away from any .env file.
-fn scratch_env(work: &Path, label: &str) -> Result<Vec<(&'static str, PathBuf)>, String> {
+pub fn scratch_env(work: &Path, label: &str) -> Result<Vec<(&'static str, PathBuf)>, String> {
     let home = under(work, &["home", label]);
     let trail = home.join(".trail");
     fs::create_dir_all(&trail).map_err(|e| format!("cannot create {}: {e}", trail.display()))?;
@@ -395,7 +389,7 @@ fn score_repo(
 }
 
 /// The last line `--version` prints, or 'unknown'. It runs in the caller's own environment.
-fn tool_version(node: &OsStr, tool: &Path, work: &Path) -> String {
+pub fn tool_version(node: &OsStr, tool: &Path, work: &Path) -> String {
     let out = command(node)
         .arg(tool)
         .arg("--version")
