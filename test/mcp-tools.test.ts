@@ -171,6 +171,16 @@ test('graft_trace_calls direction:out round-trips a callee, and reports a loud n
   assert.match(empty.text, /graft grep "add"/);
 });
 
+test('graft_trace_calls refuses a direction outside "in" and "out" instead of reading it as "in"', async () => {
+  const d = builtRepo();
+  for (const direction of ['callees', 'OUT', 1]) {
+    const r = await callTool(d, 'graft_trace_calls', { symbol: 'sub', direction });
+    assert.equal(r.isError, true, `direction ${JSON.stringify(direction)}`);
+    assert.match(r.text, /direction must be "in" or "out", got /);
+    assert.doesNotMatch(r.text, /←/);
+  }
+});
+
 test('graft_trace_calls: unknown symbol / missing symbol are soft isErrors', async () => {
   const d = builtRepo();
   const r1 = await callTool(d, 'graft_trace_calls', { symbol: 'noSuchSymbolAnywhere' });
