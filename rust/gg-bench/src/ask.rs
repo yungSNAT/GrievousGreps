@@ -226,15 +226,21 @@ fn kept(work: &Path, name: &str, tasks: &[Task]) -> Option<serde_json::Map<Strin
         .then_some(answers)
 }
 
-/// Builds one repository's graph, asks each question once and removes the graph.
-fn ask_repo(opts: &AskOptions, repo: &SetRepo, tasks: &[Task]) -> Result<Vec<Graded>, String> {
+/// The folder semble names in the fetched checkout, without a graph a stopped run left behind,
+/// which the build would read as source.
+fn ask_root(opts: &AskOptions, repo: &SetRepo) -> Result<PathBuf, String> {
     let checkout = fetch(&repo.name, &repo.url, &repo.revision, &opts.work)?;
     let root = repo
         .benchmark_root
         .as_deref()
         .map_or_else(|| checkout.clone(), |sub| checkout.join(sub));
-    // A run stopped part way can leave a graph behind, which the build would read as source.
     remove(&root.join("graft"))?;
+    Ok(root)
+}
+
+/// Builds one repository's graph, asks each question once and removes the graph.
+fn ask_repo(opts: &AskOptions, repo: &SetRepo, tasks: &[Task]) -> Result<Vec<Graded>, String> {
+    let root = ask_root(opts, repo)?;
     let env = scratch_env(&opts.work, "ask")?;
     let call = |args: &[&OsStr], minutes: u32| {
         run_tool(

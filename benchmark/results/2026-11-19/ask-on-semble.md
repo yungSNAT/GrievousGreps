@@ -1,6 +1,6 @@
 # gg-bench ask on semble's 1,251 questions at 57122b3
 
-The output of `gg-bench ask` on the benchmark machine (Linux), asking the tool built at `57122b3`, from 05:46:08 to 06:10:04 UTC on 19 November 2026; the load average was 10.3 when it started. Local paths are replaced by `<path>`. [cmd-ask.sh](cmd-ask.sh) is the job. [ask-files.json](ask-files.json) holds the files each answer ranked, the first 10 distinct per question (`null` for a failed question; none failed), from which the table can be recomputed.
+The tool built at `57122b3` was asked every question on the benchmark machine (Linux) from 05:46:08 to 06:10:04 UTC on 19 November 2026, with a load average of 10.3 when it started ([cmd-ask.sh](cmd-ask.sh), [ask-log.txt](ask-log.txt)). That run matched files by their path under `benchmark_root`. The table below is the same kept answers graded again at 08:05 UTC by `gg-bench ask` at `be09ed3`, which matches each file by its path under the checkout, as semble's file baselines do; it fetched no repository and asked nothing, as the work folder held every answer. 4 questions moved: fastapi 'OpenAPI schema generation' (first relevant file from rank 7 to none), lazy.nvim 'how event handlers trigger lazy loading on Neovim events' (NDCG@10 down), model2vec 'how the StaticModel encodes text to embeddings' (up) and telescope.nvim 'how telescope actions map keys to picker operations' (rank 3 to 7). All hit@3 went from 0.793 to 0.792 and hit@10 from 0.932 to 0.931; All NDCG@10 stayed 0.750. Local paths are replaced by `<path>`. [ask-files.json](ask-files.json) holds the files each answer ranked, the first 10 distinct per question (`null` for a failed question; none failed), from which the table can be recomputed.
 
 ```text
 Node v26.13.1, 2026-11-19 UTC
@@ -10,9 +10,9 @@ Set: benchmark/ask/semble, 1251 questions in 63 repositories; 0 failed
 
 | Set | Queries | NDCG@10 | hit@1 | hit@3 | hit@10 |
 | --- | --- | --- | --- | --- | --- |
-| All | 1251 | 0.750 | 0.543 | 0.793 | 0.932 |
-| architecture | 344 | 0.694 | 0.451 | 0.735 | 0.910 |
-| semantic | 703 | 0.748 | 0.543 | 0.791 | 0.927 |
+| All | 1251 | 0.750 | 0.543 | 0.792 | 0.931 |
+| architecture | 344 | 0.694 | 0.451 | 0.733 | 0.910 |
+| semantic | 703 | 0.748 | 0.543 | 0.791 | 0.926 |
 | symbol | 204 | 0.851 | 0.696 | 0.897 | 0.985 |
 | bash | 60 | 0.867 | 0.833 | 0.900 | 0.933 |
 | c | 60 | 0.665 | 0.417 | 0.700 | 0.867 |
@@ -24,9 +24,9 @@ Set: benchmark/ask/semble, 1251 questions in 63 repositories; 0 failed
 | java | 61 | 0.720 | 0.492 | 0.754 | 0.885 |
 | javascript | 60 | 0.878 | 0.750 | 0.900 | 0.967 |
 | kotlin | 60 | 0.660 | 0.333 | 0.733 | 0.933 |
-| lua | 60 | 0.781 | 0.550 | 0.867 | 0.983 |
+| lua | 60 | 0.779 | 0.550 | 0.850 | 0.983 |
 | php | 60 | 0.751 | 0.650 | 0.767 | 0.883 |
-| python | 184 | 0.780 | 0.549 | 0.826 | 0.951 |
+| python | 184 | 0.781 | 0.549 | 0.826 | 0.946 |
 | ruby | 58 | 0.755 | 0.534 | 0.810 | 0.931 |
 | rust | 60 | 0.616 | 0.450 | 0.617 | 0.800 |
 | scala | 59 | 0.744 | 0.559 | 0.763 | 0.932 |
@@ -45,7 +45,7 @@ Misses at 3 (no relevant file among the first 3):
 | aiohttp | architecture | how DNS resolution is handled asynchronously | 10 | aiohttp/resolver.py | tracing.py, connector.py, client_exceptions.py |
 | aiohttp | architecture | how backpressure and flow control work in streaming | none | aiohttp/streams.py | _websocket/writer.py, hdrs.py, payload.py |
 | fastapi | semantic | websocket endpoint implementation | none | fastapi/websockets.py | applications.py, routing.py, exceptions.py |
-| fastapi | semantic | OpenAPI schema generation | 7 | fastapi/openapi/utils.py | openapi/models.py, routing.py, security/open_id_connect_url.py |
+| fastapi | semantic | OpenAPI schema generation | none | fastapi/openapi/utils.py | openapi/models.py, routing.py, security/open_id_connect_url.py |
 | fastapi | semantic | response model serialization | none | fastapi/encoders.py | utils.py, routing.py, openapi/models.py |
 | fastapi | semantic | running work after returning an HTTP response without blocking | 8 | fastapi/background.py | concurrency.py, routing.py, sse.py |
 | fastapi | architecture | how are path parameters extracted and type-converted | none | fastapi/routing.py | openapi/utils.py, __init__, __main__ |
@@ -266,6 +266,7 @@ Misses at 3 (no relevant file among the first 3):
 | aeson | semantic | how Key type is used as object field identifier | 6 | src/Data/Aeson/KeyMap.hs | Types/Internal.hs, TH.hs, Types/ToJSON.hs |
 | telescope.nvim | architecture | how Picker:find opens a floating window and starts fuzzy finding | 4 | lua/telescope/pickers.lua | pickers/window.lua, builtin/__files.lua, sorters.lua |
 | telescope.nvim | architecture | how finders feed entries into a picker results buffer | 10 | lua/telescope/finders.lua | testharness/runner.lua, actions/utils.lua, previewers/buffer_previewer.lua |
+| telescope.nvim | architecture | how telescope actions map keys to picker operations | 7 | lua/telescope/actions/init.lua | mappings.lua, actions/state.lua, init.lua |
 | lazy.nvim | architecture | how lazy.nvim loads a plugin on demand when its trigger fires | none | lua/lazy/core/loader.lua | core/handler/event.lua, init.lua, core/util.lua |
 | lazy.nvim | architecture | how plugin installations and updates are managed with tasks | 4 | lua/lazy/manage/init.lua | status.lua, view/render.lua, core/plugin.lua |
 | lazy.nvim | semantic | how the lockfile pins plugin commits for reproducible installs | 8 | lua/lazy/manage/lock.lua | view/init.lua, manage/init.lua, view/render.lua |
