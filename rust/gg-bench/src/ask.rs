@@ -464,7 +464,8 @@ mod tests {
             benchmark_root: root.map(str::to_owned),
         };
         let t = task(&["pkg/openapi/utils.py"], &[]);
-        let answer = json!({ "hits": [{ "pointer": "utils.py:L1" }, { "pointer": "openapi/utils.py:L1" }] });
+        let answer =
+            json!({ "hits": [{ "pointer": "utils.py:L1" }, { "pointer": "openapi/utils.py:L1" }] });
         let g = graded_answer(&repo(Some("pkg")), &t, Some(&answer));
         assert_eq!(g.first, Some(2));
         assert_eq!(g.files, files(&["utils.py", "openapi/utils.py"]));
