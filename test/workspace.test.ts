@@ -613,9 +613,13 @@ test("workspace map --json gives each repository's own map, paths prefixed, and 
   const p = workspaceFx(REPOS);
   try {
     await buildWorkspace(p);
-    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
     const map = (dir: string) => spawnSync(process.execPath,
       ["--import", "tsx", "src/cli.ts", "map", dir, "--json", "--no-refresh"], { encoding: "utf8" });
+    const both = map(p);
+    assert.equal(both.status, 0, both.stderr);
+    assert.deepEqual(JSON.parse(both.stdout).repos.map((x: { repo: string }) => x.repo), ["repoA", "repoB"]);
+    assert.deepEqual(JSON.parse(both.stdout).missing, []);
+    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
     const r = map(p);
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
