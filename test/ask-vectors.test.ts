@@ -124,6 +124,30 @@ test("a query with no word in the code still finds the file it means", async () 
   }
 });
 
+test("across several scopes meaning admits files only from scopes the words admitted, and --in one scope lifts the gate", async () => {
+  const root = mkdtempSync(join(tmpdir(), "gg-semantic-scopes-"));
+  try {
+    for (const [scope, file, source] of [
+      ["web", "auth.ts", "export function verifyPassword(account: Account, secret: string): boolean {\n  return digest(secret) === account.digest;\n}\n"],
+      ["api", "units.ts", "export function celsiusToKelvin(c: number): number {\n  return c + 273.15;\n}\n"],
+    ]) {
+      mkdirSync(join(root, scope));
+      writeFileSync(join(root, scope, "package.json"), "{}\n");
+      writeFileSync(join(root, scope, file), source);
+      // A scope needs 5 definitions to stand on its own.
+      writeFileSync(join(root, scope, "tints.ts"), [0, 1, 2, 3, 4].map((i) => `export function tint${i}(): number {\n  return ${i};\n}\n`).join(""));
+    }
+    await withEnv(undefined, () => buildGraph(root));
+    const all = await withEnv(undefined, () => ask(root, QUERY));
+    assert.match(all.note ?? "", /scopes here:.*web\//, "the fixture is a graph of 2 scopes");
+    assert.equal(all.mode, "empty", `no scope matched a word, so none is admitted: ${all.hits.map((h) => h.pointer).join(", ")}`);
+    const web = await withEnv(undefined, () => ask(root, QUERY, { in: "web" }));
+    assert.equal(web.hits[0]?.pointer, "web/auth.ts:L1-L3", "one scope in range: nothing to gate");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a graph built without vectors answers lexically and says so", async () => {
   const root = fixture();
   try {
