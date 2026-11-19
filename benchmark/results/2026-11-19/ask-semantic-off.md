@@ -1,10 +1,10 @@
-# gg-bench ask on semble's 1,251 questions at `fe83325`, `TRAIL_SEMANTIC=0`
+# gg-bench ask on semble's 1,251 questions at `ebef20c`, `TRAIL_SEMANTIC=0`
 
-The tool built at `fe83325` was asked every question on the benchmark machine (Linux) from 10:52:09 to 11:09:25 UTC on 19 November 2026 with `TRAIL_SEMANTIC=0`, so it ranked by words only. `gg-bench ask` from #125's branch at `658ba18` graded it, whose code differs from `8b3b71f` (#125 merged) only by moving its unit tests to `ask/tests.rs` ([cmd-ask-semantic.sh](cmd-ask-semantic.sh), run with `MODE=off`). Local paths are replaced by `<path>`. [ask-semantic-off-files.json](ask-semantic-off-files.json) holds the files each answer ranked.
+The tool built at `ebef20c` (branch `ryan/semantic-ask-2026-11-19`) was asked every question on the benchmark machine (Linux) from 18:15 to 18:30 UTC on 19 November 2026 with `TRAIL_SEMANTIC=0`, so it ranked by words only. `gg-bench ask` from #125's branch at `658ba18` graded it, whose code differs from `8b3b71f` (#125 merged) only by moving its unit tests to `ask/tests.rs` ([cmd-ask-semantic.sh](cmd-ask-semantic.sh), run with `MODE=off`). The branch's later commit `7d11526` changes only `ask --in`, which `gg-bench ask` does not pass. Local paths are replaced by `<path>`. [ask-semantic-off-files.json](ask-semantic-off-files.json) holds the files each answer ranked, the first 10 distinct per question. [ask-semantic-on.md](ask-semantic-on.md) is the same commit with semantic ranking on.
 
 ```text
 Node v26.13.1, 2026-11-19 UTC
-Tool: <path>/dist/bin/graft.js (0.28.0+gg)
+Tool: <path>/dist/bin/graft.js (0.28.0+gg.ebef20c6a787)
 Set: benchmark/ask/semble, 1251 questions in 63 repositories; 0 failed
 ```
 

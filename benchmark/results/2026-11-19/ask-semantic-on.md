@@ -1,35 +1,35 @@
-# gg-bench ask on semble's 1,251 questions at `df2cf79`, semantic ranking on
+# gg-bench ask on semble's 1,251 questions at `ebef20c`, semantic ranking on
 
-The tool built at `df2cf79` (branch `ryan/semantic-ask-2026-11-19`) was asked every question on the benchmark machine (Linux) from 14:26 to 14:58 UTC on 19 November 2026, in 2 attempts (the first stopped at its 30-minute limit after 61 repositories; the second asked the other 2), with its default ranking: words and meaning merged. `gg-bench ask` from #125's branch at `658ba18` graded it, whose code differs from `8b3b71f` (#125 merged) only by moving its unit tests to `ask/tests.rs` ([cmd-ask-semantic.sh](cmd-ask-semantic.sh), run with `MODE=on`). Local paths are replaced by `<path>`. [ask-semantic-on-files.json](ask-semantic-on-files.json) holds the files each answer ranked, the first 10 distinct per question. [ask-semantic-off.md](ask-semantic-off.md) is `fe83325` with `TRAIL_SEMANTIC=0`.
+The tool built at `ebef20c` (branch `ryan/semantic-ask-2026-11-19`) was asked every question on the benchmark machine (Linux) from 17:31 to 18:15 UTC on 19 November 2026, in 2 attempts (the first stopped at its 30-minute limit after 48 repositories; the second asked the other 15), with its default ranking: words and meaning merged. `gg-bench ask` from #125's branch at `658ba18` graded it, whose code differs from `8b3b71f` (#125 merged) only by moving its unit tests to `ask/tests.rs` ([cmd-ask-semantic.sh](cmd-ask-semantic.sh), run with `MODE=on`). The branch's later commit `7d11526` changes only `ask --in`, which `gg-bench ask` does not pass. Local paths are replaced by `<path>`. [ask-semantic-on-files.json](ask-semantic-on-files.json) holds the files each answer ranked, the first 10 distinct per question. [ask-semantic-off.md](ask-semantic-off.md) is the same commit with `TRAIL_SEMANTIC=0`.
 
 ```text
 Node v26.13.1, 2026-11-19 UTC
-Tool: <path>/dist/bin/graft.js (0.28.0+gg)
+Tool: <path>/dist/bin/graft.js (0.28.0+gg.ebef20c6a787)
 Set: benchmark/ask/semble, 1251 questions in 63 repositories; 0 failed
 ```
 
 
 | Set | Queries | NDCG@10 | hit@1 | hit@3 | hit@10 |
 | --- | --- | --- | --- | --- | --- |
-| All | 1251 | 0.794 | 0.598 | 0.841 | 0.949 |
-| architecture | 344 | 0.765 | 0.532 | 0.817 | 0.922 |
-| semantic | 703 | 0.797 | 0.609 | 0.846 | 0.952 |
+| All | 1251 | 0.793 | 0.598 | 0.838 | 0.948 |
+| architecture | 344 | 0.764 | 0.532 | 0.817 | 0.922 |
+| semantic | 703 | 0.795 | 0.609 | 0.841 | 0.950 |
 | symbol | 204 | 0.836 | 0.672 | 0.863 | 0.985 |
 | bash | 60 | 0.882 | 0.833 | 0.883 | 0.950 |
 | c | 60 | 0.724 | 0.483 | 0.750 | 0.917 |
 | cpp | 60 | 0.819 | 0.633 | 0.883 | 0.983 |
 | csharp | 60 | 0.761 | 0.567 | 0.817 | 0.950 |
 | elixir | 58 | 0.853 | 0.672 | 0.948 | 0.983 |
-| go | 58 | 0.871 | 0.707 | 0.914 | 0.931 |
+| go | 58 | 0.866 | 0.707 | 0.897 | 0.931 |
 | haskell | 60 | 0.761 | 0.583 | 0.800 | 0.917 |
 | java | 61 | 0.762 | 0.541 | 0.803 | 0.918 |
 | javascript | 60 | 0.880 | 0.700 | 0.933 | 0.967 |
 | kotlin | 60 | 0.742 | 0.517 | 0.833 | 0.950 |
 | lua | 60 | 0.873 | 0.733 | 0.900 | 0.983 |
-| php | 60 | 0.688 | 0.483 | 0.683 | 0.900 |
-| python | 184 | 0.810 | 0.549 | 0.853 | 0.962 |
-| ruby | 58 | 0.802 | 0.586 | 0.897 | 0.966 |
-| rust | 60 | 0.703 | 0.517 | 0.750 | 0.883 |
+| php | 60 | 0.689 | 0.483 | 0.683 | 0.900 |
+| python | 184 | 0.808 | 0.549 | 0.848 | 0.962 |
+| ruby | 58 | 0.800 | 0.586 | 0.879 | 0.966 |
+| rust | 60 | 0.688 | 0.517 | 0.733 | 0.867 |
 | scala | 59 | 0.825 | 0.644 | 0.898 | 0.966 |
 | swift | 53 | 0.792 | 0.547 | 0.774 | 0.981 |
 | typescript | 60 | 0.701 | 0.533 | 0.733 | 0.933 |
@@ -49,7 +49,7 @@ Misses at 3 (no relevant file among the first 3):
 | fastapi | semantic | response model serialization | none | fastapi/encoders.py | routing.py, utils.py, _compat/v2.py |
 | fastapi | semantic | running work after returning an HTTP response without blocking | 6 | fastapi/background.py | routing.py, concurrency.py, sse.py |
 | fastapi | architecture | how does FastAPI run sync route functions without blocking | 5 | fastapi/concurrency.py | routing.py, param_functions.py, applications.py |
-| fastapi | architecture | how are path parameters extracted and type-converted | none | fastapi/routing.py | openapi/utils.py, __init__, param_functions.py |
+| fastapi | architecture | how are path parameters extracted and type-converted | none | fastapi/routing.py | openapi/utils.py, __init__, __main__ |
 | fastapi | symbol | Depends | 5 | fastapi/params.py | dependencies/utils.py, param_functions.py, routing.py |
 | flask | architecture | how are routes registered | 4 | src/flask/sansio/scaffold.py | cli.py, sansio/blueprints.py, sansio/app.py |
 | flask | semantic | g | 6 | src/flask/globals.py | json/tag.py, helpers.py, sansio/app.py |
@@ -64,12 +64,14 @@ Misses at 3 (no relevant file among the first 3):
 | pydantic | symbol | Field | 4 | pydantic/fields.py | _internal/_generate_schema.py, v1/schema.py, _internal/_fields.py |
 | requests | semantic | request and response model internals | 6 | src/requests/models.py | exceptions.py, adapters.py, api.py |
 | starlette | semantic | websocket connection and message handling | 4 | starlette/websockets.py | endpoints.py, testclient.py, responses.py |
+| starlette | semantic | parsing form data and file uploads | 5 | starlette/formparsers.py | datastructures.py, requests.py, __init__ |
 | starlette | symbol | BaseHTTPMiddleware | 7 | starlette/middleware/base.py | routing.py, applications.py, schemas.py |
 | starlette | symbol | Request | 8 | starlette/requests.py | testclient.py, middleware/base.py, middleware/cors.py |
 | axios | semantic | request and response interceptors | none | lib/core/InterceptorManager.js | core/Axios.js, core/dispatchRequest.js, adapters/xhr.js |
 | axios | symbol | Axios | 5 | lib/core/Axios.js | axios.js, core/AxiosError.js, core/AxiosHeaders.js |
 | axios | architecture | axios default configuration and request/response transformers | none | lib/defaults/index.js | core/dispatchRequest.js, axios.js, adapters/http.js |
 | redux | semantic | function composition utility | 4 | src/compose.ts | applyMiddleware.ts, types/middleware.ts, createStore.ts |
+| gin | semantic | multipart form and file upload handling | 5 | context.go | binding/multipart_form_mapping.go, doc, version |
 | gin | architecture | how validators are plugged in for struct binding | none | binding/default_validator.go | binding/binding_nomsgpack.go, binding/binding.go, binding/bson.go |
 | gin | semantic | utility helpers for path detection and content-type formatting | none | utils.go | render/html.go, render/pdf.go, render/json.go |
 | chi | architecture | HTTP router and middleware composition | none | mux.go | chain.go, chi.go, middleware/route_headers.go |
@@ -103,10 +105,11 @@ Misses at 3 (no relevant file among the first 3):
 | laravel-framework | semantic | database query builder and fluent SQL interface | none | src/Illuminate/Database/Query/Builder.php | Contracts/Database/Query/Builder.php, Contracts/Database/Eloquent/Builder.php, Database/Query/Grammars/MySqlGrammar.php |
 | laravel-framework | semantic | validation rules and error message collection | none | src/Illuminate/Validation/Validator.php | Validation/Rules/Email.php, Foundation/Http/FormRequest.php, Validation/ConditionalRules.php |
 | laravel-framework | architecture | how middleware is applied through the pipeline | 4 | src/Illuminate/Pipeline/Pipeline.php | Support/Facades/Pipeline.php, Contracts/Pipeline/Pipeline.php, Routing/SortedMiddleware.php |
-| laravel-framework | symbol | Router | 5 | src/Illuminate/Routing/Router.php | Routing/CompiledRouteCollection.php, Routing/RouteFileRegistrar.php, Foundation/Console/RouteListCommand.php |
+| laravel-framework | symbol | Router | 4 | src/Illuminate/Routing/Router.php | Routing/CompiledRouteCollection.php, Routing/RouteFileRegistrar.php, Foundation/Console/RouteListCommand.php |
 | laravel-framework | symbol | Container | 5 | src/Illuminate/Container/Container.php | Validation/Factory.php, Auth/Access/Gate.php, Support/Traits/CapsuleManagerTrait.php |
 | laravel-framework | architecture | how Blade templates are compiled and rendered by the view factory | 7 | src/Illuminate/View/Factory.php | View/Compilers/BladeCompiler.php, Foundation/Exceptions/Renderer/Mappers/BladeMapper.php, View/Component.php |
 | rack | architecture | URL path mapping across mounted apps | none | lib/rack/urlmap.rb | sendfile.rb, static.rb, directory.rb |
+| rack | semantic | serving a file index page for a folder on disk | 4 | lib/rack/directory.rb | static.rb, files.rb, mock |
 | rack | semantic | splitting multipart/form-data bodies into individual fields | 5 | lib/rack/multipart.rb | request.rb, multipart/parser.rb, multipart/uploaded_file.rb |
 | rack | symbol | Utils | 4 | lib/rack/utils.rb | builder.rb, files.rb, runtime.rb |
 | rails | semantic | path management for rails apps | 8 | railties/lib/rails/paths.rb | generators/rails/plugin/plugin_generator.rb, generators/app_base.rb, commands/credentials/credentials_command.rb |
@@ -118,7 +121,7 @@ Misses at 3 (no relevant file among the first 3):
 | tokio | semantic | waiting for any of several futures to complete | 7 | tokio/src/macros/select.rs | task/mod.rs, runtime/task/harness.rs, sync/notify.rs |
 | tokio | semantic | watching a value and being notified when it changes | 7 | tokio/src/sync/watch.rs | sync/notify.rs, runtime/task/state.rs, util/idle_notified_set.rs |
 | tokio | semantic | collecting results from a dynamic set of spawned tasks | none | tokio/src/task/join_set.rs | runtime/metrics/runtime.rs, runtime/scheduler/current_thread/mod.rs, runtime/task_hooks.rs |
-| tokio | semantic | integrating a non-async file descriptor with the tokio reactor | 6 | tokio/src/io/async_fd.rs | net/unix/pipe.rs, io/util/async_read_ext.rs, io/util/async_write_ext.rs |
+| tokio | semantic | integrating a non-async file descriptor with the tokio reactor | 7 | tokio/src/io/async_fd.rs | net/unix/pipe.rs, io/util/async_read_ext.rs, io/util/async_write_ext.rs |
 | trpc | architecture | how HTTP requests are resolved to tRPC procedures | none | packages/server/src/unstable-core-do-not-import/http/resolveResponse.ts | @trpc/server/rpc.ts, unstable-core-do-not-import/rpc/envelopes.ts, rpc.ts |
 | trpc | symbol | fetchRequestHandler | 5 | packages/server/src/adapters/fetch/fetchRequestHandler.ts | adapters/fetch/index.ts, unstable-core-do-not-import/http/types.ts, adapters/fetch/types.ts |
 | trpc | architecture | how tRPC procedures are defined and chained with input and output validation | 5 | packages/server/src/unstable-core-do-not-import/procedure.ts | unstable-core-do-not-import/procedureBuilder.ts, @trpc/server/rpc.ts, unstable-core-do-not-import/middleware.ts |
@@ -137,6 +140,7 @@ Misses at 3 (no relevant file among the first 3):
 | alamofire | semantic | how URL query parameters are encoded from Encodable values | 4 | Source/Features/URLEncodedFormEncoder.swift | Core/ParameterEncoding.swift, Core/Session.swift, Core/ParameterEncoder.swift |
 | alamofire | semantic | how download requests save responses to disk | 5 | Source/Core/DownloadRequest.swift | Core/Session.swift, Core/SessionDelegate.swift, Features/Combine.swift |
 | serde | semantic | standard library type Deserialize implementations | none | serde_core/src/de/impls.rs | serde/src/private/de.rs, serde_core/src/de/mod.rs, serde_derive/src/de.rs |
+| serde | semantic | derive proc macro entry point and registered derives | none | serde_derive/src/lib.rs | serde_core/src/de/mod.rs, serde_core/src/ser/mod.rs, serde_derive/src/internals/receiver.rs |
 | serde | symbol | Visitor | 4 | serde_core/src/de/mod.rs | serde/src/private/de.rs, serde_core/src/de/impls.rs, serde_core/src/de/value.rs |
 | zod | semantic | union and discriminated union schema types | 7 | packages/zod/src/v4/core/schemas.ts | v4/core/api.ts, v3/types.ts, v4/classic/schemas.ts |
 | zod | semantic | optional and nullable type wrappers | 5 | packages/zod/src/v4/core/schemas.ts | v3/types.ts, v4/mini/schemas.ts, v4/classic/schemas.ts |

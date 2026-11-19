@@ -2206,8 +2206,8 @@
    "middleware/logger.go",
    "chain.go",
    "middleware/middleware.go",
-   "_examples/limits/main.go",
    "_examples/versions/main.go",
+   "_examples/limits/main.go",
    "middleware/route_headers.go",
    "middleware/compress.go",
    "middleware/basic_auth.go",
@@ -2318,8 +2318,8 @@
    "_examples/pathvalue/main.go",
    "_examples/rest/main.go",
    "middleware/sunset.go",
-   "tree.go",
-   "middleware/strip.go"
+   "chain.go",
+   "tree.go"
   ],
   "Router": [
    "chi.go",
@@ -4520,14 +4520,14 @@
   "file upload handling": [
    "datastructures.py",
    "__init__",
-   "_compat/__init__.py",
    "__main__",
-   "__init__.py",
    "logger",
-   "dependencies/utils.py",
    "requests",
-   "applications.py",
-   "staticfiles"
+   "staticfiles",
+   "templating",
+   "testclient",
+   "types",
+   "websockets"
   ],
   "response model serialization": [
    "routing.py",
@@ -4604,14 +4604,14 @@
   "how are path parameters extracted and type-converted": [
    "openapi/utils.py",
    "__init__",
-   "param_functions.py",
    "__main__",
-   "dependencies/utils.py",
    "logger",
-   "_compat/shared.py",
    "requests",
-   "datastructures.py",
-   "staticfiles"
+   "staticfiles",
+   "templating",
+   "testclient",
+   "types",
+   "websockets"
   ],
   "how does exception propagation work through dependency injection": [
    "dependencies/utils.py",
@@ -5305,15 +5305,15 @@
   ],
   "multipart form and file upload handling": [
    "binding/multipart_form_mapping.go",
-   "context.go",
+   "doc",
+   "version",
    "binding/form.go",
+   "context.go",
    "routergroup.go",
    "binding/form_mapping.go",
    "internal/fs/fs.go",
    "ginS/gins.go",
-   "binding/multipart_form_mapping_test.go",
-   "doc",
-   "version"
+   "binding/multipart_form_mapping_test.go"
   ],
   "error types and per-request error collection": [
    "context.go",
@@ -6225,6 +6225,7 @@
   ],
   "multipart file upload": [
    "_multipart.py",
+   "__version__",
    "_content.py",
    "_types.py",
    "_models.py",
@@ -6232,8 +6233,7 @@
    "_utils.py",
    "_api.py",
    "_config.py",
-   "_auth.py",
-   "__version__"
+   "_auth.py"
   ],
   "redirect following": [
    "_client.py",
@@ -7315,10 +7315,10 @@
    "Routing/CompiledRouteCollection.php",
    "Routing/RouteFileRegistrar.php",
    "Foundation/Console/RouteListCommand.php",
-   "Routing/RoutingServiceProvider.php",
    "Routing/Router.php",
-   "Routing/RouteRegistrar.php",
+   "Routing/RoutingServiceProvider.php",
    "Routing/Route.php",
+   "Routing/RouteRegistrar.php",
    "Routing/ResourceRegistrar.php",
    "Routing/RouteCollection.php",
    "Foundation/Http/Kernel.php"
@@ -8101,6 +8101,7 @@
   ],
   "how mini.files implements a file explorer in a floating buffer": [
    "files.lua",
+   "init",
    "bracketed.lua",
    "snippets.lua",
    "icons.lua",
@@ -8108,8 +8109,7 @@
    "extra.lua",
    "completion.lua",
    "pick.lua",
-   "animate.lua",
-   "init"
+   "animate.lua"
   ],
   "how mini.pick implements a fuzzy finder picker": [
    "pick.lua",
@@ -10514,38 +10514,38 @@
   "static file serving middleware": [
    "static.rb",
    "files.rb",
+   "mock",
    "builder.rb",
    "sendfile.rb",
    "directory.rb",
    "rewindable_input.rb",
    "multipart/uploaded_file.rb",
    "multipart/parser.rb",
-   "multipart/generator.rb",
-   "mock"
+   "multipart/generator.rb"
   ],
   "serving a file index page for a folder on disk": [
    "static.rb",
    "files.rb",
+   "mock",
    "directory.rb",
    "multipart/uploaded_file.rb",
    "builder.rb",
    "multipart/parser.rb",
    "multipart/generator.rb",
    "lint.rb",
-   "recursive.rb",
-   "mock"
+   "recursive.rb"
   ],
   "MIME type detection from file extensions": [
    "files.rb",
    "mime.rb",
+   "mock",
    "media_type.rb",
    "multipart/parser.rb",
    "multipart/uploaded_file.rb",
    "request.rb",
    "static.rb",
    "builder.rb",
-   "mock_response.rb",
-   "mock"
+   "mock_response.rb"
   ],
   "utility methods for parameter parsing and URL encoding": [
    "query_parser.rb",
@@ -10914,14 +10914,14 @@
   "how append-only file logging records write commands": [
    "aof.c",
    "server.h",
-   "server.c",
    "asciilogo",
-   "script.c",
    "atomicvar",
-   "debug.c",
    "crc16_slottable",
-   "redis-cli.c",
-   "debugmacro"
+   "debugmacro",
+   "fmtargs",
+   "listpack_malloc",
+   "mkreleasehdr",
+   "rax_malloc"
   ],
   "how pub/sub message delivery works to subscribers": [
    "pubsub.c",
@@ -10999,13 +10999,13 @@
    "ae.c",
    "ae.h",
    "module.c",
-   "ae_kqueue.c",
    "asciilogo",
-   "networking.c",
    "atomicvar",
    "crc16_slottable",
-   "sentinel.c",
-   "debugmacro"
+   "debugmacro",
+   "fmtargs",
+   "listpack_malloc",
+   "mkreleasehdr"
   ],
   "expiring keys set with EXPIRE or TTL commands": [
    "expire.c",
@@ -11618,9 +11618,9 @@
    "serde/src/private/de.rs",
    "serde_core/src/de/impls.rs",
    "serde_core/src/private/seed.rs",
+   "serde_core/src/de/ignored_any.rs",
    "serde_derive/src/de/struct_.rs",
    "serde_derive/src/de.rs",
-   "serde_core/src/de/ignored_any.rs",
    "serde_core/src/de/value.rs",
    "serde_derive/src/ser.rs",
    "serde_core/src/ser/mod.rs"
@@ -11634,44 +11634,44 @@
    "serde_derive/src/de/struct_.rs",
    "serde_derive/src/de/tuple.rs",
    "serde_derive/src/de/enum_internally.rs",
-   "serde_core/src/macros.rs",
-   "serde_derive/src/ser.rs"
+   "serde_derive/src/ser.rs",
+   "serde_derive/src/fragment.rs"
   ],
   "standard library type Serialize implementations": [
    "serde_core/src/ser/mod.rs",
    "serde/src/private/ser.rs",
    "serde_core/src/ser/impls.rs",
+   "serde_derive/src/ser.rs",
    "serde_core/src/private/doc.rs",
    "serde_core/src/ser/fmt.rs",
-   "serde_derive/src/ser.rs",
-   "serde_core/src/ser/impossible.rs",
+   "serde_derive/src/internals/attr.rs",
    "serde_derive/src/internals/name.rs",
    "serde_derive/src/internals/receiver.rs",
-   "test_suite/tests/test_gen.rs"
+   "serde_derive/src/bound.rs"
   ],
   "standard library type Deserialize implementations": [
    "serde/src/private/de.rs",
    "serde_core/src/de/mod.rs",
    "serde_derive/src/de.rs",
-   "serde_core/src/de/value.rs",
    "serde_derive/src/de/tuple.rs",
    "serde_derive/src/de/struct_.rs",
-   "test_suite/tests/test_gen.rs",
+   "serde_core/src/de/value.rs",
+   "serde/src/private/ser.rs",
    "serde_derive/src/de/enum_.rs",
-   "serde_core/src/private/seed.rs",
-   "test_suite/tests/ui/with-variant/skip_de_newtype_field.rs"
+   "serde_derive/src/de/unit.rs",
+   "serde_derive/src/de/enum_untagged.rs"
   ],
   "value-based deserialization for self-describing formats": [
    "serde_core/src/de/mod.rs",
    "serde_core/src/de/value.rs",
-   "serde_core/src/de/impls.rs",
    "serde/src/private/de.rs",
    "serde_core/src/ser/mod.rs",
+   "serde_core/src/de/impls.rs",
+   "serde/src/private/ser.rs",
    "serde_derive/src/internals/attr.rs",
-   "serde_core/src/macros.rs",
-   "serde/src/lib.rs",
+   "serde_core/src/ser/impossible.rs",
    "serde_derive/src/internals/receiver.rs",
-   "test_suite/tests/test_gen.rs"
+   "serde_core/src/macros.rs"
   ],
   "IgnoredAny type for silently discarding unknown fields during deserialization": [
    "serde_core/src/de/ignored_any.rs",
@@ -11681,9 +11681,9 @@
    "serde_core/src/macros.rs",
    "serde_derive/src/pretend.rs",
    "serde_derive/src/internals/ast.rs",
-   "serde_derive/src/de/struct_.rs",
-   "test_suite/tests/test_de.rs",
-   "serde_derive/src/internals/symbol.rs"
+   "serde/src/private/ser.rs",
+   "serde_derive/src/internals/symbol.rs",
+   "serde_derive/src/internals/receiver.rs"
   ],
   "how serde_derive generates Serialize impl with serialize_field and serialize_struct": [
    "serde_core/src/ser/mod.rs",
@@ -11698,40 +11698,40 @@
    "test_suite/tests/ui/duplicate-attribute/rename-and-ser.rs"
   ],
   "how derive macros generate Deserialize code for structs and enums": [
-   "serde_core/src/de/mod.rs",
-   "serde_derive/src/de/struct_.rs",
    "serde_derive/src/de.rs",
-   "test_suite/tests/ui/precondition/deserialize_de_lifetime.rs",
+   "serde_core/src/de/mod.rs",
+   "serde/src/private/de.rs",
    "serde_derive/src/lib.rs",
-   "test_suite/tests/ui/borrow/struct_variant.rs",
+   "serde_derive/src/de/struct_.rs",
+   "serde/src/lib.rs",
    "serde_core/src/macros.rs",
-   "test_suite/tests/regression/issue2792.rs",
-   "serde_core/src/lib.rs",
-   "test_suite/tests/ui/precondition/deserialize_dst.rs"
+   "serde_derive/src/de/tuple.rs",
+   "serde_derive/src/ser.rs",
+   "serde_core/src/lib.rs"
   ],
   "how derive macros parse and apply field-level serde attributes": [
-   "serde/src/lib.rs",
-   "serde_derive/src/internals/case.rs",
    "serde_derive/src/internals/attr.rs",
-   "test_suite/tests/ui/identifier/field_struct.rs",
+   "serde/src/lib.rs",
    "serde_core/src/de/impls.rs",
-   "test_suite/tests/test_gen.rs",
-   "serde_derive_internals/build.rs",
-   "test_suite/tests/regression/issue2409.rs",
    "serde_derive/src/de.rs",
-   "test_suite/tests/regression/issue2792.rs"
+   "serde_derive/src/ser.rs",
+   "serde_core/src/lib.rs",
+   "serde_core/src/macros.rs",
+   "serde_derive/src/internals/case.rs",
+   "serde_derive/src/lib.rs",
+   "serde_derive/src/de/struct_.rs"
   ],
   "how serde handles sequences and maps during serialization": [
-   "serde_core/src/ser/mod.rs",
-   "serde/src/lib.rs",
    "serde/src/private/ser.rs",
-   "serde_derive/src/ser.rs",
-   "serde/src/private/de.rs",
-   "test_suite/tests/ui/with-variant/skip_ser_tuple_field.rs",
+   "serde/src/lib.rs",
+   "serde_core/src/ser/mod.rs",
    "serde_core/src/lib.rs",
-   "test_suite/tests/ui/malformed/not_list.rs",
-   "serde_derive/src/internals/ctxt.rs",
-   "test_suite/tests/ui/with-variant/skip_ser_tuple_field_if.rs"
+   "serde/src/private/de.rs",
+   "serde_derive/src/internals/attr.rs",
+   "serde_core/src/de/impls.rs",
+   "serde_derive_internals/build.rs",
+   "serde_derive/src/internals/symbol.rs",
+   "serde_derive/src/ser.rs"
   ],
   "MapAccess and SeqAccess for deserializing collections": [
    "serde_core/src/de/value.rs",
@@ -11740,22 +11740,22 @@
    "serde_core/src/de/impls.rs",
    "serde_derive/src/de/struct_.rs",
    "serde_core/src/de/ignored_any.rs",
-   "serde/src/private/ser.rs",
    "serde_derive/src/de.rs",
+   "serde/src/private/ser.rs",
    "serde_derive/src/internals/attr.rs",
-   "test_suite/tests/test_value.rs"
+   "serde_derive/src/internals/symbol.rs"
   ],
   "how serde handles lifetime-bound deserialization and borrowed data": [
-   "serde_core/src/de/mod.rs",
-   "serde_core/src/de/impls.rs",
    "serde_derive/src/de.rs",
-   "serde_derive/src/bound.rs",
-   "serde/src/lib.rs",
+   "serde_core/src/de/impls.rs",
+   "serde_core/src/de/mod.rs",
+   "serde_core/src/de/value.rs",
    "serde_derive/src/ser.rs",
-   "test_suite/tests/ui/identifier/field_struct.rs",
-   "test_suite/tests/ui/identifier/variant_struct.rs",
    "serde_derive/src/internals/attr.rs",
-   "test_suite/tests/ui/identifier/other_not_last.rs"
+   "serde/src/private/de.rs",
+   "serde_derive/src/bound.rs",
+   "serde_derive_internals/build.rs",
+   "serde/src/lib.rs"
   ],
   "how EnumAccess and VariantAccess work for enum deserialization": [
    "serde_core/src/de/value.rs",
@@ -11771,15 +11771,15 @@
   ],
   "derive proc macro entry point and registered derives": [
    "serde_core/src/de/mod.rs",
-   "serde_derive/src/internals/receiver.rs",
-   "serde_derive/src/lib.rs",
-   "serde/src/private/de.rs",
-   "serde/src/lib.rs",
    "serde_core/src/ser/mod.rs",
-   "serde_derive/src/pretend.rs",
+   "serde_derive/src/internals/receiver.rs",
+   "serde_derive/src/bound.rs",
+   "serde_core/src/de/value.rs",
+   "serde_derive/src/de.rs",
+   "serde/src/private/de.rs",
+   "serde_derive/src/ser.rs",
    "serde/src/private/ser.rs",
-   "serde_core/src/lib.rs",
-   "serde_derive/src/bound.rs"
+   "serde_derive/src/fragment.rs"
   ],
   "serde_derive Container Variant and Field AST types for Rust struct and enum introspection": [
    "serde_derive/src/internals/ast.rs",
@@ -11797,25 +11797,25 @@
    "serde_core/src/ser/mod.rs",
    "serde_core/src/ser/impls.rs",
    "serde_core/src/ser/fmt.rs",
-   "serde_core/src/ser/impossible.rs",
-   "serde_core/src/private/doc.rs",
    "serde_derive/src/ser.rs",
-   "serde_derive/src/internals/attr.rs",
    "serde_derive/src/internals/name.rs",
-   "test_suite/tests/ui/duplicate-attribute/rename-ser-ser.rs",
-   "test_suite/tests/test_macros.rs"
+   "serde_core/src/ser/impossible.rs",
+   "serde_derive/src/internals/attr.rs",
+   "serde_core/src/private/doc.rs",
+   "serde_derive/src/lib.rs",
+   "serde_derive/src/internals/symbol.rs"
   ],
   "Deserialize": [
    "serde/src/private/de.rs",
    "serde_core/src/de/mod.rs",
    "serde_core/src/private/seed.rs",
-   "serde_core/src/de/impls.rs",
    "serde_core/src/de/value.rs",
+   "serde_core/src/de/impls.rs",
    "serde_derive/src/de.rs",
    "serde_core/src/de/ignored_any.rs",
+   "serde_derive/src/de/enum_untagged.rs",
    "serde_derive/src/internals/name.rs",
-   "test_suite/tests/ui/with-variant/skip_de_struct_field.rs",
-   "test_suite/tests/ui/with-variant/skip_de_tuple_field.rs"
+   "serde_derive/src/de/enum_.rs"
   ],
   "Serializer": [
    "serde/src/private/ser.rs",
@@ -11824,10 +11824,10 @@
    "serde_core/src/private/doc.rs",
    "serde_core/src/ser/fmt.rs",
    "serde/src/lib.rs",
-   "test_suite/tests/test_annotations.rs",
-   "serde_derive/src/ser.rs",
-   "test_suite/tests/ui/with/incorrect_type.rs",
-   "serde_core/src/crate_root.rs"
+   "serde_core/src/crate_root.rs",
+   "serde_core/src/ser/impossible.rs",
+   "serde_core/src/de/value.rs",
+   "serde_core/src/de/impls.rs"
   ],
   "Visitor": [
    "serde/src/private/de.rs",
@@ -11836,9 +11836,9 @@
    "serde_core/src/de/mod.rs",
    "serde_derive/src/de/struct_.rs",
    "serde_derive/src/de/identifier.rs",
-   "serde_derive/src/internals/receiver.rs",
-   "serde_derive/src/de/tuple.rs",
    "serde_derive/src/ser.rs",
+   "serde_derive/src/de/tuple.rs",
+   "serde_derive/src/internals/receiver.rs",
    "serde_core/src/macros.rs"
   ]
  },
@@ -12225,14 +12225,14 @@
   "parsing form data and file uploads": [
    "datastructures.py",
    "requests.py",
+   "__init__",
+   "types",
    "formparsers.py",
    "config.py",
    "responses.py",
    "staticfiles.py",
    "endpoints.py",
-   "middleware/sessions.py",
-   "__init__",
-   "types"
+   "middleware/sessions.py"
   ],
   "how does the test client simulate requests": [
    "testclient.py",
@@ -12526,6 +12526,7 @@
   ],
   "how builtin file_files picker searches and presents files": [
    "builtin/__files.lua",
+   "log",
    "builtin/__internal.lua",
    "pickers.lua",
    "builtin/__git.lua",
@@ -12533,8 +12534,7 @@
    "actions/init.lua",
    "builtin/__lsp.lua",
    "make_entry.lua",
-   "actions/state.lua",
-   "builtin/init.lua"
+   "actions/state.lua"
   ],
   "TelescopeGlobalState storing picker status keyed by prompt bufnr": [
    "state.lua",
@@ -12806,13 +12806,13 @@
    "net/unix/pipe.rs",
    "io/util/async_read_ext.rs",
    "io/util/async_write_ext.rs",
+   "fuzz",
    "fs/file.rs",
    "fs/remove_file.rs",
    "io/async_fd.rs",
    "fs/symlink_file.rs",
    "net/unix/datagram/socket.rs",
-   "fs/file/tests.rs",
-   "sync/oneshot.rs"
+   "fs/file/tests.rs"
   ],
   "JoinSet": [
    "task/join_set.rs",
@@ -12878,13 +12878,13 @@
    "fs/file.rs",
    "fs/remove_file.rs",
    "net/unix/pipe.rs",
+   "fuzz",
    "runtime/metrics/runtime.rs",
    "process/windows.rs",
    "runtime/scheduler/multi_thread/stats.rs",
    "io/async_fd.rs",
    "macros/join.rs",
-   "fuzz",
-   "fs/mod.rs"
+   "fs/symlink_file.rs"
   ],
   "how the tokio runtime builder configures and starts the multi-thread scheduler": [
    "runtime/builder.rs",
@@ -13300,14 +13300,14 @@
   ],
   "FileMiddleware for serving static files": [
    "Middleware/FileMiddleware.swift",
-   "Utilities/FileIO.swift",
+   "Exports",
    "Concurrency/AsyncMiddleware.swift",
+   "Utilities/FileIO.swift",
    "Middleware/ResponseCompressionMiddleware.swift",
    "Middleware/Middleware.swift",
    "Middleware/TracingMiddleware.swift",
    "Middleware/ErrorMiddleware.swift",
    "HTTP/Headers/HTTPMediaType.swift",
-   "Exports",
    "Middleware/MiddlewareConfiguration.swift"
   ],
   "how serve and boot commands start the Vapor HTTP server": [
@@ -13581,15 +13581,15 @@
   ],
   "test watcher for file changes in watch mode": [
    "node/watcher.ts",
+   "defaults",
+   "paths",
+   "shims.dev.d",
    "node/core.ts",
    "node/stdin.ts",
    "node/reporters/base.ts",
    "typecheck/typechecker.ts",
    "node/cli/cac.ts",
-   "defaults",
-   "node/plugins/index.ts",
-   "paths",
-   "shims.dev.d"
+   "node/plugins/index.ts"
   ],
   "Vitest": [
    "node/plugins/index.ts",

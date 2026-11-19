@@ -22,7 +22,9 @@ for d in $W6/*/; do
 done
 echo "=== ask timing $(date -u +%FT%TZ)"
 for n in zig-clap flask zig; do
-  root=$C/$n; for mode in 0 1; do
+  # Ask where the build indexed: semble's benchmark root (lib/std for zig, src/flask for flask).
+  root=$C/$n; b=$(python3 -c "import json;print(next((r.get('benchmark_root') or '') for r in json.load(open('$W/jobs/semble-set/repos.json')) if r['name']=='$n'))"); [ -n "$b" ] && root=$C/$n/$b
+  for mode in 0 1; do
     for q in "how are command line arguments parsed" "error handling" "memory allocation strategy" "where is the configuration loaded" "tokenizer"; do
       t0=$(date +%s.%N); TRAIL_SEMANTIC=$mode node $G ask "$q" $root --json -n 10 > /dev/null 2>&1; t1=$(date +%s.%N)
       echo -e "$n\t$mode\t$(awk "BEGIN{print $t1-$t0}")"
