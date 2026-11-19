@@ -38,6 +38,14 @@ export interface ToolDef {
 
 const noGraph = (): string => `no graph found — run \`${cmd('graft build')}\` first`;
 
+/** `graft_trace_calls`'s depth: `"all"` (or `"full"`) walks the full transitive
+ * closure, terminating when no new node is reached; a number of 1 or more is
+ * floored; anything else is 1. */
+function traceDepth(depth: unknown): number {
+  if (depth === 'all' || depth === 'full') return Number.POSITIVE_INFINITY;
+  return typeof depth === 'number' && Number.isFinite(depth) && depth >= 1 ? Math.floor(depth) : 1;
+}
+
 function unknownSymbolText(query: string): string {
   return `no symbol "${query}" in the graph — check spelling or run \`${cmd('graft build')}\``;
 }
@@ -58,7 +66,7 @@ export const TOOLS: ToolDef[] = [
         },
         in: {
           type: 'string',
-          description: 'narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf)',
+          description: 'narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf); from a folder of several repositories, begin with the repository folder',
         },
       },
       required: ['query'],
@@ -95,7 +103,7 @@ export const TOOLS: ToolDef[] = [
           description: '"in" (default) = callers/dependents; "out" = callees/dependencies',
         },
         depth: { description: 'transitive walk depth for blast radius (default 1 = direct edges only); pass "all" for the full connected closure — every source that would be affected' },
-        in: { type: 'string', description: 'narrow matches to nodes at or under this repo-relative path prefix, e.g. server/src' },
+        in: { type: 'string', description: 'narrow matches to nodes at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository folder, e.g. api/server/src' },
       },
       required: ['symbol'],
     },
@@ -108,7 +116,7 @@ export const TOOLS: ToolDef[] = [
       type: 'object',
       properties: {
         pattern: { type: 'string', description: 'regex pattern (or literal string with fixed: true)' },
-        in: { type: 'string', description: 'narrow to files at or under this repo-relative path prefix, e.g. server/src' },
+        in: { type: 'string', description: 'narrow to files at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository folder, e.g. api/server/src' },
         ignore_case: { type: 'boolean', description: 'case-insensitive match' },
         fixed: { type: 'boolean', description: 'treat pattern as a literal string, not a regex' },
       },
@@ -152,7 +160,7 @@ async function callWorkspaceTool(
       if (!symbol) return { text: 'graft_trace_calls requires a symbol', isError: true };
       const { text, found } = federateCallers(root, dirOverride, symbol, {
         direction: args.direction === 'out' ? 'out' : 'in',
-        depth: typeof args.depth === 'number' && Number.isFinite(args.depth) ? args.depth : undefined,
+        depth: traceDepth(args.depth),
         in: typeof args.in === 'string' && args.in ? args.in : undefined,
       });
       return { text, isError: !found };
@@ -293,14 +301,7 @@ async function callSingleTool(
           return { text: unresolved ? `${unresolved.trim()}\n${noSymbolText(w, symbol) ?? unknownSymbolText(symbol)}` : unknownSymbolText(symbol), isError: true };
         }
         const direction: Direction = args.direction === 'out' ? 'out' : 'in';
-        // `depth: "all"` (or a huge number) walks the full transitive closure —
-        // every connected source — terminating when no new node is reached.
-        const depth =
-          args.depth === 'all' || args.depth === 'full'
-            ? Number.POSITIVE_INFINITY
-            : typeof args.depth === 'number' && Number.isFinite(args.depth) && args.depth >= 1
-              ? Math.floor(args.depth)
-              : 1;
+        const depth = traceDepth(args.depth);
         const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(w, m, direction, depth) }));
         const body = callerBlocks(w, direction, depth > 1, results).join('\n\n');
         const text = withSavings(body, callersSavings(w, results));

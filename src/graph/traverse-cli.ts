@@ -199,7 +199,7 @@ interface SymbolJson {
   span: string;
 }
 
-interface MatchJson {
+export interface MatchJson {
   symbol: SymbolJson;
   hits: HitJson[];
   note?: string;
@@ -232,12 +232,43 @@ function hitJson(hit: EdgeHit): HitJson {
   return out;
 }
 
+/** One `--json` match: the symbol, its hits, and the notes the text report prints beside them. */
+export function matchJson(
+  graph: GraphV1,
+  direction: Direction,
+  r: { symbol: NodeV1; hits: EdgeHit[] },
+  candidateCount: number,
+): MatchJson {
+  const m: MatchJson = { symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson) };
+  if (r.hits.length === 0) m.note = looseNoteFor(direction, r.symbol.name, candidateCount);
+  const unresolved = unresolvedNoteFor(graph, direction, r.symbol.name);
+  if (unresolved) m.unresolved = unresolved.trim();
+  return m;
+}
+
 /** Parse and validate the raw `--direction` string; exits (code 1) on garbage. */
-function resolveDirection(raw: string | undefined): Direction {
+export function resolveDirection(raw: string | undefined): Direction {
   if (raw === undefined) return "in";
   if (raw === "in" || raw === "out") return raw;
   console.error(`✗ --direction must be "in" or "out", got "${raw}"`);
   process.exit(1);
+}
+
+/** Parse and validate the raw `--depth` string; exits (code 1) on garbage. */
+export function resolveDepth(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_DEPTH;
+  // `all` (aka full/max) = the whole transitive closure: walk until no new
+  // node is reached. The BFS's visited-set makes this cycle-safe, and it
+  // terminates when the frontier empties. This is the "show me every
+  // connected source" mode — the right first move before a multi-file
+  // refactor, where stopping at direct edges misses sibling/downstream files.
+  if (/^(all|full|max)$/i.test(raw)) return Number.POSITIVE_INFINITY;
+  const d = Number(raw);
+  if (!Number.isFinite(d) || d < 1) {
+    console.error(`✗ --depth must be a positive number or "all", got "${raw}"`);
+    process.exit(1);
+  }
+  return Math.floor(d);
 }
 
 /**
@@ -274,43 +305,14 @@ export function runCallersCommand(query: string, dir: string, opts: CallersCliOp
   }
 
   const direction = resolveDirection(opts.direction);
-  let depth = DEFAULT_DEPTH;
-  if (opts.depth !== undefined) {
-    // `all` (aka full/max) = the whole transitive closure: walk until no new
-    // node is reached. The BFS's visited-set makes this cycle-safe, and it
-    // terminates when the frontier empties. This is the "show me every
-    // connected source" mode — the right first move before a multi-file
-    // refactor, where stopping at direct edges misses sibling/downstream files.
-    if (/^(all|full|max)$/i.test(opts.depth)) {
-      depth = Number.POSITIVE_INFINITY;
-    } else {
-      const d = Number(opts.depth);
-      if (!Number.isFinite(d) || d < 1) {
-        console.error(`✗ --depth must be a positive number or "all", got "${opts.depth}"`);
-        process.exit(1);
-      }
-      depth = Math.floor(d);
-    }
-  }
+  const depth = resolveDepth(opts.depth);
   const showDepth = depth > 1;
 
   const results = matches.map((symbol) => ({ symbol, hits: edgeWalk(graph, symbol, direction, depth) }));
   const saved = callersSavings(graph, results);
 
   if (opts.json) {
-    const payload = {
-      query,
-      matches: results.map((r): MatchJson => {
-        const m: MatchJson = { symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson) };
-        if (r.hits.length === 0) {
-          m.note = looseNoteFor(direction, r.symbol.name, matches.length);
-        }
-        const unresolved = unresolvedNoteFor(graph, direction, r.symbol.name);
-        if (unresolved) m.unresolved = unresolved.trim();
-        return m;
-      }),
-      saved,
-    };
+    const payload = { query, matches: results.map((r) => matchJson(graph, direction, r, matches.length)), saved };
     console.log(JSON.stringify(payload, null, 2));
     return;
   }

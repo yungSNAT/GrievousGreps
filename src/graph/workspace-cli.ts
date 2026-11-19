@@ -184,12 +184,18 @@ export function runWorkspaceCallers(
   root: string,
   override: string | undefined,
   symbol: string,
-  opts: { direction?: Direction; depth?: number; in?: string },
+  opts: { direction?: Direction; depth?: number; in?: string; json?: boolean },
 ): void {
-  const { text, found } = federateCallers(root, override, symbol, opts);
+  const { text, found, coverage, json } = federateCallers(root, override, symbol, opts);
   if (!found) {
     console.error(`✗ ${text}`);
     process.exit(1);
+  }
+  if (opts.json) {
+    console.log(JSON.stringify(json, null, 2));
+    // stdout stays one JSON document; an unbuilt child is still reported.
+    if (coverage) console.error(coverage);
+    return;
   }
   process.stdout.write(text + "\n");
 }

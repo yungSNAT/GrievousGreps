@@ -426,6 +426,97 @@ test("callers federation resolves a symbol per child, grouped", async () => {
   rmSync(p, { recursive: true, force: true });
 });
 
+test("workspace callers --json federates with child-prefixed paths and reports unbuilt repos on stderr", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
+    const r = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "helperThing", p, "--json", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.query, "helperThing");
+    assert.deepEqual(out.matches.map((m: { symbol: { path: string } }) => m.symbol.path), ["repoA/a.ts"]);
+    assert.deepEqual(out.matches[0].hits.map((h: { name: string; path: string }) => [h.name, h.path]), [["alphaHandler", "repoA/a.ts"]]);
+    assert.match(r.stderr, /1 of 2 workspace repos have graphs.*repoB/);
+    assert.ok(out.saved.files >= 1);
+    const missing = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "noSuchSymbol", p, "--json", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(missing.status, 1);
+    assert.equal(missing.stdout, "");
+    assert.match(missing.stderr, /no symbol "noSuchSymbol" in any of the 1 workspace repo/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace callers --json gives each child's hits and sums their savings", async () => {
+  const p = workspaceFx({ repoA: REPOS.repoA, repoC: { "c.ts": REPOS.repoA["a.ts"] } });
+  try {
+    await buildWorkspace(p);
+    const json = (dir: string) => JSON.parse(execFileSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "helperThing", dir, "--json", "--no-refresh"], { encoding: "utf8" }));
+    const out = json(p);
+    assert.deepEqual(out.matches.map((m: { symbol: { path: string }; hits: { path: string }[] }) => [m.symbol.path, m.hits.map((h) => h.path)]),
+      [["repoA/a.ts", ["repoA/a.ts"]], ["repoC/c.ts", ["repoC/c.ts"]]]);
+    const [a, c] = [json(join(p, "repoA")).saved, json(join(p, "repoC")).saved];
+    assert.deepEqual(out.saved, { files: a.files + c.files, baselineChars: a.baselineChars + c.baselineChars });
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace callers scopes --in to a child as grep does, and rejects a bad --direction or --depth", async () => {
+  const p = workspaceFx(GREP_REPOS);
+  try {
+    await buildWorkspace(p);
+    const cli = (...extra: string[]) => spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "helperThing", p, "--json", "--no-refresh", ...extra], { encoding: "utf8" });
+    for (const scope of ["repoA", "repoA/src", "./repoA/src/"]) {
+      const r = cli("--in", scope);
+      assert.equal(r.status, 0, `${scope}: ${r.stderr}`);
+      assert.deepEqual(JSON.parse(r.stdout).matches.map((m: { symbol: { path: string } }) => m.symbol.path), ["repoA/src/a.ts"]);
+    }
+    for (const [extra, error] of [
+      [["--in", "repo"], /no workspace repo "repo".*repoA.*repoB/s],
+      [["--in", "repoA/nowhere"], /nothing indexed under/],
+      [["--in", "repoB"], /no symbol "helperThing" in repoB\/ —/],
+      [["--in", "repoEmpty"], /no symbol "helperThing" in repoEmpty\/ —/],
+      [["--direction", "sideways"], /--direction must be "in" or "out", got "sideways"/],
+      [["--depth", "abc"], /--depth must be a positive number or "all", got "abc"/],
+    ] as const) {
+      const r = cli(...extra);
+      assert.equal(r.status, 1, extra.join(" "));
+      assert.equal(r.stdout, "");
+      assert.match(r.stderr, error);
+    }
+    const text = federateCallers(p, undefined, "helperThing", { in: "repoA/src" });
+    assert.equal(text.found, true);
+    assert.match(text.text, /## repoA\//);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace graft_trace_calls walks depth \"all\" as the single-repository tool does", async () => {
+  const p = workspaceFx({
+    repoA: { "a.ts": "export function top() { return mid(); }\nfunction mid() { return leaf(); }\nfunction leaf() { return 1; }\n" },
+    repoB: REPOS.repoB,
+  });
+  try {
+    await buildWorkspace(p);
+    const direct = await callTool(p, "graft_trace_calls", { symbol: "leaf" });
+    assert.equal(direct.isError, false);
+    assert.match(direct.text, /← mid \(a\.ts:/);
+    assert.doesNotMatch(direct.text, /← top \(/);
+    const all = await callTool(p, "graft_trace_calls", { symbol: "leaf", depth: "all" });
+    assert.equal(all.isError, false);
+    assert.match(all.text, /← top \(a\.ts:.*\[depth 2\]/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("grep federation merges groups across children with child-prefixed paths", async () => {
   const p = workspaceFx(REPOS);
   await buildWorkspace(p);
