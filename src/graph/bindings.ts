@@ -42,6 +42,11 @@ export class FileBindings {
     this.set(scopePath, name, prior === undefined || prior === type ? type : "?");
   }
 
+  /** Whether `name` is bound in exactly this scope. */
+  has(scopePath: string, name: string): boolean {
+    return this.map.has(`${scopePath}|${name}`);
+  }
+
   /** Innermost-first: for scope ["a","b"] name "x", tries `a.b|x`, `a|x`, `|x`. */
   lookup(scope: string[], name: string): string | null {
     for (let i = scope.length; i >= 0; i--) {
@@ -244,9 +249,13 @@ export function resolveRecvType(
   // PHP static call `Foo::bar()`: the scope operand is a class name, so it *is*
   // the receiver type. (Member calls pass a `$var` receiver, filtered by the `$`.)
   if (ctx.lang === "php" && !receiver.startsWith("$")) return receiver;
+  const bound = ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver);
+  // A func literal's own parameter or local named like the Go receiver hides the receiver.
+  const isGoReceiver =
+    ctx.lang === "go" && receiver === ctx.goReceiverVar && (ctx.goLiterals.length === 0 || bound === ctx.bindings.lookup(ctx.scope, receiver));
   return (
-    (ctx.lang === "go" && receiver === ctx.goReceiverVar ? ctx.enclosingClass : undefined) ??
-    ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver) ??
+    (isGoReceiver ? ctx.enclosingClass : undefined) ??
+    bound ??
     // Swift type-member call `Animal.staticThing()`: an uppercase receiver with no
     // local binding is the type itself (Swift naming: types are UpperCamelCase,
     // values lowerCamelCase — and a shadowing binding was already tried above).
@@ -754,15 +763,52 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   // A func literal's local shadows only from its declaration and in its block, which a lookup cannot
   // see, so where an enclosing scope gives the name another type, the literal's binding names none.
   const outer = scope.at(-1)?.startsWith("@") ? (name: string) => bindings.lookup(scope.slice(0, -1), name) : () => null;
+  const typed = new Set<string>();
   const setLocal = (name: string, type: string) => {
     const prior = outer(name);
+    typed.add(name);
     bindings.setGo(scopePath, name, prior === null || prior === type ? type : "?");
   };
+  // A parameter types the literal's whole body, so it takes its type whatever an enclosing scope says.
+  const setParam = (name: string, type: string) => {
+    typed.add(name);
+    bindings.setGo(scopePath, name, type);
+  };
+  bindGoTyped(node, scopePath, bindings, setLocal, setParam);
+  // A name the literal declares with no type read hides the enclosing scope's type all the same.
+  // A `:=` in the literal's own body naming a variable the literal already declared reuses it; in a nested block
+  // it declares a new one.
+  const inBody = node.type === "short_var_declaration" && node.parent?.type === "block" && node.parent.parent?.type === "func_literal";
+  const reuses = (name: string) => inBody && bindings.has(scopePath, name);
+  for (const name of goDeclaredNames(node)) {
+    if (!typed.has(name) && !reuses(name) && outer(name) !== null) bindings.setGo(scopePath, name, "?");
+  }
+}
+
+/** The variable names a Go declaration node introduces in its scope. */
+function goDeclaredNames(node: SyntaxNode): string[] {
+  const ids = (holder: SyntaxNode | null | undefined) =>
+    (holder?.namedChildren ?? []).filter((c) => c.type === "identifier" && c.text !== "_").map((c) => c.text);
+  if (node.type === "parameter_declaration" || node.type === "variadic_parameter_declaration") {
+    return GO_FUNCTIONS.has(node.parent?.parent?.type ?? "") ? ids(node) : [];
+  }
+  if (node.type === "var_spec") return ids(node);
+  if (node.type === "short_var_declaration") return ids(node.childForFieldName("left"));
+  if (node.type === "range_clause" || node.type === "receive_statement") {
+    return node.children.some((c) => c.type === ":=") ? ids(node.childForFieldName("left")) : [];
+  }
+  if (node.type === "type_switch_statement") return ids(node.childForFieldName("alias"));
+  return [];
+}
+
+type SetGo = (name: string, type: string) => void;
+
+function bindGoTyped(node: SyntaxNode, scopePath: string, bindings: FileBindings, setLocal: SetGo, setParam: SetGo): void {
   if (node.type === "parameter_declaration") {
     // A function type's parameters (`var cb func(l *Logger)`) name no variable here.
     if (!GO_FUNCTIONS.has(node.parent?.parent?.type ?? "")) return;
     const type = goTypeName(node.childForFieldName("type"));
-    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) bindings.setGo(scopePath, name.text, type);
+    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) setParam(name.text, type);
     return;
   }
   if (node.type === "var_spec") {
@@ -823,7 +869,8 @@ function goCallResult(call: SyntaxNode): string | null {
 }
 
 /** A type's name through a pointer: `*Logger` → `Logger`, and `*log.Logger` → `log.Logger`, whose
- * package extract.ts reads from the file's imports. */
+ * package extract.ts reads from the file's imports. Null for a type parameter (`T` in
+ * `func Wrap[T any](v T) T`), which names no declared type. */
 export function goTypeName(type: SyntaxNode | null): string | null {
   const base = type?.type === "pointer_type" ? type.namedChildren.at(-1) : type;
   if (base?.type === "qualified_type") {
@@ -831,5 +878,38 @@ export function goTypeName(type: SyntaxNode | null): string | null {
     const name = base.childForFieldName("name");
     return pkg && name?.type === "type_identifier" ? `${pkg}.${name.text}` : null;
   }
-  return base?.type === "type_identifier" ? base.text : null;
+  return base?.type === "type_identifier" && !isGoTypeParameter(base) ? base.text : null;
+}
+
+/** Whether a bare type name is a type parameter of the function around it: a generic function's
+ * (`[T any]`), or one a method's receiver names (`func (b *Box[T]) …`). */
+function isGoTypeParameter(name: SyntaxNode): boolean {
+  for (let n = name.parent; n; n = n.parent) {
+    // A type the function declares in a block or case body before the use hides its type parameter.
+    if (GO_STATEMENT_LISTS.has(n.type) && n.namedChildren.some((d) => d.type === "type_declaration" && d.startIndex < name.startIndex && declaresType(d, name.text))) {
+      return false;
+    }
+    if (n.type === "function_declaration") {
+      const decls = n.childForFieldName("type_parameters")?.namedChildren ?? [];
+      if (decls.some((d) => d.namedChildren.some((c) => c.type === "identifier" && c.text === name.text))) return true;
+    } else if (n.type === "method_declaration") {
+      const recv = n.childForFieldName("receiver")?.namedChildren.find((c) => c.type === "parameter_declaration");
+      let type = recv?.childForFieldName("type");
+      if (type?.type === "pointer_type") type = type.namedChildren.at(-1) ?? null;
+      const args = type?.type === "generic_type" ? type.childForFieldName("type_arguments") : null;
+      if (args && hasTypeIdentifier(args, name.text)) return true;
+    }
+  }
+  return false;
+}
+
+/** The nodes that hold a Go function's statements directly. */
+const GO_STATEMENT_LISTS: ReadonlySet<string> = new Set(["block", "expression_case", "type_case", "communication_case", "default_case"]);
+
+function declaresType(declaration: SyntaxNode, text: string): boolean {
+  return declaration.namedChildren.some((spec) => spec.childForFieldName("name")?.text === text);
+}
+
+function hasTypeIdentifier(node: SyntaxNode, text: string): boolean {
+  return (node.type === "type_identifier" && node.text === text) || node.namedChildren.some((c) => hasTypeIdentifier(c, text));
 }
