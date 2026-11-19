@@ -3,7 +3,7 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use gg_bench::lsp::{Ask, LspOptions, run};
 use gg_bench::run::select_repos;
