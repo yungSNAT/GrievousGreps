@@ -22,7 +22,9 @@ else if (cmd === 'build') { fs.mkdirSync(path.join(rest[0], 'graft'), { recursiv
 else if (rest[0] === 'broken') process.exit(1);
 else {
   console.log('[trail] a log line first');
-  const files = rest[0] === 'where is a' ? ['a.py', 'b.py'] : ['b.py', 'b.py', 'c.py', 'd.py', 'a.py'];
+  // 'twice' finds a.py when first asked and z.py after.
+  const asked = fs.readFileSync(path.join(__dirname, 'calls.jsonl'), 'utf8').split('\n').filter((l) => l.includes('"twice"')).length;
+  const files = rest[0] === 'where is a' ? ['a.py', 'b.py'] : rest[0] === 'twice' ? [asked === 1 ? 'a.py' : 'z.py'] : ['b.py', 'b.py', 'c.py', 'd.py', 'a.py'];
   console.log(JSON.stringify({ hits: files.map(hit) }));
 }
 "#;
@@ -158,8 +160,14 @@ fn the_tool_builds_and_is_asked_in_the_benchmark_root_and_its_graph_is_removed()
         &fs::read_to_string(f.work.join("answers").join("demo.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(kept["where is a"]["hits"][0]["pointer"], json!("a.py:L1"));
-    assert_eq!(kept["broken"], Value::Null);
+    assert_eq!(kept["tool"], json!("1.2.3"));
+    assert_eq!(kept["benchmark_root"], json!("src"));
+    assert_eq!(
+        kept["questions"],
+        json!(["where is a", "how does a work", "broken"])
+    );
+    assert_eq!(kept["answers"][0]["hits"][0]["pointer"], json!("a.py:L1"));
+    assert_eq!(kept["answers"][2], Value::Null);
 }
 
 #[test]
@@ -193,6 +201,29 @@ fn a_rerun_grades_kept_answers_that_cover_every_question_without_asking() {
     assert_eq!(asked(), 6);
     let again = run(&f.options(None)).unwrap();
     assert_eq!(asked(), 6);
+    assert_eq!(
+        again.split_once('\n').unwrap().1,
+        first.split_once('\n').unwrap().1
+    );
+    // Another build of the tool asks again.
+    let tool = fs::read_to_string(&f.tool).unwrap();
+    fs::write(&f.tool, tool.replace("1.2.3", "1.2.4")).unwrap();
+    run(&f.options(None)).unwrap();
+    assert_eq!(asked(), 10);
+}
+
+#[test]
+fn a_question_set_twice_keeps_both_answers_for_a_rerun() {
+    let f = fixture();
+    let twice = json!({ "query": "twice", "category": "symbol", "relevant": ["src/a.py"] });
+    fs::write(
+        f.set.join("annotations").join("demo.json"),
+        json!([twice, twice]).to_string(),
+    )
+    .unwrap();
+    let first = run(&f.options(None)).unwrap();
+    assert!(first.contains("| All | 2 | 0.500 | 0.500 |"), "{first}");
+    let again = run(&f.options(None)).unwrap();
     assert_eq!(
         again.split_once('\n').unwrap().1,
         first.split_once('\n').unwrap().1

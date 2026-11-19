@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::run::{
@@ -206,24 +206,54 @@ fn graded_answer(repo: &SetRepo, task: &Task, answer: Option<&Value>) -> Graded 
     }
 }
 
-/// Keeps one repository's answers, keyed by question, in `<work>/answers/<repo>.json`.
-fn keep(work: &Path, name: &str, answers: serde_json::Map<String, Value>) -> Result<(), String> {
-    let dir = work.join("answers");
-    let file = dir.join(format!("{name}.json"));
-    fs::create_dir_all(&dir)
-        .and_then(|()| fs::write(&file, format!("{:#}\n", Value::Object(answers))))
+/// One repository's answers in question order (`null` for a failed one), with what they were
+/// asked with, kept in `<work>/answers/<repo>.json`.
+#[derive(Deserialize, Serialize)]
+struct Kept {
+    tool: String,
+    revision: String,
+    benchmark_root: Option<String>,
+    questions: Vec<String>,
+    answers: Vec<Value>,
+}
+
+impl Kept {
+    fn new(tool: &str, repo: &SetRepo, tasks: &[Task]) -> Self {
+        Kept {
+            tool: tool.to_owned(),
+            revision: repo.revision.clone(),
+            benchmark_root: repo.benchmark_root.clone(),
+            questions: tasks.iter().map(|t| t.query.clone()).collect(),
+            answers: Vec::new(),
+        }
+    }
+}
+
+fn kept_file(work: &Path, name: &str) -> PathBuf {
+    work.join("answers").join(format!("{name}.json"))
+}
+
+fn keep(work: &Path, name: &str, kept: &Kept) -> Result<(), String> {
+    let file = kept_file(work, name);
+    let text = serde_json::to_string_pretty(kept).map_err(|e| e.to_string())?;
+    fs::create_dir_all(work.join("answers"))
+        .and_then(|()| fs::write(&file, text + "\n"))
         .map_err(|e| format!("cannot write {}: {e}", file.display()))
 }
 
-/// The answers an earlier run in this work folder kept for the repository, if they answer every
-/// question, so a stopped run resumes where it stopped.
-fn kept(work: &Path, name: &str, tasks: &[Task]) -> Option<serde_json::Map<String, Value>> {
-    let text = fs::read_to_string(work.join("answers").join(format!("{name}.json"))).ok()?;
-    let answers: serde_json::Map<String, Value> = serde_json::from_str(&text).ok()?;
-    tasks
-        .iter()
-        .all(|t| answers.contains_key(&t.query))
-        .then_some(answers)
+/// The answers an earlier run in this work folder kept for the repository, when it asked the same
+/// questions in the same order with the same known tool version at the same revision and folder,
+/// so a stopped run resumes where it stopped. Any other kept file is asked again.
+fn kept(work: &Path, name: &str, now: &Kept) -> Option<Vec<Value>> {
+    let text = fs::read_to_string(kept_file(work, name)).ok()?;
+    let old: Kept = serde_json::from_str(&text).ok()?;
+    let same = now.tool != "unknown"
+        && old.tool == now.tool
+        && old.revision == now.revision
+        && old.benchmark_root == now.benchmark_root
+        && old.questions == now.questions
+        && old.answers.len() == old.questions.len();
+    same.then_some(old.answers)
 }
 
 /// The folder semble names in the fetched checkout, without a graph a stopped run left behind,
@@ -239,7 +269,12 @@ fn ask_root(opts: &AskOptions, repo: &SetRepo) -> Result<PathBuf, String> {
 }
 
 /// Builds one repository's graph, asks each question once and removes the graph.
-fn ask_repo(opts: &AskOptions, repo: &SetRepo, tasks: &[Task]) -> Result<Vec<Graded>, String> {
+fn ask_repo(
+    opts: &AskOptions,
+    repo: &SetRepo,
+    tasks: &[Task],
+    mut kept: Kept,
+) -> Result<Vec<Graded>, String> {
     let root = ask_root(opts, repo)?;
     let env = scratch_env(&opts.work, "ask")?;
     let call = |args: &[&OsStr], minutes: u32| {
@@ -269,7 +304,6 @@ fn ask_repo(opts: &AskOptions, repo: &SetRepo, tasks: &[Task]) -> Result<Vec<Gra
     }
     let top = TOP_K.to_string();
     let mut graded = Vec::new();
-    let mut answers = serde_json::Map::new();
     for task in tasks {
         let args = [
             OsStr::new("ask"),
@@ -284,10 +318,10 @@ fn ask_repo(opts: &AskOptions, repo: &SetRepo, tasks: &[Task]) -> Result<Vec<Gra
             .filter(|out| out.status.success())
             .and_then(|out| parse_result(&out.stdout));
         graded.push(graded_answer(repo, task, answer.as_ref()));
-        answers.insert(task.query.clone(), answer.unwrap_or(Value::Null));
+        kept.answers.push(answer.unwrap_or(Value::Null));
     }
     remove(&root.join("graft"))?;
-    keep(&opts.work, &repo.name, answers)?;
+    keep(&opts.work, &repo.name, &kept)?;
     Ok(graded)
 }
 
@@ -368,18 +402,21 @@ fn tasks_of(opts: &AskOptions, repo: &SetRepo) -> Result<Vec<Task>, String> {
 /// Asks every selected question and returns the report: the table, then the misses at 3.
 pub fn run(opts: &AskOptions) -> Result<String, String> {
     let node = node_version(&opts.node)?;
+    let tool = tool_version(&opts.node, &opts.tool, &opts.work);
     let mut graded = Vec::new();
     for repo in &opts.repos {
         let tasks = tasks_of(opts, repo)?;
         if tasks.is_empty() {
             continue;
         }
-        graded.extend(match kept(&opts.work, &repo.name, &tasks) {
+        let now = Kept::new(&tool, repo, &tasks);
+        graded.extend(match kept(&opts.work, &repo.name, &now) {
             Some(answers) => tasks
                 .iter()
-                .map(|t| graded_answer(repo, t, answers.get(&t.query).filter(|a| !a.is_null())))
+                .zip(&answers)
+                .map(|(t, a)| graded_answer(repo, t, Some(a).filter(|a| !a.is_null())))
                 .collect(),
-            None => ask_repo(opts, repo, &tasks)?,
+            None => ask_repo(opts, repo, &tasks, now)?,
         });
     }
     if graded.is_empty() {
@@ -399,7 +436,7 @@ pub fn run(opts: &AskOptions) -> Result<String, String> {
         "Node {node}, {} UTC\nTool: {} ({})\nSet: {}, {} questions in {repos} repositories{category}; {failed} failed\n\n{}\nMisses at 3 (no relevant file among the first 3):\n\n{}",
         utc_date(SystemTime::now()),
         opts.tool.display(),
-        tool_version(&opts.node, &opts.tool, &opts.work),
+        tool,
         opts.set.display(),
         graded.len(),
         table(&graded),
