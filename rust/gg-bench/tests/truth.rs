@@ -10,8 +10,10 @@ use gg_bench::truth::{TruthOptions, run};
 use serde_json::{Value, json};
 
 /// Answers for `lib.py`'s `run`: references in `main.py` at a call and a value inside `main`, a
-/// value inside `other`, 2 module-level calls and a module-level import.
+/// value inside `other`, 2 module-level calls and a module-level import. Like
+/// typescript-language-server, it sends no `serverInfo` and prints its version for `--version`.
 const FAKE_SERVER: &str = r#"
+if (process.argv.includes('--version')) { console.log('fake-ls'); console.log('9.9.9'); process.exit(0); }
 const send = (m) => { const b = JSON.stringify({ jsonrpc: '2.0', ...m }); process.stdout.write(`Content-Length: ${Buffer.byteLength(b)}\r\n\r\n${b}`); };
 const at = (line, a, b) => ({ start: { line, character: a }, end: { line, character: b } });
 const span = (a, b, c, d) => ({ start: { line: a, character: b }, end: { line: c, character: d } });
@@ -198,6 +200,16 @@ fn expected_rows() -> (Value, Value) {
         ]),
         json!([{ "file": "main.py", "chain": "other", "lines": [8] }]),
     )
+}
+
+#[test]
+fn the_log_names_the_version_a_server_without_server_info_prints() {
+    let f = fixture();
+    let truth = json!({ "run": { "target": "lib.py", "target_lines": [1], "required": [] } });
+    fs::write(f.bench.join("truth").join("demo.json"), truth.to_string()).unwrap();
+    let report = run(&f.options(None)).unwrap();
+    let first = report.lines().next().unwrap();
+    assert!(first.ends_with("` (null), version 9.9.9"), "{first}");
 }
 
 #[test]

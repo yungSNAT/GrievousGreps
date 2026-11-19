@@ -36,7 +36,7 @@ cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- run --tool dist/
 | `--node <path>` | The Node that runs the tool. The default is `node` on the path. |
 | `--bench <dir>` | The folder with `repos.json` and `truth/`. The default is this folder. |
 
-The harness runs one repository at a time at below normal priority. It keeps the shallow clones for the next run and deletes each graph copy after scoring. It only builds and queries, and never runs the tool's test suite.
+The harness runs one repository at a time at below normal priority. It keeps the shallow clones for the next run and deletes each graph copy after scoring. Each build's answers stay in the work folder's `answers/<upstream or patched>/<repository>.json`, keyed by symbol, with `null` for an answer that held no JSON, so `gg-bench score` can score them again. It only builds and queries, and never runs the tool's test suite.
 
 Each run points `HOME`, `USERPROFILE`, `TRAIL_HOME`, `CLAUDE_CONFIG_DIR` and `CODEX_HOME` at a scratch folder under the work folder, and `DOTENV_CONFIG_PATH` at a missing file. The tool therefore leaves your graphs, agent settings and hooks alone and loads no `.env` file. Telemetry and the hosted workspace are off for the run.
 
@@ -60,7 +60,7 @@ It prints each symbol's score and the repository's summary as JSON. A symbol wit
 cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- lsp --language Python --ask calls -- pyright-langserver --stdio
 ```
 
-`--ask calls`, the default, uses call hierarchy: `textDocument/prepareCallHierarchy`, then `callHierarchy/incomingCalls`. `--ask references` uses `textDocument/references` without the declaration, which also returns imports and other references that are not calls. A server gives locations, not callers, so each location is named by the innermost definition around it in the server's own document symbols, as Serena's column is mapped: modules and anonymous callbacks drop out, and a value inside a definition gives way to the definition. The answers go to the work folder's `lsp/<ask>/<repository>.json` in `callers --json` shape, with the server's stderr beside them. Install each checkout's dependencies first where the server reads them, as rust-analyzer and the TypeScript server do. `--repos`, `--work` and `--verbose` work as they do for `run`.
+`--ask calls`, the default, uses call hierarchy: `textDocument/prepareCallHierarchy`, then `callHierarchy/incomingCalls`. `--ask references` uses `textDocument/references` without the declaration, which also returns imports and other references that are not calls. A server gives locations, not callers, so each location is named by the innermost definition around it in the server's own document symbols, as Serena's column is mapped: modules and anonymous callbacks drop out, and a value inside a definition gives way to the definition. The answers go to the work folder's `lsp/<ask>/<repository>.json` in `callers --json` shape, with the server's stderr beside them. The report's first line, and the first line `lsp-truth` prints, name the server's version: its `serverInfo` version, or else the last line it prints when started with `--version` in place of `--stdio`. Install each checkout's dependencies first where the server reads them, as rust-analyzer and the TypeScript server do. `--repos`, `--work` and `--verbose` work as they do for `run`.
 
 ## What it prints
 

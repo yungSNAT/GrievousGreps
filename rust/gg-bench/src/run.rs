@@ -321,8 +321,8 @@ impl<'a> Build<'a> {
         )
     }
 
-    /// One symbol's answer, scored, and whether it held any JSON.
-    fn ask(&self, symbol: &str, entry: &Entry) -> Result<(SymbolScore, bool), String> {
+    /// One symbol's answer, scored, and its JSON, if it held any.
+    fn ask(&self, symbol: &str, entry: &Entry) -> Result<(SymbolScore, Option<Value>), String> {
         let (label, name) = (self.label, &self.repo.name);
         let args = [
             OsStr::new("callers"),
@@ -356,7 +356,7 @@ impl<'a> Build<'a> {
                 misses.join(" ")
             );
         }
-        Ok((score, result.is_some()))
+        Ok((score, result))
     }
 }
 
@@ -370,12 +370,19 @@ fn score_repo(
 ) -> Result<Summary, String> {
     let truth = read_truth(&opts.bench, &repo.name)?;
     let build = Build::start(opts, repo, source, tool, label)?;
-    let (mut scores, mut unreadable) = (Vec::new(), 0);
+    let (mut scores, mut unreadable, mut answers) = (Vec::new(), 0, serde_json::Map::new());
     for (symbol, entry) in &truth {
-        let (score, readable) = build.ask(symbol, entry)?;
-        unreadable += usize::from(!readable);
+        let (score, answer) = build.ask(symbol, entry)?;
+        unreadable += usize::from(answer.is_none());
         scores.push(score);
+        answers.insert(symbol.clone(), answer.unwrap_or(Value::Null));
     }
+    // Kept so the answers can be read or scored again (`gg-bench score`) after the run.
+    let kept = under(&opts.work, &["answers", label]);
+    let file = kept.join(format!("{}.json", repo.name));
+    fs::create_dir_all(&kept)
+        .and_then(|()| fs::write(&file, format!("{:#}\n", Value::Object(answers))))
+        .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
     // A broken tool must not pass as a recall of 0.00.
     if unreadable == scores.len() {
         return Err(format!(
