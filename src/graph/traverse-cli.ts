@@ -206,7 +206,7 @@ export interface MatchJson {
   unresolved?: string;
 }
 
-export interface HitJson {
+interface HitJson {
   id: string;
   name?: string;
   kind?: string;
