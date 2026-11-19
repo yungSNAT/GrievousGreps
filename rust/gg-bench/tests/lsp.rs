@@ -4,11 +4,13 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use gg_bench::lsp::{Ask, LspOptions, run};
 use gg_bench::run::select_repos;
 use serde_json::{Value, json};
+
+mod common;
+use common::git;
 
 /// Speaks just enough LSP: it asks the client for configuration and reports progress before it
 /// is ready, then answers for `lib.py`'s `run`, called from `main` on line 4 and at module level
@@ -76,21 +78,6 @@ process.stdin.on('data', (chunk) => {
   }
 });
 "#;
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
 
 struct Fixture {
     _tmp: tempfile::TempDir,

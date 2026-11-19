@@ -3,10 +3,12 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use gg_bench::ask::{AskOptions, run, select};
 use serde_json::{Value, json};
+
+mod common;
+use common::git;
 
 /// Records each call beside itself. `build` makes a graft/ folder in the folder it is given;
 /// `ask` answers 'where is a' with a.py first, 'broken' with an error, and anything else with
@@ -28,21 +30,6 @@ else {
   console.log(JSON.stringify({ hits: files.map(hit) }));
 }
 "#;
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
 
 struct Fixture {
     _tmp: tempfile::TempDir,
