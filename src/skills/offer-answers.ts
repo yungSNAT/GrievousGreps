@@ -36,7 +36,7 @@ const RETIRE = /^(yes |ok |okay |sure )?(retire|retire it)( please)?$/;
 const LEAVE = /^(no )?(leave|leave it|leave it as is|leave it alone|leave it be)( please| thanks| thank you)?$/;
 const KEEP = /^(no )?(keep|keep it|keep the skill|keep it as is)( please| thanks| thank you)?$/;
 /** "no, retire it later", "nah, leave it for now": a no whose rest is about the offer. */
-const NO_ABOUT = /^(no|nope|nah|not now)\b(?:[\s,.;:!]*[\n\r  ]|[\s,.;:!]).*\b(retire|replace|leave|keep|later|for now|not now)\b/;
+const NO_ABOUT = /^(no|nope|nah|not now)\b(?:[\s,.;:!]*[\n\r\u2028\u2029]|[\s,.;:!]).*\b(retire|replace|leave|keep|later|for now|not now)\b/;
 
 /** 4.10: the person's whole message as an answer to an offer of `moment`. `afterShow`: it already got its one "show me". */
 export function classifyFor(moment: OfferMoment, typed: string, afterShow: boolean): TypedAnswer {
