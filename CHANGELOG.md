@@ -17,6 +17,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Changed
 
+- **28 upstream source files match upstream byte for byte again.** They differed only by `NOSONAR` comments, which conflicted at each sync; `.sonarcloud.properties` now leaves them out of SonarCloud's analysis instead.
 - **`callers --in` from a folder of several repositories takes a path from that folder**, as `grep` and `ask` do there, in the CLI and the MCP `graft_trace_calls` tool: `--in repoA/src` searches `src` in `repoA` only. It was applied inside every repository, so it failed with 'nothing indexed under' whenever one of them lacked the path. The old form `--in src` now exits 1 with `no workspace repo "src"`, naming the repositories: write `--in <repository>/src` instead.
 - **Merged upstream's `main` up to `ca672c1` (16 November 2026)**, so the upstream changes listed under Unreleased below are in this build too: Go, Kotlin, Elixir, PHP and TypeScript interface resolution, `build --strict` and `--include-dir`, `trail share-session` and the Pi host among them. The fork's own rules hold where the two differ: writes stay inside the repository's real folders, `share-session` adds its hook to `~/.claude/settings.json` only with `--global`, network features stay off until asked for, and TypeScript calls through an import still resolve by the fork's import walk rather than upstream's named-import shortcut. Upstream's committed `.claude/settings.json` and `.trail/hook.cjs` are left out.
 - **`trail init` and `trail login` write outside the repository only with `--global`.** Upkeep replays the same choice.
@@ -52,6 +53,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **`grep --json` from a folder of several repositories names any repository without a graph on stderr**, as the text output and `callers --json` do, so a JSON reader can tell a repository was not searched.
 - **`callers --json` answers from a folder of several repositories.** It exited with 'no graph found' there whilst the plain query searched every repository. It now gives the single-repository JSON shape, each path prefixed with its repository's folder, and names any repository without a graph on stderr.
 - **From a folder of several repositories, `callers` checks `--direction` and `--depth`, and the MCP `graft_trace_calls` tool walks `depth: "all"`.** A bad `--direction` or `--depth` there now exits 1, as in a single repository, instead of being read as `in` or depth 1; the tool took `"all"` as depth 1.
 - **A Go method call resolves when its receiver is a parameter or holds a function's result.** `func f(l *log.Logger) { l.SetLevel(1) }`, `l := log.New()` and `var std = New()` gave the receiver no type, so a method sharing its name with a function or another type's method had no callers there. The receiver now takes the parameter's type, or the first result the called function declares.
