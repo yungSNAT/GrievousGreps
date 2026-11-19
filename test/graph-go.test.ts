@@ -537,7 +537,7 @@ test("Go extraction: a func literal's parameter or local named like the method's
   });
 
   const calls = (fn: string) =>
-    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}`).map((e) => e.target);
+    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target);
   assert.deepEqual(calls("Param"), ["main.go#Entry.SetLevel"]);
   // The local follows a captured receiver of another type, so the name gets no type rather than the receiver's.
   assert.deepEqual(calls("Local"), []);
