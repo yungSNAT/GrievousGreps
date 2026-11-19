@@ -72,18 +72,30 @@ function resource(rel: string, id: string, name: string, lines: [number, number]
   };
 }
 
+/** A skip reason as printed and cached: control characters removed, at most 120 characters. */
+function reasonText(message: string): string {
+  const text = message.replace(/\p{Cc}/gu, " ");
+  return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+}
+
 export function extractDeploy(rel: string, source: string, format: DeployFormat): DeployExtract {
   try {
     const out = format === "dockerfile" ? dockerfile(rel, source) : yamlFile(rel, source, format);
     if (!out) return { nodes: [], refs: [] };
     return { nodes: [fileNode(rel, source), ...out.nodes], refs: out.refs };
   } catch (err) {
-    if (err instanceof Skip) return { nodes: [], refs: [], skipped: err.message };
-    throw err;
+    if (!(err instanceof Skip)) throw err;
+    // A Helm or other template is not YAML until rendered: say so beside whatever failed.
+    const templated = format !== "dockerfile" && source.includes("{{") && !err.message.includes("template");
+    return { nodes: [], refs: [], skipped: reasonText(templated ? `${err.message} in a file holding {{ }} templates` : err.message) };
   }
 }
 
 // ── Dockerfile ──────────────────────────────────────────────────────────────
+
+/** A heredoc opener (`<<EOF`, `<<-"EOF"`) at the start of a word of a RUN, COPY or ADD. */
+const HEREDOC = /(?:^|\s)<<-?(["']?)([A-Za-z_][\w-]*)\1/g;
+const HEREDOC_OPS = new Set(["RUN", "COPY", "ADD"]);
 
 /** Instructions with their first line, continuations joined, comments and heredoc bodies dropped. */
 function instructions(source: string): Array<{ line: number; op: string; args: string }> {
@@ -106,7 +118,7 @@ function instructions(source: string): Array<{ line: number; op: string; args: s
     }
     if (/^\s*#/.test(raw)) continue;
     if (!text) start = i + 1;
-    const trimmed = raw.replace(/\s+$/, "");
+    const trimmed = raw.trimEnd();
     if (trimmed.endsWith(escape)) {
       text += `${trimmed.slice(0, -escape.length)} `;
       continue;
@@ -114,11 +126,13 @@ function instructions(source: string): Array<{ line: number; op: string; args: s
     text += trimmed;
     const m = /^\s*([A-Za-z]+)\s*(.*)$/.exec(text);
     if (m) {
-      out.push({ line: start, op: m[1].toUpperCase(), args: m[2] });
-      heredoc = [...m[2].matchAll(/<<-?(["']?)([A-Za-z_][\w-]*)\1/g)].map((h) => h[2]);
+      const op = m[1].toUpperCase();
+      out.push({ line: start, op, args: m[2] });
+      if (HEREDOC_OPS.has(op)) heredoc = [...m[2].matchAll(HEREDOC)].map((h) => h[2]);
     }
     text = "";
   }
+  if (heredoc.length) throw new Skip(`unterminated heredoc ${heredoc[0]}`);
   return out;
 }
 
@@ -135,47 +149,55 @@ function words(args: string): string[] {
   return (args.match(/"[^"]*"|'[^']*'|\S+/g) ?? []).map((w) => w.replace(/^(["'])(.*)\1$/, "$2"));
 }
 
+/** Docker's rule for a stage name (`FROM image AS name`), case-insensitive. */
+const STAGE_NAME = /^[a-z][a-z0-9._-]*$/i;
+
 function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: DeployRef[] } {
   const ins = instructions(source);
   const total = source.split("\n").length;
   const froms = ins.filter((i) => i.op === "FROM");
   if (!froms.length) throw new Skip("no FROM instruction");
-  const stages: Array<{ id: string; name: string; image: string; start: number; end: number }> = [];
-  froms.forEach((f, i) => {
-    const w = words(f.args).filter((x) => !x.startsWith("--"));
-    if (!w[0] || (w.length > 1 && (w.length !== 3 || w[1].toUpperCase() !== "AS"))) throw new Skip(`line ${f.line}: FROM ${f.args}`);
-    const name = w[2] ?? `stage ${i}`;
-    stages.push({ id: `stage:${w[2] ?? i}`, name, image: w[0], start: f.line, end: (froms[i + 1]?.line ?? total + 1) - 1 });
-  });
-  const stageOf = (line: number) => [...stages].reverse().find((s) => s.start <= line);
-  const byName = (ref: string) => stages.find((s, i) => s.name.toLowerCase() === ref.toLowerCase() || String(i) === ref);
+  type Stage = { id: string; name: string; image: string; start: number; end: number; copied: string[] };
+  const stages: Stage[] = [];
+  /** Stages built so far, by lowercased name and by index: a stage refers only to earlier ones. */
+  const byName = new Map<string, Stage>();
   const refs: DeployRef[] = [];
-  const copied = new Map<string, string[]>();
+  let s: Stage | undefined;
   for (const i of ins) {
-    const s = stageOf(i.line);
-    if (!s) continue; // an ARG before the first FROM
-    const from = `${rel}#${s.id}`;
     if (i.op === "FROM") {
-      const base = byName(s.image);
-      if (base && base !== s) refs.push({ from, to: "id", id: `${rel}#${base.id}` });
-    } else if (i.op === "COPY" || i.op === "ADD") {
+      const w = words(i.args).filter((x) => !x.startsWith("--"));
+      if (!w[0] || (w.length > 1 && (w.length !== 3 || w[1].toUpperCase() !== "AS"))) throw new Skip(`line ${i.line}: FROM ${i.args}`);
+      const alias = w[2];
+      if (alias !== undefined && !STAGE_NAME.test(alias)) throw new Skip(`line ${i.line}: stage name ${alias} is not valid`);
+      if (alias !== undefined && byName.has(alias.toLowerCase())) throw new Skip(`line ${i.line}: duplicate stage ${alias}`);
+      const index = stages.length;
+      const base = byName.get(w[0].toLowerCase());
+      if (s) s.end = i.line - 1;
+      s = { id: `stage:${alias ?? index}`, name: alias ?? `stage ${index}`, image: w[0], start: i.line, end: total, copied: [] };
+      stages.push(s);
+      if (base) refs.push({ from: `${rel}#${s.id}`, to: "id", id: `${rel}#${base.id}` });
+      if (alias !== undefined) byName.set(alias.toLowerCase(), s);
+    } else if (s && (i.op === "COPY" || i.op === "ADD")) {
+      const from = `${rel}#${s.id}`;
       const w = words(i.args);
       const fromFlag = w.find((x) => x.toLowerCase().startsWith("--from="));
-      const plain = w.filter((x) => !x.startsWith("--"));
       if (fromFlag) {
-        const base = byName(fromFlag.slice(7));
-        if (base) refs.push({ from, to: "id", id: `${rel}#${base.id}` });
+        const ref = fromFlag.slice(7).toLowerCase();
+        const base = byName.get(ref) ?? (/^\d+$/.test(ref) ? stages[Number(ref)] : undefined);
+        if (base && base !== s) refs.push({ from, to: "id", id: `${rel}#${base.id}` });
         continue;
       }
-      for (const src of plain.slice(0, -1)) {
+      for (const src of w.filter((x) => !x.startsWith("--")).slice(0, -1)) {
         if (src.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(src) || src.startsWith("git@")) continue;
+        if (!compileGlob(src)) throw new Skip(`line ${i.line}: ${i.op} source ${src} is not a valid pattern`);
         refs.push({ from, to: "copy", dockerfile: rel, src });
-        copied.set(s.id, [...(copied.get(s.id) ?? []), src]);
+        s.copied.push(src);
       }
     }
+    // Anything before the first FROM (an ARG) belongs to no stage.
   }
-  const nodes = stages.map((s) =>
-    resource(rel, s.id, s.name, [s.start, s.end], `FROM ${s.image}${s.name.startsWith("stage ") ? "" : ` AS ${s.name}`}`, [s.name, s.image, ...(copied.get(s.id) ?? [])]),
+  const nodes = stages.map((st) =>
+    resource(rel, st.id, st.name, [st.start, st.end], `FROM ${st.image}${st.name.startsWith("stage ") ? "" : ` AS ${st.name}`}`, [st.name, st.image, ...st.copied]),
   );
   return { nodes, refs };
 }
@@ -197,31 +219,38 @@ function list(v: unknown, what: string): unknown[] {
   return v;
 }
 
+/** A string field the graph reads; one holding `{{` is an unrendered template, not a name. */
 function str(v: unknown, what: string): string | undefined {
   if (v === undefined || v === null) return undefined;
   if (typeof v !== "string") throw new Skip(`${what} is not a string`);
+  if (v.includes("{{")) throw new Skip(`${what} is a template, not rendered`);
   return v;
 }
 
+function strict(v: unknown, what: string): string {
+  const s = str(v, what);
+  if (s === undefined) throw new Skip(`${what} is not a string`);
+  return s;
+}
+
 function strings(v: unknown, what: string): Record<string, string> {
-  const o = obj(v, what);
-  return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, String(x)]));
+  return Object.fromEntries(Object.entries(obj(v, what)).map(([k, x]) => [k, strict(x, `${what} ${k}`)]));
 }
 
 function yamlFile(rel: string, source: string, format: "compose" | "kubernetes"): { nodes: NodeV1[]; refs: DeployRef[] } | null {
+  // A manifest has `apiVersion` and `kind` at the top level; a lockfile, CI or settings file
+  // has not, so it is never parsed and never reported. (The repository walk already leaves
+  // out every file above `MAX_FILE_BYTES`, so no file parsed here is larger.)
+  if (format === "kubernetes" && !(/^apiVersion:/m.test(source) && /^kind:/m.test(source))) return null;
   const counter = new LineCounter();
   const docs = [...parseAllDocuments(source, { lineCounter: counter, uniqueKeys: false, logLevel: "error" })];
   const bad = docs.find((d) => d.errors.length);
-  if (bad) {
-    // A Helm or other template is not YAML until rendered; anything else is broken YAML.
-    if (source.includes("{{")) throw new Skip("a template, not rendered");
-    throw new Skip(`not valid YAML: ${bad.errors[0].message.split("\n")[0]}`);
-  }
+  if (bad) throw new Skip(`not valid YAML: ${bad.errors[0].message.split("\n")[0]}`);
   const lines = (d: Document, node: unknown): [number, number] => {
     const range = (node as { range?: [number, number, number] } | undefined)?.range ?? d.range ?? [0, 1, 1];
     return [counter.linePos(range[0]).line, counter.linePos(Math.max(range[0], range[1] - 1)).line];
   };
-  return format === "compose" ? compose(rel, docs, lines) : kubernetes(rel, docs, lines, source.includes("{{"));
+  return format === "compose" ? compose(rel, docs, lines) : kubernetes(rel, docs, lines);
 }
 
 /** A document's value; too many aliases (a 'billion laughs' file) is a skip, not a crash. */
@@ -275,13 +304,14 @@ function compose(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]
       }
     }
     if (image) refs.push({ from, to: "image", image, built: build !== undefined && build !== null });
-    const deps = svc.depends_on;
-    const depNames = Array.isArray(deps) ? deps.map((x) => String(x)) : Object.keys(obj(deps, `service ${name}: depends_on`));
-    const links = list(svc.links, `service ${name}: links`).map((x) => String(x).split(":")[0]);
+    /** A list of names, or a mapping keyed by them (compose allows both). */
+    const names = (v: unknown, field: string) =>
+      Array.isArray(v) ? v.map((x) => strict(x, `service ${name}: ${field} entry`)) : Object.keys(obj(v, `service ${name}: ${field}`));
+    const links = list(svc.links, `service ${name}: links`).map((x) => strict(x, `service ${name}: links entry`).split(":")[0]);
     const ext = obj(svc.extends, `service ${name}: extends`);
     const extended = ext.file === undefined ? str(ext.service, `service ${name}: extends.service`) : undefined;
-    for (const other of [...depNames, ...links, ...(extended ? [extended] : [])]) {
-      if (other in services) refs.push({ from, to: "id", id: `${rel}#service:${other}` });
+    for (const other of [...names(svc.depends_on, "depends_on"), ...links, ...(extended ? [extended] : [])]) {
+      if (Object.hasOwn(services, other)) refs.push({ from, to: "id", id: `${rel}#service:${other}` });
     }
     for (const v of list(svc.volumes, `service ${name}: volumes`)) {
       const [src, type] = typeof v === "string" ? [v.split(":")[0], undefined] : [str(obj(v, `service ${name}: volume`).source, `service ${name}: volume source`), str((v as Obj).type, `service ${name}: volume type`)];
@@ -292,8 +322,7 @@ function compose(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]
         if (p !== null) refs.push({ from, to: "mount", path: p });
       } else if (declared.has(`${rel}#volume:${src}`)) refs.push({ from, to: "id", id: `${rel}#volume:${src}` });
     }
-    const nets = svc.networks;
-    for (const n of Array.isArray(nets) ? nets.map((x) => String(x)) : Object.keys(obj(nets, `service ${name}: networks`))) {
+    for (const n of names(svc.networks, "networks")) {
       if (declared.has(`${rel}#network:${n}`)) refs.push({ from, to: "id", id: `${rel}#network:${n}` });
     }
     nodes.push(resource(rel, `service:${name}`, name, lines(d, at(["services", name])), `compose service ${name}${image ? ` (image ${image})` : ""}`, named));
@@ -313,13 +342,12 @@ function podTemplate(kind: string, spec: Obj, meta: Obj, what: string): { pod: O
 
 const isManifest = (m: unknown): m is Obj & { kind: string } => isObj(m) && typeof m.apiVersion === "string" && typeof m.kind === "string";
 
-function kubernetes(rel: string, docs: Document[], lines: Lines, templated: boolean): { nodes: NodeV1[]; refs: DeployRef[] } | null {
+function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } | null {
   const manifests = docs.map((d) => [d, js(d)] as const).filter(([, m]) => isManifest(m));
   if (!manifests.length) return null; // a workflow or settings file, not a manifest
-  // A Helm or other template can parse as YAML and still say nothing until rendered.
-  if (templated) throw new Skip("a template, not rendered");
   const nodes: NodeV1[] = [];
   const refs: DeployRef[] = [];
+  const seen = new Set<string>();
   for (const [d, raw] of manifests) {
     const m = raw as Obj & { kind: string };
     const meta = obj(m.metadata, `${m.kind}: metadata`);
@@ -328,7 +356,10 @@ function kubernetes(rel: string, docs: Document[], lines: Lines, templated: bool
     const kind = m.kind;
     const ns = str(meta.namespace, `${kind} ${name}: metadata.namespace`) ?? "default";
     const what = `${kind} ${name}`;
-    const from = `${rel}#${kind}/${ns}/${name}`;
+    const key = `${kind}/${ns}/${name}`;
+    if (seen.has(key)) throw new Skip(`duplicate ${kind} ${ns}/${name}`);
+    seen.add(key);
+    const from = `${rel}#${key}`;
     const named: string[] = [kind, name, ns];
     const spec = obj(m.spec, `${what}: spec`);
     if (WORKLOADS.has(kind)) {
@@ -394,7 +425,7 @@ function kubernetes(rel: string, docs: Document[], lines: Lines, templated: bool
         }
       }
     }
-    nodes.push(resource(rel, `${kind}/${ns}/${name}`, name, lines(d, d.contents), `${kind} ${name} (namespace ${ns})`, named));
+    nodes.push(resource(rel, key, name, lines(d, d.contents), `${kind} ${name} (namespace ${ns})`, named));
   }
   return { nodes, refs };
 }
@@ -410,23 +441,114 @@ function imageRepo(image: string): string {
   return s.replace(/^docker\.io\//, "").replace(/^library\//, "");
 }
 
-function globRegex(glob: string): RegExp {
-  const body = glob.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*\*/g, "\0").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]").replace(/\0/g, ".*");
-  return new RegExp(`^${body}(/.*)?$`);
+/** One segment of a Docker glob: `**`, or a test per character with `*` for any run of them. */
+type GlobSegment = "**" | Array<"*" | ((c: string) => boolean)>;
+
+/**
+ * A COPY or ADD source as Docker reads it (Go's `filepath.Match`, plus `**`): `*` and `?`
+ * within one path segment, `[a-z]` and `[^a-z]` classes; null for a malformed class.
+ * shortcut: a backslash is a literal character here, not an escape; a source escaping a
+ * wildcard therefore matches as a wildcard. Upgrade path: read `\` as Go does.
+ */
+function compileGlob(glob: string): GlobSegment[] | null {
+  const out: GlobSegment[] = [];
+  for (const part of glob.split("/")) {
+    if (part === "**") {
+      out.push("**");
+      continue;
+    }
+    const tokens: Array<"*" | ((c: string) => boolean)> = [];
+    for (let i = 0; i < part.length; i++) {
+      const c = part[i];
+      if (c === "*") {
+        if (tokens.at(-1) !== "*") tokens.push("*");
+      } else if (c === "?") tokens.push(() => true);
+      else if (c === "[") {
+        const close = part.indexOf("]", i + 1);
+        if (close < 0) return null;
+        let body = part.slice(i + 1, close);
+        const negate = body.startsWith("^");
+        if (negate) body = body.slice(1);
+        if (!body) return null;
+        const ranges: Array<[string, string]> = [];
+        for (let j = 0; j < body.length; j++) {
+          if (body[j + 1] === "-" && j + 2 < body.length) {
+            ranges.push([body[j], body[j + 2]]);
+            j += 2;
+          } else ranges.push([body[j], body[j]]);
+        }
+        tokens.push((x) => ranges.some(([lo, hi]) => lo <= x && x <= hi) !== negate);
+        i = close;
+      } else tokens.push((x) => x === c);
+    }
+    out.push(tokens);
+  }
+  return out;
+}
+
+/** One segment against one name, in O(pattern × name): the last `*` takes one more character on a mismatch. */
+function segmentMatches(tokens: Array<"*" | ((c: string) => boolean)>, name: string): boolean {
+  let t = 0;
+  let i = 0;
+  let star = -1;
+  let mark = 0;
+  while (i < name.length) {
+    const tok = tokens[t];
+    if (tok !== undefined && tok !== "*" && tok(name[i])) {
+      t++;
+      i++;
+    } else if (tok === "*") {
+      star = t++;
+      mark = i;
+    } else if (star >= 0) {
+      t = star + 1;
+      i = ++mark;
+    } else return false;
+  }
+  while (tokens[t] === "*") t++;
+  return t === tokens.length;
+}
+
+/** Whether a glob names a path, or a folder holding it (COPY copies a folder's contents). */
+function globMatches(glob: GlobSegment[], path: string): boolean {
+  const parts = path.split("/");
+  // at[j]: the glob's segments so far match the path's first j parts.
+  let at = new Array<boolean>(parts.length + 1).fill(false);
+  at[0] = true;
+  for (const seg of glob) {
+    const next = new Array<boolean>(parts.length + 1).fill(false);
+    for (let j = 0; j <= parts.length; j++) {
+      if (!at[j]) continue;
+      if (seg === "**") next.fill(true, j);
+      else if (j < parts.length && segmentMatches(seg, parts[j])) next[j + 1] = true;
+    }
+    at = next;
+  }
+  return at.some(Boolean);
+}
+
+function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
 }
 
 /** `references` edges for every deployment ref, against every node in the graph. */
 export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[]): EdgeV1[] {
   const ids = new Set(nodes.map((n) => n.id));
-  const files = nodes.filter((n) => n.kind === "file" && n.origin !== "deploy").map((n) => n.path);
-  const contexts = new Map<string, Set<string>>();
+  const files = nodes.filter((n) => n.kind === "file" && n.origin !== "deploy").map((n) => n.path).sort();
+  const fileSet = new Set(files);
   const objects = new Map<string, string[]>();
+  const stagesOf = new Map<string, NodeV1[]>();
   for (const n of nodes) {
     if (n.kind !== "resource") continue;
-    const m = /#([A-Za-z]+)\/([^/]+)\/(.+)$/.exec(n.id);
-    if (m) objects.set(`${m[1]}/${m[2]}/${m[3]}`, [...(objects.get(`${m[1]}/${m[2]}/${m[3]}`) ?? []), n.id]);
+    // The id after the file's own path: `stage:build`, `service:api`, `Deployment/ns/api`.
+    const local = n.id.slice(n.path.length + 1);
+    if (local.startsWith("stage:")) pushTo(stagesOf, n.path, n);
+    else if (/^[A-Za-z]+\/[^/]+\/./.test(local)) pushTo(objects, local, n.id);
   }
   // A Dockerfile's build context is each compose context that builds it, else its own folder.
+  const contexts = new Map<string, Set<string>>();
   for (const r of refs) if (r.to === "build") contexts.set(r.dockerfile, (contexts.get(r.dockerfile) ?? new Set()).add(r.context));
   for (const r of refs) if (r.to === "copy" && !contexts.has(r.dockerfile)) contexts.set(r.dockerfile, new Set([posix.dirname(r.dockerfile)]));
   const out: EdgeV1[] = [];
@@ -437,28 +559,52 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[]): EdgeV1[] {
     seen.add(key);
     out.push({ source, target, relation: "references", confidence });
   };
-  const filesUnder = (p: string) => (p === "." ? files : files.filter((f) => f === p || f.startsWith(`${p}/`)));
-  const labels = refs.filter((r): r is Extract<DeployRef, { to: "labels" }> => r.to === "labels");
-  const builtImages = refs.filter((r): r is Extract<DeployRef, { to: "image" }> => r.to === "image" && r.built);
+  /** The first index in the sorted `files` at or after `p`. */
+  const lower = (p: string) => {
+    let lo = 0;
+    let hi = files.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (files[mid] < p) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  // `0` is the character after `/`, so [`p/`, `p0`) is everything under `p`.
+  const filesUnder = (p: string) => (p === "." ? files : [...(fileSet.has(p) ? [p] : []), ...files.slice(lower(`${p}/`), lower(`${p}0`))]);
+  const labels = new Map<string, Array<Extract<DeployRef, { to: "labels" }>>>();
+  const built = new Map<string, string[]>();
+  for (const r of refs) {
+    if (r.to === "labels") pushTo(labels, r.ns, r);
+    else if (r.to === "image" && r.built) pushTo(built, imageRepo(r.image), r.from);
+  }
   for (const r of refs) {
     if (r.to === "id") add(r.from, r.id);
     else if (r.to === "copy") {
       for (const ctx of contexts.get(r.dockerfile) ?? []) {
+        // Docker reads COPY sources inside the build context only.
         const src = under(ctx, r.src);
-        if (src === null) continue;
-        const hits = /[*?[]/.test(src) ? files.filter((f) => globRegex(src).test(f)) : filesUnder(src);
-        for (const f of hits) add(r.from, f);
+        if (src === null || !(ctx === "." || src === ctx || src.startsWith(`${ctx}/`))) continue;
+        const glob = /[*?[]/.test(src) ? compileGlob(src) : null;
+        if (!glob) {
+          for (const f of filesUnder(src)) add(r.from, f);
+          continue;
+        }
+        // Only files under the glob's leading literal folders can match it.
+        const parts = src.split("/");
+        const literal = parts.slice(0, parts.findIndex((p) => /[*?[]/.test(p))).join("/") || ".";
+        for (const f of filesUnder(literal)) if (globMatches(glob, f)) add(r.from, f);
       }
     } else if (r.to === "build") {
-      const stages = nodes.filter((n) => n.kind === "resource" && n.path === r.dockerfile);
+      const stages = stagesOf.get(r.dockerfile) ?? [];
       const stage = r.target ? stages.find((s) => s.name === r.target) : stages.at(-1);
       if (stage) add(r.from, stage.id);
     } else if (r.to === "mount") for (const f of filesUnder(r.path)) add(r.from, f);
     else if (r.to === "object") for (const id of objects.get(`${r.kind}/${r.ns}/${r.name}`) ?? []) add(r.from, id);
     else if (r.to === "selector") {
-      for (const l of labels) if (l.ns === r.ns && Object.entries(r.match).every(([k, v]) => l.labels[k] === v)) add(r.from, l.from);
+      for (const l of labels.get(r.ns) ?? []) if (Object.entries(r.match).every(([k, v]) => l.labels[k] === v)) add(r.from, l.from);
     } else if (r.to === "image" && !r.built) {
-      for (const b of builtImages) if (imageRepo(b.image) === imageRepo(r.image)) add(r.from, b.from, "inferred");
+      for (const b of built.get(imageRepo(r.image)) ?? []) add(r.from, b, "inferred");
     }
   }
   return out;

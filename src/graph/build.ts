@@ -499,9 +499,10 @@ export async function buildGraph(
         const reuse = cached && hash === cached.hash && !cached.error;
         const x = reuse ? { nodes: cached.nodes, refs: cached.deploy ?? [], skipped: cached.skipped } : extractDeploy(rel, source, deploy);
         const fileEdges: RawEdge[] = x.nodes.filter((n) => n.kind === "resource").map((n) => ({ source: rel, relation: "contains", file: rel, targetId: n.id }));
-        nodes.push(...x.nodes);
-        rawEdges.push(...fileEdges);
-        deployRefs.push(...x.refs);
+        // Loops, not spreads: one file can hold more items than a call takes arguments.
+        for (const n of x.nodes) nodes.push(n);
+        for (const e of fileEdges) rawEdges.push(e);
+        for (const r of x.refs) deployRefs.push(r);
         if (x.skipped) skipped.push({ path: rel, reason: x.skipped });
         if (x.nodes.length) langs.add(deploy);
         if (reuse) reused++;
@@ -581,7 +582,8 @@ export async function buildGraph(
     ...readTsImports(root, repoFiles),
     unresolvedCalls,
   });
-  edges.push(...resolveDeploy(nodes, deployRefs));
+  // A loop, not a spread: a few `COPY . .` lines in a large repository give 100,000s of edges.
+  for (const e of resolveDeploy(nodes, deployRefs)) edges.push(e);
   for (const call of unresolvedCalls) {
     if (!call.through?.startsWith(".")) continue;
     const target = posix.join(posix.dirname(call.source.split("#")[0]), call.through);

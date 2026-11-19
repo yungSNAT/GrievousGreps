@@ -200,7 +200,12 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
     const fromResource = graph.edges.filter((e) => WALK_RELATIONS.has(e.relation) && byId.get(e.source)?.kind === "resource" && byId.get(e.target)?.kind === "file");
     if (fromResource.length) {
       const symbols = new Map<string, string[]>();
-      for (const n of graph.nodes) if (n.kind !== "file" && n.kind !== "resource") symbols.set(n.path, [...(symbols.get(n.path) ?? []), n.id]);
+      for (const n of graph.nodes) {
+        if (n.kind === "file" || n.kind === "resource") continue;
+        const ids = symbols.get(n.path);
+        if (ids) ids.push(n.id);
+        else symbols.set(n.path, [n.id]);
+      }
       for (const e of fromResource) {
         for (const id of symbols.get(byId.get(e.target)!.path) ?? []) {
           const entry = { other: e.source, relation: e.relation, inferred: e.confidence === "inferred" };
