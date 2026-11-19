@@ -31,6 +31,36 @@ pub struct Server {
     quiescent: Option<bool>,
 }
 
+/// The server's version: its `serverInfo` version, else the last line it prints when started with
+/// `--version` in place of `--stdio`, as typescript-language-server and pyright send no
+/// `serverInfo` version; 'unknown' if neither gives one. It runs in `root`, as the server does, and
+/// a failed exit gives no version.
+pub fn version(server: &[OsString], info: &Value, root: &Path) -> String {
+    if let Some(version) = info["version"].as_str() {
+        return version.to_owned();
+    }
+    let Some((program, args)) = server.split_first() else {
+        return "unknown".to_owned();
+    };
+    let mut asked = command(program);
+    asked
+        .args(args.iter().filter(|arg| *arg != "--stdio"))
+        .arg("--version")
+        .current_dir(root);
+    crate::process::output(&mut asked, Duration::from_secs(20))
+        .ok()
+        .filter(|out| out.status.success())
+        .and_then(|out| {
+            out.stdout
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
 /// Reads one `Content-Length` framed message, or none at the end of the stream.
 pub fn read_frame(reader: &mut impl BufRead) -> Result<Option<Value>, String> {
     let mut length = None;
