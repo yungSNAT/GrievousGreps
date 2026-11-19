@@ -480,7 +480,8 @@ test("workspace callers scopes --in to a child as grep does, and rejects a bad -
     for (const [extra, error] of [
       [["--in", "repo"], /no workspace repo "repo".*repoA.*repoB/s],
       [["--in", "repoA/nowhere"], /nothing indexed under/],
-      [["--in", "repoB"], /no symbol "helperThing" in any of the/],
+      [["--in", "repoB"], /no symbol "helperThing" in repoB\/ —/],
+      [["--in", "repoEmpty"], /no symbol "helperThing" in repoEmpty\/ —/],
       [["--direction", "sideways"], /--direction must be "in" or "out", got "sideways"/],
       [["--depth", "abc"], /--depth must be a positive number or "all", got "abc"/],
     ] as const) {
@@ -492,6 +493,25 @@ test("workspace callers scopes --in to a child as grep does, and rejects a bad -
     const text = federateCallers(p, undefined, "helperThing", { in: "repoA/src" });
     assert.equal(text.found, true);
     assert.match(text.text, /## repoA\//);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace graft_trace_calls walks depth \"all\" as the single-repository tool does", async () => {
+  const p = workspaceFx({
+    repoA: { "a.ts": "export function top() { return mid(); }\nfunction mid() { return leaf(); }\nfunction leaf() { return 1; }\n" },
+    repoB: REPOS.repoB,
+  });
+  try {
+    await buildWorkspace(p);
+    const direct = await callTool(p, "graft_trace_calls", { symbol: "leaf" });
+    assert.equal(direct.isError, false);
+    assert.match(direct.text, /← mid \(a\.ts:/);
+    assert.doesNotMatch(direct.text, /← top \(/);
+    const all = await callTool(p, "graft_trace_calls", { symbol: "leaf", depth: "all" });
+    assert.equal(all.isError, false);
+    assert.match(all.text, /← top \(a\.ts:.*\[depth 2\]/);
   } finally {
     rmSync(p, { recursive: true, force: true });
   }

@@ -747,7 +747,8 @@ export function federateCallers(
   const cov = coverageNote(wg);
   const json = { query: symbol, matches: jsonMatches, saved: total.baselineChars > 0 ? total : undefined };
   if (blocks.length === 0) {
-    const base = `no symbol "${symbol}" in any of the ${wg.loaded.length} workspace repo(s) — check spelling or run ${cmd("graft build")}`;
+    const where = onlyChild ? `${onlyChild}/` : `any of the ${wg.loaded.length} workspace repo(s)`;
+    const base = `no symbol "${symbol}" in ${where} — check spelling or run ${cmd("graft build")}`;
     return { text: cov ? `${base}\n${cov}` : base, found: false, coverage: cov, json };
   }
   let text = blocks.join("\n\n");
