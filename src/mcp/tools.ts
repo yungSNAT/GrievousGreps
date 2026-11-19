@@ -46,10 +46,11 @@ function traceDepth(depth: unknown): number {
   return typeof depth === 'number' && Number.isFinite(depth) && depth >= 1 ? Math.floor(depth) : 1;
 }
 
-/** `graft_trace_calls`'s direction: absent is "in"; anything outside the schema's
- * enum is refused, as the CLI's `--direction` is, rather than read as "in". */
+/** `graft_trace_calls`'s direction: absent (or null, which some clients send for
+ * an omitted field) is "in"; anything outside the schema's enum is refused, as
+ * the CLI's `--direction` is, rather than read as "in". */
 function traceDirection(direction: unknown): Direction | null {
-  if (direction === undefined) return 'in';
+  if (direction === undefined || direction === null) return 'in';
   return direction === 'in' || direction === 'out' ? direction : null;
 }
 

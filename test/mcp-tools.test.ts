@@ -179,6 +179,10 @@ test('graft_trace_calls refuses a direction outside "in" and "out" instead of re
     assert.match(r.text, /direction must be "in" or "out", got /);
     assert.doesNotMatch(r.text, /←/);
   }
+  // Some clients send null for an omitted optional field: that is the default, "in".
+  const absent = await callTool(d, 'graft_trace_calls', { symbol: 'add', direction: null });
+  assert.equal(absent.isError, false, absent.text);
+  assert.match(absent.text, /← sub \(src\/math\.ts:/);
 });
 
 test('graft_trace_calls: unknown symbol / missing symbol are soft isErrors', async () => {
