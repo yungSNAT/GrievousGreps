@@ -198,10 +198,12 @@ export function pointerFile(pointer: string): string {
  * Fuse a lexical hit list with the dense file list by reciprocal rank fusion over
  * files, then emit one leading hit per fused file (the lexical hit for it, else
  * `denseHit`'s), then the remaining lexical hits in their own order, up to `limit`.
+ * A concept is a note citing files, not a file the dense list can rank, so it keeps
+ * its lexical place and never stands in for a file it cites.
  */
-export function fuseByFile<H extends { pointer: string }>(hits: H[], dense: DenseFile[], limit: number, denseHit: (d: DenseFile) => H): H[] {
+export function fuseByFile<H extends { pointer: string; kind?: string }>(hits: H[], dense: DenseFile[], limit: number, denseHit: (d: DenseFile) => H): H[] {
   const firstHit = new Map<string, H>();
-  for (const h of hits) if (!firstHit.has(pointerFile(h.pointer))) firstHit.set(pointerFile(h.pointer), h);
+  for (const h of hits) if (h.kind !== "concept" && !firstHit.has(pointerFile(h.pointer))) firstHit.set(pointerFile(h.pointer), h);
   const lexFiles = [...firstHit.keys()];
   const lexRank = new Map(lexFiles.map((f, i) => [f, i]));
   const score = new Map<string, number>();
@@ -221,7 +223,9 @@ export function fuseByFile<H extends { pointer: string }>(hits: H[], dense: Dens
     if (lex) used.add(lex);
     leaders.push(lex ?? denseHit(denseAt.get(f)!));
   }
-  return [...leaders, ...hits.filter((h) => !used.has(h))].slice(0, limit);
+  const fused = [...leaders, ...hits.filter((h) => !used.has(h) && h.kind !== "concept")];
+  for (const [i, h] of hits.entries()) if (h.kind === "concept") fused.splice(i, 0, h);
+  return fused.slice(0, limit);
 }
 
 /** Embed a query with the shipped model, reading only its tokens' rows. */

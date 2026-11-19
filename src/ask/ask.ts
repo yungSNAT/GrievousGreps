@@ -1456,10 +1456,15 @@ function withSemantic(result: AskResult, graph: GraphV1, outDir: string, query: 
   } catch (err) {
     return skip(`the model is unreadable (${err instanceof Error ? err.message : String(err)})`);
   }
-  const dense = denseFiles(index, vector, inPrefix ? (p) => pathUnderPrefix(p, inPrefix) : undefined);
+  // A file found by meaning passes the scope gate a word match passes: in a graph of several
+  // scopes, only the scopes the lexical ranking admitted, so none when no word matched.
+  const scopes = scopesOfGraph(graph);
+  const admitted = new Set([...(result.scopes?.federated ?? []), ...result.hits.map((h) => h.scope)]);
+  const keep = (p: string): boolean =>
+    (!inPrefix || pathUnderPrefix(p, inPrefix)) && (scopes.length < 2 || admitted.has(scopeOf(p, scopes).prefix));
+  const dense = denseFiles(index, vector, keep);
   if (!dense.length) return result;
   const scoped = result.hits.some((h) => h.scope !== undefined);
-  const scopes = graph.meta.scopes ?? [];
   const denseHit = (d: DenseFile): AskHit => {
     let best: { node: NodeV1; size: number } | null = null;
     for (const n of graph.nodes) {

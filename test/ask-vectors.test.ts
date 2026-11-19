@@ -57,6 +57,23 @@ test("fusion ranks files by reciprocal rank, leading with one hit per file", () 
   assert.deepEqual(fuseByFile(lexical, [], 10, () => hit("never")).map((h) => h.pointer), ["a.ts:L1-L2", "b.ts:L3-L4", "c.ts", "a.ts:L9-L9"]);
 });
 
+test("a concept keeps its place in the fusion and never stands in for a file it cites", () => {
+  const hit = (pointer: string, kind = "symbol") => ({ pointer, kind });
+  const dense = (...paths: string[]): DenseFile[] => paths.map((path, i) => ({ path, score: 1 - i / 10, start: 1, end: 1 }));
+  const fuse = (lexical: { pointer: string; kind: string }[], d: DenseFile[]) =>
+    fuseByFile(lexical, d, 10, (f) => hit(`${f.path}:L1-L1`)).map((h) => `${h.kind}:${h.pointer}`);
+  // b and a tie (1/61 + 1/62 each), so the lexical file order holds: b.ts's own symbol, not the concept citing b.ts, leads b.
+  assert.deepEqual(
+    fuse([hit("b.ts", "concept"), hit("b.ts:L1-L1"), hit("a.ts:L1-L1"), hit("a.ts:L2-L2")], dense("a.ts", "b.ts")),
+    ["concept:b.ts", "symbol:b.ts:L1-L1", "symbol:a.ts:L1-L1", "symbol:a.ts:L2-L2"],
+  );
+  // a (1/62 + 1/61) overtakes b (1/61); the concept citing 2 files stays second.
+  assert.deepEqual(
+    fuse([hit("b.ts:L1-L1"), hit("b.ts, c.ts", "concept"), hit("a.ts:L1-L1")], dense("a.ts")),
+    ["symbol:a.ts:L1-L1", "concept:b.ts, c.ts", "symbol:b.ts:L1-L1"],
+  );
+});
+
 test("a build reuses the vectors of unchanged files and embeds only changed ones", async () => {
   const out = mkdtempSync(join(tmpdir(), "gg-vectors-"));
   const outDir = join(out, "graft");
