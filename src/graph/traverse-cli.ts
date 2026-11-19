@@ -199,7 +199,7 @@ interface SymbolJson {
   span: string;
 }
 
-interface MatchJson {
+export interface MatchJson {
   symbol: SymbolJson;
   hits: HitJson[];
   note?: string;
@@ -230,6 +230,20 @@ function hitJson(hit: EdgeHit): HitJson {
     out.span = hit.node.span;
   }
   return out;
+}
+
+/** One `--json` match: the symbol, its hits, and the notes the text report prints beside them. */
+export function matchJson(
+  graph: GraphV1,
+  direction: Direction,
+  r: { symbol: NodeV1; hits: EdgeHit[] },
+  candidateCount: number,
+): MatchJson {
+  const m: MatchJson = { symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson) };
+  if (r.hits.length === 0) m.note = looseNoteFor(direction, r.symbol.name, candidateCount);
+  const unresolved = unresolvedNoteFor(graph, direction, r.symbol.name);
+  if (unresolved) m.unresolved = unresolved.trim();
+  return m;
 }
 
 /** Parse and validate the raw `--direction` string; exits (code 1) on garbage. */
@@ -298,19 +312,7 @@ export function runCallersCommand(query: string, dir: string, opts: CallersCliOp
   const saved = callersSavings(graph, results);
 
   if (opts.json) {
-    const payload = {
-      query,
-      matches: results.map((r): MatchJson => {
-        const m: MatchJson = { symbol: symbolJson(r.symbol), hits: r.hits.map(hitJson) };
-        if (r.hits.length === 0) {
-          m.note = looseNoteFor(direction, r.symbol.name, matches.length);
-        }
-        const unresolved = unresolvedNoteFor(graph, direction, r.symbol.name);
-        if (unresolved) m.unresolved = unresolved.trim();
-        return m;
-      }),
-      saved,
-    };
+    const payload = { query, matches: results.map((r) => matchJson(graph, direction, r, matches.length)), saved };
     console.log(JSON.stringify(payload, null, 2));
     return;
   }

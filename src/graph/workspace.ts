@@ -30,7 +30,7 @@ import { loadGraphCached } from "./load.js";
 import { buildRepoMap, formatRepoMap } from "./map.js";
 import { discoverWorkspaceChildren } from "./scopes.js";
 import { mainWorktreeRoot } from "./seed.js";
-import { callerBlocks, callersSavings } from "./traverse-cli.js";
+import { callerBlocks, callersSavings, matchJson, type MatchJson } from "./traverse-cli.js";
 import { edgeWalk, resolveSymbol, type Direction } from "./traverse.js";
 import { wiringPath } from "./write.js";
 import type { GraphV1 } from "./types.js";
@@ -705,37 +705,52 @@ export async function federateCheck(
 }
 
 /** Resolve a symbol across every child, grouped per child. Reuses the shared
- * traverse-cli formatters so each block reads exactly like `graft callers`. */
+ * traverse-cli formatters so each block reads exactly like `graft callers`;
+ * `json` is `graft callers --json`'s shape, with paths prefixed by the child. */
 export function federateCallers(
   root: string,
   override: string | undefined,
   symbol: string,
   opts: { direction?: Direction; depth?: number; in?: string } = {},
-): { text: string; found: boolean } {
+): { text: string; found: boolean; coverage: string; json: { query: string; matches: MatchJson[]; saved?: Savings } } {
   const wg = loadWorkspaceGraphs(root, override);
   const direction: Direction = opts.direction ?? "in";
   const depth = opts.depth && opts.depth >= 1 ? Math.floor(opts.depth) : 1;
   const showDepth = depth > 1;
 
   const blocks: string[] = [];
-  let found = false;
+  const jsonMatches: MatchJson[] = [];
+  const total: Savings = { files: 0, baselineChars: 0 };
   for (const { child, graph } of wg.loaded) {
     const matches = resolveSymbol(graph, symbol, opts.in ? { in: opts.in } : {});
     if (matches.length === 0) continue;
-    found = true;
     const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(graph, m, direction, depth) }));
+    const saved = callersSavings(graph, results);
     const body = [`## ${child}/`, ...callerBlocks(graph, direction, showDepth, results)].join("\n");
-    blocks.push(withSavings(body, callersSavings(graph, results)));
+    blocks.push(withSavings(body, saved));
+    for (const r of results) {
+      const m = matchJson(graph, direction, r, matches.length);
+      jsonMatches.push({
+        ...m,
+        symbol: { ...m.symbol, path: `${child}/${m.symbol.path}` },
+        hits: m.hits.map((h) => (h.path === undefined ? h : { ...h, path: `${child}/${h.path}` })),
+      });
+    }
+    if (saved) {
+      total.files += saved.files;
+      total.baselineChars += saved.baselineChars;
+    }
   }
 
   const cov = coverageNote(wg);
-  if (!found) {
+  const json = { query: symbol, matches: jsonMatches, saved: total.baselineChars > 0 ? total : undefined };
+  if (blocks.length === 0) {
     const base = `no symbol "${symbol}" in any of the ${wg.loaded.length} workspace repo(s) — check spelling or run ${cmd("graft build")}`;
-    return { text: cov ? `${base}\n${cov}` : base, found: false };
+    return { text: cov ? `${base}\n${cov}` : base, found: false, coverage: cov, json };
   }
   let text = blocks.join("\n\n");
   if (cov) text += `\n\n${cov}`;
-  return { text, found: true };
+  return { text, found: true, coverage: cov, json };
 }
 
 /**
