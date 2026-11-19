@@ -4,3 +4,8 @@ SECURITY.md merge=ours
 scripts/archive-commit.txt export-subst
 # Windows checkouts convert to CRLF, and Bash reads a CRLF script's lines with a stray carriage return.
 *.sh text eol=lf
+# The shipped model keeps its exact bytes (its hashes are in models/*/NOTICE.md); diffs list its tokenizer by blob.
+models/** -text
+models/**/tokenizer.json -diff
+# Ranked-file dumps of benchmark runs: data for rescoring, not for reading in a diff.
+benchmark/results/**/*-files.json -diff

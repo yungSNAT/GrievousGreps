@@ -359,8 +359,17 @@ test("ask WITHOUT sidecar on a SLIM graph: no crash, body contributions absent, 
     assert.equal(readAskIndex(outDir), null, "sanity: sidecar is really gone");
 
     // Body-only term: with no sidecar AND a slim graph, body text isn't
-    // available anywhere — must not crash, and must simply find nothing.
-    const byBody = ask(dir, "stripe");
+    // available anywhere — must not crash, and must simply find nothing. Lexically: semantic
+    // ranking reads its own vectors sidecar, which embeds the body, so it is off here.
+    const was = process.env.TRAIL_SEMANTIC;
+    process.env.TRAIL_SEMANTIC = "0";
+    let byBody;
+    try {
+      byBody = ask(dir, "stripe");
+    } finally {
+      if (was === undefined) delete process.env.TRAIL_SEMANTIC;
+      else process.env.TRAIL_SEMANTIC = was;
+    }
     assert.equal(
       byBody.hits.find((h) => h.title.startsWith("checkout")),
       undefined,
