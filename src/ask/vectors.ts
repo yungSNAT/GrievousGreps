@@ -199,7 +199,7 @@ export function pointerFile(pointer: string): string {
  * files, then emit one leading hit per fused file (the lexical hit for it, else
  * `denseHit`'s), then the remaining lexical hits in their own order, up to `limit`.
  * A concept is a note citing files, not a file the dense list can rank, so it keeps
- * its lexical place and never stands in for a file it cites.
+ * its index in the lexical list (not its neighbours) and never stands in for a file it cites.
  */
 export function fuseByFile<H extends { pointer: string; kind?: string }>(hits: H[], dense: DenseFile[], limit: number, denseHit: (d: DenseFile) => H): H[] {
   const firstHit = new Map<string, H>();

@@ -117,6 +117,7 @@ test("a query with no word in the code still finds the file it means", async () 
     assert.equal(r.mode, "lexical");
     assert.equal(r.hits[0]?.pointer, "auth.ts:L1-L3");
     assert.equal(r.hits[0]?.title, "verifyPassword · function");
+    assert.equal(r.hits[0]?.scope, undefined, "a graph of one scope labels no hit with a scope");
     const off = await withEnv("0", () => ask(root, QUERY));
     assert.equal(off.mode, "empty", "TRAIL_SEMANTIC=0 answers lexically, as before");
   } finally {
@@ -143,6 +144,36 @@ test("across several scopes meaning admits files only from scopes the words admi
     assert.equal(all.mode, "empty", `no scope matched a word, so none is admitted: ${all.hits.map((h) => h.pointer).join(", ")}`);
     const web = await withEnv(undefined, () => ask(root, QUERY, { in: "web" }));
     assert.equal(web.hits[0]?.pointer, "web/auth.ts:L1-L3", "one scope in range: nothing to gate");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a scope the words admitted lets its meaning-only files through; one they did not admit does not", async () => {
+  const root = mkdtempSync(join(tmpdir(), "gg-semantic-admit-"));
+  try {
+    const files: Record<string, Record<string, string>> = {
+      // Only web/ has a query word ("login"); auth.ts and secrets.ts share no word with the query.
+      web: {
+        "banner.ts": "export function loginBanner(): string {\n  return \"welcome\";\n}\n",
+        "auth.ts": "export function verifyPassword(account: Account, secret: string): boolean {\n  return digest(secret) === account.digest;\n}\n",
+      },
+      api: { "secrets.ts": "export function checkSecret(user: string, pass: string): boolean {\n  return hash(pass) === stored(user);\n}\n" },
+    };
+    for (const [scope, sources] of Object.entries(files)) {
+      mkdirSync(join(root, scope));
+      writeFileSync(join(root, scope, "package.json"), "{}\n");
+      for (const [file, source] of Object.entries(sources)) writeFileSync(join(root, scope, file), source);
+      writeFileSync(join(root, scope, "tints.ts"), [0, 1, 2, 3, 4].map((i) => `export function tint${i}(): number {\n  return ${i};\n}\n`).join(""));
+    }
+    await withEnv(undefined, () => buildGraph(root));
+    const words = await withEnv("0", () => ask(root, QUERY));
+    const pointers = (r: { hits: { pointer: string }[] }) => r.hits.map((h) => h.pointer);
+    assert.ok(words.hits.length > 0 && words.hits.every((h) => h.scope === "web"), `words admit web/ only: ${pointers(words).join(", ")}`);
+    assert.ok(!pointers(words).some((p) => p.startsWith("web/auth.ts")), "auth.ts has no query word");
+    const r = await withEnv(undefined, () => ask(root, QUERY));
+    assert.ok(pointers(r).some((p) => p.startsWith("web/auth.ts")), `web/auth.ts is found by meaning: ${pointers(r).join(", ")}`);
+    assert.ok(!pointers(r).some((p) => p.startsWith("api/")), `api/ was not admitted: ${pointers(r).join(", ")}`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
