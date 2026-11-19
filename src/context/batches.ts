@@ -181,6 +181,6 @@ function batchBySize(files: FileSummary[], budget: number): FileSummary[][] {
  * synthesis model (a different result) still never serves the old model's nodes.
  */
 function batchKey(batch: FileSummary[], hashByPath: ReadonlyMap<string, string>, model: string | undefined): string {
-  const lines = batch.map((f) => `${f.path}:${hashByPath.get(f.path) ?? ""}`).sort(); // NOSONAR: strings only, so the default code-unit order is deterministic
+  const lines = batch.map((f) => `${f.path}:${hashByPath.get(f.path) ?? ""}`).sort();
   return contentHash([...(model === undefined ? [] : [`model\t${model}`]), ...lines].join("\n"));
 }
