@@ -67,7 +67,12 @@ test("a no whose rest is about the offer still reads across a CR or Unicode line
   for (const sep of ["\r", "\u2028"]) quick("classifyFor", () => classifyFor("retire", `no${sep.repeat(N)}x`, false));
 });
 
-/** Each rewritten pattern beside the one it replaced: same matches, captures and replacements. */
+/**
+ * Each rewritten pattern beside the one it replaced. The config-file patterns are read only for their
+ * captures, and a match may now start at a later line start, so for them the captures must agree; for
+ * the rest, every match, split and replacement.
+ */
+const CAPTURES_ONLY = new Set(["go module", "pnpm", "where", "package_dir"]);
 const PAIRS: [string, RegExp, RegExp][] = [
   ["go module", /^\s*module\s+(\S+)/m, /^[^\S\r\n\u2028\u2029]*module\s+(\S+)/m],
   ["pnpm", /^\s*-\s*['"]?([^'"\s#!]+)/gm, /^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm],
@@ -90,6 +95,11 @@ test("each rewritten pattern gives what the one it replaced gave", () => {
   for (const [name, before, after] of PAIRS) {
     for (const s of SAMPLES) {
       const label = `${name} on ${JSON.stringify(s)}`;
+      if (CAPTURES_ONLY.has(name)) {
+        const caps = (re: RegExp) => [...s.matchAll(new RegExp(re.source, `${re.flags.replace("g", "")}g`))].map((m) => m.slice(1));
+        assert.deepEqual(caps(after), caps(before), label);
+        continue;
+      }
       assert.equal(s.replace(after, "<>"), s.replace(before, "<>"), label);
       assert.deepEqual(s.split(after), s.split(before), label);
       if (before.global) assert.deepEqual([...s.matchAll(after)].map((m) => [...m]), [...s.matchAll(before)].map((m) => [...m]), label);
