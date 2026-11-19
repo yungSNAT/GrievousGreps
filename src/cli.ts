@@ -1101,8 +1101,6 @@ grouped(program.command("callers"), GROUP.find)
       await refreshBefore(dir, opts);
       const globalOpts = program.opts<{ dir?: string }>();
       const { runCallersCommand, resolveDirection, resolveDepth } = await import("./graph/traverse-cli.js");
-=======
->>>>>>> origin/main
       if (readWorkspace(dir, globalOpts.dir)) {
         runWorkspaceCallers(dir, globalOpts.dir, symbol, {
           direction: resolveDirection(opts.direction),
