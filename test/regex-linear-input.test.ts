@@ -111,7 +111,7 @@ test("each rewritten pattern gives what the one it replaced gave", () => {
     for (const s of SAMPLES) {
       const label = `${name} on ${JSON.stringify(s)}`;
       if (CAPTURES_ONLY.has(name)) {
-        const caps = (re: RegExp) => [...s.matchAll(new RegExp(re.source, `${re.flags.replace("g", "")}g`))].map((m) => m.slice(1));
+        const caps = (re: RegExp) => (re.global ? [...s.matchAll(re)] : [re.exec(s)].filter((m) => m !== null)).map((m) => m!.slice(1));
         assert.deepEqual(caps(after), caps(before), label);
         continue;
       }
