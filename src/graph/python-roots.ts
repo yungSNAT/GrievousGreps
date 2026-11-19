@@ -26,15 +26,15 @@ function namedDirs(file: string, text: string): string[] {
   const add = (dir: string) => out.push(dir);
   const strings = (list: string) => [...list.matchAll(/["']([^"']+)["']/g)].map((m) => m[1]);
   if (file === "pyproject.toml") {
-    for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm)) strings(m[2]).forEach(add);
+    for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\][]*\]|"[^"]*"|'[^']*')/gm)) strings(m[2]).forEach(add);
     // Hatch names packages by path, Poetry by `from`; setuptools maps "" to a directory.
-    for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*packages\s*=\s*\[([^\]]*)\]/gm)) {
+    for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*packages\s*=\s*\[([^\][]*)\]/gm)) {
       for (const s of strings(m[1])) if (s.includes("/")) add(posix.dirname(s));
     }
     for (const m of text.matchAll(/\bfrom\s*=\s*["']([^"']+)["']/g)) add(m[1]);
     for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*python-source\s*=\s*["']([^"']+)["']/gm)) add(m[1]);
     for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*(?:""|'')\s*=\s*["']([^"']+)["']/gm)) add(m[1]);
-    for (const m of text.matchAll(/package-dir\s*=\s*\{[^}]*(?:""|'')\s*=\s*["']([^"']+)["']/g)) add(m[1]);
+    for (const m of text.matchAll(/package-dir\s*=\s*\{[^}{]*(?:""|'')\s*=\s*["']([^"']+)["']/g)) add(m[1]);
   } else if (file === "setup.cfg") {
     for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*package_dir\s*=\s*=\s*(\S+)/gm)) add(m[1]);
     for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*where\s*=\s*(\S+)/gm)) add(m[1]);
