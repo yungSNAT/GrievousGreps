@@ -76,7 +76,9 @@ const NO = [
   /^(n|no|nope|nah|not now|no thanks|no thank you|don'?t|skip( it)?|never ?mind|pass)( thanks| thank you)?$/,
   /^(no )?(don'?t|do not)( (save|keep) (it|this|that|them)( as a skill)?)?( thanks| thank you)?$/,
 ];
-const TRAILING_EMOJI = /[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u; // NOSONAR: each code point stands alone; the + strips whole ZWJ and skin-tone sequences
+// The lookbehind starts a match only where the run starts, so a long run that does not reach the end
+// costs one pass instead of one per character.
+const TRAILING_EMOJI = /(?<![\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}])[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u; // NOSONAR: each code point stands alone; the + strips whole ZWJ and skin-tone sequences
 
 /**
  * The whole message as one answer: lowercased, outer punctuation and a trailing emoji gone, commas and
@@ -86,8 +88,8 @@ const TRAILING_EMOJI = /[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u
 function answerForm(typed: string): string {
   return String(typed ?? '').replace(/[\u2018\u2019]/g, "'").toLowerCase().trim()
     .replace(TRAILING_EMOJI, '')
-    .replace(/^[\s.!?,;:]+|[\s.!?,;:]+$/g, '')
-    .replace(/\s*,\s*/g, ' ')
+    .replace(/^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g, '')
+    .replace(/,/g, ' ')
     .replace(/\s+/g, ' ');
 }
 
@@ -101,7 +103,7 @@ const GO_AHEAD = /^(?:y|yes|yeah|yep|yup|sure|ok|okay|k|continue|go on|go ahead|
 export function isGoAhead(typed: string): boolean {
   const t = String(typed ?? '').replace(/[\u2018\u2019]/g, "'").toLowerCase().trim();
   if (!t || /\?\s*$/.test(t)) return false;
-  const first = t.split(/\s*(?:[,:;.!]|\s-\s|\s\u2014\s|$)/)[0]!.replace(TRAILING_EMOJI, '').trim();
+  const first = t.split(/(?<!\s)\s*(?:[,:;.!]|\s-\s|\s\u2014\s|$)/)[0]!.replace(TRAILING_EMOJI, '').trim();
   return GO_AHEAD.test(first.replace(/\s+/g, ' '));
 }
 
