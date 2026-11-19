@@ -506,38 +506,70 @@ function callEnd(lines: string[], n: number, at: number, last: number): number {
   return n;
 }
 
-/** A line that starts with a comment: its mention of a name is no call. */
-const COMMENT_LINE = /^\s*(?:\/\/|\/\*|\*|#|--)/;
+/** Extensions whose line comments start with `#`, and those whose start with `--`. */
+const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
+const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
+
+/** Whether a quote opens at `text[i]`. A `'` between digits (`1'000`) does not, nor, in Rust, one that is no char literal (a lifetime). */
+function opensQuote(text: string, i: number, rust: boolean): boolean {
+  const ch = text[i];
+  if (ch === '"' || ch === "`") return true;
+  if (ch !== "'" || (/\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? ""))) return false;
+  return !rust || /^'(?:[^'\\]|\\[^']{1,9})'/.test(text.slice(i));
+}
 
 /**
- * A line with its comments blanked: a block comment, a trailing `//` comment (not in
- * Python, where `//` divides) and a `#` comment that follows whitespace (so `a#b` and
- * `this.#x` stay). Markers inside quotes are text, so `"a // b"; f()` keeps `f()`;
- * quotes are paired within the line, with backslash escapes. Blanked with spaces
- * rather than cut, so a column found in the result is a column of the line.
+ * Lines `from` to `to` of `path` with comments blanked, indexed as `lines` is. `//`
+ * and `/* *\/` comments (a block comment across lines too) except where `#` or `--`
+ * starts a line comment instead ({@link HASH_COMMENTS}, {@link DASH_COMMENTS}; PHP
+ * has both), and `#` only after whitespace there, so `$#` stays. Markers inside
+ * quotes are text, so `"a // b"; f()` keeps `f()`; quotes pair within a line, with
+ * backslash escapes. Blanked with spaces, so a column of the result is one of the line.
  */
-function codeOf(text: string, python: boolean): string {
-  let code = "";
-  let quote = "";
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (quote) {
-      if (ch === quote) quote = "";
-      else if (ch === "\\") code += text[i++] ?? "";
-      code += text[i] ?? "";
-      continue;
+function codeLines(lines: string[], from: number, to: number, path: string): string[] {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const hash = HASH_COMMENTS.has(ext);
+  const dash = DASH_COMMENTS.has(ext);
+  const slash = ext === "php" || (!hash && !dash);
+  const code: string[] = [];
+  let block = false;
+  for (let n = from; n <= to; n++) {
+    const text = lines[n - 1];
+    let out = "";
+    let quote = "";
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (block) {
+        if (text.startsWith("*/", i)) {
+          block = false;
+          out += " ";
+          i++;
+        }
+        out += " ";
+        continue;
+      }
+      if (quote) {
+        if (ch === quote) quote = "";
+        else if (ch === "\\") out += text[i++] ?? "";
+        out += text[i] ?? "";
+        continue;
+      }
+      if (slash && text.startsWith("/*", i)) {
+        block = true;
+        out += "  ";
+        i++;
+        continue;
+      }
+      const lineComment =
+        (slash && text.startsWith("//", i)) || (dash && text.startsWith("--", i)) || (hash && ch === "#" && (i === 0 || /\s/.test(text[i - 1])));
+      if (lineComment) {
+        out += " ".repeat(text.length - i);
+        break;
+      }
+      if (opensQuote(text, i, ext === "rs")) quote = ch;
+      out += ch;
     }
-    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
-    else if (text.startsWith("/*", i)) {
-      const close = text.indexOf("*/", i + 2);
-      const stop = close < 0 ? text.length : close + 2;
-      code += " ".repeat(stop - i);
-      i = stop - 1;
-      continue;
-    } else if ((!python && text.startsWith("//", i)) || (ch === "#" && (i === 0 || /\s/.test(text[i - 1])))) {
-      return code + " ".repeat(text.length - i);
-    }
-    code += ch;
+    code[n - 1] = out;
   }
   return code;
 }
@@ -551,9 +583,10 @@ function codeOf(text: string, python: boolean): string {
  * changed argument on a later line counts. Any call the diff left alone leaves the
  * caller behind, whatever happened to its other calls, several on one line included.
  * With no call of that shape (a JSX element, a decorator, `new Foo`), a changed line
- * naming it counts as the edit. Comments are skipped ({@link codeOf}); a call-shaped
- * name inside a string still counts. Without the file, or with no line naming it (a call through an alias),
- * any changed line in the caller's span counts.
+ * naming it counts as the edit. Comments are skipped ({@link codeLines}); a call-shaped
+ * name inside a string still counts. Calls match by name and edits by line, so a caller
+ * left behind is a lead to check. Without the file, or with no line naming it (a call
+ * through an alias), any changed line in the caller's span counts.
  */
 function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, read?: LineReader): "edited" | number | null {
   const span = spanBounds(caller.span);
@@ -563,10 +596,7 @@ function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, r
     const named = wordRe(name);
     const called = new RegExp(`${named.source}\\s*(?:(?:!|\\?\\.)\\s*)?(?:<[^<>()]*>\\s*)?\\(`, "g");
     const last = Math.min(span.end, lines.length);
-    /** The span's lines with comments blanked, indexed as `lines` is. */
-    const code: string[] = [];
-    const python = /\.pyi?$/i.test(caller.path);
-    for (let n = span.start; n <= last; n++) code[n - 1] = COMMENT_LINE.test(lines[n - 1]) ? "" : codeOf(lines[n - 1], python);
+    const code = codeLines(lines, span.start, last, caller.path);
     let calls = 0;
     const mentions: number[] = [];
     for (let n = span.start; n <= last; n++) {

@@ -180,7 +180,7 @@ trail blast --export-viz site/       # also write the interactive page for this 
 trail blast --no-owners              # skip "who to tag" (by default, git history names the people behind each area)
 trail blast --depth all --format json  # the full transitive closure, machine-readable
 trail blast --tests                  # also list the test files the change reaches, over the full closure
-# every report names the callers a declaration change left unedited ("callers left behind")
+# the text, Markdown and JSON reports name the callers a declaration change left unedited ("callers left behind")
 
 # not listed in --help, still there
 trail viz [dir]                      # see the graph: serves an interactive viewer on localhost

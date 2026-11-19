@@ -183,12 +183,33 @@ test("blast: a comment marker inside quotes hides no call, and one with no space
   assert.deepEqual(left(2, 3, 4), [], "`// add(2)` is a comment");
 });
 
-test("blast: in Python, `//` divides and `#` starts a comment", () => {
+/** The callers left behind with `total` in `path` as `src`, when its line `edited` and `sum`'s call changed. */
+function leftIn(path: string, src: string[], edited: number): unknown[] | undefined {
   const g = graph();
-  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, path: "c.py" } : n));
-  const py = { ...files, "c.py": ["def total():", "    x = add(1, 2)", "    return x // add(3)  # add("] };
-  const report = blastRadius(g, [at("a.ts", 3), at("c.py", 2), at("d.ts", 2)], "test", { depth: 2, read: (p) => py[p] ?? null });
-  assert.deepEqual(report.leftBehind?.map((x) => [x.name, x.path, x.line]), [["total", "c.py", 3]]);
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, path, span: `L1-L${src.length}` } : n));
+  const all: Record<string, string[]> = { ...files, [path]: src };
+  const report = blastRadius(g, [at("a.ts", 3), at(path, edited), at("d.ts", 2)], "test", { depth: 2, read: (p) => all[p] ?? null });
+  return report.leftBehind?.map((x) => [x.name, x.path, x.line]);
+}
+
+test("blast: comments are read by the file's syntax", () => {
+  assert.deepEqual(leftIn("c.py", ["def total():", "    x = add(1, 2)", "    return x // add(3)  # add("], 2), [["total", "c.py", 3]], "Python: `//` divides, `#` comments");
+  assert.deepEqual(
+    leftIn("c.go", ["func total() int {", "\t/* add(1) was", "\t   add(2) */", "\tx := add(1, 2)", "\t*out = add(3)", "\treturn x", "}"], 4),
+    [["total", "c.go", 5]],
+    "a block comment spans lines; a line starting with `*` outside one is code",
+  );
+  assert.deepEqual(
+    leftIn("c.swift", ["func total() -> Int {", "    let x = add(1, 2)", "    #expect(add(3) == 3)", "    return x", "}"], 2),
+    [["total", "c.swift", 3]],
+    "Swift: `#` is no comment",
+  );
+  assert.deepEqual(
+    leftIn("c.rs", ["fn total() -> i32 {", "    let x = add(1, 2);", "    const M: &'static str = \"it's // x\"; let y = add(3);", "    x + y", "}"], 2),
+    [["total", "c.rs", 3]],
+    "Rust: a lifetime opens no quote",
+  );
+  assert.deepEqual(leftIn("c.lua", ["local function total()", "  local x = add(1, 2)", "  return x -- add(2)", "end"], 2), [], "Lua: `--` comments");
 });
 
 test("blast: whitespace changed inside a default string is no declaration change", () => {
