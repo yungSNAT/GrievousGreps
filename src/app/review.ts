@@ -9,6 +9,7 @@
  */
 import { blastRadiusIn } from "../blast/blast.js";
 import { changedFiles } from "../blast/diff.js";
+import { fileReader } from "../blast/evidence.js";
 import { markdownReport } from "../blast/render.js";
 import { blastVizGraph } from "../blast/viz.js";
 import { buildGraph } from "../graph/build.js";
@@ -61,7 +62,7 @@ export async function reviewPullRequest(job: ReviewJob, deps: ReviewDeps): Promi
     const diff = changedFiles(checkout.dir, checkout.base);
     if (!diff) throw new Error(`no diff against ${job.baseRef}`);
 
-    const report = blastRadiusIn(graph, contextDir, diff.files, diff.basis, DEPTH);
+    const report = blastRadiusIn(graph, contextDir, diff.files, diff.basis, DEPTH, { read: fileReader(checkout.dir) });
 
     // Same two passes `graft blast --name` runs, in the same order: a reviewer's
     // reason cites area labels, and naming is what gives an area its final one.
