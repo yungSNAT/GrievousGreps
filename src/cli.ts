@@ -1100,13 +1100,14 @@ grouped(program.command("callers"), GROUP.find)
       const dir = noteQuery(queryRoot(dirArg));
       await refreshBefore(dir, opts);
       const globalOpts = program.opts<{ dir?: string }>();
-      if (!opts.json && readWorkspace(dir, globalOpts.dir)) {
+      if (readWorkspace(dir, globalOpts.dir)) {
         runWorkspaceCallers(dir, globalOpts.dir, symbol, {
           direction: opts.direction === "out" ? "out" : "in",
           depth: opts.depth
             ? (/^(all|full|max)$/i.test(opts.depth) ? Number.POSITIVE_INFINITY : Number(opts.depth))
             : undefined,
           in: opts.in,
+          json: opts.json,
         });
         return;
       }

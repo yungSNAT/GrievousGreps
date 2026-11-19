@@ -426,6 +426,29 @@ test("callers federation resolves a symbol per child, grouped", async () => {
   rmSync(p, { recursive: true, force: true });
 });
 
+test("workspace callers --json federates with child-prefixed paths and reports unbuilt repos on stderr", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
+    const r = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "helperThing", p, "--json", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.query, "helperThing");
+    assert.deepEqual(out.matches.map((m: { symbol: { path: string } }) => m.symbol.path), ["repoA/a.ts"]);
+    assert.deepEqual(out.matches[0].hits.map((h: { name: string; path: string }) => [h.name, h.path]), [["alphaHandler", "repoA/a.ts"]]);
+    assert.match(r.stderr, /1 of 2 workspace repos have graphs.*repoB/);
+    const missing = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "noSuchSymbol", p, "--json", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(missing.status, 1);
+    assert.equal(missing.stdout, "");
+    assert.match(missing.stderr, /no symbol "noSuchSymbol" in any of the 1 workspace repo/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("grep federation merges groups across children with child-prefixed paths", async () => {
   const p = workspaceFx(REPOS);
   await buildWorkspace(p);
