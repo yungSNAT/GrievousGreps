@@ -62,6 +62,18 @@ cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- lsp --language P
 
 `--ask calls`, the default, uses call hierarchy: `textDocument/prepareCallHierarchy`, then `callHierarchy/incomingCalls`. `--ask references` uses `textDocument/references` without the declaration, which also returns imports and other references that are not calls. A server gives locations, not callers, so each location is named by the innermost definition around it in the server's own document symbols, as Serena's column is mapped: modules and anonymous callbacks drop out, and a value inside a definition gives way to the definition. The answers go to the work folder's `lsp/<ask>/<repository>.json` in `callers --json` shape, with the server's stderr beside them. Install each checkout's dependencies first where the server reads them, as rust-analyzer and the TypeScript server do. `--repos`, `--work` and `--verbose` work as they do for `run`.
 
+## Ask: which files a question is about
+
+`gg-bench ask` measures `trail ask` on [semble's retrieval benchmark](https://github.com/MinishLab/semble/tree/a1ba6c18a4b0a58a3d1a15217d64bc92678d1d9d/benchmarks): 1,251 questions on 63 repositories in 19 languages, each naming the files that answer it. [`ask/semble/`](ask/semble) holds its `repos.json` and `annotations/` as they are at semble's commit `a1ba6c1`, under semble's MIT licence ([`ask/semble/LICENSE`](ask/semble/LICENSE)). Nobody working on this tool wrote or chose its questions.
+
+```bash
+cargo run --release --manifest-path rust/gg-bench/Cargo.toml -- ask --tool dist/bin/graft.js
+```
+
+For each repository it fetches the pinned revision, builds the graph of the folder semble names (`benchmark_root`), asks each question once with `ask <question> <folder> --json -n 10` and removes the graph. It takes each answer's first 10 distinct files, from each hit's `pointer`, and scores them as semble scores a tool by file: NDCG@10 counts the question's `relevant` and `secondary` files, and a file matches a target when one path ends with the other. hit@1, hit@3 and hit@10 are the share of questions with a `relevant` file among the first 1, 3 or 10. A question whose answer fails or has no JSON scores 0 and is counted as failed.
+
+It prints the table (all questions, by category, by language), then every question with no relevant file among the first 3, with its first relevant rank and the first 3 files returned. The answers go to the work folder's `answers/<repository>.json`; a later run in the same work folder grades a repository from that file, without asking again, when it answers every question, so a stopped run resumes. Use a fresh work folder for each build of the tool. `--category symbol` asks only that category's questions, `--repos` only those repositories, and `--set` reads another folder in the same format; `--work` and `--node` work as they do for `run`. The scratch environment is the one `run` uses.
+
 ## What it prints
 
 The overall line and first table are what the README carries. Recall is required calls found divided by required calls, pooled across the repository's 10 symbols, so a symbol with many callers weighs more. The overall line pools every repository the same way, so tokio and tracing hold more than a third of its weight. The detail tables add:
