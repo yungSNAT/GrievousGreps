@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::lsp::{READY_LIMIT, Server, Session, fresh_copy, targets};
+use crate::lsp::{READY_LIMIT, Server, Session, fresh_copy, targets, version};
 use crate::run::{read_truth, remove};
 use crate::score::{Entry, Repo, Rules};
 
@@ -137,8 +137,9 @@ pub fn run(opts: &TruthOptions) -> Result<String, String> {
     let server: Vec<_> = opts.server.iter().map(|a| a.to_string_lossy()).collect();
     let (name, sha) = (&opts.repo.name, &opts.repo.sha);
     let mut report = format!(
-        "lsp-truth {name} at {sha} with `{}` ({info})\n",
-        server.join(" ")
+        "lsp-truth {name} at {sha} with `{}` ({info}), version {}\n",
+        server.join(" "),
+        version(&opts.server, &info, &root)
     );
     let result = derive_all(&mut deriver, opts, &existing, &raw, &mut report);
     let outside = deriver.session.outside;
