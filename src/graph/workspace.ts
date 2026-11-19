@@ -718,11 +718,13 @@ export function federateCallers(
   const depth = opts.depth && opts.depth >= 1 ? Math.floor(opts.depth) : 1;
   const showDepth = depth > 1;
 
+  const { onlyChild, childIn } = resolveWorkspaceIn(wg, opts.in);
   const blocks: string[] = [];
   const jsonMatches: MatchJson[] = [];
   const total: Savings = { files: 0, baselineChars: 0 };
   for (const { child, graph } of wg.loaded) {
-    const matches = resolveSymbol(graph, symbol, opts.in ? { in: opts.in } : {});
+    if (onlyChild && child !== onlyChild) continue;
+    const matches = resolveSymbol(graph, symbol, childIn ? { in: childIn } : {});
     if (matches.length === 0) continue;
     const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(graph, m, direction, depth) }));
     const saved = callersSavings(graph, results);
