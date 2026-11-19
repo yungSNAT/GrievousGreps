@@ -189,6 +189,25 @@ fn paths_under_a_work_folder_with_dots_read_as_nodes_join_gave_them() {
 }
 
 #[test]
+fn each_builds_answers_are_kept_for_scoring_again() {
+    let f = fixture();
+    run(&f.options(true)).unwrap();
+    for label in ["upstream", "patched"] {
+        let file = f.work.join("answers").join(label).join("demo.json");
+        let kept: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(
+            kept["run"]["matches"][0]["hits"][0]["id"],
+            json!("main.py#run")
+        );
+        assert_eq!(
+            kept["quiet"],
+            Value::Null,
+            "an answer with no JSON is kept as null"
+        );
+    }
+}
+
+#[test]
 fn a_build_that_fails_stops_the_run_with_its_output() {
     let f = fixture();
     fs::write(

@@ -17,7 +17,7 @@ mod server;
 use scope::csharp_name;
 pub(crate) use scope::{LOCAL, enclosing, go_receiver, position};
 pub use scope::{Scope, caller_chain, clean_scope, flatten, targets};
-pub use server::{Server, path_to_uri, read_frame, relative, uri_to_path};
+pub use server::{Server, path_to_uri, read_frame, relative, uri_to_path, version};
 
 use crate::run::{copy_tree, fetch_repo, read_truth, remove, under, utc_date};
 use crate::score::{
@@ -296,6 +296,7 @@ fn score_repo(
     }
     let outside = session.outside;
     session.server.stop();
+    *info = json!({ "name": info["name"], "version": version(&opts.server, info, &root) });
     let file = out.join(format!("{}.json", repo.name));
     fs::write(&file, format!("{:#}\n", Value::Object(answers)))
         .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
@@ -321,15 +322,11 @@ pub fn run(opts: &LspOptions) -> Result<String, String> {
         .iter()
         .map(|repo| summaries[&repo.name].clone())
         .collect();
-    // serverInfo is optional in the protocol, and pyright sends none.
-    let named: Vec<&str> = [&info["name"], &info["version"]]
-        .iter()
-        .filter_map(|v| v.as_str())
-        .collect();
-    let named = if named.is_empty() {
-        String::new()
-    } else {
-        format!(" ({})", named.join(" "))
+    // serverInfo is optional in the protocol, and pyright sends none; score_repo fills it in.
+    let version = info["version"].as_str().unwrap_or("unknown");
+    let named = match info["name"].as_str() {
+        Some(name) => format!(" ({name} {version})"),
+        None => format!(" (version {version})"),
     };
     let mut report = format!(
         "Server: `{}`{named}, asked for {}, {} UTC\n\n",
