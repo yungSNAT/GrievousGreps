@@ -139,7 +139,7 @@ pub fn run(opts: &TruthOptions) -> Result<String, String> {
     let mut report = format!(
         "lsp-truth {name} at {sha} with `{}` ({info}), version {}\n",
         server.join(" "),
-        version(&opts.server, &info)
+        version(&opts.server, &info, &root)
     );
     let result = derive_all(&mut deriver, opts, &existing, &raw, &mut report);
     let outside = deriver.session.outside;

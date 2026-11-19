@@ -296,6 +296,7 @@ fn score_repo(
     }
     let outside = session.outside;
     session.server.stop();
+    *info = json!({ "name": info["name"], "version": version(&opts.server, info, &root) });
     let file = out.join(format!("{}.json", repo.name));
     fs::write(&file, format!("{:#}\n", Value::Object(answers)))
         .map_err(|e| format!("cannot write {}: {e}", file.display()))?;
@@ -321,8 +322,8 @@ pub fn run(opts: &LspOptions) -> Result<String, String> {
         .iter()
         .map(|repo| summaries[&repo.name].clone())
         .collect();
-    // serverInfo is optional in the protocol, and pyright sends none.
-    let version = version(&opts.server, &info);
+    // serverInfo is optional in the protocol, and pyright sends none; score_repo fills it in.
+    let version = info["version"].as_str().unwrap_or("unknown");
     let named = match info["name"].as_str() {
         Some(name) => format!(" ({name} {version})"),
         None => format!(" (version {version})"),

@@ -33,8 +33,9 @@ pub struct Server {
 
 /// The server's version: its `serverInfo` version, else the last line it prints when started with
 /// `--version` in place of `--stdio`, as typescript-language-server and pyright send no
-/// `serverInfo` version; 'unknown' if neither gives one.
-pub fn version(server: &[OsString], info: &Value) -> String {
+/// `serverInfo` version; 'unknown' if neither gives one. It runs in `root`, as the server does, and
+/// a failed exit gives no version.
+pub fn version(server: &[OsString], info: &Value, root: &Path) -> String {
     if let Some(version) = info["version"].as_str() {
         return version.to_owned();
     }
@@ -44,9 +45,11 @@ pub fn version(server: &[OsString], info: &Value) -> String {
     let mut asked = command(program);
     asked
         .args(args.iter().filter(|arg| *arg != "--stdio"))
-        .arg("--version");
+        .arg("--version")
+        .current_dir(root);
     crate::process::output(&mut asked, Duration::from_secs(20))
         .ok()
+        .filter(|out| out.status.success())
         .and_then(|out| {
             out.stdout
                 .lines()
