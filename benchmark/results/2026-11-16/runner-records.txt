@@ -4,7 +4,21 @@ Runner records of the 16 November runs, read 2026-11-19T03:54:45Z. PART lines ar
 PART serena-1 START 2026-11-16T07:33:54Z
 PART serena-1 START 2026-11-16T08:01:31Z
 PART gg-3 END 2026-11-16T18:09:25Z
-last answer file: 2026-11-16 18:11:02 hono/meta.json
+
+## Each tool's first part, and this tool's last answers (gg-rep1 and gg-rep2 are repeat passes, not scored; read 2026-11-19T04:13:23Z)
+PART serena-1 START 2026-11-16T07:33:54Z
+PART cbm-1 START 2026-11-16T13:09:16Z
+PART crg-1 START 2026-11-16T13:13:19Z
+PART cg-1 START 2026-11-16T13:38:13Z
+PART cgc-1 START 2026-11-16T13:44:01Z
+PART ax-1 START 2026-11-16T14:19:01Z
+PART rw-1 START 2026-11-16T16:11:52Z
+PART gf-1 START 2026-11-16T17:48:03Z
+PART tks-1 START 2026-11-16T18:01:20Z
+PART gg-1 START 2026-11-16T18:02:42Z
+gg last answer file: 2026-11-16 18:09:24 gg/zola/meta.json
+gg-rep1 last answer file: 2026-11-16 18:10:17 gg-rep1/hono/meta.json
+gg-rep2 last answer file: 2026-11-16 18:11:02 gg-rep2/hono/meta.json
 
 ## Scoring (score.err is created when the scoring command starts)
 results/score.err 2026-11-16 18:17:30

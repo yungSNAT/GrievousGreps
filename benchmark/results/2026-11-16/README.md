@@ -27,9 +27,9 @@ A column's overall and per-language cells pool its repositories: calls found ove
 [runner-records.txt](runner-records.txt) gives these UTC times:
 
 - Serena's first part started at 07:33:54, and its answers that survive were written from 08:03:23, as later parts rewrote the earlier ones (the answer times are not in that file).
-- This tool's last answer was written at 18:11:02.
+- This tool's scored pass ended at 18:09:25 (`PART gg-3 END`), and its last scored answer was written at 18:09:24. 2 repeat passes, not scored, ended at 18:10:17 and 18:11:02.
 - Scoring started at 18:17:30 and wrote these files at 18:17:32.
 
 ## Versions
 
-[versions.txt](versions.txt) has each tool's version, read on 19 November from the installs the runs used, with each install's file time. Every install time is before the 16 November runs, so none was reinstalled after them. The `main` build's checkout is at `b22055dce3c3ff22722793ed0a5a3be4491a9140` with no changed files. This tool's column is that `src/gg` build at `88c214e`; `scores.json` does not name it.
+[versions.txt](versions.txt) has each tool's version, read on 19 November from the installs the runs used, with each install's file time. Each install time is earlier than that tool's first part started, as `runner-records.txt` gives it, so none was reinstalled between its runs and this reading. The `main` build's checkout is at `b22055dce3c3ff22722793ed0a5a3be4491a9140` with no changed files. This tool's column is that `src/gg` build at `88c214e`; `scores.json` does not name it.
