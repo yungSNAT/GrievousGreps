@@ -66,7 +66,7 @@ export const TOOLS: ToolDef[] = [
         },
         in: {
           type: 'string',
-          description: 'narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf); from a folder of several repositories, begin with the repository's folder',
+          description: 'narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf); from a folder of several repositories, begin with the repository folder',
         },
       },
       required: ['query'],
@@ -103,7 +103,7 @@ export const TOOLS: ToolDef[] = [
           description: '"in" (default) = callers/dependents; "out" = callees/dependencies',
         },
         depth: { description: 'transitive walk depth for blast radius (default 1 = direct edges only); pass "all" for the full connected closure — every source that would be affected' },
-        in: { type: 'string', description: 'narrow matches to nodes at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository's folder, e.g. api/server/src' },
+        in: { type: 'string', description: 'narrow matches to nodes at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository folder, e.g. api/server/src' },
       },
       required: ['symbol'],
     },
@@ -116,7 +116,7 @@ export const TOOLS: ToolDef[] = [
       type: 'object',
       properties: {
         pattern: { type: 'string', description: 'regex pattern (or literal string with fixed: true)' },
-        in: { type: 'string', description: 'narrow to files at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository's folder, e.g. api/server/src' },
+        in: { type: 'string', description: 'narrow to files at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository folder, e.g. api/server/src' },
         ignore_case: { type: 'boolean', description: 'case-insensitive match' },
         fixed: { type: 'boolean', description: 'treat pattern as a literal string, not a regex' },
       },
