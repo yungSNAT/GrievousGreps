@@ -37,6 +37,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { ASK_INDEX_FILE } from "../ask/index-file.js";
+import { VECTORS_FILE } from "../ask/vectors.js";
 import { CACHE_DIR, assertRealContextDir, contextDirFor } from "../context/node-file.js";
 import { copyFileInside, ensureDirInside, resolveInside } from "../util/safe-fs.js";
 import { EXTRACT_CACHE_PREFIX } from "./extract-cache.js";
@@ -115,7 +116,9 @@ const NOT_SEEDED: SeedResult = { seeded: false };
  * `ask` sidecar, the freshness record" (see the header of ./refresh.ts). A copy that
  * wrote anything else would turn a read into a write of the repo, so the copy honours
  * the same list. The extraction memo is on it because the refresh immediately after
- * rewrites that file anyway, and replaying it is what keeps the repair cheap.
+ * rewrites that file anyway, and replaying it is what keeps the repair cheap. The
+ * semantic vectors are on it for the same reason: they are keyed by file content, so the
+ * refresh reuses every unchanged file's vectors instead of embedding the whole checkout.
  *
  * **Deliberately absent: the cards and `INDEX.md`.** They would land as this
  * checkout's documentation while describing the *parent's* branch, and nothing on the
@@ -135,6 +138,7 @@ function seedable(rel: string): boolean {
   const name = rel.slice(CACHE_DIR.length + 1);
   return (
     name === ASK_INDEX_FILE ||
+    name === VECTORS_FILE ||
     name.startsWith(`${EXTRACT_CACHE_PREFIX}.`) ||
     name.startsWith(`${FINGERPRINT_PREFIX}.`)
   );

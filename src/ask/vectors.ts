@@ -4,8 +4,8 @@
  * ranking by reciprocal rank fusion.
  *
  * The vectors live in `<outDir>/.cache/ask-vectors.bin`: an 8-byte little-endian
- * header length, a JSON header naming the model and, per file, its content hash and
- * chunk line ranges, then every chunk's vector as float16, in header order. A file
+ * header length, a JSON header naming the model and chunk size and, per file, its content
+ * hash and chunk line ranges, then every chunk's vector as float16, in header order. A file
  * whose hash is unchanged keeps its vectors on the next build. `TRAIL_SEMANTIC=0`
  * turns the whole layer off, at build and at query.
  */
@@ -15,7 +15,7 @@ import { CACHE_DIR } from "../context/node-file.js";
 import { removeFileInside, resolveInside, writeFileInside } from "../util/safe-fs.js";
 import { F16, MODEL_ID, f32ToF16, modelAvailable, openEmbedder, type Embedder } from "./embed.js";
 
-const VECTORS_FILE = "ask-vectors.bin";
+export const VECTORS_FILE = "ask-vectors.bin";
 /** A chunk is consecutive whole lines, up to this many characters (a longer line is its own chunk). */
 const CHUNK_CHARS = 750;
 /** Files the dense list contributes to the fusion. */
@@ -49,9 +49,9 @@ export function vectorsPath(outDir: string): string {
   return join(outDir, CACHE_DIR, VECTORS_FILE);
 }
 
-/** Semantic ranking is on unless `TRAIL_SEMANTIC=0`, and needs the shipped model. */
-export function semanticEnabled(): boolean {
-  return process.env.TRAIL_SEMANTIC !== "0" && modelAvailable();
+/** Semantic ranking is on unless `TRAIL_SEMANTIC=0`, and needs the model (the shipped one by default). */
+export function semanticEnabled(dir?: string): boolean {
+  return process.env.TRAIL_SEMANTIC !== "0" && modelAvailable(dir);
 }
 
 /** A file's chunks: [text, startLine, endLine] runs of whole lines up to {@link CHUNK_CHARS}. */
@@ -86,7 +86,7 @@ export function readVectors(outDir: string): VectorIndex | null {
     const head = JSON.parse(buf.subarray(8, 8 + headerLen).toString("utf8"));
     const chunks = (head.files as VectorFile[]).reduce((n, f) => n + f.lines.length / 2, 0);
     const bytes = buf.subarray(8 + headerLen);
-    if (head.version !== 1 || head.model !== MODEL_ID || bytes.length !== chunks * head.dim * 2) return null;
+    if (head.version !== 1 || head.model !== MODEL_ID || head.chunk !== CHUNK_CHARS || bytes.length !== chunks * head.dim * 2) return null;
     const data = new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
     return { model: head.model, dim: head.dim, files: head.files, data };
   } catch {
@@ -97,7 +97,8 @@ export function readVectors(outDir: string): VectorIndex | null {
 /**
  * Write the vectors for `files` (repo-relative path, content hash, source), reusing the
  * prior sidecar's vectors for every file whose hash is unchanged. With semantic ranking
- * off, removes any sidecar instead, so a later query never reads vectors of old code.
+ * off, removes any sidecar instead, as a failed write does, so a later query never reads
+ * vectors of old code.
  * Returns the number of chunks embedded this run.
  */
 export function writeVectors(outDir: string, files: Array<{ path: string; hash: string; source: string }>): number {
@@ -106,6 +107,16 @@ export function writeVectors(outDir: string, files: Array<{ path: string; hash: 
     removeFileInside(base, vectorsPath(outDir));
     return 0;
   }
+  try {
+    return writeAll(outDir, files);
+  } catch (err) {
+    // Vectors of an older build must never rank a newer graph.
+    removeFileInside(base, vectorsPath(outDir));
+    throw err;
+  }
+}
+
+function writeAll(outDir: string, files: Array<{ path: string; hash: string; source: string }>): number {
   const prior = readVectors(outDir);
   const priorAt = new Map<string, { file: VectorFile; offset: number }>();
   if (prior) {
@@ -142,16 +153,21 @@ export function writeVectors(outDir: string, files: Array<{ path: string; hash: 
     embedder?.close();
   }
   const dim = embedder?.dim ?? prior?.dim ?? 256;
-  const header = Buffer.from(JSON.stringify({ version: 1, model: MODEL_ID, dim, files: out }), "utf8");
+  const header = Buffer.from(JSON.stringify({ version: 1, model: MODEL_ID, chunk: CHUNK_CHARS, dim, files: out }), "utf8");
   const len = Buffer.alloc(8);
   len.writeBigUInt64LE(BigInt(header.length));
-  writeFileInside(base, vectorsPath(outDir), Buffer.concat([len, header, ...parts.map((p) => Buffer.from(p.buffer, p.byteOffset, p.byteLength))]), { atomic: true });
+  writeFileInside(dirname(outDir), vectorsPath(outDir), Buffer.concat([len, header, ...parts.map((p) => Buffer.from(p.buffer, p.byteOffset, p.byteLength))]), { atomic: true });
   return embedded;
 }
 
-/** Files ranked by their best chunk's cosine with `query`, best first, at most {@link DENSE_FILES}. */
+/**
+ * Files ranked by their best chunk's cosine with `query`, best first, at most {@link DENSE_FILES}.
+ * None for a query with no known token (a zero vector), of another width or not finite: those
+ * would rank every file alike, so by path.
+ */
 export function denseFiles(index: VectorIndex, query: Float32Array, keep: (path: string) => boolean = () => true): DenseFile[] {
   const { dim, data } = index;
+  if (query.length !== dim || !query.every(Number.isFinite) || !query.some((x) => x !== 0)) return [];
   const best: DenseFile[] = [];
   let at = 0;
   for (const f of index.files) {
@@ -183,17 +199,24 @@ export function pointerFile(pointer: string): string {
  * `denseHit`'s), then the remaining lexical hits in their own order, up to `limit`.
  */
 export function fuseByFile<H extends { pointer: string }>(hits: H[], dense: DenseFile[], limit: number, denseHit: (d: DenseFile) => H): H[] {
-  const lexFiles = [...new Set(hits.map((h) => pointerFile(h.pointer)))];
+  const firstHit = new Map<string, H>();
+  for (const h of hits) if (!firstHit.has(pointerFile(h.pointer))) firstHit.set(pointerFile(h.pointer), h);
+  const lexFiles = [...firstHit.keys()];
+  const lexRank = new Map(lexFiles.map((f, i) => [f, i]));
   const score = new Map<string, number>();
   const add = (files: string[]) => files.forEach((f, i) => score.set(f, (score.get(f) ?? 0) + 1 / (RRF_K + i + 1)));
   add(lexFiles);
   add(dense.map((d) => d.path));
-  const order = [...score].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([f]) => f);
+  // A tie goes to the lexical order, then to the path.
+  const lexAt = (f: string) => lexRank.get(f) ?? Infinity;
+  const order = [...score]
+    .sort((a, b) => b[1] - a[1] || lexAt(a[0]) - lexAt(b[0]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([f]) => f);
   const denseAt = new Map(dense.map((d) => [d.path, d]));
   const leaders: H[] = [];
   const used = new Set<H>();
   for (const f of order) {
-    const lex = hits.find((h) => pointerFile(h.pointer) === f);
+    const lex = firstHit.get(f);
     if (lex) used.add(lex);
     leaders.push(lex ?? denseHit(denseAt.get(f)!));
   }
@@ -201,8 +224,8 @@ export function fuseByFile<H extends { pointer: string }>(hits: H[], dense: Dens
 }
 
 /** Embed a query with the shipped model, reading only its tokens' rows. */
-export function embedQuery(query: string): Float32Array {
-  const e = openEmbedder();
+export function embedQuery(query: string, dir?: string): Float32Array {
+  const e = openEmbedder({ dir });
   try {
     return e.embed(query);
   } finally {

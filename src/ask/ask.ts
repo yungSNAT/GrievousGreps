@@ -52,6 +52,9 @@ import { readSourceFile } from "../util/source.js";
 import { readFileInside, resolveInside } from "../util/safe-fs.js";
 import { counts, tokenize, type AskIndex, type AskIndexDoc } from "./index-file.js";
 import { denseFiles, embedQuery, fuseByFile, readVectors, semanticEnabled, type DenseFile } from "./vectors.js";
+
+/** Semantic ranking fuses a lexical list at least this deep, the depth `gg-bench ask` measured (`-n 10`). */
+const SEMANTIC_LEXICAL_DEPTH = 10;
 import { cmd, tag } from "../brand.js";
 import { formatNoteHits, learningSavingsLine, type NoteHit } from "../notes/notes.js";
 
@@ -1228,6 +1231,8 @@ function lexical(
 export interface AskOptions {
   contextDir?: string;
   limit?: number;
+  /** The embedding model's folder for semantic ranking; the package's `models/` by default. */
+  modelDir?: string;
   /** Inline the source at each `path:Lx-Ly` hit, sliced from `dir`. Turns the
    * pack from a locator into a retriever so the agent needn't re-open the file. */
   source?: boolean;
@@ -1348,6 +1353,11 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
   const corpus = loadCorpus(outDir);
   const graphRank = opts.graphRank ?? true;
   const fileFirst = opts.fileFirst ?? true;
+  // Workspace federation (ranking metadata) and the raw baseline (no file-first) rank files themselves.
+  const semantic = !!corpus.graph && fileFirst && !opts.includeRankingMetadata && semanticEnabled(opts.modelDir);
+  // Semantic ranking fuses a lexical list of the same depth whatever the limit, so a short
+  // answer is the start of a longer one.
+  const lexLimit = semantic ? Math.max(limit, SEMANTIC_LEXICAL_DEPTH) : limit;
   // The production path uses bounded file scoring plus an exact baseline top lock.
   // Internal/raw callers can still request the baseline by disabling
   // file-first selection. A top lock is projected only on a file-first list.
@@ -1400,10 +1410,10 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
       opts.includeRankingMetadata ?? false,
     );
   }
-  // Workspace federation (ranking metadata) and the raw baseline (no file-first) rank files themselves.
-  if (corpus.graph && result.mode !== "structural" && fileFirst && !opts.includeRankingMetadata) {
-    result = withSemantic(result, corpus.graph, outDir, query, limit, inPrefix);
+  if (semantic && corpus.graph && result.mode !== "structural") {
+    result = withSemantic(result, corpus.graph, outDir, query, limit, inPrefix, opts.modelDir);
   }
+  if (result.hits.length > limit) result = { ...result, hits: result.hits.slice(0, limit) };
   if (opts.source) {
     inlineSource(root, result.hits, corpus.graph, opts.full ?? false);
     if (result.ranking) {
@@ -1433,14 +1443,19 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
  * else at the chunk's lines. Off with `TRAIL_SEMANTIC=0`; a graph built before vectors
  * existed answers lexically and says so.
  */
-function withSemantic(result: AskResult, graph: GraphV1, outDir: string, query: string, limit: number, inPrefix?: string): AskResult {
-  if (!semanticEnabled()) return result;
-  const index = readVectors(outDir);
-  if (!index) {
-    const skipped = `semantic ranking skipped: no vectors yet — run \`${cmd("graft build")}\``;
+function withSemantic(result: AskResult, graph: GraphV1, outDir: string, query: string, limit: number, inPrefix?: string, modelDir?: string): AskResult {
+  const skip = (why: string): AskResult => {
+    const skipped = `semantic ranking skipped: ${why}`;
     return { ...result, note: result.note ? `${result.note}\n${skipped}` : skipped };
+  };
+  const index = readVectors(outDir);
+  if (!index) return skip(`no vectors yet — run \`${cmd("graft build")}\``);
+  let dense: DenseFile[];
+  try {
+    dense = denseFiles(index, embedQuery(query, modelDir), inPrefix ? (p) => pathUnderPrefix(p, inPrefix) : undefined);
+  } catch (err) {
+    return skip(`the model is unreadable (${err instanceof Error ? err.message : String(err)})`);
   }
-  const dense = denseFiles(index, embedQuery(query), inPrefix ? (p) => pathUnderPrefix(p, inPrefix) : undefined);
   if (!dense.length) return result;
   const scoped = result.hits.some((h) => h.scope !== undefined);
   const scopes = graph.meta.scopes ?? [];
@@ -1458,14 +1473,17 @@ function withSemantic(result: AskResult, graph: GraphV1, outDir: string, query: 
       kind: "symbol",
       title: n ? `${n.name} · ${n.kind}` : `${d.path} · file`,
       pointer: n ? `${n.path}:${n.span}` : `${d.path}:L${d.start}-L${d.end}`,
-      snippet: n ? (n.summary?.split("\n")[0].trim() ?? n.signature ?? "") : "",
+      snippet: n ? (n.summary?.split("\n")[0].trim() || n.signature || "") : "",
       score: d.score,
       ...(scoped ? { scope: scopeOf(d.path, scopes).prefix } : {}),
     };
   };
   const hits = fuseByFile(result.hits, dense, limit, denseHit);
-  const found = result.mode === "empty" && hits.length > 0;
-  return { ...result, hits, ...(found ? { mode: "lexical" as const, note: undefined } : {}) };
+  if (result.mode !== "empty" || !hits.length) return { ...result, hits };
+  // Found by meaning alone: no query word matched, which coverage says, so the prompt hook's
+  // floors hold; and the empty result's 'no matching nodes' line goes, other notes stay.
+  const note = result.note?.split("\n").filter((l) => !l.startsWith("no matching nodes")).join("\n") || undefined;
+  return { ...result, hits, mode: "lexical", coverage: 0, coverageStrong: 0, note };
 }
 
 // ── Skeleton view ────────────────────────────────────────────────────────────

@@ -4,27 +4,16 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
 import { ask } from "../src/ask/ask.js";
 import { contextDirFor } from "../src/context/node-file.js";
-import { chunkLines, fuseByFile, readVectors, vectorsPath, writeVectors, type DenseFile } from "../src/ask/vectors.js";
+import { chunkLines, denseFiles, fuseByFile, readVectors, vectorsPath, writeVectors, type DenseFile } from "../src/ask/vectors.js";
+import { relevantRetrieval } from "../src/claude/format.js";
 
-function withEnv<T>(value: string | undefined, run: () => T): T {
-  const was = process.env.TRAIL_SEMANTIC;
-  if (value === undefined) delete process.env.TRAIL_SEMANTIC;
-  else process.env.TRAIL_SEMANTIC = value;
-  try {
-    return run();
-  } finally {
-    if (was === undefined) delete process.env.TRAIL_SEMANTIC;
-    else process.env.TRAIL_SEMANTIC = was;
-  }
-}
-
-async function withEnvAsync<T>(value: string | undefined, run: () => Promise<T>): Promise<T> {
+async function withEnv<T>(value: string | undefined, run: () => T | Promise<T>): Promise<T> {
   const was = process.env.TRAIL_SEMANTIC;
   if (value === undefined) delete process.env.TRAIL_SEMANTIC;
   else process.env.TRAIL_SEMANTIC = value;
@@ -68,12 +57,12 @@ test("fusion ranks files by reciprocal rank, leading with one hit per file", () 
   assert.deepEqual(fuseByFile(lexical, [], 10, () => hit("never")).map((h) => h.pointer), ["a.ts:L1-L2", "b.ts:L3-L4", "c.ts", "a.ts:L9-L9"]);
 });
 
-test("a build reuses the vectors of unchanged files and embeds only changed ones", () => {
+test("a build reuses the vectors of unchanged files and embeds only changed ones", async () => {
   const out = mkdtempSync(join(tmpdir(), "gg-vectors-"));
   const outDir = join(out, "graft");
   mkdirSync(outDir);
   try {
-    withEnv(undefined, () => {
+    await withEnv(undefined, () => {
       const files = [
         { path: "a.ts", hash: "1", source: "export function alpha() {}\n" },
         { path: "b.ts", hash: "2", source: "export function beta() {}\n" },
@@ -85,7 +74,7 @@ test("a build reuses the vectors of unchanged files and embeds only changed ones
       assert.deepEqual(index.files.map((f) => [f.path, f.hash, f.lines]), [["a.ts", "1", [1, 2]], ["b.ts", "3", [1, 2]]]);
       assert.equal(index.data.length, 2 * index.dim);
     });
-    withEnv("0", () => writeVectors(outDir, []));
+    await withEnv("0", () => writeVectors(outDir, []));
     assert.equal(existsSync(vectorsPath(outDir)), false, "TRAIL_SEMANTIC=0 removes the sidecar");
   } finally {
     rmSync(out, { recursive: true, force: true });
@@ -106,12 +95,12 @@ const QUERY = "login credentials";
 test("a query with no word in the code still finds the file it means", async () => {
   const root = fixture();
   try {
-    await withEnvAsync(undefined, () => buildGraph(root));
-    const r = withEnv(undefined, () => ask(root, QUERY));
+    await withEnv(undefined, () => buildGraph(root));
+    const r = await withEnv(undefined, () => ask(root, QUERY));
     assert.equal(r.mode, "lexical");
     assert.equal(r.hits[0]?.pointer, "auth.ts:L1-L3");
     assert.equal(r.hits[0]?.title, "verifyPassword · function");
-    const off = withEnv("0", () => ask(root, QUERY));
+    const off = await withEnv("0", () => ask(root, QUERY));
     assert.equal(off.mode, "empty", "TRAIL_SEMANTIC=0 answers lexically, as before");
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -121,13 +110,87 @@ test("a query with no word in the code still finds the file it means", async () 
 test("a graph built without vectors answers lexically and says so", async () => {
   const root = fixture();
   try {
-    await withEnvAsync(undefined, () => buildGraph(root));
+    await withEnv(undefined, () => buildGraph(root));
     unlinkSync(vectorsPath(contextDirFor(root)));
-    const r = withEnv(undefined, () => ask(root, QUERY));
+    const r = await withEnv(undefined, () => ask(root, QUERY));
     assert.equal(r.mode, "empty");
     assert.match(r.note ?? "", /semantic ranking skipped: no vectors yet/);
-    const off = withEnv("0", () => ask(root, QUERY));
+    const off = await withEnv("0", () => ask(root, QUERY));
     assert.doesNotMatch(off.note ?? "", /semantic/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("files found only by meaning carry no word coverage, so the prompt hook does not inject them", async () => {
+  const root = fixture();
+  try {
+    await withEnv(undefined, () => buildGraph(root));
+    const r = await withEnv(undefined, () => ask(root, QUERY));
+    assert.equal(r.hits[0]?.pointer, "auth.ts:L1-L3");
+    assert.deepEqual([r.coverage, r.coverageStrong], [0, 0]);
+    const session = { graftReads: 0, sourceReads: 0, savedTokens: 0, injectedPointers: [] as string[] };
+    relevantRetrieval(r as unknown as Parameters<typeof relevantRetrieval>[0], session as unknown as Parameters<typeof relevantRetrieval>[1]);
+    assert.deepEqual(session.injectedPointers, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable model leaves ask lexical, with a note, instead of failing", async () => {
+  const root = fixture();
+  const bad = mkdtempSync(join(tmpdir(), "gg-badmodel-"));
+  writeFileSync(join(bad, "tokenizer.json"), "{ not json");
+  writeFileSync(join(bad, "model.safetensors"), "text");
+  try {
+    await withEnv(undefined, () => buildGraph(root));
+    const r = await withEnv(undefined, () => ask(root, QUERY, { modelDir: bad }));
+    assert.equal(r.mode, "empty");
+    assert.match(r.note ?? "", /semantic ranking skipped: /);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(bad, { recursive: true, force: true });
+  }
+});
+
+test("a query with no known token, or of another width, ranks no file by meaning", () => {
+  const index = { model: "m", dim: 2, files: [{ path: "a.ts", hash: "1", lines: [1, 1] }, { path: "b.ts", hash: "2", lines: [1, 1] }], data: Uint16Array.from([0x3c00, 0, 0, 0x3c00]) };
+  assert.equal(denseFiles(index, Float32Array.from([1, 0]))[0]?.path, "a.ts");
+  assert.deepEqual(denseFiles(index, new Float32Array(2)), [], "a zero vector");
+  assert.deepEqual(denseFiles(index, Float32Array.from([1, 0, 0])), [], "another width");
+  assert.deepEqual(denseFiles(index, Float32Array.from([NaN, 0])), [], "not finite");
+});
+
+test("a tie in the fusion goes to the lexical file, not to the earlier path", () => {
+  const hit = (pointer: string) => ({ pointer });
+  const out = fuseByFile([hit("z.ts:L1-L2")], [{ path: "a.ts", score: 0.5, start: 1, end: 1 }], 10, (d) => hit(`${d.path}:L1-L1`));
+  assert.deepEqual(out.map((h) => h.pointer), ["z.ts:L1-L2", "a.ts:L1-L1"]);
+});
+
+test("a failed vectors write removes the old vectors, and other versions or chunk sizes are not read", async () => {
+  const out = mkdtempSync(join(tmpdir(), "gg-vectors-"));
+  const outDir = join(out, "graft");
+  mkdirSync(outDir);
+  try {
+    await withEnv(undefined, () => writeVectors(outDir, [{ path: "a.ts", hash: "1", source: "export function alpha() {}\n" }]));
+    const good = readFileSync(vectorsPath(outDir));
+    for (const [from, to] of [['"version":1', '"version":2'], ['"chunk":750', '"chunk":751']]) {
+      writeFileSync(vectorsPath(outDir), Buffer.from(good.toString("latin1").replace(from, to), "latin1"));
+      assert.equal(readVectors(outDir), null, to);
+    }
+    writeFileSync(vectorsPath(outDir), good);
+    await assert.rejects(() => withEnv(undefined, () => writeVectors(outDir, [{ path: "b.ts", hash: "2", source: undefined as unknown as string }])));
+    assert.equal(existsSync(vectorsPath(outDir)), false);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test("a build with TRAIL_SEMANTIC=0 writes no vectors", async () => {
+  const root = fixture();
+  try {
+    await withEnv("0", () => buildGraph(root));
+    assert.equal(existsSync(vectorsPath(contextDirFor(root))), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -9,7 +9,7 @@
  * median token length). `test/ask-embed.test.ts` holds model2vec's own token ids and
  * vectors for fixed strings.
  */
-import { closeSync, existsSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -117,7 +117,9 @@ function wordPieces(tok: Tokenizer, word: string): number[] {
 
 /** Token ids as model2vec's `tokenize` returns them: at most 512 tokens, then unknown tokens dropped. */
 export function tokenIds(tok: Tokenizer, text: string): number[] {
-  const ids = preTokenize(text.slice(0, tok.maxChars)).flatMap((word) => wordPieces(tok, word));
+  // model2vec cuts a Python string, so by code points; fewer UTF-16 units than that need no cut.
+  const cut = text.length > tok.maxChars ? Array.from(text).slice(0, tok.maxChars).join("") : text;
+  const ids = preTokenize(cut).flatMap((word) => wordPieces(tok, word));
   return ids.slice(0, MAX_TOKENS).filter((id) => id !== tok.unk);
 }
 
@@ -175,15 +177,33 @@ interface Table {
   offset: number;
 }
 
-function readTable(fd: number): Table {
+/** Fill `buf` from `pos`, or throw: a short read means the model file is cut. */
+function readExact(fd: number, buf: Buffer, pos: number): void {
+  if (readSync(fd, buf, 0, buf.length, pos) !== buf.length) throw new Error("model.safetensors: the file ends early");
+}
+
+/** The 'embeddings' table, checked to lie wholly inside the file and to cover the vocabulary. */
+function readTable(fd: number, vocabRows: number): Table {
+  const size = fstatSync(fd).size;
   const len = Buffer.alloc(8);
-  readSync(fd, len, 0, 8, 0);
+  readExact(fd, len, 0);
   const headerLen = Number(len.readBigUInt64LE(0));
+  if (headerLen > size - 8) throw new Error("model.safetensors: not a safetensors file");
   const header = Buffer.alloc(headerLen);
-  readSync(fd, header, 0, headerLen, 8);
-  const t = JSON.parse(header.toString("utf8")).embeddings;
+  readExact(fd, header, 8);
+  let t;
+  try {
+    t = JSON.parse(header.toString("utf8")).embeddings;
+  } catch {
+    throw new Error("model.safetensors: not a safetensors file");
+  }
   if (t?.dtype !== "F16" || t.shape?.length !== 2) throw new Error("model.safetensors: expected an F16 'embeddings' table");
-  return { rows: t.shape[0], dim: t.shape[1], offset: 8 + headerLen + t.data_offsets[0] };
+  const [rows, dim] = t.shape as [number, number];
+  const [start, end] = t.data_offsets as [number, number];
+  const offset = 8 + headerLen + start;
+  if (end - start !== rows * dim * 2 || offset + rows * dim * 2 > size) throw new Error("model.safetensors: the table runs past the file");
+  if (rows < vocabRows) throw new Error(`model.safetensors: ${rows} rows for a vocabulary of ${vocabRows}`);
+  return { rows, dim, offset };
 }
 
 /**
@@ -195,14 +215,20 @@ export function openEmbedder(opts: { whole?: boolean; dir?: string } = {}): Embe
   const dir = opts.dir ?? MODEL_DIR;
   const tok = loadTokenizer(dir);
   const fd = openSync(join(dir, "model.safetensors"), "r");
-  const table = readTable(fd);
-  const { dim } = table;
+  let table: Table;
   let all: Uint16Array | null = null;
-  if (opts.whole) {
-    const bytes = Buffer.alloc(table.rows * dim * 2);
-    readSync(fd, bytes, 0, bytes.length, table.offset);
-    all = new Uint16Array(bytes.buffer, bytes.byteOffset, table.rows * dim);
+  try {
+    table = readTable(fd, [...tok.vocab.values()].reduce((m, id) => Math.max(m, id + 1), 0));
+    if (opts.whole) {
+      const bytes = Buffer.alloc(table.rows * table.dim * 2);
+      readExact(fd, bytes, table.offset);
+      all = new Uint16Array(bytes.buffer, bytes.byteOffset, table.rows * table.dim);
+    }
+  } catch (err) {
+    closeSync(fd);
+    throw err;
   }
+  const { dim } = table;
   const row = Buffer.alloc(dim * 2);
   const rowBits = new Uint16Array(row.buffer, row.byteOffset, dim);
   return {
@@ -214,7 +240,7 @@ export function openEmbedder(opts: { whole?: boolean; dir?: string } = {}): Embe
         let bits: Uint16Array;
         if (all) bits = all.subarray(id * dim, id * dim + dim);
         else {
-          readSync(fd, row, 0, row.length, table.offset + id * dim * 2);
+          readExact(fd, row, table.offset + id * dim * 2);
           bits = rowBits;
         }
         for (let i = 0; i < dim; i++) out[i] += F16[bits[i]];
