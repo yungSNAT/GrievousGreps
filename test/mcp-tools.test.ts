@@ -171,6 +171,20 @@ test('graft_trace_calls direction:out round-trips a callee, and reports a loud n
   assert.match(empty.text, /graft grep "add"/);
 });
 
+test('graft_trace_calls refuses a direction outside "in" and "out" instead of reading it as "in"', async () => {
+  const d = builtRepo();
+  for (const direction of ['callees', 'OUT', 1]) {
+    const r = await callTool(d, 'graft_trace_calls', { symbol: 'sub', direction });
+    assert.equal(r.isError, true, `direction ${JSON.stringify(direction)}`);
+    assert.match(r.text, /direction must be "in" or "out", got /);
+    assert.doesNotMatch(r.text, /←/);
+  }
+  // Some clients send null for an omitted optional field: that is the default, "in".
+  const absent = await callTool(d, 'graft_trace_calls', { symbol: 'add', direction: null });
+  assert.equal(absent.isError, false, absent.text);
+  assert.match(absent.text, /← sub \(src\/math\.ts:/);
+});
+
 test('graft_trace_calls: unknown symbol / missing symbol are soft isErrors', async () => {
   const d = builtRepo();
   const r1 = await callTool(d, 'graft_trace_calls', { symbol: 'noSuchSymbolAnywhere' });
