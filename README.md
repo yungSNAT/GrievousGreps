@@ -72,7 +72,7 @@ trail grep <pattern>                 # every occurrence, grouped by enclosing sy
 trail viz                            # an interactive viewer of the graph, served on localhost
 ```
 
-`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx's 1,301 code nodes it was 1,016,743 bytes (at `88c214e` on 16 November and at `57122b3` on 19 November), with no script or style loaded from elsewhere ([output](benchmark/results/2026-11-19/README.md)).
+`trail viz --export site/` writes the viewer as one self-contained `index.html` instead: for httpx's 1,301 code nodes it was 1,016,743 bytes at `57122b3` on 19 November, with no script or style loaded from elsewhere ([output](benchmark/results/2026-11-19/README.md)); at `88c214e` on 16 November it was the same size, from an export not kept.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
@@ -80,7 +80,7 @@ trail viz                            # an interactive viewer of the graph, serve
 
 The map lives in `.trail/cache` in a repository on trail and in `graft/` elsewhere: a local cache to keep out of git.
 
-In a folder of separate git repositories, `trail build` builds one graph per repository and a federated index beside them, and a query from the folder searches them all, each hit labelled with its repository. On 16 November 2026 (UTC), on Linux at `88c214e`, a folder holding click, flask and httpx built a graph for each. On 19 November, at `57122b3`, the same folder built in 20 to 28 s in 3 runs on a shared machine (load average 13 to 16), and `trail ask "current context"` from it ranked hits from all 3 in one list, taking each repository's in turn: click's `get_current_context`, flask's `copy_current_request_context`, httpx's `create_ssl_context`, then click again ([output](benchmark/results/2026-11-19/README.md)). Calls between the repositories are not linked: `trail callers get_current_context` there listed click's own 16 callers, not flask's call in `tests/test_cli.py`. [docs/upstream-guide.md](docs/upstream-guide.md#monorepos-submodules--multi-repo-folders) covers this and the other layouts.
+In a folder of separate git repositories, `trail build` builds one graph per repository and a federated index beside them, and a query from the folder searches them all, each hit labelled with its repository. On 16 November 2026 (UTC), on Linux at `88c214e`, a folder holding click, flask and httpx built a graph for each. On 19 November, at `57122b3`, the same folder built in 20 to 28 s in 3 runs on a shared machine (load average 13 to 16), and `trail ask "current context"` from it listed hits from all 3 in one list, taking each repository's next hit in turn, by its own ranking: click's `get_current_context`, flask's `copy_current_request_context`, httpx's `create_ssl_context`, then click again ([output](benchmark/results/2026-11-19/README.md)). Calls between the repositories are not linked: `trail callers get_current_context` there listed click's own 16 callers, not flask's call in `tests/test_cli.py`. [docs/upstream-guide.md](docs/upstream-guide.md#monorepos-submodules--multi-repo-folders) covers this and the other layouts.
 
 ## Docs search
 
