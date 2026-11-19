@@ -56,6 +56,8 @@ test("a message built to backtrack is classified in linear time", () => {
 test("the rewritten regexes keep their answers", () => {
   assert.equal(classifyAnswer("yes, keep it 👍🏽", false), "yes");
   assert.equal(classifyAnswer("  yes ,  keep it!!  ", false), "yes");
+  assert.equal(classifyAnswer("yes, ,keep it", false), "yes");
+  assert.equal(classifyFor("retire", "retire, ,it", false), "retire");
   assert.equal(isGoAhead("ok, go on 🙂"), true);
   assert.equal(isGoAhead("go ahead - thanks"), true);
   assert.equal(classifyFor("retire", "no, leave it for now", false), "no");
@@ -72,12 +74,20 @@ test("a no whose rest is about the offer still reads across a CR or Unicode line
  * captures, and a match may now start at a later line start, so for them the captures must agree; for
  * the rest, every match, split and replacement.
  */
-const CAPTURES_ONLY = new Set(["go module", "pnpm", "where", "package_dir"]);
+const CAPTURES_ONLY = new Set(["go module", "pnpm", "where", "package_dir", "packages", "python-source", "empty key", "setup where"]);
 const PAIRS: [string, RegExp, RegExp][] = [
   ["go module", /^\s*module\s+(\S+)/m, /^[^\S\r\n\u2028\u2029]*module\s+(\S+)/m],
   ["pnpm", /^\s*-\s*['"]?([^'"\s#!]+)/gm, /^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm],
   ["where", /^\s*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm, /^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm],
   ["package_dir", /^\s*package_dir\s*=\s*(?:\r?\n\s*)?=\s*(\S+)/gm, /^[^\S\r\n\u2028\u2029]*package_dir\s*=\s*=\s*(\S+)/gm],
+  ["packages", /^\s*packages\s*=\s*\[([^\]]*)\]/gm, /^[^\S
+  ]*packages\s*=\s*\[([^\]]*)\]/gm],
+  ["python-source", /^\s*python-source\s*=\s*["']([^"']+)["']/gm, /^[^\S
+  ]*python-source\s*=\s*["']([^"']+)["']/gm],
+  ["empty key", /^\s*(?:""|'')\s*=\s*["']([^"']+)["']/gm, /^[^\S
+  ]*(?:""|'')\s*=\s*["']([^"']+)["']/gm],
+  ["setup where", /^\s*where\s*=\s*(\S+)/gm, /^[^\S
+  ]*where\s*=\s*(\S+)/gm],
   ["trailing emoji", /[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u, /(?<![\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}])[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u],
   ["outer punctuation", /^[\s.!?,;:]+|[\s.!?,;:]+$/g, /^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g],
   ["comma", /\s*,\s*/g, /(?<!\s)\s*,\s*/g],
