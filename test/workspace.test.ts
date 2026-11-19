@@ -627,6 +627,11 @@ test("workspace map --json gives each repository's own map, paths prefixed, and 
     const unprefix = (s: string) => s.replace(/"path": "repoA\//g, '"path": "');
     assert.ok(!/"path": "(?!repoA\/)/.test(JSON.stringify(out.repos[0].map, null, 1)), "every path is prefixed");
     assert.deepEqual(JSON.parse(unprefix(JSON.stringify(out.repos[0].map, null, 1))), own);
+
+    rmSync(contextDirFor(join(p, "repoA")), { recursive: true, force: true });
+    const none = map(p);
+    assert.equal(none.status, 0, none.stderr);
+    assert.deepEqual(JSON.parse(none.stdout), { repos: [], missing: ["repoA", "repoB"] });
   } finally {
     rmSync(p, { recursive: true, force: true });
   }
