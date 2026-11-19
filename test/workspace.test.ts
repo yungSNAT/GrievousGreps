@@ -597,6 +597,21 @@ test("workspace grep CLI forwards scopes and rejects invalid paths", async () =>
   }
 });
 
+test("workspace grep --json names a repository without a graph on stderr", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
+    const r = spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "grep", "Handler", p, "--json", "--no-refresh"], { encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout).groups.map((g: { path: string }) => g.path), ["repoA/a.ts"]);
+    assert.match(r.stderr, /1 of 2 workspace repos have graphs.*repoB/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("workspace graft_find_all forwards scopes and returns scope errors", async () => {
   const p = workspaceFx(GREP_REPOS);
   try {

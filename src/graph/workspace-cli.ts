@@ -156,6 +156,8 @@ export function runWorkspaceGrep(
   const { result, coverage } = federateGrep(root, override, pattern, { ignoreCase: opts.ignoreCase, fixed: opts.fixed, in: opts.in });
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
+    // stdout stays one JSON document; an unbuilt child is still reported.
+    if (coverage) console.error(coverage);
     return;
   }
   if (result.totalHits === 0) {

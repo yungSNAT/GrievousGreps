@@ -53,6 +53,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **`grep --json` from a folder of several repositories names any repository without a graph on stderr**, as the text output and `callers --json` do, so a JSON reader can tell a repository was not searched.
 - **`callers --json` answers from a folder of several repositories.** It exited with 'no graph found' there whilst the plain query searched every repository. It now gives the single-repository JSON shape, each path prefixed with its repository's folder, and names any repository without a graph on stderr.
 - **From a folder of several repositories, `callers` checks `--direction` and `--depth`, and the MCP `graft_trace_calls` tool walks `depth: "all"`.** A bad `--direction` or `--depth` there now exits 1, as in a single repository, instead of being read as `in` or depth 1; the tool took `"all"` as depth 1.
 - **A Go method call resolves when its receiver is a parameter or holds a function's result.** `func f(l *log.Logger) { l.SetLevel(1) }`, `l := log.New()` and `var std = New()` gave the receiver no type, so a method sharing its name with a function or another type's method had no callers there. The receiver now takes the parameter's type, or the first result the called function declares.
