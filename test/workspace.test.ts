@@ -466,6 +466,57 @@ test("workspace callers --json gives each child's hits and sums their savings", 
   }
 });
 
+test("workspace callers scopes --in to a child as grep does, and rejects a bad --direction or --depth", async () => {
+  const p = workspaceFx(GREP_REPOS);
+  try {
+    await buildWorkspace(p);
+    const cli = (...extra: string[]) => spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "callers", "helperThing", p, "--json", "--no-refresh", ...extra], { encoding: "utf8" });
+    for (const scope of ["repoA", "repoA/src", "./repoA/src/"]) {
+      const r = cli("--in", scope);
+      assert.equal(r.status, 0, `${scope}: ${r.stderr}`);
+      assert.deepEqual(JSON.parse(r.stdout).matches.map((m: { symbol: { path: string } }) => m.symbol.path), ["repoA/src/a.ts"]);
+    }
+    for (const [extra, error] of [
+      [["--in", "repo"], /no workspace repo "repo".*repoA.*repoB/s],
+      [["--in", "repoA/nowhere"], /nothing indexed under/],
+      [["--in", "repoB"], /no symbol "helperThing" in repoB\/ —/],
+      [["--in", "repoEmpty"], /no symbol "helperThing" in repoEmpty\/ —/],
+      [["--direction", "sideways"], /--direction must be "in" or "out", got "sideways"/],
+      [["--depth", "abc"], /--depth must be a positive number or "all", got "abc"/],
+    ] as const) {
+      const r = cli(...extra);
+      assert.equal(r.status, 1, extra.join(" "));
+      assert.equal(r.stdout, "");
+      assert.match(r.stderr, error);
+    }
+    const text = federateCallers(p, undefined, "helperThing", { in: "repoA/src" });
+    assert.equal(text.found, true);
+    assert.match(text.text, /## repoA\//);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
+test("workspace graft_trace_calls walks depth \"all\" as the single-repository tool does", async () => {
+  const p = workspaceFx({
+    repoA: { "a.ts": "export function top() { return mid(); }\nfunction mid() { return leaf(); }\nfunction leaf() { return 1; }\n" },
+    repoB: REPOS.repoB,
+  });
+  try {
+    await buildWorkspace(p);
+    const direct = await callTool(p, "graft_trace_calls", { symbol: "leaf" });
+    assert.equal(direct.isError, false);
+    assert.match(direct.text, /← mid \(a\.ts:/);
+    assert.doesNotMatch(direct.text, /← top \(/);
+    const all = await callTool(p, "graft_trace_calls", { symbol: "leaf", depth: "all" });
+    assert.equal(all.isError, false);
+    assert.match(all.text, /← top \(a\.ts:.*\[depth 2\]/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("grep federation merges groups across children with child-prefixed paths", async () => {
   const p = workspaceFx(REPOS);
   await buildWorkspace(p);

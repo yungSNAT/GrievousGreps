@@ -1100,18 +1100,16 @@ grouped(program.command("callers"), GROUP.find)
       const dir = noteQuery(queryRoot(dirArg));
       await refreshBefore(dir, opts);
       const globalOpts = program.opts<{ dir?: string }>();
+      const { runCallersCommand, resolveDirection, resolveDepth } = await import("./graph/traverse-cli.js");
       if (readWorkspace(dir, globalOpts.dir)) {
         runWorkspaceCallers(dir, globalOpts.dir, symbol, {
-          direction: opts.direction === "out" ? "out" : "in",
-          depth: opts.depth
-            ? (/^(all|full|max)$/i.test(opts.depth) ? Number.POSITIVE_INFINITY : Number(opts.depth))
-            : undefined,
+          direction: resolveDirection(opts.direction),
+          depth: resolveDepth(opts.depth),
           in: opts.in,
           json: opts.json,
         });
         return;
       }
-      const { runCallersCommand } = await import("./graph/traverse-cli.js");
       runCallersCommand(symbol, dir, {
         direction: opts.direction,
         depth: opts.depth,
