@@ -17,14 +17,16 @@
 import type { OfferMoment, TypedAnswer } from '../trace/types.js';
 import { classifyAnswer } from '../trace/typed.js';
 
-const TRAILING_EMOJI = /[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u; // NOSONAR: each code point stands alone; the + strips whole ZWJ and skin-tone sequences
+// The lookbehind starts a match only where the run starts, so a long run that does not reach the end
+// costs one pass instead of one per character.
+const TRAILING_EMOJI = /(?<![\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}])[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u; // NOSONAR: each code point stands alone; the + strips whole ZWJ and skin-tone sequences
 
 /** 1a's answer form: lowercased, outer punctuation and a trailing emoji gone, commas and spaces as single spaces. */
 function form(typed: string): string {
   return String(typed ?? '').replace(/[‘’]/g, "'").toLowerCase().trim()
     .replace(TRAILING_EMOJI, '')
-    .replace(/^[\s.!?,;:]+|[\s.!?,;:]+$/g, '')
-    .replace(/\s*,\s*/g, ' ')
+    .replace(/^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g, '')
+    .replace(/(?<!\s)\s*,\s*/g, ' ')
     .replace(/\s+/g, ' ');
 }
 
@@ -34,7 +36,7 @@ const RETIRE = /^(yes |ok |okay |sure )?(retire|retire it)( please)?$/;
 const LEAVE = /^(no )?(leave|leave it|leave it as is|leave it alone|leave it be)( please| thanks| thank you)?$/;
 const KEEP = /^(no )?(keep|keep it|keep the skill|keep it as is)( please| thanks| thank you)?$/;
 /** "no, retire it later", "nah, leave it for now": a no whose rest is about the offer. */
-const NO_ABOUT = /^(no|nope|nah|not now)\b[\s,.;:!]+.*\b(retire|replace|leave|keep|later|for now|not now)\b/;
+const NO_ABOUT = /^(no|nope|nah|not now)\b[\s,.;:!].*\b(retire|replace|leave|keep|later|for now|not now)\b/;
 
 /** 4.10: the person's whole message as an answer to an offer of `moment`. `afterShow`: it already got its one "show me". */
 export function classifyFor(moment: OfferMoment, typed: string, afterShow: boolean): TypedAnswer {
