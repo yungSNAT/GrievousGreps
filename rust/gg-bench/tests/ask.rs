@@ -141,7 +141,10 @@ fn the_tool_builds_and_is_asked_in_the_benchmark_root_and_its_graph_is_removed()
     run(&f.options(None)).unwrap();
     let root = f.work.join("repos").join("demo").join("src");
     let root = root.to_str().unwrap();
+    // The tool's version is asked first, for the kept answers.
     let calls = calls(&f.tool);
+    assert_eq!(calls[0]["args"], json!(["--version"]));
+    let calls = &calls[1..];
     assert_eq!(
         calls[0]["args"],
         json!(["build", root, "--no-gitignore", "--no-ignore"])
