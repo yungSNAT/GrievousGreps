@@ -20,6 +20,7 @@ import {
   federateCheck,
   federateGrep,
   federateMap,
+  federateMapJson,
   formatGrepResult,
   migrationNote,
   splitWorkspace,
@@ -171,8 +172,15 @@ export function runWorkspaceGrep(
 export function runWorkspaceMap(
   root: string,
   override: string | undefined,
-  opts: { maxDirs?: number },
+  opts: { maxDirs?: number; json?: boolean },
 ): void {
+  if (opts.json) {
+    const { json, coverage } = federateMapJson(root, override, { maxDirs: opts.maxDirs });
+    console.log(JSON.stringify(json, null, 2));
+    // stdout stays one JSON document; an unbuilt child is still reported.
+    if (coverage) console.error(coverage);
+    return;
+  }
   process.stdout.write(federateMap(root, override, { maxDirs: opts.maxDirs }));
 }
 

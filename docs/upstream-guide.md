@@ -253,7 +253,14 @@ The graft map supports these layouts:
   auto-splits: each child gets its own (git-ignored) `graft/`, and the parent
   gets a `graft/workspace.json` index. Queries from the parent federate across
   every child, always labeled `<child>/`. Run `trail build` inside a child to
-  work on just that repo.
+  work on just that repo. From the parent, `trail map --json` prints
+  `{"repos": [{"repo": "<child>", "map": {...}}], "missing": ["<child>", ...]}`:
+  one entry per built child, sorted by name, whose `map` is what `trail map --json`
+  prints inside that child, with every directory and hub `path` prefixed
+  `<child>/` (scope labels, totals and counts stay the child's own); `missing`
+  lists children without a graph, also named on stderr, and the command exits 0
+  even when no child is built. The top-level keys, the `repo`/`map` pairing and
+  the prefix rule are stable; inside `map`, the single-repository shape applies.
 
 In every layout, narrow to one sub-project with `trail ask "<task>" --in <scope>/`
 once you know where you're working.
