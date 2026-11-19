@@ -356,9 +356,9 @@ export function blastRadius(
   };
 }
 
-/** Lines searched for the end of a signature before falling back to the first line.
- * The search reads the span line by line, and a longer signature is rare. */
-const MAX_DECLARATION_LINES = 40;
+/** Lines searched for the end of a wrapped signature or call. The searches read line
+ * by line, and a longer signature or call is rare. */
+const MAX_WRAPPED_LINES = 40;
 
 const collapse = (text: string): string => text.replace(/\s+/g, " ").trim();
 
@@ -412,7 +412,7 @@ function declaration(node: NodeV1, span: { start: number; end: number }, read?: 
   const file = read?.(node.path);
   if (!file || span.start > file.length) return { end: span.start, lines: [] };
   const signature = node.signature ? collapse(node.signature) : "";
-  const last = Math.min(span.end, span.start + MAX_DECLARATION_LINES - 1, file.length);
+  const last = Math.min(span.end, span.start + MAX_WRAPPED_LINES - 1, file.length);
   const lines: string[] = [];
   for (let n = span.start; signature && n <= last; n++) {
     const line = collapse(file[n - 1]);
@@ -438,13 +438,32 @@ function declarationChanged(node: NodeV1, file: ChangedFile, removed: string[], 
 }
 
 /**
+ * The last line of a call whose name is on line `n` at column `at`: where the
+ * parenthesis after the name closes, so a changed argument on a later line of a
+ * wrapped call counts. Line `n` when no parenthesis follows the name on it. Strings
+ * and comments are not parsed, and the scan stops after {@link MAX_WRAPPED_LINES}.
+ */
+function callEnd(lines: string[], n: number, at: number, last: number): number {
+  let depth = 0;
+  for (let i = n; i <= Math.min(last, n + MAX_WRAPPED_LINES - 1); i++) {
+    for (const ch of i === n ? lines[i - 1].slice(at) : lines[i - 1]) {
+      if (ch === "(") depth++;
+      else if (ch === ")" && depth > 0 && --depth === 0) return i;
+    }
+    if (depth === 0) return n;
+  }
+  return n;
+}
+
+/**
  * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
  * to look at (null when none could be found).
  *
- * With the file readable, the call is the caller's lines naming the symbol, and it
- * counts as edited when any of them changed: an updated call beside an untouched
- * import is not left behind. Without the file, or with no line naming it (a call
- * through an alias), any changed line in the caller's span counts.
+ * With the file readable, a call runs from a line naming the symbol to where its
+ * parentheses close ({@link callEnd}), and the caller counts as edited when any of
+ * its calls changed: an updated call beside an untouched import is not left behind.
+ * Without the file, or with no line naming it (a call through an alias), any changed
+ * line in the caller's span counts.
  */
 function callSite(caller: NodeV1, name: string, ranges: LineRange[], read?: LineReader): "edited" | number | null {
   const span = spanBounds(caller.span);
@@ -452,9 +471,15 @@ function callSite(caller: NodeV1, name: string, ranges: LineRange[], read?: Line
   const lines = read?.(caller.path);
   if (lines) {
     const re = wordRe(name);
-    const naming: number[] = [];
-    for (let n = span.start; n <= Math.min(span.end, lines.length); n++) if (re.test(lines[n - 1])) naming.push(n);
-    if (naming.length > 0) return naming.some((n) => overlaps(ranges, n, n)) ? "edited" : naming[0];
+    const last = Math.min(span.end, lines.length);
+    let first: number | null = null;
+    for (let n = span.start; n <= last; n++) {
+      const at = re.exec(lines[n - 1])?.index;
+      if (at === undefined) continue;
+      if (overlaps(ranges, n, callEnd(lines, n, at, last))) return "edited";
+      first ??= n;
+    }
+    if (first !== null) return first;
   }
   return overlaps(ranges, span.start, span.end) ? "edited" : null;
 }

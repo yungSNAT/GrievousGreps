@@ -110,6 +110,19 @@ test("blast: an edit elsewhere in a caller is not an edit to its call", () => {
   assert.deepEqual(report.leftBehind?.map((c) => [c.name, c.line]), [["total", 2], ["sum", 2]]);
 });
 
+test("blast: a changed argument on a later line of a wrapped call is an edit to the call", () => {
+  const wrapped = { ...files, "c.ts": ["export function total(): number {", "  return add(", "    1,", "    2,", "  ) + 0;", "  // after", "}"] };
+  const g = graph();
+  g.nodes = g.nodes.map((n) => (n.id === "c.ts#total" ? { ...n, span: "L1-L7" } : n));
+  const opts = { depth: 2, read: (p: string) => wrapped[p] ?? null };
+  assert.deepEqual(blastRadius(g, [at("a.ts", 3), at("c.ts", 4)], "test", opts).leftBehind?.map((c) => c.name), ["sum"]);
+  assert.deepEqual(
+    blastRadius(g, [at("a.ts", 3), at("c.ts", 6)], "test", opts).leftBehind?.map((c) => [c.name, c.line]),
+    [["total", 2], ["sum", 2]],
+    "a line after the call's closing parenthesis is not the call",
+  );
+});
+
 test("blast: with no file to read, the first line is the declaration and any edit in a caller's span counts", () => {
   assert.deepEqual(blastRadius(graph(), [at("a.ts", 3)], "test", { depth: 2 }).leftBehind, [], "line 3 is past the first line");
   const report = blastRadius(graph(), [at("a.ts", 1), at("d.ts", 3)], "test", { depth: 2 });
