@@ -577,6 +577,19 @@ function codeLines(lines: string[], from: number, to: number, path: string): str
   return code;
 }
 
+/** What follows a name that is called: `(`, after `!`, `?.` or type arguments. */
+const CALL_TAIL = /^\s*(?:(?:!|\?\.)\s*)?(?:<[^<>()]*>\s*)?\(/;
+
+/** The columns of `code` where `name`, as the whole word `named` matches, starts a call. */
+function callColumns(code: string, name: string, named: RegExp): number[] {
+  const columns: number[] = [];
+  for (let at = code.indexOf(name); at >= 0; at = code.indexOf(name, at + 1)) {
+    const end = at + name.length;
+    if (named.test(code.slice(Math.max(0, at - 1), end + 1)) && CALL_TAIL.test(code.slice(end))) columns.push(at);
+  }
+  return columns;
+}
+
 /**
  * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
  * to look at (null when none could be found).
@@ -597,16 +610,15 @@ function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, r
   const lines = read?.(caller.path);
   if (lines) {
     const named = wordRe(name);
-    const called = new RegExp(`${named.source}\\s*(?:(?:!|\\?\\.)\\s*)?(?:<[^<>()]*>\\s*)?\\(`, "g");
     const last = Math.min(span.end, lines.length);
     const code = codeLines(lines, span.start, last, caller.path);
     let calls = 0;
     const mentions: number[] = [];
     for (let n = span.start; n <= last; n++) {
-      const found = [...code[n - 1].matchAll(called)];
-      for (const call of found) {
+      const found = callColumns(code[n - 1], name, named);
+      for (const at of found) {
         calls++;
-        if (!touches(file, n, callEnd(code, n, call.index, last))) return n;
+        if (!touches(file, n, callEnd(code, n, at, last))) return n;
       }
       if (found.length === 0 && named.test(code[n - 1])) mentions.push(n);
     }
