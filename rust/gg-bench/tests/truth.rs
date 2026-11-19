@@ -2,12 +2,14 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 use gg_bench::run::select_repos;
 use gg_bench::truth::{TruthOptions, run};
 use serde_json::{Value, json};
+
+mod common;
+use common::git;
 
 /// Answers for `lib.py`'s `run`: references in `main.py` at a call and a value inside `main`, a
 /// value inside `other`, 2 module-level calls and a module-level import. Like
@@ -106,21 +108,6 @@ process.stdin.on('data', (chunk) => {
 "#;
 
 const MAIN: &str = "import lib\n\ndef main():\n    x = lib.run()\n    f = lib.run\n\ndef other():\n    return lib.run\nlib.run()\nfrom lib import run\nlib.run()\n";
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
 
 struct Fixture {
     _tmp: tempfile::TempDir,

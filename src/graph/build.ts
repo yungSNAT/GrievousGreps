@@ -221,7 +221,7 @@ function readGoModules(root: string, repoFiles: string[]): GoModule[] {
   for (const f of repoFiles) {
     if (basename(f) !== "go.mod") continue;
     try {
-      const m = readFileSync(f, "utf8").match(/^\s*module\s+(\S+)/m);
+      const m = readFileSync(f, "utf8").match(/^[^\S\r\n\u2028\u2029]*module\s+(\S+)/m);
       if (!m) continue;
       const rel = relPosix(root, dirname(f));
       mods.push({ module: m[1], dir: rel === "" ? "." : rel });
@@ -312,7 +312,7 @@ function readTsImports(root: string, repoFiles: string[]): { tsPaths: TsPaths[];
     }
   }
   if (present.has("pnpm-workspace.yaml")) {
-    for (const m of (readFileInside(root, join(root, "pnpm-workspace.yaml")) ?? "").matchAll(/^\s*-\s*['"]?([^'"\s#!]+)/gm)) workspaces.push(m[1]);
+    for (const m of (readFileInside(root, join(root, "pnpm-workspace.yaml")) ?? "").matchAll(/^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm)) workspaces.push(m[1]);
   }
   // A workspace folder holding files and no package.json: its name is in the repo, unprovably.
   const manifested = new Set(tsPackages.map((p) => p.dir).concat([...present].filter((f) => posix.basename(f) === "package.json").map((f) => posix.dirname(f))));

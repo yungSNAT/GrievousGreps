@@ -3,13 +3,15 @@
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 use gg_bench::run::{
     Options, absolute, copy_tree, parse_result, run, run_tool, select_repos, utc_date,
 };
 use serde_json::{Value, json};
+
+mod common;
+use common::git;
 
 /// Records each call beside itself, then answers as `graft` would: build, callers --json and --version.
 const FAKE_TOOL: &str = r#"
@@ -28,21 +30,6 @@ else {
   console.log(JSON.stringify({ matches: [{ symbol: { path: 'lib.py', span: 'L1-L2' }, hits: [{ id: 'main.py#run', path: 'main.py', span: 'L3-L5' }] }] }));
 }
 "#;
-
-fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
 
 struct Fixture {
     _tmp: tempfile::TempDir,
