@@ -80,17 +80,12 @@ const PAIRS: [string, RegExp, RegExp][] = [
   ["pnpm", /^\s*-\s*['"]?([^'"\s#!]+)/gm, /^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm],
   ["where", /^\s*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm, /^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm],
   ["package_dir", /^\s*package_dir\s*=\s*(?:\r?\n\s*)?=\s*(\S+)/gm, /^[^\S\r\n\u2028\u2029]*package_dir\s*=\s*=\s*(\S+)/gm],
-  ["packages", /^\s*packages\s*=\s*\[([^\]]*)\]/gm, /^[^\S
-  ]*packages\s*=\s*\[([^\]]*)\]/gm],
-  ["python-source", /^\s*python-source\s*=\s*["']([^"']+)["']/gm, /^[^\S
-  ]*python-source\s*=\s*["']([^"']+)["']/gm],
-  ["empty key", /^\s*(?:""|'')\s*=\s*["']([^"']+)["']/gm, /^[^\S
-  ]*(?:""|'')\s*=\s*["']([^"']+)["']/gm],
-  ["setup where", /^\s*where\s*=\s*(\S+)/gm, /^[^\S
-  ]*where\s*=\s*(\S+)/gm],
+  ["packages", /^\s*packages\s*=\s*\[([^\]]*)\]/gm, /^[^\S\r\n\u2028\u2029]*packages\s*=\s*\[([^\]]*)\]/gm],
+  ["python-source", /^\s*python-source\s*=\s*["']([^"']+)["']/gm, /^[^\S\r\n\u2028\u2029]*python-source\s*=\s*["']([^"']+)["']/gm],
+  ["empty key", /^\s*(?:""|'')\s*=\s*["']([^"']+)["']/gm, /^[^\S\r\n\u2028\u2029]*(?:""|'')\s*=\s*["']([^"']+)["']/gm],
+  ["setup where", /^\s*where\s*=\s*(\S+)/gm, /^[^\S\r\n\u2028\u2029]*where\s*=\s*(\S+)/gm],
   ["trailing emoji", /[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u, /(?<![\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}])[\s\p{Extended_Pictographic}\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]+$/u],
   ["outer punctuation", /^[\s.!?,;:]+|[\s.!?,;:]+$/g, /^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g],
-  ["comma", /\s*,\s*/g, /(?<!\s)\s*,\s*/g],
   ["first clause", /\s*(?:[,:;.!]|\s-\s|\s\u2014\s|$)/, /(?<!\s)\s*(?:[,:;.!]|\s-\s|\s\u2014\s|$)/],
   ["no about", /^(no|nope|nah|not now)\b[\s,.;:!]+.*\b(retire|replace|leave|keep|later|for now|not now)\b/, /^(no|nope|nah|not now)\b(?:[\s,.;:!]*[\n\r\u2028\u2029]|[\s,.;:!]).*\b(retire|replace|leave|keep|later|for now|not now)\b/],
 ];
@@ -98,6 +93,7 @@ const SAMPLES = [
   "", " ", "x", "module a", "\n\n  module  a/b \n", "\r\n\tmodule x\r\n", "\u2028 module y", "-a\n  - 'pkg/*'\n -\n  b\n\r- \"c\"",
   "[options]\npackage_dir =\n    = src\nwhere=lib", "  where = [\"a\", 'b']\n\npythonpath = \"x\"", "package_dir\n=\n\n=\n src",
   "yes 👍🏽 ", "ok 👨‍👩‍👧", "  ,. yes !! ", ".,;", "a , b,c ,  d", "go on - now", "ok \u2014 sure", "ok", "  ", "no, leave it for now",
+  "\n packages = [\"src/a\", 'b/c']\n", "python-source = 'py'\n\r  '' = \"lib\"", "\r\"\" = 'x'", "a, ,b", "\t, \t,\t",
   "no \nretire", "no \rretire", "no\u2028 \u2029keep", "nope ,, later", "no retire", "no\r\r later x", "noretire",
 ];
 
@@ -115,5 +111,11 @@ test("each rewritten pattern gives what the one it replaced gave", () => {
       if (before.global) assert.deepEqual([...s.matchAll(after)].map((m) => [...m]), [...s.matchAll(before)].map((m) => [...m]), label);
       else assert.deepEqual(after.exec(s)?.slice(), before.exec(s)?.slice(), label);
     }
+  }
+});
+
+test("commas as spaces, then whitespace collapsed, gives what the comma pattern did", () => {
+  for (const s of SAMPLES) {
+    assert.equal(s.replace(/,/g, " ").replace(/\s+/g, " "), s.replace(/\s*,\s*/g, " ").replace(/\s+/g, " "), JSON.stringify(s));
   }
 });
