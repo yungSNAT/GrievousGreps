@@ -42,10 +42,19 @@ pub fn version(server: &[OsString], info: &Value) -> String {
         return "unknown".to_owned();
     };
     let mut asked = command(program);
-    asked.args(args.iter().filter(|arg| *arg != "--stdio")).arg("--version");
+    asked
+        .args(args.iter().filter(|arg| *arg != "--stdio"))
+        .arg("--version");
     crate::process::output(&mut asked, Duration::from_secs(20))
         .ok()
-        .and_then(|out| out.stdout.lines().rev().map(str::trim).find(|l| !l.is_empty()).map(str::to_owned))
+        .and_then(|out| {
+            out.stdout
+                .lines()
+                .rev()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| "unknown".to_owned())
 }
 

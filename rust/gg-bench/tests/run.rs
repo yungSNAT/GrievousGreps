@@ -195,8 +195,15 @@ fn each_builds_answers_are_kept_for_scoring_again() {
     for label in ["upstream", "patched"] {
         let file = f.work.join("answers").join(label).join("demo.json");
         let kept: Value = serde_json::from_str(&fs::read_to_string(&file).unwrap()).unwrap();
-        assert_eq!(kept["run"]["matches"][0]["hits"][0]["id"], json!("main.py#run"));
-        assert_eq!(kept["quiet"], Value::Null, "an answer with no JSON is kept as null");
+        assert_eq!(
+            kept["run"]["matches"][0]["hits"][0]["id"],
+            json!("main.py#run")
+        );
+        assert_eq!(
+            kept["quiet"],
+            Value::Null,
+            "an answer with no JSON is kept as null"
+        );
     }
 }
 
