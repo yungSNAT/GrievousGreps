@@ -1745,15 +1745,15 @@ function goImportSpecs(root: SyntaxNode): SyntaxNode[] {
 }
 
 /** A Go file's `package` clause name. */
-/** Whether a Go file's build constraint is `ignore`, as a generator run by `go run` has; no build includes it. */
+/** Whether a Go file's build constraint is just `ignore`, as a generator run by `go run` has; no build includes
+ * it. A constraint combining `ignore` with other tags (`ignore || linux`) is taken as built. */
 function goBuildIgnored(root: SyntaxNode): boolean {
   const clause = root.namedChildren.find((c) => c.type === "package_clause");
   return root.namedChildren.some(
     (c) =>
       c.type === "comment" &&
       (!clause || c.startIndex < clause.startIndex) &&
-      (c.text.startsWith("//go:build") || c.text.startsWith("// +build")) &&
-      c.text.split(/\s+/).includes("ignore"),
+      ["//go:build ignore", "// +build ignore"].includes(c.text.trim()),
   );
 }
 

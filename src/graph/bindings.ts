@@ -776,8 +776,10 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   };
   bindGoTyped(node, scopePath, bindings, setLocal, setParam);
   // A name the literal declares with no type read hides the enclosing scope's type all the same.
-  // A `:=` naming a variable this literal already declared reuses it rather than shadowing it.
-  const reuses = (name: string) => node.type === "short_var_declaration" && bindings.has(scopePath, name);
+  // A `:=` in the literal's own body naming a variable the literal already declared reuses it; in a nested block
+  // it declares a new one.
+  const inBody = node.type === "short_var_declaration" && node.parent?.type === "block" && node.parent.parent?.type === "func_literal";
+  const reuses = (name: string) => inBody && bindings.has(scopePath, name);
   for (const name of goDeclaredNames(node)) {
     if (!typed.has(name) && !reuses(name) && outer(name) !== null) bindings.setGo(scopePath, name, "?");
   }
