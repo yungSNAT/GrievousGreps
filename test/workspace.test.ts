@@ -609,6 +609,29 @@ test("workspace grep CLI forwards scopes and rejects invalid paths", async () =>
   }
 });
 
+test("workspace map --json gives each repository's own map, paths prefixed, and names an unbuilt one", async () => {
+  const p = workspaceFx(REPOS);
+  try {
+    await buildWorkspace(p);
+    rmSync(contextDirFor(join(p, "repoB")), { recursive: true, force: true });
+    const map = (dir: string) => spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli.ts", "map", dir, "--json", "--no-refresh"], { encoding: "utf8" });
+    const r = map(p);
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.deepEqual(out.repos.map((x: { repo: string }) => x.repo), ["repoA"]);
+    assert.deepEqual(out.missing, ["repoB"]);
+    assert.match(r.stderr, /1 of 2 workspace repos have graphs.*repoB/);
+    const own = JSON.parse(map(join(p, "repoA")).stdout);
+    assert.ok(own.hotspots.length > 0 && own.dirs.length > 0);
+    const unprefix = (s: string) => s.replace(/"path": "repoA\//g, '"path": "');
+    assert.ok(!/"path": "(?!repoA\/)/.test(JSON.stringify(out.repos[0].map, null, 1)), "every path is prefixed");
+    assert.deepEqual(JSON.parse(unprefix(JSON.stringify(out.repos[0].map, null, 1))), own);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+  }
+});
+
 test("workspace grep --json names a repository without a graph on stderr", async () => {
   const p = workspaceFx(REPOS);
   try {
