@@ -549,7 +549,8 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     : EMPTY_MODULE_MAP;
   const pythonNamedImports = lang === "python" ? withoutPythonShadowedModules(pythonSymbols, root) : EMPTY_NAMED_IMPORTS;
   const importedSymbols = collectImportedSymbols(root, lang);
-  const goImports = lang === "go" ? collectGoImports(root) : new Map<string, string>();
+  const goSpecs = lang === "go" ? goImportSpecs(root) : [];
+  const goImports = collectGoImports(goSpecs);
   const goPackage = lang === "go" ? goPackageName(root) : null;
   const rGenerics = lang === "r" ? collectRGenerics(root) : EMPTY_SET;
   const pythonExports = lang === "python" ? collectPythonExports(root) : null;
@@ -622,7 +623,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     rawEdges.push({ source: rel, relation: "imports", file: rel, pythonFields: { owner: scope.split(".").pop()!, scope, fields: each } });
   }
   if (tsModule) rawEdges.push({ source: rel, relation: "imports", file: rel, tsModule });
-  if (goPackage) rawEdges.push({ source: rel, relation: "imports", file: rel, goFile: { package: goPackage, bare: goBareImports(root) } });
+  if (goPackage) rawEdges.push({ source: rel, relation: "imports", file: rel, goFile: { package: goPackage, bare: goBareImports(goSpecs) } });
   return { nodes, rawEdges };
 }
 
@@ -1715,9 +1716,9 @@ function goHeld(bound: string, ctx: WalkCtx): Pick<RawEdge, "goResult" | "goType
   return specifier ? { goType: { name: bound.slice(dot + 1), specifier } } : null;
 }
 
-function collectGoImports(root: SyntaxNode): Map<string, string> {
+function collectGoImports(specs: SyntaxNode[]): Map<string, string> {
   const out = new Map<string, string>();
-  for (const node of goImportSpecs(root)) {
+  for (const node of specs) {
     const spec = importSpecifier(node, "go");
     const local = node.childForFieldName("name")?.text ?? spec?.split("/").at(-1);
     if (spec && local) out.set(local, spec);
@@ -1726,8 +1727,8 @@ function collectGoImports(root: SyntaxNode): Map<string, string> {
 }
 
 /** The import paths a Go file names without an alias. */
-function goBareImports(root: SyntaxNode): string[] {
-  return goImportSpecs(root).flatMap((node) => {
+function goBareImports(specs: SyntaxNode[]): string[] {
+  return specs.flatMap((node) => {
     const spec = node.childForFieldName("name") ? null : importSpecifier(node, "go");
     return spec ? [spec] : [];
   });

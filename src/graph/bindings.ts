@@ -874,6 +874,10 @@ export function goTypeName(type: SyntaxNode | null): string | null {
  * (`[T any]`), or one a method's receiver names (`func (b *Box[T]) …`). */
 function isGoTypeParameter(name: SyntaxNode): boolean {
   for (let n = name.parent; n; n = n.parent) {
+    // A type the function declares in a block before the use hides its type parameter.
+    if (n.type === "block" && n.namedChildren.some((d) => d.type === "type_declaration" && d.startIndex < name.startIndex && declaresType(d, name.text))) {
+      return false;
+    }
     if (n.type === "function_declaration") {
       const decls = n.childForFieldName("type_parameters")?.namedChildren ?? [];
       if (decls.some((d) => d.namedChildren.some((c) => c.type === "identifier" && c.text === name.text))) return true;
@@ -886,6 +890,10 @@ function isGoTypeParameter(name: SyntaxNode): boolean {
     }
   }
   return false;
+}
+
+function declaresType(declaration: SyntaxNode, text: string): boolean {
+  return declaration.namedChildren.some((spec) => spec.childForFieldName("name")?.text === text);
 }
 
 function hasTypeIdentifier(node: SyntaxNode, text: string): boolean {
