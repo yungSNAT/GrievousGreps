@@ -1135,8 +1135,9 @@ grouped(program.command("blast"), GROUP.ci)
   .option("--title <text>", "subtitle beside the repo name on the exported page (e.g. \"PR #171\")")
   .option("--no-owners", "do not suggest who to tag (by default, git history names the people behind each affected area)")
   .option("--pr-author <who...>", "GitHub login, git name or email of the PR author, so they are left out of their own suggestions")
+  .option("--tests", "also list the test files the change reaches, over the full closure whatever --depth says")
   .option(...NO_REFRESH_FLAG)
-  .action(async (dirArg: string | undefined, opts: { base?: string; depth?: string; format?: string; name?: boolean; exportViz?: string; title?: string; owners?: boolean; prAuthor?: string[]; refresh?: boolean }) => {
+  .action(async (dirArg: string | undefined, opts: { base?: string; depth?: string; format?: string; name?: boolean; exportViz?: string; title?: string; owners?: boolean; prAuthor?: string[]; tests?: boolean; refresh?: boolean }) => {
     const dir = noteQuery(queryRoot(dirArg));
     await refreshBefore(dir, opts);
     const { runBlastCommand } = await import("./blast/blast-cli.js");
@@ -1149,6 +1150,7 @@ grouped(program.command("blast"), GROUP.ci)
       title: opts.title,
       owners: opts.owners,
       prAuthor: opts.prAuthor,
+      tests: opts.tests,
       globalDir: program.opts<GlobalOpts>().dir,
     });
   });

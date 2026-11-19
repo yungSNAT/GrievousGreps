@@ -16,16 +16,26 @@
 import { impactOfMany, type EdgeHit } from "../graph/traverse.js";
 import type { GraphV1, NodeV1 } from "../graph/types.js";
 import { dirLabel, moduleIndex, parentDir, shortLabel, type ModuleIndex } from "./modules.js";
-import type { ChangedFile } from "./diff.js";
+import type { ChangedFile, Hunk, LineRange } from "./diff.js";
+import { wordRe } from "./evidence.js";
 import type { Owner, Reviewer } from "./owners.js";
 
 const SPAN_RE = /^L(\d+)-L(\d+)$/;
+
+/** A file's lines from the checkout, or null when it cannot be read. */
+export type LineReader = (path: string) => string[] | null;
 
 export interface BlastOptions {
   /** BFS depth over incoming edges; `Infinity` for the full closure. */
   depth: number;
   /** Concept/directory labels. Built from the context dir when omitted. */
   modules?: ModuleIndex;
+  /** Reads the checkout, to find where a declaration ends and which of a caller's
+   * lines name the changed symbol. Without it a declaration is its first line, and a
+   * caller counts as edited when any line of its span changed. */
+  read?: LineReader;
+  /** Also list the test files the change reaches ({@link BlastReport.tests}). */
+  tests?: boolean;
 }
 
 /** A changed symbol the walk started from. */
@@ -37,6 +47,38 @@ export interface Seed {
   span: string;
   /** True for a whole-file seed (an added file, or a change outside any symbol). */
   wholeFile: boolean;
+  /** The diff changed the declaration's text, from the span's first line to the end
+   * of its signature, whitespace and a comma before a closing bracket aside. Its
+   * callers can then need editing too ({@link LeftBehind}). */
+  declarationChanged?: true;
+}
+
+/** A caller of a symbol whose declaration changed, where the diff did not edit the call. */
+export interface LeftBehind {
+  /** The changed symbol it calls. */
+  seed: { id: string; name: string };
+  id: string;
+  name: string;
+  kind: string;
+  path: string;
+  span: string;
+  /** The caller's first line naming the changed symbol, when the file could be read. */
+  line?: number;
+  /** The call edge is inferred: a lead, not a fact. */
+  inferred?: true;
+}
+
+/** A test file the change reaches over the full closure, whatever `--depth` says. */
+export interface TestReach {
+  path: string;
+  /** Hops from the nearest changed symbol; 0 for a test file the diff edits. */
+  depth: number;
+  /** The diff edits this file. */
+  changed?: true;
+  /** Every reached symbol in it is inferred. */
+  inferred?: true;
+  /** Its reached symbols, nearest first. */
+  symbols: string[];
 }
 
 /** One dependent symbol, and how the walk reached it. */
@@ -150,6 +192,12 @@ export interface BlastReport {
    * calls whose owner is ambiguous outside Rust. An empty list is therefore not
    * proof that every call resolved. */
   unresolved?: UnresolvedName[];
+  /** Callers a declaration change left unedited. Only `calls` edges count, and a
+   * caller still naming a symbol the diff removed or renamed is not found: the graph
+   * is built after the change. */
+  leftBehind?: LeftBehind[];
+  /** Test files the change reaches. Present only when asked for (`--tests`). */
+  tests?: TestReach[];
 }
 
 export interface UnresolvedName {
@@ -222,6 +270,10 @@ export function blastRadius(
   /** Merged dependents, keyed by node id, at the shallowest depth any file reached
    * them — plus which changed files did the reaching. */
   const merged = new Map<string, { hit: Impacted; from: Set<string> }>();
+  /** Symbol seeds whose declaration the diff changed. */
+  const declaredSeeds: NodeV1[] = [];
+  /** Every hunk's removed lines: where a declaration moved as it stood is found. */
+  const removed = changed.flatMap((f) => f.hunks.map((h) => squashLines(removedText(h))));
 
   for (const file of changed) {
     if (file.status === "deleted") {
@@ -238,7 +290,12 @@ export function blastRadius(
     // file: the unit of change is the file itself.
     const symbolSeeds = file.ranges.length > 0 ? seedsForFile(graph, file.path, file.ranges) : [];
     for (const node of symbolSeeds) {
-      seeds.push({ id: node.id, name: node.name, kind: node.kind, path: node.path, span: node.span, wholeFile: false });
+      const declared = declarationChanged(node, file, removed, opts.read);
+      if (declared) declaredSeeds.push(node);
+      seeds.push({
+        id: node.id, name: node.name, kind: node.kind, path: node.path, span: node.span, wholeFile: false,
+        ...(declared ? { declarationChanged: true as const } : {}),
+      });
     }
     if (symbolSeeds.length === 0) {
       seeds.push({
@@ -296,7 +353,366 @@ export function blastRadius(
     testModules: grouped.testModules,
     areas: changedAreas(graph, changed, seedNodes, index, grouped.modules),
     unresolved: unresolvedForSeeds(graph, seeds),
+    leftBehind: callersLeftBehind(graph, declaredSeeds, changed, opts.read),
+    ...(opts.tests ? { tests: testsReached(graph, [...seedNodes.values()].flat(), changed) } : {}),
   };
+}
+
+/** Lines searched for the end of a wrapped signature or call. The searches read line
+ * by line, and a longer signature or call is rare. */
+const MAX_WRAPPED_LINES = 40;
+
+/**
+ * Declaration text as compared: whitespace dropped, and a comma before a closing
+ * bracket, so wrapping or unwrapping a signature (a formatter's trailing comma
+ * included) compares equal.
+ */
+const squash = (text: string): string => dropClosingCommas(text).replace(/\s+/g, "");
+
+const dropClosingCommas = (text: string): string => text.replace(/,(?=\s*[)\]}>])/g, "");
+
+const overlaps = (ranges: LineRange[], start: number, end: number): boolean =>
+  ranges.some((r) => r.start <= end && r.end >= start);
+
+/** A hunk that only deletes: git places it at the line before the gap. A hunk whose
+ * lines fell past the text cap is never taken for one, so a long deletion reads as an edit. */
+const pureDeletion = (h: Hunk): boolean => h.dropped === 0 && !h.lines.some((l) => l.sign === "+");
+
+const removedText = (h: Hunk): string[] => h.lines.filter((l) => l.sign === "-").map((l) => l.text);
+
+/**
+ * Whether the file's diff touches lines `start` to `end` of the post-image. A pure
+ * deletion counts only when its gap lies inside, before line `end`: deleting a
+ * function's first statement, or the line after a call, leaves the gap after it.
+ * With no hunk text, the ranges.
+ */
+function touches(file: ChangedFile | undefined, start: number, end: number): boolean {
+  if (!file) return false;
+  if (file.hunks.length === 0) return overlaps(file.ranges, start, end);
+  return file.hunks.some((h) => (pureDeletion(h) ? h.start >= start && h.start < end : h.start <= end && h.end >= start));
+}
+
+/** Lines {@link squash}ed into one string, and the offset each line starts at. */
+interface Squashed {
+  text: string;
+  starts: Set<number>;
+}
+
+function squashLines(lines: string[]): Squashed {
+  let text = "";
+  const starts = new Set<number>();
+  // Commas go over the joined lines, so one ending a line before the next line's bracket goes too.
+  for (const line of dropClosingCommas(lines.join("\n")).split("\n")) {
+    starts.add(text.length);
+    text += line.replace(/\s+/g, "");
+  }
+  return { text, starts };
+}
+
+/** Whether `needle` occurs in `hay` starting where one of its lines starts. */
+function atLineStart(hay: Squashed, needle: string): boolean {
+  for (let at = hay.text.indexOf(needle); at >= 0; at = hay.text.indexOf(needle, at + 1)) {
+    if (hay.starts.has(at)) return true;
+  }
+  return false;
+}
+
+/**
+ * The pre-image of post-image lines `start` to `end`, rebuilt from the hunks: each
+ * hunk touching them gives its removed lines where it stands, every other line is
+ * unchanged context. Widened to whole hunks, since a hunk's removed lines cannot be
+ * split by line.
+ */
+function preImage(file: ChangedFile, lines: string[], start: number, end: number): Squashed {
+  const near = file.hunks.filter((h) => h.start <= end && h.end >= start);
+  const from = Math.min(start, ...near.filter((h) => !pureDeletion(h)).map((h) => h.start));
+  const to = Math.max(end, ...near.map((h) => h.end));
+  const old: string[] = [];
+  let n = from;
+  while (n <= to) {
+    const rewritten = near.find((h) => !pureDeletion(h) && h.start === n);
+    if (rewritten) {
+      old.push(...removedText(rewritten));
+      n = rewritten.end + 1;
+      continue;
+    }
+    if (n <= lines.length) old.push(lines[n - 1]);
+    for (const h of near) if (pureDeletion(h) && h.start === n) old.push(...removedText(h));
+    n++;
+  }
+  return squashLines(old);
+}
+
+const count = (text: string, ch: string): number => text.split(ch).length - 1;
+
+/**
+ * A symbol's declaration: from the span's first line to where the signature the graph
+ * recorded ends, and its text up to one character past the signature: enough to see a
+ * return type removed, not so much that a body on the same line counts. Found by reading the
+ * span until its squashed text contains the signature, which is how a parameter on
+ * the third line of a wrapped signature counts. A signature left with a parenthesis
+ * open (the generic tier stores only a signature's first line) runs on to where it
+ * closes, and its text to the end of that line. Just the first line when the
+ * signature is not found (the file moved on from the graph).
+ */
+function declaration(node: NodeV1, span: { start: number; end: number }, lines: string[]): { end: number; text: string } {
+  const last = Math.min(span.end, span.start + MAX_WRAPPED_LINES - 1, lines.length);
+  const signature = node.signature ? squash(node.signature) : "";
+  for (let n = span.start; signature && n <= last; n++) {
+    const text = squashLines(lines.slice(span.start - 1, n)).text;
+    const at = text.indexOf(signature);
+    if (at < 0) continue;
+    if (count(signature, "(") <= count(signature, ")")) return { end: n, text: text.slice(0, at + signature.length + 1) };
+    const end = Math.max(n, callEnd(lines, span.start, 0, last));
+    return { end, text: squashLines(lines.slice(span.start - 1, end)).text };
+  }
+  return { end: span.start, text: squash(lines[span.start - 1] ?? "") };
+}
+
+/**
+ * Whether the diff changed `node`'s declaration ({@link declaration}): the diff
+ * touches its lines, and its text is not in their rebuilt pre-image, nor among any
+ * hunk's removed lines (a declaration moved as it stood). Either is compared from the
+ * start of a line, so a dropped `async` or `export` still counts. With no file to read,
+ * any touch of the first line counts; with no hunk text, any touch of the declaration.
+ */
+function declarationChanged(node: NodeV1, file: ChangedFile, removed: Squashed[], read?: LineReader): boolean {
+  const span = spanBounds(node.span);
+  if (!span) return false;
+  const lines = read?.(node.path);
+  if (!lines || span.start > lines.length) return touches(file, span.start, span.start);
+  const decl = declaration(node, span, lines);
+  if (!touches(file, span.start, decl.end)) return false;
+  if (file.hunks.length === 0) return true;
+  return ![preImage(file, lines, span.start, decl.end), ...removed].some((old) => atLineStart(old, decl.text));
+}
+
+/**
+ * The last line of a call whose name is on line `n` at column `at`: where the
+ * parenthesis after the name closes, so a changed argument on a later line of a
+ * wrapped call counts. Line `n` when no parenthesis follows the name on it. Strings
+ * and comments are not parsed, though {@link callSite} passes lines with comments
+ * blanked, and the scan stops after {@link MAX_WRAPPED_LINES}.
+ */
+function callEnd(lines: string[], n: number, at: number, last: number): number {
+  let depth = 0;
+  for (let i = n; i <= Math.min(last, n + MAX_WRAPPED_LINES - 1); i++) {
+    for (const ch of i === n ? lines[i - 1].slice(at) : lines[i - 1]) {
+      if (ch === "(") depth++;
+      else if (ch === ")" && depth > 0 && --depth === 0) return i;
+    }
+    if (depth === 0) return n;
+  }
+  return n;
+}
+
+/** Extensions whose line comments start with `#`, and those whose start with `--`. */
+const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
+const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
+
+/** Whether a quote opens at `text[i]`. A `'` between digits (`1'000`) does not, nor, in Rust, one that is no char literal (a lifetime). */
+function opensQuote(text: string, i: number, rust: boolean): boolean {
+  const ch = text[i];
+  if (ch === '"' || ch === "`") return true;
+  if (ch !== "'" || (/\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? ""))) return false;
+  return !rust || /^'(?:[^'\\]|\\[^']{1,9})'/.test(text.slice(i));
+}
+
+/**
+ * Lines `from` to `to` of `path` with comments blanked, indexed as `lines` is. `//`
+ * and `/* *\/` comments (a block comment across lines too) except where `#` or `--`
+ * starts a line comment instead ({@link HASH_COMMENTS}, {@link DASH_COMMENTS}; PHP
+ * has both), and `#` only after whitespace there, so `$#` stays. Markers inside
+ * quotes are text, so `"a // b"; f()` keeps `f()`; quotes pair within a line, with
+ * backslash escapes. Regex literals, strings over several lines and other comment
+ * forms (`--[[ ]]`, `{- -}`) are read as code. Blanked with spaces, so a column of
+ * the result is one of the line.
+ */
+function codeLines(lines: string[], from: number, to: number, path: string): string[] {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const hash = HASH_COMMENTS.has(ext);
+  const dash = DASH_COMMENTS.has(ext);
+  const slash = ext === "php" || (!hash && !dash);
+  const code: string[] = [];
+  let block = false;
+  for (let n = from; n <= to; n++) {
+    const text = lines[n - 1];
+    let out = "";
+    let quote = "";
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (block) {
+        if (text.startsWith("*/", i)) {
+          block = false;
+          out += " ";
+          i++;
+        }
+        out += " ";
+        continue;
+      }
+      if (quote) {
+        if (ch === quote) quote = "";
+        else if (ch === "\\") out += text[i++] ?? "";
+        out += text[i] ?? "";
+        continue;
+      }
+      // `\/*` is an escaped slash in a regex literal (`/\/*$/`), never a comment.
+      if (slash && text.startsWith("/*", i) && text[i - 1] !== "\\") {
+        block = true;
+        out += "  ";
+        i++;
+        continue;
+      }
+      const lineComment =
+        (slash && text.startsWith("//", i)) || (dash && text.startsWith("--", i)) || (hash && ch === "#" && (i === 0 || /\s/.test(text[i - 1])));
+      if (lineComment) {
+        out += " ".repeat(text.length - i);
+        break;
+      }
+      if (opensQuote(text, i, ext === "rs")) quote = ch;
+      out += ch;
+    }
+    code[n - 1] = out;
+  }
+  return code;
+}
+
+/** What follows a name that is called: `(`, after `!`, `?.` or type arguments. */
+const CALL_TAIL = /^\s*(?:(?:!|\?\.)\s*)?(?:<[^<>()]*>\s*)?\(/;
+
+/** The columns of `code` where `name`, as the whole word `named` matches, starts a call. */
+function callColumns(code: string, name: string, named: RegExp): number[] {
+  const columns: number[] = [];
+  for (let at = code.indexOf(name); at >= 0; at = code.indexOf(name, at + 1)) {
+    const end = at + name.length;
+    if (named.test(code.slice(Math.max(0, at - 1), end + 1)) && CALL_TAIL.test(code.slice(end))) columns.push(at);
+  }
+  return columns;
+}
+
+/**
+ * Where `caller` calls `name`: "edited" when the diff changed the call, else the line
+ * to look at (null when none could be found).
+ *
+ * With the file readable, a call is the name followed by `(` (after `!`, `?.` or
+ * type arguments), running to where that parenthesis closes ({@link callEnd}), so a
+ * changed argument on a later line counts. Any call the diff left alone leaves the
+ * caller behind, whatever happened to its other calls, several on one line included.
+ * With no call of that shape (a JSX element, a decorator, `new Foo`), a changed line
+ * naming it counts as the edit. Comments are skipped ({@link codeLines}); a call-shaped
+ * name inside a string still counts. Calls match by name and edits by line, so a caller
+ * left behind is a lead to check. Without the file, or with no line naming it (a call
+ * through an alias), any changed line in the caller's span counts.
+ */
+function callSite(caller: NodeV1, name: string, file: ChangedFile | undefined, read?: LineReader): "edited" | number | null {
+  const span = spanBounds(caller.span);
+  if (!span) return null;
+  const lines = read?.(caller.path);
+  if (lines) {
+    const named = wordRe(name);
+    const last = Math.min(span.end, lines.length);
+    const code = codeLines(lines, span.start, last, caller.path);
+    let calls = 0;
+    const mentions: number[] = [];
+    for (let n = span.start; n <= last; n++) {
+      const found = callColumns(code[n - 1], name, named);
+      for (const at of found) {
+        calls++;
+        if (!touches(file, n, callEnd(code, n, at, last))) return n;
+      }
+      if (found.length === 0 && named.test(code[n - 1])) mentions.push(n);
+    }
+    if (calls > 0) return "edited";
+    if (mentions.length > 0) return mentions.some((n) => touches(file, n, n)) ? "edited" : mentions[0];
+  }
+  return touches(file, span.start, span.end) ? "edited" : null;
+}
+
+/** Methods a class's callers reach when they construct it: `Foo(...)`, `new Foo(...)`. */
+const CONSTRUCTORS = new Set(["constructor", "__init__"]);
+
+/**
+ * The callers of each changed declaration whose call the diff did not edit: the
+ * call sites a signature change can leave behind. Direct `calls` edges only, since a
+ * declaration change breaks the call, not what calls the caller. A changed
+ * `constructor` or `__init__` stands for its class, since a call constructing the
+ * class targets the class.
+ */
+function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedFile[], read?: LineReader): LeftBehind[] {
+  if (declared.length === 0) return [];
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  /** Edge targets whose callers to check, and the changed symbol each stands for. */
+  const watched = new Map(declared.map((n) => [n.id, n]));
+  for (const seed of declared) {
+    if (seed.kind !== "method" || !CONSTRUCTORS.has(seed.name) || !seed.owner) continue;
+    const span = spanBounds(seed.span);
+    const owner = graph.nodes.find((n) => {
+      const b = n.kind === "class" && n.path === seed.path && n.name === seed.owner ? spanBounds(n.span) : null;
+      return b !== null && span !== null && b.start <= span.start && b.end >= span.end;
+    });
+    if (owner && !watched.has(owner.id)) watched.set(owner.id, seed);
+  }
+  const fileOf = new Map(changed.map((f) => [f.path, f]));
+  const found = new Map<string, LeftBehind>();
+  for (const e of graph.edges) {
+    if (e.relation !== "calls" || e.source === e.target) continue;
+    const seed = watched.get(e.target);
+    const target = seed ? byId.get(e.target) : undefined;
+    const caller = target ? byId.get(e.source) : undefined;
+    if (!seed || !target || !caller) continue;
+    const key = `${seed.id}\0${caller.id}`;
+    const prev = found.get(key);
+    // A second edge between the same pair adds nothing but certainty.
+    if (prev) {
+      if (e.confidence !== "inferred") delete prev.inferred;
+      continue;
+    }
+    const site = callSite(caller, target.name, fileOf.get(caller.path), read);
+    if (site === "edited") continue;
+    found.set(key, {
+      seed: { id: seed.id, name: seed.name },
+      id: caller.id, name: caller.name, kind: caller.kind, path: caller.path, span: caller.span,
+      ...(site === null ? {} : { line: site }),
+      ...(e.confidence === "inferred" ? { inferred: true as const } : {}),
+    });
+  }
+  return [...found.values()].sort((a, b) =>
+    a.path.localeCompare(b.path) || (a.line ?? 0) - (b.line ?? 0) || a.name.localeCompare(b.name) || a.seed.name.localeCompare(b.seed.name));
+}
+
+/**
+ * The test files the change reaches, over the full closure from every seed.
+ *
+ * Not capped by `--depth`: the question is which tests to run, and a test two hops
+ * further out still runs the changed code. A test file the diff edits is listed at
+ * depth 0. As with the test signal, a test that drives the code through a CLI or a
+ * spawned process has no edge, so it is not found.
+ */
+function testsReached(graph: GraphV1, seeds: NodeV1[], changed: ChangedFile[]): TestReach[] {
+  const indexed = new Set(graph.nodes.filter((n) => n.kind === "file").map((n) => n.path));
+  const byPath = new Map<string, { reach: TestReach; definite: boolean; hits: { name: string; depth: number }[] }>();
+  for (const f of changed) {
+    if (f.status === "deleted" || !indexed.has(f.path) || !TEST_PATH.test(f.path)) continue;
+    byPath.set(f.path, { reach: { path: f.path, depth: 0, changed: true, symbols: [] }, definite: true, hits: [] });
+  }
+  for (const h of impactOfMany(graph, seeds, Number.POSITIVE_INFINITY, "in")) {
+    if (!hasNode(h) || !TEST_PATH.test(h.node.path)) continue;
+    let entry = byPath.get(h.node.path);
+    if (!entry) {
+      entry = { reach: { path: h.node.path, depth: h.depth, symbols: [] }, definite: false, hits: [] };
+      byPath.set(h.node.path, entry);
+    }
+    entry.reach.depth = Math.min(entry.reach.depth, h.depth);
+    if (!h.inferred) entry.definite = true;
+    if (h.node.kind !== "file") entry.hits.push({ name: h.node.name, depth: h.depth });
+  }
+  return [...byPath.values()]
+    .map(({ reach, definite, hits }) => ({
+      ...reach,
+      ...(definite ? {} : { inferred: true as const }),
+      symbols: [...new Set(hits.sort((a, b) => a.depth - b.depth || a.name.localeCompare(b.name)).map((s) => s.name))],
+    }))
+    .sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
 }
 
 /**
@@ -422,8 +838,9 @@ export function blastRadiusIn(
   changed: ChangedFile[],
   basis: string,
   depth: number,
+  extra: Pick<BlastOptions, "read" | "tests"> = {},
 ): BlastReport {
-  return blastRadius(graph, changed, basis, { depth, modules: moduleIndex(contextDir) });
+  return blastRadius(graph, changed, basis, { depth, modules: moduleIndex(contextDir), ...extra });
 }
 
 function hasNode(h: EdgeHit): h is EdgeHit & { node: NodeV1 } {

@@ -265,9 +265,10 @@ This table lists what the code changes from upstream `a44da3d` (30 October 2026,
 | Writes outside the repository | `trail init` adds hooks to `~/.claude` and `~/.codex` unless you pass `--no-global`, and `trail login` adds MCP servers | Only with `--global`, on either command, or `trail init --connect` |
 | npm on Windows | The update check fails on the `npm.cmd` shim | Starts npm through the shell |
 | Markdown and text search | None | `trail docs`, files ranked by their best section, through the `gg-docs` binary |
+| `trail blast` | Lists what depends on the changed lines | Also names the callers a declaration change left unedited and, with `--tests`, the test files the change reaches |
 | Distribution | Published on npm, with `trail upgrade` | From source |
 
-Learnings (`trail note`, `check` and `team`), `blast`, the viewer, the MCP server and agent wiring are inherited from upstream. [docs/upstream-guide.md](docs/upstream-guide.md) has the commands, the supported languages and what a node holds.
+Learnings (`trail note`, `check` and `team`), `blast` apart from its row above, the viewer, the MCP server and agent wiring are inherited from upstream. [docs/upstream-guide.md](docs/upstream-guide.md) has the commands, the supported languages and what a node holds.
 
 Stay on upstream if you want a published package and `trail upgrade`, or support from the people who run the hosted Trail workspace.
 

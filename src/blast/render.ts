@@ -12,7 +12,7 @@
  * against a cap of ten) and told a reviewer nothing per box — `src/graph/write.ts`
  * on its own is not a unit anyone reasons about.
  */
-import type { BlastReport, ChangedArea, ImpactedModule, Impacted, TestSignal } from "./blast.js";
+import type { BlastReport, ChangedArea, ImpactedModule, Impacted, LeftBehind, TestReach, TestSignal } from "./blast.js";
 import type { Evidence } from "../viz/assemble.js";
 import { INFERRED_MARK } from "../graph/types.js";
 import { fileReader, impactedEvidence, reachTerms } from "./evidence.js";
@@ -29,6 +29,12 @@ const MAX_SYMBOLS_LISTED = 60;
 /** Rows in the collapsed ownership table. Past this it is a `git shortlog`, not a
  * hint about who to ask. */
 const MAX_OWNER_ROWS = 8;
+/** Left-behind callers named in the Markdown line; the rest are counted. */
+const MAX_LEFT_BEHIND_NAMED = 5;
+/** Test files listed under `--tests` in the Markdown report. */
+const MAX_TESTS_LISTED = 20;
+/** Why a test can be missing from the `--tests` list. */
+const NO_EDGE_NOTE = "a test that runs the code through a CLI or a spawned process has no edge, so it is not listed";
 
 /**
  * A quoted Mermaid label. Every line is escaped on its own and only then joined
@@ -131,6 +137,8 @@ export function markdownReport(r: BlastReport, opts: { root?: string } = {}): st
   out.push(headline(r, symbols));
   const testLine = testHeadline(r);
   if (testLine) out.push(testLine);
+  const behind = leftBehindLine(r);
+  if (behind) out.push(behind);
   // Above the diagram on purpose: it is the one line in this comment the author
   // ACTS on rather than reads, and it costs a single row before the picture.
   const tag = tagLine(r);
@@ -195,6 +203,28 @@ function testHeadline(r: BlastReport): string | null {
   if (changed.length > 0) parts.push(`${plural(changed.length, "area")} updated ${changed.length === 1 ? "its" : "their"} tests`);
   if (parts.length === 0) return null;
   return `Tests: ${parts.join("; ")}.`;
+}
+
+/** Where to read a left-behind caller: its line naming the symbol, else its span. */
+const callerAt = (c: LeftBehind): string => `${c.path}:${c.line ?? c.span}`;
+
+/**
+ * The callers a declaration change left behind, in one line beside the test line:
+ * like it, a thing for the author to act on. The JSON report lists every one.
+ */
+function leftBehindLine(r: BlastReport): string | null {
+  const behind = r.leftBehind ?? [];
+  if (behind.length === 0) return null;
+  const named = behind.slice(0, MAX_LEFT_BEHIND_NAMED).map((c) => `\`${c.name}\` (\`${callerAt(c)}\`)${c.inferred ? INFERRED_MARK : ""}`);
+  const more = behind.length > MAX_LEFT_BEHIND_NAMED ? `, +${behind.length - MAX_LEFT_BEHIND_NAMED} more, all in \`--format json\`` : "";
+  return `⚠️ **${plural(behind.length, "caller")} left behind** by a changed declaration: ${named.join(", ")}${more}. The diff did not edit ${behind.length === 1 ? "its call" : "their calls"}.`;
+}
+
+/** `depth 2 · testTotal, testSum`, or `changed in this diff`, for one test file. */
+function testReachLabel(t: TestReach): string {
+  if (t.changed) return "changed in this diff";
+  const names = t.symbols.slice(0, 3).join(", ") + (t.symbols.length > 3 ? ` +${t.symbols.length - 3}` : "");
+  return `depth ${t.depth}${t.inferred ? INFERRED_MARK : ""}${names ? ` · ${names}` : ""}`;
 }
 
 /**
@@ -381,6 +411,18 @@ function detailSections(r: BlastReport, symbols: number, evidence?: (s: Impacted
     out.push("</details>");
   }
 
+  if (r.tests !== undefined) {
+    out.push("<details>");
+    out.push(`<summary><strong>Tests reaching this change</strong> — ${r.tests.length === 0 ? "none found" : plural(r.tests.length, "test file")}, full closure</summary>`);
+    out.push("");
+    for (const t of r.tests.slice(0, MAX_TESTS_LISTED)) out.push(`- \`${t.path}\` — ${testReachLabel(t)}`);
+    if (r.tests.length > MAX_TESTS_LISTED) out.push(`- …${r.tests.length - MAX_TESTS_LISTED} more, all in \`--format json\``);
+    out.push("");
+    out.push(`_Note: ${NO_EDGE_NOTE}._`);
+    out.push("");
+    out.push("</details>");
+  }
+
   if (r.testModules.length > 0) {
     const symbolCount = r.testModules.reduce((n, m) => n + m.symbols.length, 0);
     const files = new Set(r.testModules.flatMap((m) => m.files));
@@ -444,6 +486,13 @@ export function textReport(r: BlastReport): string {
   }
   if (r.areas.length > 0) lines.push("");
 
+  const behind = r.leftBehind ?? [];
+  if (behind.length > 0) {
+    lines.push(`⚠ ${plural(behind.length, "caller")} left behind: ${behind.length === 1 ? "it calls" : "each calls"} a symbol whose declaration changed, and the diff did not edit the call`);
+    for (const c of behind) lines.push(`  ${c.seed.name} ← ${c.name} (${callerAt(c)})${c.inferred ? INFERRED_MARK : ""}`);
+    lines.push("");
+  }
+
   for (const mod of r.modules) {
     lines.push(`${mod.label} — ${plural(mod.symbols.length, "symbol")} in ${plural(mod.files.length, "file")}`);
     for (const s of mod.symbols.slice(0, 25)) {
@@ -457,6 +506,11 @@ export function textReport(r: BlastReport): string {
   if (r.testModules.length > 0) {
     const files = new Set(r.testModules.flatMap((m) => m.files));
     lines.push(`${plural(files.size, "test suite")} also ${files.size === 1 ? "references" : "reference"} this code (not listed)`, "");
+  }
+  if (r.tests !== undefined) {
+    lines.push(`tests reaching this change (full closure): ${r.tests.length === 0 ? `none found (${NO_EDGE_NOTE})` : plural(r.tests.length, "file")}`);
+    for (const t of r.tests) lines.push(`  ${t.path} — ${testReachLabel(t)}`);
+    lines.push("");
   }
   if (r.reviewers !== undefined && r.reviewers.length > 0) {
     const now = Date.now();
