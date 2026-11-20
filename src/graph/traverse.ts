@@ -183,7 +183,9 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
   // Adjacency keyed for the walk direction, restricted to walk relations:
   //   'in'  → key = edge.target, neighbour = edge.source (who points AT key)
   //   'out' → key = edge.source, neighbour = edge.target (what key points TO)
-  const adj = new Map<string, { other: string; relation: Relation; inferred: boolean }[]>();
+  type Neighbour = { other: string; relation: Relation; inferred: boolean };
+  const adj = new Map<string, Neighbour[]>();
+  const deployByPath = new Map<string, Neighbour[]>();
   for (const e of graph.edges as EdgeV1[]) {
     if (!WALK_RELATIONS.has(e.relation)) continue;
     const key = direction === "in" ? e.target : e.source;
@@ -192,6 +194,30 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
     const arr = adj.get(key);
     if (arr) arr.push(entry);
     else adj.set(key, [entry]);
+    const file = byId.get(e.target);
+    if (direction === "in" && file?.kind === "file" && byId.get(e.source)?.kind === "resource") {
+      const links = deployByPath.get(file.path);
+      if (links) links.push(entry);
+      else deployByPath.set(file.path, [entry]);
+    }
+  }
+  // A deployment resource names files, not symbols (a stage copies `src/`): for an
+  // incoming walk, its edge to a file also reaches each symbol defined in that file, so a
+  // changed function reaches the image that ships it. Virtual: no edge is stored.
+  const visitedDeployPaths = new Map<string, { depth: number; inferred: boolean }>();
+  const deploymentNeighbours = (id: string, depth: number, inferred: boolean): Neighbour[] => {
+    const node = byId.get(id);
+    if (!node || node.kind === "resource") return [];
+    const links = deployByPath.get(node.path);
+    if (!links) return [];
+    const previous = visitedDeployPaths.get(node.path);
+    if (previous && (previous.depth < depth || !previous.inferred || inferred)) return [];
+    visitedDeployPaths.set(node.path, { depth, inferred });
+    return node.kind === "file" ? [] : links;
+  };
+  function* neighbours(id: string, depth: number, inferred: boolean): Iterable<Neighbour> {
+    yield* adj.get(id) ?? [];
+    if (deployByPath.size) yield* deploymentNeighbours(id, depth, inferred);
   }
 
   const seedIds = new Set<string>(seeds.map((s) => s.id));
@@ -203,7 +229,7 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
     const next: string[] = [];
     for (const current of frontier) {
       const pathInferred = reached.get(current)?.inferred === true;
-      for (const { other, relation, inferred } of adj.get(current) ?? []) {
+      for (const { other, relation, inferred } of neighbours(current, depth, pathInferred)) {
         if (seedIds.has(other)) continue;
         const uncertain = pathInferred || inferred;
         const prev = reached.get(other);
@@ -218,10 +244,10 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
   return [...reached.values()];
 }
 
-/** Every non-file node whose `path` equals `fileNode.path` — the symbols
- * defined in that file. */
+/** Every symbol node whose `path` equals `fileNode.path` — the symbols defined in
+ * that file. A deployment file's resources are not symbols. */
 function symbolsInFile(graph: GraphV1, fileNode: NodeV1): NodeV1[] {
-  return graph.nodes.filter((n) => n.kind !== "file" && n.path === fileNode.path);
+  return graph.nodes.filter((n) => n.kind !== "file" && n.kind !== "resource" && n.path === fileNode.path);
 }
 
 /**

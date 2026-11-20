@@ -56,6 +56,7 @@ import { denseFiles, embedQuery, fuseByFile, readVectors, semanticEnabled, type 
 /** Semantic ranking fuses a lexical list at least this deep, the depth `gg-bench ask` measured (`-n 10`). */
 const SEMANTIC_LEXICAL_DEPTH = 10;
 import { cmd, tag } from "../brand.js";
+import { deployFormatOf } from "../graph/deploy.js";
 import { formatNoteHits, learningSavingsLine, type NoteHit } from "../notes/notes.js";
 
 export interface AskHit {
@@ -1312,7 +1313,8 @@ function inlineSource(root: string, hits: AskHit[], graph: GraphV1 | null, full:
   }
   for (const h of hits) {
     const s = parseSpan(h.pointer);
-    if (!s) continue;
+    // A deployment file's text can hold a Secret's or an environment's values: pointer only.
+    if (!s || deployFormatOf(s.path)) continue;
     const crux = cruxByPointer.get(h.pointer);
     if (crux) {
       h.code = `${crux}\n… (crux — full definition at ${h.pointer}; rerun with --full)`;

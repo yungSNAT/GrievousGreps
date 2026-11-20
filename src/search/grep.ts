@@ -154,7 +154,7 @@ export function grepGraph(graph: GraphV1, repoRoot: string, pattern: string, opt
   const inPrefix = opts.in ? normalizePathPrefix(opts.in) : undefined;
   if (inPrefix) assertPrefixIndexed(graph, inPrefix);
   const fileNodes = graph.nodes.filter(
-    (n) => n.kind === "file" && (inPrefix === undefined || pathUnderPrefix(n.path, inPrefix)),
+    (n) => n.kind === "file" && n.origin !== "deploy" && (inPrefix === undefined || pathUnderPrefix(n.path, inPrefix)),
   );
   const symbolsByFile = symbolsByPath(graph);
 

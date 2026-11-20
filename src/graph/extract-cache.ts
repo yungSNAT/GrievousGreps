@@ -23,6 +23,7 @@
  * extraction code itself, caught by content-hashing it — see
  * {@link extractorStamp}. Neither asks anyone to remember to bump anything.
  */
+import type { DeployRef } from "./deploy.js";
 import { lstatSync, readFileSync, readdirSync, rmSync, writeSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -56,6 +57,10 @@ export interface ExtractEntry {
    * one, whose grammar didn't load. Absent for every other file. The entry is
    * replayed only while the same stand-in would parse it again. */
   via?: string;
+  /** A deployment file's references (`deploy.ts`), resolved after every file is read. */
+  deploy?: DeployRef[];
+  /** Why a deployment file was skipped. */
+  skipped?: string;
 }
 
 export interface ExtractCache {

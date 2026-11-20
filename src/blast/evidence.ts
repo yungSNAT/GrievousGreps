@@ -9,6 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { deployFormatOf } from "../graph/deploy.js";
 import type { Evidence, EvidenceLine } from "../viz/assemble.js";
 import type { Impacted, Seed } from "./blast.js";
 import type { ChangedFile, DiffLine } from "./diff.js";
@@ -67,7 +68,7 @@ function hunksIn(
 
 /** Evidence for one changed symbol: what this PR did to it. */
 export function seedEvidence(seed: Seed, file: ChangedFile | undefined): Evidence | null {
-  if (!file) return null;
+  if (!file || deployFormatOf(file.path) || (file.oldPath && deployFormatOf(file.oldPath))) return null;
   const span = seed.wholeFile ? null : spanRange(seed.span);
   const { lines, dropped } = hunksIn(file, span);
   if (lines.length === 0 && dropped === 0) return null;
@@ -176,7 +177,8 @@ export function reachTerms(seeds: Seed[], changed: ChangedFile[]): ReachTerms {
 export function fileReader(root: string | undefined): (path: string) => string[] | null {
   const cache = new Map<string, string[] | null>();
   return (path: string) => {
-    if (root === undefined) return null;
+    // A deployment file's lines can hold a Secret's or an environment's values: never quoted.
+    if (root === undefined || deployFormatOf(path)) return null;
     const hit = cache.get(path);
     if (hit !== undefined) return hit;
     let lines: string[] | null = null;

@@ -45,6 +45,7 @@ import { readGraph, writeGraph, wiringPath } from "./write.js";
 import { writeCards, writeIndex, writeCovers, type CardStats } from "./cards.js";
 import { writeAskIndex } from "../ask/index-file.js";
 import { writeVectors } from "../ask/vectors.js";
+import { deployFormatOf, extractDeploy, resolveDeploy, type DeployFormat, type DeployRef } from "./deploy.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
 import type { GraphV1, Kind, NodeV1, Relation, ScopeV1, UnresolvedCallV1 } from "./types.js";
 import type { CruxSummarizer } from "../ai/crux.js";
@@ -67,6 +68,8 @@ export interface FileTier {
   container: ContainerLang | null;
   generic: GenericLang | null;
   fellBack: Language | null;
+  /** A Dockerfile, compose file or Kubernetes manifest candidate, claimed by no grammar. */
+  deploy?: DeployFormat;
 }
 
 export function tierOf(path: string): FileTier {
@@ -78,7 +81,9 @@ export function tierOf(path: string): FileTier {
   }
   const container = containerLangOf(path);
   if (container) return { lang: null, container, generic: null, fellBack: null };
-  return { lang: null, container: null, generic: genericLangOf(path), fellBack: null };
+  const generic = genericLangOf(path);
+  const deploy = generic ? null : deployFormatOf(path);
+  return { lang: null, container: null, generic, fellBack: null, ...(deploy ? { deploy } : {}) };
 }
 
 /** Load every WASM grammar these files need, before a synchronous parse loop can
@@ -205,6 +210,8 @@ export interface GraphBuildResult {
    * disk, but the CLI must not report the build as successful. */
   structuralErrors: number;
   errors: string[];
+  /** Deployment files not read, each with its reason (`deploy.ts`): never errors, never guessed. */
+  skipped: { path: string; reason: string }[];
 }
 
 /** Every Go module in the repo: each `go.mod`'s declared `module` path and the repo
@@ -406,6 +413,8 @@ export async function buildGraph(
    * javascript, or the banner claims a repo's JavaScript went unindexed. */
   const langs = new Set<string>();
   const errors: string[] = [];
+  const deployRefs: DeployRef[] = [];
+  const skipped: { path: string; reason: string }[] = [];
 
   // In a git worktree there is nothing to reuse *yet* — `graft/` is gitignored, so
   // git never checked it out — but the parent checkout's graph is one directory away.
@@ -436,7 +445,7 @@ export async function buildGraph(
   files.forEach((f, i) => {
     const rel = f.rel;
     opts.onProgress?.({ phase: "parse", index: i, total: files.length, file: rel });
-    const { lang, container, generic, fellBack: standIn } = tierOf(f.abs);
+    const { lang, container, generic, fellBack: standIn, deploy } = tierOf(f.abs);
     const label = languageLabelOf(f.abs) ?? container?.name ?? generic?.name ?? "unknown";
     // A .vue file's embedded script falls back the same way its language does.
     const inner = container && !depthReady(container.inner) ? container.inner : null;
@@ -483,6 +492,30 @@ export async function buildGraph(
     }
 
     const hash = contentHash(source);
+    if (deploy) {
+      // Deployment files stay out of `sources`: a Secret's or compose file's values must
+      // never reach the meaning pass's model, or any other reader of file text.
+      try {
+        const reuse = cached && hash === cached.hash && !cached.error;
+        const x = reuse ? { nodes: cached.nodes, refs: cached.deploy ?? [], skipped: cached.skipped } : extractDeploy(rel, source, deploy);
+        const fileEdges: RawEdge[] = x.nodes.filter((n) => n.kind === "resource").map((n) => ({ source: rel, relation: "contains", file: rel, targetId: n.id }));
+        // Loops, not spreads: one file can hold more items than a call takes arguments.
+        for (const n of x.nodes) nodes.push(n);
+        for (const e of fileEdges) rawEdges.push(e);
+        for (const r of x.refs) deployRefs.push(r);
+        if (x.skipped) skipped.push({ path: rel, reason: x.skipped });
+        if (x.nodes.length) langs.add(deploy);
+        if (reuse) reused++;
+        else parsed++;
+        entries[rel] = { size: f.size, mtimeMs: f.mtimeMs, hash, nodes: x.nodes, rawEdges: fileEdges, ...(x.refs.length ? { deploy: x.refs } : {}), ...(x.skipped ? { skipped: x.skipped } : {}) };
+      } catch (err) {
+        const message = `${rel}: parse failed — ${err instanceof Error ? err.message : String(err)}`;
+        failed++;
+        errors.push(message);
+        entries[rel] = { size: f.size, mtimeMs: f.mtimeMs, hash, nodes: [], rawEdges: [], error: message };
+      }
+      return;
+    }
     // A cached `error` is not a parse result, it is the absence of one — and the
     // absence need not be the file's fault. A wasm grammar that aborts because the
     // run before it exhausted the heap fails whichever file happened to be in
@@ -549,6 +582,9 @@ export async function buildGraph(
     ...readTsImports(root, repoFiles),
     unresolvedCalls,
   });
+  const deployment = resolveDeploy(nodes, deployRefs, (path) => existsSync(join(root, path)));
+  for (const edge of deployment.edges) edges.push(edge);
+  for (const file of deployment.skipped) skipped.push(file);
   for (const call of unresolvedCalls) {
     if (!call.through?.startsWith(".")) continue;
     const target = posix.join(posix.dirname(call.source.split("#")[0]), call.through);
@@ -686,5 +722,6 @@ export async function buildGraph(
     meaning,
     structuralErrors: errors.length - meaning.errors.length,
     errors,
+    skipped,
   };
 }
