@@ -15,6 +15,7 @@ import { posix } from "node:path";
 import { LineCounter, parseAllDocuments, type Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
+import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes";
 
@@ -126,11 +127,13 @@ function instructions(source: string): Array<{ line: number; op: string; args: s
       continue;
     }
     text += trimmed;
-    const m = /^\s*([A-Za-z]+)\s*(.*)$/.exec(text);
-    if (m) {
-      const op = m[1].toUpperCase();
-      out.push({ line: start, op, args: m[2] });
-      if (HEREDOC_OPS.has(op)) heredoc = [...m[2].matchAll(HEREDOC)].map((h) => h[2]);
+    const instruction = text.trimStart();
+    const opcode = /^[A-Za-z]+/.exec(instruction)?.[0];
+    if (opcode) {
+      const op = opcode.toUpperCase();
+      const args = instruction.slice(opcode.length).trimStart();
+      out.push({ line: start, op, args });
+      if (HEREDOC_OPS.has(op)) heredoc = [...args.matchAll(HEREDOC)].map((h) => h[2]);
     }
     text = "";
   }
@@ -181,15 +184,22 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
       if (alias !== undefined) byName.set(alias.toLowerCase(), s);
     } else if (s && (i.op === "COPY" || i.op === "ADD")) {
       const from = `${rel}#${s.id}`;
-      const flags = i.args.match(/^(?:\s*--[^\s]+\s+)+/)?.[0] ?? "";
-      const fromFlag = flags.split(/\s+/).find((x) => x.toLowerCase().startsWith("--from="));
+      let operands = i.args;
+      let fromFlag: string | undefined;
+      while (operands.startsWith("--")) {
+        const space = operands.search(/\s/);
+        if (space <= 2) break;
+        const flag = operands.slice(0, space);
+        if (flag.toLowerCase().startsWith("--from=")) fromFlag ??= flag;
+        operands = operands.slice(space).trimStart();
+      }
       if (fromFlag) {
         const ref = fromFlag.slice(7).toLowerCase();
         const base = byName.get(ref) ?? (/^\d+$/.test(ref) ? stages[Number(ref)] : undefined);
         if (base && base !== s) refs.push({ from, to: "id", id: `${rel}#${base.id}` });
         continue;
       }
-      for (const raw of words(i.args.slice(flags.length)).slice(0, -1)) {
+      for (const raw of words(operands).slice(0, -1)) {
         if (raw.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("git@")) continue;
         const src = raw.replace(/^\/+/, "") || ".";
         if (s.copied.has(src)) continue;
@@ -445,92 +455,6 @@ function imageRepo(image: string): string {
   return s.replace(/^docker\.io\//, "").replace(/^library\//, "");
 }
 
-/** One segment of a Docker glob: `**`, or a test per character with `*` for any run of them. */
-type GlobSegment = "**" | Array<"*" | ((c: string) => boolean)>;
-
-/**
- * A COPY or ADD source as Docker reads it (Go's `filepath.Match`, plus `**`): `*` and `?`
- * within one path segment, `[a-z]` and `[^a-z]` classes; null for a malformed class.
- * shortcut: a backslash is a literal character here, not an escape; a source escaping a
- * wildcard therefore matches as a wildcard. Upgrade path: read `\` as Go does.
- */
-function compileGlob(glob: string): GlobSegment[] | null {
-  const out: GlobSegment[] = [];
-  for (const part of glob.split("/")) {
-    if (part === "**") {
-      out.push("**");
-      continue;
-    }
-    const tokens: Array<"*" | ((c: string) => boolean)> = [];
-    for (let i = 0; i < part.length; i++) {
-      const c = part[i];
-      if (c === "*") {
-        if (tokens.at(-1) !== "*") tokens.push("*");
-      } else if (c === "?") tokens.push(() => true);
-      else if (c === "[") {
-        const close = part.indexOf("]", i + 1);
-        if (close < 0) return null;
-        let body = part.slice(i + 1, close);
-        const negate = body.startsWith("^");
-        if (negate) body = body.slice(1);
-        if (!body) return null;
-        const ranges: Array<[string, string]> = [];
-        for (let j = 0; j < body.length; j++) {
-          if (body[j + 1] === "-" && j + 2 < body.length) {
-            ranges.push([body[j], body[j + 2]]);
-            j += 2;
-          } else ranges.push([body[j], body[j]]);
-        }
-        tokens.push((x) => ranges.some(([lo, hi]) => lo <= x && x <= hi) !== negate);
-        i = close;
-      } else tokens.push((x) => x === c);
-    }
-    out.push(tokens);
-  }
-  return out;
-}
-
-/** One segment against one name, in O(pattern × name): the last `*` takes one more character on a mismatch. */
-function segmentMatches(tokens: Array<"*" | ((c: string) => boolean)>, name: string): boolean {
-  let t = 0;
-  let i = 0;
-  let star = -1;
-  let mark = 0;
-  while (i < name.length) {
-    const tok = tokens[t];
-    if (tok !== undefined && tok !== "*" && tok(name[i])) {
-      t++;
-      i++;
-    } else if (tok === "*") {
-      star = t++;
-      mark = i;
-    } else if (star >= 0) {
-      t = star + 1;
-      i = ++mark;
-    } else return false;
-  }
-  while (tokens[t] === "*") t++;
-  return t === tokens.length;
-}
-
-/** Whether a glob names a path, or a folder holding it (COPY copies a folder's contents). */
-function globMatches(glob: GlobSegment[], path: string): boolean {
-  const parts = path.split("/");
-  // at[j]: the glob's segments so far match the path's first j parts.
-  let at = new Array<boolean>(parts.length + 1).fill(false);
-  at[0] = true;
-  for (const seg of glob) {
-    const next = new Array<boolean>(parts.length + 1).fill(false);
-    for (let j = 0; j <= parts.length; j++) {
-      if (!at[j]) continue;
-      if (seg === "**") next.fill(true, j);
-      else if (j < parts.length && segmentMatches(seg, parts[j])) next[j + 1] = true;
-    }
-    at = next;
-  }
-  return at.some(Boolean);
-}
-
 function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const list = map.get(key);
   if (list) list.push(value);
@@ -543,7 +467,9 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   skipped: { path: string; reason: string }[];
 } {
   const pathsById = new Map(nodes.map((n) => [n.id, n.path]));
-  const files = nodes.filter((n) => n.kind === "file" && n.origin !== "deploy").map((n) => n.path).sort();
+  // Descendant lookups depend on binary ordering, so use the same ordering as lower().
+  const files = nodes.filter((n) => n.kind === "file" && n.origin !== "deploy").map((n) => n.path)
+    .sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
   const fileSet = new Set(files);
   const objects = new Map<string, string[]>();
   const stagesOf = new Map<string, NodeV1[]>();
@@ -566,27 +492,6 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
     seen.add(key);
     out.push({ source, target, relation: "references", confidence });
   };
-  /** The first index in the sorted `files` at or after `p`. */
-  const lower = (p: string) => {
-    let lo = 0;
-    let hi = files.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (files[mid] < p) lo = mid + 1;
-      else hi = mid;
-    }
-    return lo;
-  };
-  // `0` is the character after `/`, so [`p/`, `p0`) is everything under `p`.
-  function* filesUnder(p: string): Iterable<string> {
-    if (p === ".") {
-      yield* files;
-      return;
-    }
-    if (fileSet.has(p)) yield p;
-    const end = lower(`${p}0`);
-    for (let i = lower(`${p}/`); i < end; i++) yield files[i];
-  }
   const expansions = new Map<string, { examined: number; edges: Map<string, EdgeV1> }>();
   const skipped: { path: string; reason: string }[] = [];
   const expand = (path: string, from: string, prefix: string, glob?: GlobSegment[], confidence: EdgeV1["confidence"] = "extracted") => {
@@ -596,7 +501,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
       expansions.set(path, expansion);
     }
     if (expansion.examined > MAX_FILE_CANDIDATES) return;
-    for (const file of filesUnder(prefix)) {
+    for (const file of filesUnder(files, fileSet, prefix)) {
       if (++expansion.examined > MAX_FILE_CANDIDATES) {
         expansion.edges.clear();
         skipped.push({ path, reason: `COPY and bind-mount links omitted after ${MAX_FILE_CANDIDATES} file candidates` });
