@@ -210,10 +210,8 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
         if (raw.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("git@")) continue;
         const src = posix.normalize("/" + raw).slice(1).replace(/\/$/, "") || ".";
         const earlier = s.copied.get(src);
-        if (earlier) {
-          if (!inferred) delete earlier.inferred;
-          continue;
-        }
+        if (earlier && !inferred) delete earlier.inferred;
+        if (earlier) continue;
         if (!compileGlob(src)) throw new Skip(`line ${i.line}: ${i.op} source ${src} is not a valid pattern`);
         const ref: CopyRef = { from, to: "copy", dockerfile: rel, src, ...(inferred ? { inferred: true } : {}) };
         refs.push(ref);
@@ -508,11 +506,8 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   const expansions = new Map<string, { examined: number; edges: Map<string, EdgeV1> }>();
   const skipped: { path: string; reason: string }[] = [];
   const expand = (path: string, from: string, prefix: string, glob?: GlobSegment[], confidence: EdgeV1["confidence"] = "extracted") => {
-    let expansion = expansions.get(path);
-    if (!expansion) {
-      expansion = { examined: 0, edges: new Map() };
-      expansions.set(path, expansion);
-    }
+    const expansion = expansions.get(path) ?? { examined: 0, edges: new Map<string, EdgeV1>() };
+    expansions.set(path, expansion);
     if (expansion.examined > MAX_FILE_CANDIDATES) return;
     for (const file of filesUnder(files, fileSet, prefix)) {
       if (++expansion.examined > MAX_FILE_CANDIDATES) {
