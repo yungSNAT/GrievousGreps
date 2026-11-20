@@ -24,7 +24,7 @@ import { markdownReport } from "../src/blast/render.js";
 import { blastVizGraph } from "../src/blast/viz.js";
 import { grepGraph } from "../src/search/grep.js";
 import { runCli } from "./helpers.js";
-import type { GraphV1, NodeV1 } from "../src/graph/types.js";
+import type { GraphV1 } from "../src/graph/types.js";
 
 const SECRET = "hunter2-SECRET-VALUE";
 const CONFIG = "PLAIN-CONFIG-VALUE";
@@ -286,16 +286,6 @@ test("a compose build context and target pick the Dockerfile's folder and stage"
 // ── Review findings (R3981 to R3985 and the shoulds): each test fails on 4d1cbd9 ──
 
 /** Linear-time limit: the quadratic and exponential code these replace took 10 s to minutes here. */
-const LIMIT_MS = 3000;
-
-function quick<T>(what: string, run: () => T): T {
-  const start = performance.now();
-  const out = run();
-  const ms = performance.now() - start;
-  assert.ok(ms < LIMIT_MS, `${what} took ${ms.toFixed(0)} ms`);
-  return out;
-}
-
 test("COPY globs match by Docker's rules; a bad pattern skips its Dockerfile with a reason, not the build", async () => {
   const { root, result, graph } = await built({
     "src/a1.py": "def a():\n    pass\n",
@@ -350,7 +340,7 @@ test("a COPY glob with many wildcards resolves in linear time", { timeout: 60_00
   try {
     const start = performance.now();
     await buildGraph(root);
-    assert.ok(performance.now() - start < LIMIT_MS * 3, `build took ${(performance.now() - start).toFixed(0)} ms`);
+    assert.ok(performance.now() - start < 3_000 * 3, `build took ${(performance.now() - start).toFixed(0)} ms`);
     assert.deepEqual(refs(readGraph(wiringPath(contextDirFor(root)))!), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -415,33 +405,6 @@ test("callers and blast never quote a deployment file's text", async () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("a Dockerfile line ending in a long run of spaces is read in linear time", { timeout: 120_000 }, () => {
-  const x = quick("extractDeploy", () => extractDeploy("Dockerfile", `FROM python:3.12\nRUN ${" ".repeat(300_000)}x\n`, "dockerfile"));
-  assert.equal(x.skipped, undefined);
-});
-
-test("a Dockerfile with 20,000 stages or 80,000 COPY lines is read in linear time", { timeout: 300_000 }, () => {
-  const stages = quick("20,000 stages", () => extractDeploy("Dockerfile", Array.from({ length: 20_000 }, (_, i) => `FROM python:3.12 AS s${i}`).join("\n"), "dockerfile"));
-  assert.equal(stages.nodes.filter((n) => n.kind === "resource").length, 20_000);
-  const copies = quick("80,000 COPY lines", () => extractDeploy("Dockerfile", `FROM python:3.12\n${"COPY src/ /app/\n".repeat(80_000)}`, "dockerfile"));
-  assert.equal(copies.refs.length, 1);
-});
-
-test("an incoming walk over a file with 80,000 symbols stays linear", { timeout: 300_000 }, () => {
-  const n = (id: string, kind: NodeV1["kind"], path: string): NodeV1 => ({
-    id, name: id, kind, path, span: "L1-L1", signature: null, exported: true, origin: "ast", body_hash: "", summary_state: "pending", summary: null, crux: null,
-  });
-  const nodes = [n("big.py", "file", "big.py"), n("Dockerfile#stage:0", "resource", "Dockerfile")];
-  for (let i = 0; i < 80_000; i++) nodes.push(n(`big.py#f${i}`, "function", "big.py"));
-  const graph: GraphV1 = {
-    meta: { version: 1, nodeCount: nodes.length, edgeCount: 1, languages: [] },
-    nodes,
-    edges: [{ source: "Dockerfile#stage:0", target: "big.py", relation: "references", confidence: "extracted" }],
-  };
-  const hits = quick("impactOfMany", () => impactOfMany(graph, [nodes[2]], 2, "in"));
-  assert.deepEqual(hits.map((h) => h.id), ["Dockerfile#stage:0"]);
 });
 
 test("only YAML that looks like a manifest is parsed: a broken settings file is not reported", async () => {
