@@ -21,6 +21,7 @@ import { runCallersCommand } from "../src/graph/traverse-cli.js";
 import { blastRadius } from "../src/blast/blast.js";
 import { fileReader } from "../src/blast/evidence.js";
 import { markdownReport } from "../src/blast/render.js";
+import { grepGraph } from "../src/search/grep.js";
 import { runCli } from "./helpers.js";
 import type { GraphV1, NodeV1 } from "../src/graph/types.js";
 
@@ -129,6 +130,46 @@ function refs(graph: GraphV1): string[] {
     .map((e) => `${e.source} -> ${e.target}${e.confidence === "inferred" ? " (inferred)" : ""}`)
     .sort();
 }
+
+test("compose merge keys, Docker target names and context-relative COPY resolve together", async () => {
+  const { root, graph } = await built({
+    "src/app.py": "def handle():\n    return 42\n",
+    "Dockerfile-dev": 'FROM python:3.12 AS dev\nCOPY --chown=1000 ["/src", "/app"]\n',
+    "Dockerfile-dev.dockerignore": "docs/\n",
+    "compose.yaml": "x-build: &build { context: ., dockerfile: Dockerfile-dev, target: Dev }\nservices:\n  api:\n    build: { <<: *build }\n",
+  });
+  try {
+    assert.deepEqual(refs(graph), [
+      "Dockerfile-dev#stage:dev -> src/app.py (inferred)",
+      "compose.yaml#service:api -> Dockerfile-dev#stage:dev",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("grep skips deployment text while searching indexed source", async () => {
+  const { root, graph } = await built(SERVICE);
+  try {
+    assert.equal(grepGraph(graph, root, ENV).groups.length, 0);
+    assert.ok(grepGraph(graph, root, "def handle").groups.length > 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the graph reports omitted file links when one deployment exceeds its expansion limit", async () => {
+  const sourceFiles = Object.fromEntries(Array.from({ length: 250 }, (_, i) => [`src/part${i}.py`, "size = 1\n"]));
+  const dockerfile = Array.from({ length: 201 }, (_, i) => `FROM python:3.12 AS part${i}\nCOPY src/ /app\n`).join("");
+  const { root, graph, result } = await built({ ...sourceFiles, Dockerfile: dockerfile });
+  try {
+    assert.deepEqual(result.skipped, [{ path: "Dockerfile", reason: "COPY and bind-mount links omitted after 50000 file candidates" }]);
+    assert.deepEqual(refs(graph), []);
+    assert.ok(graph.nodes.some((node) => node.id === "Dockerfile#stage:part0"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("deployment files are named by their file names", () => {
   assert.deepEqual(
@@ -288,10 +329,12 @@ test("a COPY glob with many wildcards resolves in linear time", { timeout: 60_00
 test("a build with 200,000 deployment edges does not overflow the stack", { timeout: 300_000 }, async () => {
   const files: Record<string, string> = {};
   for (let i = 0; i < 400; i++) files[`src/m${i}.py`] = `def f${i}():\n    pass\n`;
-  files.Dockerfile = Array.from({ length: 500 }, (_, i) => `FROM python:3.12 AS s${i}\nCOPY . /app/`).join("\n");
+  const stages = Array.from({ length: 125 }, (_, i) => `FROM python:3.12 AS s${i}\nCOPY . /app/`).join("\n");
+  for (let i = 0; i < 4; i++) files[`Dockerfile.part${i}`] = stages;
   const { root, result, graph } = await built(files);
   try {
     assert.equal(result.structuralErrors, 0);
+    assert.deepEqual(result.skipped, []);
     assert.equal(refs(graph).length, 200_000);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -346,7 +389,7 @@ test("a Dockerfile with 20,000 stages or 80,000 COPY lines is read in linear tim
   const stages = quick("20,000 stages", () => extractDeploy("Dockerfile", Array.from({ length: 20_000 }, (_, i) => `FROM python:3.12 AS s${i}`).join("\n"), "dockerfile"));
   assert.equal(stages.nodes.filter((n) => n.kind === "resource").length, 20_000);
   const copies = quick("80,000 COPY lines", () => extractDeploy("Dockerfile", `FROM python:3.12\n${"COPY src/ /app/\n".repeat(80_000)}`, "dockerfile"));
-  assert.equal(copies.refs.length, 80_000);
+  assert.equal(copies.refs.length, 1);
 });
 
 test("an incoming walk over a file with 80,000 symbols stays linear", { timeout: 300_000 }, () => {

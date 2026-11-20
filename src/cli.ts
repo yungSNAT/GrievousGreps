@@ -762,7 +762,7 @@ grouped(program.command("build"), GROUP.setup)
       console.log(`✓ wiring: ${g.nodes} nodes (${fmt(g.byKind)}), ${g.edges} edges, ${g.cards} cards [${g.languages.join(", ")}]`);
     }
     console.log(`  parsed: ${g.parsed} of ${g.files} files (${g.reused} replayed from cache)${g.failed ? `, ${g.failed} FAILED` : ""}`);
-    for (const s of g.skipped.slice(0, 10)) console.log(`  skipped ${s.path}: ${s.reason}`);
+    for (const s of g.skipped.slice(0, 10)) console.log(`  skipped ${JSON.stringify(s.path)}: ${s.reason}`);
     if (g.skipped.length > 10) console.log(`  … and ${g.skipped.length - 10} more deployment files skipped`);
     // Worth one line: this build started from a graph the user never built *here*.
     if (g.seededFrom) console.log(`  seeded: copied a starting graph from ${g.seededFrom} (git worktree)`);

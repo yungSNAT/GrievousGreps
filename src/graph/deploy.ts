@@ -43,11 +43,13 @@ export interface DeployExtract {
 }
 
 const COMPOSE = /^(docker-)?compose(\.[^/]+)?\.ya?ml$/;
-const DOCKERFILE = /^(dockerfile(\..+)?|.+\.dockerfile|containerfile)$/;
+const DOCKERFILE = /^(dockerfile([._-].+)?|.+\.dockerfile|containerfile)$/;
+const MAX_FILE_CANDIDATES = 50_000;
 
 /** The deployment format a path's name says, or null. Every other YAML file is a manifest candidate. */
 export function deployFormatOf(path: string): DeployFormat | null {
   const base = posix.basename(path.replace(/\\/g, "/")).toLowerCase();
+  if (base.endsWith(".dockerignore")) return null;
   if (DOCKERFILE.test(base)) return "dockerfile";
   if (COMPOSE.test(base)) return "compose";
   return /\.ya?ml$/.test(base) ? "kubernetes" : null;
@@ -157,7 +159,7 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
   const total = source.split("\n").length;
   const froms = ins.filter((i) => i.op === "FROM");
   if (!froms.length) throw new Skip("no FROM instruction");
-  type Stage = { id: string; name: string; image: string; start: number; end: number; copied: string[] };
+  type Stage = { id: string; name: string; image: string; start: number; end: number; copied: Set<string> };
   const stages: Stage[] = [];
   /** Stages built so far, by lowercased name and by index: a stage refers only to earlier ones. */
   const byName = new Map<string, Stage>();
@@ -173,25 +175,27 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
       const index = stages.length;
       const base = byName.get(w[0].toLowerCase());
       if (s) s.end = i.line - 1;
-      s = { id: `stage:${alias ?? index}`, name: alias ?? `stage ${index}`, image: w[0], start: i.line, end: total, copied: [] };
+      s = { id: `stage:${alias ?? index}`, name: alias ?? `stage ${index}`, image: w[0], start: i.line, end: total, copied: new Set() };
       stages.push(s);
       if (base) refs.push({ from: `${rel}#${s.id}`, to: "id", id: `${rel}#${base.id}` });
       if (alias !== undefined) byName.set(alias.toLowerCase(), s);
     } else if (s && (i.op === "COPY" || i.op === "ADD")) {
       const from = `${rel}#${s.id}`;
-      const w = words(i.args);
-      const fromFlag = w.find((x) => x.toLowerCase().startsWith("--from="));
+      const flags = i.args.match(/^(?:\s*--[^\s]+\s+)+/)?.[0] ?? "";
+      const fromFlag = flags.split(/\s+/).find((x) => x.toLowerCase().startsWith("--from="));
       if (fromFlag) {
         const ref = fromFlag.slice(7).toLowerCase();
         const base = byName.get(ref) ?? (/^\d+$/.test(ref) ? stages[Number(ref)] : undefined);
         if (base && base !== s) refs.push({ from, to: "id", id: `${rel}#${base.id}` });
         continue;
       }
-      for (const src of w.filter((x) => !x.startsWith("--")).slice(0, -1)) {
-        if (src.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(src) || src.startsWith("git@")) continue;
+      for (const raw of words(i.args.slice(flags.length)).slice(0, -1)) {
+        if (raw.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("git@")) continue;
+        const src = raw.replace(/^\/+/, "") || ".";
+        if (s.copied.has(src)) continue;
         if (!compileGlob(src)) throw new Skip(`line ${i.line}: ${i.op} source ${src} is not a valid pattern`);
         refs.push({ from, to: "copy", dockerfile: rel, src });
-        s.copied.push(src);
+        s.copied.add(src);
       }
     }
     // Anything before the first FROM (an ARG) belongs to no stage.
@@ -243,7 +247,7 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes")
   // out every file above `MAX_FILE_BYTES`, so no file parsed here is larger.)
   if (format === "kubernetes" && !(/^apiVersion:/m.test(source) && /^kind:/m.test(source))) return null;
   const counter = new LineCounter();
-  const docs = [...parseAllDocuments(source, { lineCounter: counter, uniqueKeys: false, logLevel: "error" })];
+  const docs = [...parseAllDocuments(source, { lineCounter: counter, uniqueKeys: false, logLevel: "error", merge: format === "compose" })];
   const bad = docs.find((d) => d.errors.length);
   if (bad) throw new Skip(`not valid YAML: ${bad.errors[0].message.split("\n")[0]}`);
   const lines = (d: Document, node: unknown): [number, number] => {
@@ -365,7 +369,7 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
     if (WORKLOADS.has(kind)) {
       const { pod, labels } = podTemplate(kind, spec, meta, what);
       refs.push({ from, to: "labels", ns, labels });
-      named.push(...Object.entries(labels).map(([k, v]) => `${k}=${v}`));
+      for (const [key, value] of Object.entries(labels)) named.push(`${key}=${value}`);
       const object = (k: string, n: unknown, field: string) => {
         const v = str(n, `${what}: ${field}`);
         if (v) refs.push({ from, to: "object", kind: k, ns, name: v });
@@ -404,7 +408,7 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
     } else if (kind === "Service") {
       const match = strings(spec.selector, `${what}: selector`);
       if (Object.keys(match).length) refs.push({ from, to: "selector", ns, match });
-      named.push(...Object.entries(match).map(([k, v]) => `${k}=${v}`));
+      for (const [key, value] of Object.entries(match)) named.push(`${key}=${value}`);
     } else if (kind === "Ingress") {
       const backend = (b: unknown, field: string) => {
         const be = obj(b, `${what}: ${field}`);
@@ -533,9 +537,12 @@ function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   else map.set(key, [value]);
 }
 
-/** `references` edges for every deployment ref, against every node in the graph. */
-export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[]): EdgeV1[] {
-  const ids = new Set(nodes.map((n) => n.id));
+/** Resolve deployment references, bounding source-file expansions per deployment file. */
+export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (path: string) => boolean): {
+  edges: EdgeV1[];
+  skipped: { path: string; reason: string }[];
+} {
+  const pathsById = new Map(nodes.map((n) => [n.id, n.path]));
   const files = nodes.filter((n) => n.kind === "file" && n.origin !== "deploy").map((n) => n.path).sort();
   const fileSet = new Set(files);
   const objects = new Map<string, string[]>();
@@ -555,7 +562,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[]): EdgeV1[] {
   const seen = new Set<string>();
   const add = (source: string, target: string, confidence: EdgeV1["confidence"] = "extracted") => {
     const key = `${source}\0${target}`;
-    if (source === target || seen.has(key) || !ids.has(target)) return;
+    if (source === target || seen.has(key) || !pathsById.has(target)) return;
     seen.add(key);
     out.push({ source, target, relation: "references", confidence });
   };
@@ -571,9 +578,52 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[]): EdgeV1[] {
     return lo;
   };
   // `0` is the character after `/`, so [`p/`, `p0`) is everything under `p`.
-  const filesUnder = (p: string) => (p === "." ? files : [...(fileSet.has(p) ? [p] : []), ...files.slice(lower(`${p}/`), lower(`${p}0`))]);
+  function* filesUnder(p: string): Iterable<string> {
+    if (p === ".") {
+      yield* files;
+      return;
+    }
+    if (fileSet.has(p)) yield p;
+    const end = lower(`${p}0`);
+    for (let i = lower(`${p}/`); i < end; i++) yield files[i];
+  }
+  const expansions = new Map<string, { examined: number; edges: Map<string, EdgeV1> }>();
+  const skipped: { path: string; reason: string }[] = [];
+  const expand = (path: string, from: string, prefix: string, glob?: GlobSegment[], confidence: EdgeV1["confidence"] = "extracted") => {
+    let expansion = expansions.get(path);
+    if (!expansion) {
+      expansion = { examined: 0, edges: new Map() };
+      expansions.set(path, expansion);
+    }
+    if (expansion.examined > MAX_FILE_CANDIDATES) return;
+    for (const file of filesUnder(prefix)) {
+      if (++expansion.examined > MAX_FILE_CANDIDATES) {
+        expansion.edges.clear();
+        skipped.push({ path, reason: `COPY and bind-mount links omitted after ${MAX_FILE_CANDIDATES} file candidates` });
+        break;
+      }
+      if (glob && !globMatches(glob, file)) continue;
+      const key = `${from}\0${file}`;
+      if (!expansion.edges.has(key)) {
+        expansion.edges.set(key, { source: from, target: file, relation: "references", confidence });
+      }
+    }
+  };
+  const addObjectLinks = (from: string, targets: string[]) => {
+    const directory = posix.dirname(pathsById.get(from)!);
+    const sameFolder = targets.filter((target) => posix.dirname(pathsById.get(target)!) === directory);
+    for (const target of sameFolder) add(from, target);
+    if (!sameFolder.length) {
+      for (const target of targets) add(from, target, "inferred");
+    }
+  };
   const labels = new Map<string, Array<Extract<DeployRef, { to: "labels" }>>>();
   const built = new Map<string, string[]>();
+  const ignores = new Map<string, boolean>();
+  const hasIgnore = (path: string) => {
+    if (!ignores.has(path)) ignores.set(path, fileExists(path));
+    return ignores.get(path);
+  };
   for (const r of refs) {
     if (r.to === "labels") pushTo(labels, r.ns, r);
     else if (r.to === "image" && r.built) pushTo(built, imageRepo(r.image), r.from);
@@ -585,27 +635,33 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[]): EdgeV1[] {
         // Docker reads COPY sources inside the build context only.
         const src = under(ctx, r.src);
         if (src === null || !(ctx === "." || src === ctx || src.startsWith(`${ctx}/`))) continue;
+        const confidence = hasIgnore(`${r.dockerfile}.dockerignore`) || hasIgnore(posix.join(ctx, ".dockerignore")) ? "inferred" : "extracted";
         const glob = /[*?[]/.test(src) ? compileGlob(src) : null;
         if (!glob) {
-          for (const f of filesUnder(src)) add(r.from, f);
+          expand(r.dockerfile, r.from, src, undefined, confidence);
           continue;
         }
         // Only files under the glob's leading literal folders can match it.
         const parts = src.split("/");
         const literal = parts.slice(0, parts.findIndex((p) => /[*?[]/.test(p))).join("/") || ".";
-        for (const f of filesUnder(literal)) if (globMatches(glob, f)) add(r.from, f);
+        expand(r.dockerfile, r.from, literal, glob, confidence);
       }
     } else if (r.to === "build") {
       const stages = stagesOf.get(r.dockerfile) ?? [];
-      const stage = r.target ? stages.find((s) => s.name === r.target) : stages.at(-1);
+      const target = r.target?.toLowerCase();
+      const stage = target ? stages.find((s) => s.name.toLowerCase() === target) : stages.at(-1);
       if (stage) add(r.from, stage.id);
-    } else if (r.to === "mount") for (const f of filesUnder(r.path)) add(r.from, f);
-    else if (r.to === "object") for (const id of objects.get(`${r.kind}/${r.ns}/${r.name}`) ?? []) add(r.from, id);
+    } else if (r.to === "mount") expand(pathsById.get(r.from)!, r.from, r.path);
+    else if (r.to === "object") addObjectLinks(r.from, objects.get(`${r.kind}/${r.ns}/${r.name}`) ?? []);
     else if (r.to === "selector") {
-      for (const l of labels.get(r.ns) ?? []) if (Object.entries(r.match).every(([k, v]) => l.labels[k] === v)) add(r.from, l.from);
+      const match = Object.entries(r.match);
+      addObjectLinks(r.from, (labels.get(r.ns) ?? []).filter((l) => match.every(([k, v]) => l.labels[k] === v)).map((l) => l.from));
     } else if (r.to === "image" && !r.built) {
       for (const b of built.get(imageRepo(r.image)) ?? []) add(r.from, b, "inferred");
     }
   }
-  return out;
+  for (const expansion of expansions.values()) {
+    for (const edge of expansion.edges.values()) out.push(edge);
+  }
+  return { edges: out, skipped };
 }

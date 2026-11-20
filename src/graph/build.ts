@@ -582,8 +582,9 @@ export async function buildGraph(
     ...readTsImports(root, repoFiles),
     unresolvedCalls,
   });
-  // A loop, not a spread: a few `COPY . .` lines in a large repository give 100,000s of edges.
-  for (const e of resolveDeploy(nodes, deployRefs)) edges.push(e);
+  const deployment = resolveDeploy(nodes, deployRefs, (path) => existsSync(join(root, path)));
+  for (const edge of deployment.edges) edges.push(edge);
+  for (const file of deployment.skipped) skipped.push(file);
   for (const call of unresolvedCalls) {
     if (!call.through?.startsWith(".")) continue;
     const target = posix.join(posix.dirname(call.source.split("#")[0]), call.through);
