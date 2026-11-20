@@ -313,7 +313,11 @@ test("COPY distinguishes shared contexts and normalises parents inside the conte
     "a/main.py": "def first(): pass\n",
     "b/main.py": "def second(): pass\n",
     "main.py": "def outside(): pass\n",
-    "filtered/Dockerfile": "FROM scratch\nCOPY --exclude=other.py . /data/\n",
+    "filtered/Dockerfile": [
+      "FROM scratch AS forward", "COPY --exclude=other.py . /data/", "COPY main.py /data/",
+      "FROM scratch AS reverse", "COPY main.py /data/", "COPY --exclude=other.py . /data/",
+      "FROM scratch AS repeated", "COPY --exclude=other.py main.py /data/", "COPY main.py /data/",
+    ].join("\n"),
     "filtered/compose.yaml": "services:\n  one:\n    build: .\n",
     "filtered/main.py": "def inside(): pass\n",
     "filtered/other.py": "def other(): pass\n",
@@ -323,7 +327,13 @@ test("COPY distinguishes shared contexts and normalises parents inside the conte
       "Dockerfile#stage:0 -> a/main.py (inferred)",
       "Dockerfile#stage:0 -> b/main.py (inferred)",
     ]);
-    assert.ok(refs(graph).includes("filtered/Dockerfile#stage:0 -> filtered/other.py (inferred)"));
+    assert.deepEqual(refs(graph).filter((edge) => edge.startsWith("filtered/Dockerfile#stage:")), [
+      "filtered/Dockerfile#stage:forward -> filtered/main.py",
+      "filtered/Dockerfile#stage:forward -> filtered/other.py (inferred)",
+      "filtered/Dockerfile#stage:repeated -> filtered/main.py",
+      "filtered/Dockerfile#stage:reverse -> filtered/main.py",
+      "filtered/Dockerfile#stage:reverse -> filtered/other.py (inferred)",
+    ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

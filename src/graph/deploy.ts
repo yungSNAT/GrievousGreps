@@ -166,7 +166,8 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
   const ins = instructions(source);
   const total = source.split("\n").length;
   if (!ins.some((i) => i.op === "FROM")) throw new Skip("no FROM instruction");
-  type Stage = { id: string; name: string; image: string; start: number; end: number; copied: Set<string> };
+  type CopyRef = Extract<DeployRef, { to: "copy" }>;
+  type Stage = { id: string; name: string; image: string; start: number; end: number; copied: Map<string, CopyRef> };
   const stages: Stage[] = [];
   /** Stages built so far, by lowercased name and by index: a stage refers only to earlier ones. */
   const byName = new Map<string, Stage>();
@@ -182,7 +183,7 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
       const index = stages.length;
       const base = byName.get(w[0].toLowerCase());
       if (s) s.end = i.line - 1;
-      s = { id: `stage:${alias ?? index}`, name: alias ?? `stage ${index}`, image: w[0], start: i.line, end: total, copied: new Set() };
+      s = { id: `stage:${alias ?? index}`, name: alias ?? `stage ${index}`, image: w[0], start: i.line, end: total, copied: new Map() };
       stages.push(s);
       if (base) refs.push({ from: `${rel}#${s.id}`, to: "id", id: `${rel}#${base.id}` });
       if (alias !== undefined) byName.set(alias.toLowerCase(), s);
@@ -208,16 +209,21 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
       for (const raw of words(operands).slice(0, -1)) {
         if (raw.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("git@")) continue;
         const src = posix.normalize("/" + raw).slice(1).replace(/\/$/, "") || ".";
-        if (s.copied.has(src)) continue;
+        const earlier = s.copied.get(src);
+        if (earlier) {
+          if (!inferred) delete earlier.inferred;
+          continue;
+        }
         if (!compileGlob(src)) throw new Skip(`line ${i.line}: ${i.op} source ${src} is not a valid pattern`);
-        refs.push({ from, to: "copy", dockerfile: rel, src, ...(inferred ? { inferred: true } : {}) });
-        s.copied.add(src);
+        const ref: CopyRef = { from, to: "copy", dockerfile: rel, src, ...(inferred ? { inferred: true } : {}) };
+        refs.push(ref);
+        s.copied.set(src, ref);
       }
     }
     // Anything before the first FROM (an ARG) belongs to no stage.
   }
   const nodes = stages.map((st) =>
-    resource(rel, st.id, st.name, [st.start, st.end], `FROM ${st.image}${st.name.startsWith("stage ") ? "" : ` AS ${st.name}`}`, [st.name, st.image, ...st.copied]),
+    resource(rel, st.id, st.name, [st.start, st.end], `FROM ${st.image}${st.name.startsWith("stage ") ? "" : ` AS ${st.name}`}`, [st.name, st.image, ...st.copied.keys()]),
   );
   return { nodes, refs };
 }
@@ -516,9 +522,9 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
       }
       if (glob && !globMatches(glob, file)) continue;
       const key = `${from}\0${file}`;
-      if (!expansion.edges.has(key)) {
-        expansion.edges.set(key, { source: from, target: file, relation: "references", confidence });
-      }
+      const earlier = expansion.edges.get(key);
+      if (!earlier) expansion.edges.set(key, { source: from, target: file, relation: "references", confidence });
+      else if (confidence === "extracted") earlier.confidence = confidence;
     }
   };
   const addObjectLinks = (from: string, targets: string[]) => {
