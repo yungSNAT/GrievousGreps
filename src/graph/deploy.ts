@@ -23,7 +23,7 @@ export type DeployRef =
   /** A resource in the same file, by id. */
   | { from: string; to: "id"; id: string }
   /** A `COPY`/`ADD` source, relative to the build context of `dockerfile`. */
-  | { from: string; to: "copy"; dockerfile: string; src: string }
+  | { from: string; to: "copy"; dockerfile: string; src: string; inferred?: true }
   /** A compose build: the Dockerfile at `dockerfile` (repo-relative) with context `context`. */
   | { from: string; to: "build"; context: string; dockerfile: string; target?: string }
   /** A bind-mounted host path, repo-relative. */
@@ -97,7 +97,7 @@ export function extractDeploy(rel: string, source: string, format: DeployFormat)
 // ── Dockerfile ──────────────────────────────────────────────────────────────
 
 /** A heredoc opener (`<<EOF`, `<<-"EOF"`) at the start of a word of a RUN, COPY or ADD. */
-const HEREDOC = /(?:^|\s)<<-?(["']?)([A-Za-z_][\w-]*)\1/g;
+const HEREDOC = /(?:^|\s)<<(-?)(["']?)([A-Za-z_][\w-]*)\2/g;
 const HEREDOC_OPS = new Set(["RUN", "COPY", "ADD"]);
 
 /** Instructions with their first line, continuations joined, comments and heredoc bodies dropped. */
@@ -112,11 +112,13 @@ function instructions(source: string): Array<{ line: number; op: string; args: s
   const out: Array<{ line: number; op: string; args: string }> = [];
   let text = "";
   let start = 0;
-  let heredoc: string[] = [];
+  let heredoc: Array<{ name: string; stripTabs: boolean }> = [];
+  let pending = 0;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
-    if (heredoc.length) {
-      if (raw.trim() === heredoc[0]) heredoc.shift();
+    if (pending < heredoc.length) {
+      const { name, stripTabs } = heredoc[pending];
+      if ((stripTabs ? raw.replace(/^\t+/, "") : raw) === name) pending++;
       continue;
     }
     if (/^\s*#/.test(raw)) continue;
@@ -133,11 +135,14 @@ function instructions(source: string): Array<{ line: number; op: string; args: s
       const op = opcode.toUpperCase();
       const args = instruction.slice(opcode.length).trimStart();
       out.push({ line: start, op, args });
-      if (HEREDOC_OPS.has(op)) heredoc = [...args.matchAll(HEREDOC)].map((h) => h[2]);
+      if (HEREDOC_OPS.has(op)) {
+        heredoc = [...args.matchAll(HEREDOC)].map((h) => ({ name: h[3], stripTabs: h[1] === "-" }));
+        pending = 0;
+      }
     }
     text = "";
   }
-  if (heredoc.length) throw new Skip(`unterminated heredoc ${heredoc[0]}`);
+  if (pending < heredoc.length) throw new Skip(`unterminated heredoc ${heredoc[pending].name}`);
   return out;
 }
 
@@ -160,8 +165,7 @@ const STAGE_NAME = /^[a-z][a-z0-9._-]*$/i;
 function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: DeployRef[] } {
   const ins = instructions(source);
   const total = source.split("\n").length;
-  const froms = ins.filter((i) => i.op === "FROM");
-  if (!froms.length) throw new Skip("no FROM instruction");
+  if (!ins.some((i) => i.op === "FROM")) throw new Skip("no FROM instruction");
   type Stage = { id: string; name: string; image: string; start: number; end: number; copied: Set<string> };
   const stages: Stage[] = [];
   /** Stages built so far, by lowercased name and by index: a stage refers only to earlier ones. */
@@ -186,11 +190,13 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
       const from = `${rel}#${s.id}`;
       let operands = i.args;
       let fromFlag: string | undefined;
+      let inferred = false;
       while (operands.startsWith("--")) {
         const space = operands.search(/\s/);
         if (space <= 2) break;
         const flag = operands.slice(0, space);
         if (flag.toLowerCase().startsWith("--from=")) fromFlag ??= flag;
+        if (flag.toLowerCase().startsWith("--exclude=")) inferred = true;
         operands = operands.slice(space).trimStart();
       }
       if (fromFlag) {
@@ -201,10 +207,10 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
       }
       for (const raw of words(operands).slice(0, -1)) {
         if (raw.startsWith("<<") || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) || raw.startsWith("git@")) continue;
-        const src = raw.replace(/^\/+/, "") || ".";
+        const src = posix.normalize("/" + raw).slice(1).replace(/\/$/, "") || ".";
         if (s.copied.has(src)) continue;
         if (!compileGlob(src)) throw new Skip(`line ${i.line}: ${i.op} source ${src} is not a valid pattern`);
-        refs.push({ from, to: "copy", dockerfile: rel, src });
+        refs.push({ from, to: "copy", dockerfile: rel, src, ...(inferred ? { inferred: true } : {}) });
         s.copied.add(src);
       }
     }
@@ -328,7 +334,9 @@ function compose(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]
       if (Object.hasOwn(services, other)) refs.push({ from, to: "id", id: `${rel}#service:${other}` });
     }
     for (const v of list(svc.volumes, `service ${name}: volumes`)) {
-      const [src, type] = typeof v === "string" ? [v.split(":")[0], undefined] : [str(obj(v, `service ${name}: volume`).source, `service ${name}: volume source`), str((v as Obj).type, `service ${name}: volume type`)];
+      if (typeof v !== "string" && !isObj(v)) throw new Skip(`service ${name}: volume is not a string or mapping`);
+      const [src, type] = typeof v === "string" ? [v.split(":")[0], undefined]
+        : [str(v.source, `service ${name}: volume source`), str(v.type, `service ${name}: volume type`)];
       if (!src) continue;
       const bind = type === "bind" || (type === undefined && /^[.~/]/.test(src));
       if (bind) {
@@ -483,7 +491,6 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   // A Dockerfile's build context is each compose context that builds it, else its own folder.
   const contexts = new Map<string, Set<string>>();
   for (const r of refs) if (r.to === "build") contexts.set(r.dockerfile, (contexts.get(r.dockerfile) ?? new Set()).add(r.context));
-  for (const r of refs) if (r.to === "copy" && !contexts.has(r.dockerfile)) contexts.set(r.dockerfile, new Set([posix.dirname(r.dockerfile)]));
   const out: EdgeV1[] = [];
   const seen = new Set<string>();
   const add = (source: string, target: string, confidence: EdgeV1["confidence"] = "extracted") => {
@@ -536,11 +543,14 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   for (const r of refs) {
     if (r.to === "id") add(r.from, r.id);
     else if (r.to === "copy") {
-      for (const ctx of contexts.get(r.dockerfile) ?? []) {
+      const declared = contexts.get(r.dockerfile);
+      for (const ctx of declared ?? [posix.dirname(r.dockerfile)]) {
         // Docker reads COPY sources inside the build context only.
         const src = under(ctx, r.src);
         if (src === null || !(ctx === "." || src === ctx || src.startsWith(`${ctx}/`))) continue;
-        const confidence = hasIgnore(`${r.dockerfile}.dockerignore`) || hasIgnore(posix.join(ctx, ".dockerignore")) ? "inferred" : "extracted";
+        const approximate = r.inferred || !declared || declared.size > 1
+          || hasIgnore(`${r.dockerfile}.dockerignore`) || hasIgnore(posix.join(ctx, ".dockerignore"));
+        const confidence = approximate ? "inferred" : "extracted";
         const glob = /[*?[]/.test(src) ? compileGlob(src) : null;
         if (!glob) {
           expand(r.dockerfile, r.from, src, undefined, confidence);

@@ -68,7 +68,7 @@ function hunksIn(
 
 /** Evidence for one changed symbol: what this PR did to it. */
 export function seedEvidence(seed: Seed, file: ChangedFile | undefined): Evidence | null {
-  if (!file) return null;
+  if (!file || deployFormatOf(file.path) || (file.oldPath && deployFormatOf(file.oldPath))) return null;
   const span = seed.wholeFile ? null : spanRange(seed.span);
   const { lines, dropped } = hunksIn(file, span);
   if (lines.length === 0 && dropped === 0) return null;

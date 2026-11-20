@@ -21,6 +21,7 @@ import { runCallersCommand } from "../src/graph/traverse-cli.js";
 import { blastRadius } from "../src/blast/blast.js";
 import { fileReader } from "../src/blast/evidence.js";
 import { markdownReport } from "../src/blast/render.js";
+import { blastVizGraph } from "../src/blast/viz.js";
 import { grepGraph } from "../src/search/grep.js";
 import { runCli } from "./helpers.js";
 import type { GraphV1, NodeV1 } from "../src/graph/types.js";
@@ -301,16 +302,46 @@ test("COPY globs match by Docker's rules; a bad pattern skips its Dockerfile wit
     "src/b2.py": "def b():\n    pass\n",
     "src/c3.py": "def c():\n    pass\n",
     "src/deep/d4.py": "def d():\n    pass\n",
+    "src/d0.py": "def shallow():\n    pass\n",
+    "src/deep/extra/d9.py": "def deeper():\n    pass\n",
     Dockerfile: "FROM python:3.12\nCOPY src/[ab]* /app/\nCOPY src/**/d?.py /deep/\n",
     "bad/Dockerfile": "FROM python:3.12\nCOPY src/[ /x\n",
   });
   try {
-    assert.deepEqual(refs(graph), ["Dockerfile#stage:0 -> src/a1.py", "Dockerfile#stage:0 -> src/b2.py", "Dockerfile#stage:0 -> src/deep/d4.py"]);
+    assert.deepEqual(refs(graph), ["Dockerfile#stage:0 -> src/a1.py (inferred)", "Dockerfile#stage:0 -> src/b2.py (inferred)", "Dockerfile#stage:0 -> src/deep/d4.py (inferred)"]);
     assert.deepEqual(result.skipped, [{ path: "bad/Dockerfile", reason: "line 2: COPY source src/[ is not a valid pattern" }]);
     assert.equal(result.structuralErrors, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("COPY distinguishes shared contexts and normalises parents inside the context", async () => {
+  const { root, graph } = await built({
+    Dockerfile: "FROM scratch\nCOPY ../main.py /data/\n",
+    "compose.yaml": "services:\n  first:\n    build: {context: a, dockerfile: ../Dockerfile}\n  second:\n    build: {context: b, dockerfile: ../Dockerfile}\n",
+    "a/main.py": "def first(): pass\n",
+    "b/main.py": "def second(): pass\n",
+    "main.py": "def outside(): pass\n",
+    "filtered/Dockerfile": "FROM scratch\nCOPY --exclude=other.py . /data/\n",
+    "filtered/compose.yaml": "services:\n  one:\n    build: .\n",
+    "filtered/main.py": "def inside(): pass\n",
+    "filtered/other.py": "def other(): pass\n",
+  });
+  try {
+    assert.deepEqual(refs(graph).filter((edge) => edge.startsWith("Dockerfile#stage:")), [
+      "Dockerfile#stage:0 -> a/main.py (inferred)",
+      "Dockerfile#stage:0 -> b/main.py (inferred)",
+    ]);
+    assert.ok(refs(graph).includes("filtered/Dockerfile#stage:0 -> filtered/other.py (inferred)"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a null Compose volume yields a bounded skip", () => {
+  const result = extractDeploy("compose.yaml", "services:\n  api:\n    volumes: [null]\n", "compose");
+  assert.deepEqual(result, { nodes: [], refs: [], skipped: "service api: volume is not a string or mapping" });
 });
 
 test("a COPY glob with many wildcards resolves in linear time", { timeout: 60_000 }, async () => {
@@ -375,6 +406,12 @@ test("callers and blast never quote a deployment file's text", async () => {
     const md = markdownReport(report, { root });
     assert.match(md, /compose\.yaml/, "blast reaches the service");
     assert.ok(!md.includes(SECRET), md);
+    const deploymentDiff = blastRadius(graph, [{
+      path: "compose.yaml", status: "modified", ranges: [{ start: 2, end: 3 }],
+      hunks: [{ start: 2, end: 3, dropped: 0, lines: [{ n: 2, sign: "+", text: "DEPLOYMENT-DIFF-FIXTURE" }] }],
+    }], "test", { depth: 2, read: fileReader(root) });
+    assert.ok(deploymentDiff.seeds.length);
+    assert.doesNotMatch(JSON.stringify(blastVizGraph(deploymentDiff, { root })), /DEPLOYMENT-DIFF-FIXTURE/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -448,6 +485,10 @@ test("heredocs are read only on RUN, COPY and ADD; an unterminated one skips the
   assert.equal(shift.nodes.filter((n) => n.kind === "resource").length, 2);
   assert.deepEqual(shift.refs, [{ from: "Dockerfile#stage:two", to: "copy", dockerfile: "Dockerfile", src: "src" }]);
   assert.equal(extractDeploy("Dockerfile", "FROM a\nRUN <<EOF\necho hi\n", "dockerfile").skipped, "unterminated heredoc EOF");
+  const multiline = "FROM a AS one\nCOPY <<EOT /greeting.txt\n  EOT\nhello\nEOT\nRUN <<-TABS\necho hi\n\tTABS\nFROM b AS two\n";
+  const result = extractDeploy("Dockerfile", multiline, "dockerfile");
+  assert.equal(result.skipped, undefined);
+  assert.deepEqual(result.nodes.filter((node) => node.kind === "resource").map((node) => node.name), ["one", "two"]);
 });
 
 test("a label, selector, depends_on, link or network that is not a string skips the file", () => {
@@ -499,7 +540,7 @@ test("hostile inputs: an alias bomb, a __proto__ service and a COPY outside the 
   assert.equal(({} as Record<string, unknown>).image, undefined);
   const { root, graph } = await built({ "secrets/key.py": "KEY = 1\n", "app/main.py": "def main():\n    pass\n", "app/Dockerfile": "FROM a\nCOPY ../secrets /x\nCOPY . /app\n" });
   try {
-    assert.deepEqual(refs(graph), ["app/Dockerfile#stage:0 -> app/main.py"], "a source outside the build context names nothing");
+    assert.deepEqual(refs(graph), ["app/Dockerfile#stage:0 -> app/main.py (inferred)"], "a source outside the build context names nothing");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -1,8 +1,8 @@
-/** One segment of a Docker glob: `**`, or a test per character with `*` for any run of them. */
-export type GlobSegment = "**" | Array<"*" | ((c: string) => boolean)>;
+/** One segment of a Docker glob, with `*` for any run of characters within that segment. */
+export type GlobSegment = Array<"*" | ((c: string) => boolean)>;
 
 /**
- * A COPY or ADD source as Docker reads it (Go's `filepath.Match`, plus `**`): `*` and `?`
+ * A COPY or ADD source as Docker reads it (Go's `filepath.Match`): `*` and `?`
  * within one path segment, `[a-z]` and `[^a-z]` classes; null for a malformed class.
  * shortcut: a backslash is a literal character here, not an escape; a source escaping a
  * wildcard therefore matches as a wildcard. Upgrade path: read `\` as Go does.
@@ -10,11 +10,7 @@ export type GlobSegment = "**" | Array<"*" | ((c: string) => boolean)>;
 export function compileGlob(glob: string): GlobSegment[] | null {
   const out: GlobSegment[] = [];
   for (const part of glob.split("/")) {
-    if (part === "**") {
-      out.push("**");
-      continue;
-    }
-    const tokens: Array<"*" | ((c: string) => boolean)> = [];
+    const tokens: GlobSegment = [];
     let i = 0;
     while (i < part.length) {
       const c = part[i];
@@ -72,19 +68,7 @@ function segmentMatches(tokens: Array<"*" | ((c: string) => boolean)>, name: str
 /** Whether a glob names a path, or a folder holding it (COPY copies a folder's contents). */
 export function globMatches(glob: GlobSegment[], path: string): boolean {
   const parts = path.split("/");
-  // at[j]: the glob's segments so far match the path's first j parts.
-  let at = new Array<boolean>(parts.length + 1).fill(false);
-  at[0] = true;
-  for (const seg of glob) {
-    const next = new Array<boolean>(parts.length + 1).fill(false);
-    for (let j = 0; j <= parts.length; j++) {
-      if (!at[j]) continue;
-      if (seg === "**") next.fill(true, j);
-      else if (j < parts.length && segmentMatches(seg, parts[j])) next[j + 1] = true;
-    }
-    at = next;
-  }
-  return at.some(Boolean);
+  return glob.length <= parts.length && glob.every((segment, index) => segmentMatches(segment, parts[index]));
 }
 
 /** The first index in the sorted file paths at or after the given path. */
