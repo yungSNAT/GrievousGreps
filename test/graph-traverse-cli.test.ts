@@ -86,8 +86,7 @@ test('graft callers --direction out: happy path shows the outgoing (callee) hit'
   const r = runCli(['callers', 'sub', d, '--direction', 'out']);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /sub · function · src\/math\.ts:/);
-  assert.match(r.stdout, /· calls →
-  src\/math\.ts: add L1$/m);
+  assert.match(r.stdout, /· calls →\n  src\/math\.ts: add L1$/m);
 });
 
 test('graft callers --direction out: zero-edge symbol prints a loud callees note and still exits 0', () => {
