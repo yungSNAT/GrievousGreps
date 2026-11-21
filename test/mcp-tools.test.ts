@@ -161,7 +161,8 @@ test('graft_trace_calls direction:out round-trips a callee, and reports a loud n
   const d = builtRepo();
   const callee = await callTool(d, 'graft_trace_calls', { symbol: 'sub', direction: 'out' });
   assert.equal(callee.isError, false);
-  assert.match(callee.text, /calls → add \(src\/math\.ts:/);
+  assert.match(callee.text, /· calls →
+  src\/math\.ts: add L1$/m);
 
   // `add` calls nothing, so its callees are empty — must be a loud note, not silence.
   const empty = await callTool(d, 'graft_trace_calls', { symbol: 'add', direction: 'out' });
