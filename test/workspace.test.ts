@@ -507,11 +507,11 @@ test("workspace graft_trace_calls walks depth \"all\" as the single-repository t
     await buildWorkspace(p);
     const direct = await callTool(p, "graft_trace_calls", { symbol: "leaf" });
     assert.equal(direct.isError, false);
-    assert.match(direct.text, /← mid \(a\.ts:/);
-    assert.doesNotMatch(direct.text, /← top \(/);
+    assert.match(direct.text, /^  a\.ts: mid L2$/m);
+    assert.doesNotMatch(direct.text, /top L/);
     const all = await callTool(p, "graft_trace_calls", { symbol: "leaf", depth: "all" });
     assert.equal(all.isError, false);
-    assert.match(all.text, /← top \(a\.ts:.*\[depth 2\]/);
+    assert.match(all.text, /^  a\.ts: mid L2 \[depth 1\], top L1 \[depth 2\]$/m);
   } finally {
     rmSync(p, { recursive: true, force: true });
   }
