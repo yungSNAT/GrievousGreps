@@ -329,8 +329,14 @@ test('callers report: mixed relations name their own, a quoted hit gives its cal
 });
 
 test('callers report: a path or name holding the layout separators is quoted, so a mark or a boundary cannot be read into it', () => {
-  const hits = [layoutHit('src/a [inferred]', 'plain', 'L2-L4'), layoutHit('src/a', 'guess', 'L5-L6', 'calls', true), layoutHit('odd: dir/b.ts', 'one, two', 'L7-L8')];
-  assert.deepEqual(layout(hits).slice(1), ['  "src/a [inferred]": plain L2', '  src/a [inferred]: guess L5', '  "odd: dir/b.ts": "one, two" L7']);
+  const hits = [
+    layoutHit('src/a [inferred]', 'plain', 'L2-L4'), layoutHit('src/a', 'guess', 'L5-L6', 'calls', true), layoutHit('odd: dir/b.ts', 'one, two', 'L7-L8'),
+    layoutHit('[x]/c.ts', '"q"', 'L9'), layoutHit('d.ts ', 'e', 'L10'), layoutHit('f.ts', 'g ', 'L11'),
+  ];
+  assert.deepEqual(layout(hits).slice(1), [
+    '  "src/a [inferred]": plain L2', '  src/a [inferred]: guess L5', '  "odd: dir/b.ts": "one, two" L7',
+    '  "[x]/c.ts": "\\"q\\"" L9', '  "d.ts ": e L10', '  f.ts: "g " L11',
+  ]);
 });
 
 test('callers report: an unresolved import among grouped hits keeps its own line, in walk order', () => {
