@@ -303,77 +303,43 @@ test('graft callers --depth --json: a hit reached through an inferred edge is ma
 
 /** A definition, and a depth-1 hit on another, for the report's layout. */
 const layoutNode = (path: string, name: string, span: string) => ({ id: `${path}#${name}`, name, kind: 'function', path, span }) as unknown as NodeV1;
-const layoutHit = (n: NodeV1, relation = 'calls', inferred?: true) => ({ node: n, id: n.id, relation, depth: 1, ...(inferred ? { inferred } : {}) }) as EdgeHit;
+const layoutHit = (path: string, name: string, span: string, relation = 'calls', inferred?: true) =>
+  ({ node: layoutNode(path, name, span), id: `${path}#${name}`, relation, depth: 1, ...(inferred ? { inferred } : {}) }) as EdgeHit;
+/** The report's one block for `target` in src/a.ts with these hits, as lines. */
+const layout = (hits: EdgeHit[], quote?: Parameters<typeof callerBlocks>[4]) =>
+  callerBlocks({ nodes: [], edges: [] } as unknown as GraphV1, 'in', false, [{ symbol: layoutNode('src/a.ts', 'target', 'L1-L3'), hits }], quote)[0].split('\n');
 
 test('callers report: each file once, its hits on one line, the shared relation once in the header', () => {
-  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
-  const [text] = callerBlocks(graph, 'in', false, [{
-    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
-    hits: [
-      layoutHit(layoutNode('test/a.test.ts', 'one', 'L5-L9')),
-      layoutHit(layoutNode('src/b.ts', 'two', 'L7-L8')),
-      layoutHit(layoutNode('test/a.test.ts', 'three', 'L12-L30')),
-    ],
-  }]);
-  assert.equal(text, [
+  assert.deepEqual(layout([layoutHit('test/a.test.ts', 'one', 'L5-L9'), layoutHit('src/b.ts', 'two', 'L7-L8'), layoutHit('test/a.test.ts', 'three', 'L12-L30')]), [
     'target · function · src/a.ts:L1-L3 · calls ←',
     '  test/a.test.ts: one L5, three L12',
     '  src/b.ts: two L7',
-  ].join('\n'));
+  ]);
 });
 
 test('callers report: mixed relations name their own, a quoted hit gives its call line, an inferred hit its own group', () => {
-  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
-  const [text] = callerBlocks(graph, 'in', false, [{
-    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
-    hits: [
-      layoutHit(layoutNode('src/b.ts', 'b.ts', 'L1'), 'imports'),
-      layoutHit(layoutNode('src/b.ts', 'two', 'L7-L9')),
-      layoutHit(layoutNode('src/b.ts', 'guess', 'L11-L12'), 'calls', true),
-    ],
-  }], (h) => (h.node?.name === 'two' ? { n: 8, text: '  return target();  ' } : undefined));
-  assert.equal(text, [
+  const hits = [layoutHit('src/b.ts', 'b.ts', 'L1', 'imports'), layoutHit('src/b.ts', 'two', 'L7-L9'), layoutHit('src/b.ts', 'guess', 'L11-L12', 'calls', true)];
+  assert.deepEqual(layout(hits, (h) => (h.node?.name === 'two' ? { n: 8, text: '  return target();  ' } : undefined)), [
     'target · function · src/a.ts:L1-L3',
     '  imports ← src/b.ts: b.ts L1',
     '  calls ← src/b.ts',
     '    two L8: return target();',
     '  calls ← src/b.ts [inferred]: guess L11',
-  ].join('\n'));
+  ]);
 });
 
 test('callers report: a path or name holding the layout separators is quoted, so a mark or a boundary cannot be read into it', () => {
-  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
-  const [text] = callerBlocks(graph, 'in', false, [{
-    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
-    hits: [
-      layoutHit(layoutNode('src/a [inferred]', 'plain', 'L2-L4')),
-      layoutHit(layoutNode('src/a', 'guess', 'L5-L6'), 'calls', true),
-      layoutHit(layoutNode('odd: dir/b.ts', 'one, two', 'L7-L8')),
-    ],
-  }]);
-  assert.equal(text, [
-    'target · function · src/a.ts:L1-L3 · calls ←',
-    '  "src/a [inferred]": plain L2',
-    '  src/a [inferred]: guess L5',
-    '  "odd: dir/b.ts": "one, two" L7',
-  ].join('\n'));
+  const hits = [layoutHit('src/a [inferred]', 'plain', 'L2-L4'), layoutHit('src/a', 'guess', 'L5-L6', 'calls', true), layoutHit('odd: dir/b.ts', 'one, two', 'L7-L8')];
+  assert.deepEqual(layout(hits).slice(1), ['  "src/a [inferred]": plain L2', '  src/a [inferred]: guess L5', '  "odd: dir/b.ts": "one, two" L7']);
 });
 
 test('callers report: an unresolved import among grouped hits keeps its own line, in walk order', () => {
-  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
-  const [text] = callerBlocks(graph, 'in', false, [{
-    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
-    hits: [
-      layoutHit(layoutNode('src/b.ts', 'one', 'L2-L4'), 'imports'),
-      { node: null, id: 'pkg/missing', relation: 'imports', depth: 1 } as EdgeHit,
-      layoutHit(layoutNode('src/b.ts', 'two', 'L6-L7'), 'imports'),
-      layoutHit(layoutNode('src/c.ts', 'three', 'L9-L9'), 'imports'),
-    ],
-  }]);
-  assert.equal(text, [
+  const missing = { node: null, id: 'pkg/missing', relation: 'imports', depth: 1 } as EdgeHit;
+  const hits = [layoutHit('src/b.ts', 'one', 'L2-L4', 'imports'), missing, layoutHit('src/b.ts', 'two', 'L6-L7', 'imports'), layoutHit('src/c.ts', 'three', 'L9-L9', 'imports')];
+  assert.deepEqual(layout(hits), [
     'target · function · src/a.ts:L1-L3 · imports ←',
     '  src/b.ts: one L2, two L6',
     '  imports ← pkg/missing (unresolved import)',
     '  src/c.ts: three L9',
-  ].join('\n'));
+  ]);
 });
