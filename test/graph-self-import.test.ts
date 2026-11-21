@@ -1195,9 +1195,10 @@ test("`callers` marks an inferred edge, in plain and JSON output, and no other",
     }
     return text;
   };
-  const lines = capture(false).split("\n");
-  assert.match(lines.find((l) => l.includes("← m "))!, /\[inferred\]$/);
-  assert.doesNotMatch(lines.find((l) => l.includes("← real "))!, /inferred/);
+  // The mark follows the file's path, so an inferred and a stated caller in one file are 2 groups.
+  const text = capture(false);
+  assert.match(text, /^  src\/lib\.rs \[inferred\]\n {4}m L\d+: /m);
+  assert.match(text, /^  src\/lib\.rs\n {4}real L\d+: /m);
   const hits = JSON.parse(capture(true)).matches[0].hits as { name: string; inferred?: boolean }[];
   assert.equal(hits.find((h) => h.name === "m")!.inferred, true);
   assert.equal(hits.find((h) => h.name === "real")!.inferred, undefined);

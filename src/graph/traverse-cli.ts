@@ -42,25 +42,88 @@ export function headerOf(n: NodeV1): string {
   return `${n.name} · ${n.kind} · ${n.path}:${n.span}`;
 }
 
-/** `showDepth` is set for multi-hop walks (depth > 1), matching the old
- * `graft impact` output which tagged every hit with its BFS depth.
- *
- * `quote`, when given, is the call site itself — the line inside the hit where it
- * references the symbol. An edge that says "total calls add" is a claim; the line
- * under it is the evidence, and it saves opening the file to check.
+/** One hit on its own line, with its relation. `showDepth` is set for multi-hop walks
+ * (depth > 1), matching the old `graft impact` output which tagged every hit with its
+ * BFS depth. The report prints a hit this way only when it has no node to group by
+ * file ({@link hitLines}).
  */
-export function hitLine(direction: Direction, hit: EdgeHit, showDepth: boolean, quote?: Quote): string {
+export function hitLine(direction: Direction, hit: EdgeHit, showDepth: boolean): string {
   const arrow = ARROW[direction];
   const depthTag = showDepth ? ` [depth ${hit.depth}]` : "";
   const label = hit.node ? `${hit.node.name} (${hit.node.path}:${hit.node.span})` : `${hit.id} (unresolved import)`;
-  const line = `  ${hit.relation} ${arrow} ${label}${depthTag}${hit.inferred ? INFERRED_MARK : ""}`;
-  return quote ? `${line}\n      ${quote.n}: ${quote.text.trim()}` : line;
+  return `  ${hit.relation} ${arrow} ${label}${depthTag}${hit.inferred ? INFERRED_MARK : ""}`;
 }
 
 /** A quoted source line: where the edge actually happens. */
 interface Quote {
   n: number;
   text: string;
+}
+
+/** The relation and arrow every hit shares, printed once after the header, or null when they differ. */
+function sharedRelation(direction: Direction, hits: EdgeHit[]): string | null {
+  const relations = new Set(hits.map((h) => h.relation));
+  return relations.size === 1 ? `${hits[0].relation} ${ARROW[direction]}` : null;
+}
+
+/** One hit inside its file's group: the name, then the hit's first line, or, when the call site
+ * is quoted, that line and its text. An edge that says "total calls add" is a claim; the quoted
+ * line is the evidence, and it saves opening the file to check. */
+function groupedHit(hit: NodeHit, showDepth: boolean, quote: Quote | undefined): string {
+  const depthTag = showDepth ? ` [depth ${hit.depth}]` : "";
+  if (quote) return `${hit.node.name} L${quote.n}${depthTag}: ${quote.text.trim()}`;
+  return `${hit.node.name} ${hit.node.span.split("-")[0]}${depthTag}`;
+}
+
+/**
+ * The hit lines of one definition, each file's path printed once. Hits group by relation, file and
+ * inferred mark, in the order the walk found them; the mark follows the path. A group with no
+ * quoted call site prints on one line (`path: name L8, name L20`); a group with quotes gives each
+ * hit its own line under the path.
+ * The relation is left out when `shared` (the header carries it). A hit with no node (an
+ * unresolved import) keeps its own line. Paths and span ends were most of the answer's tokens on
+ * the caller benchmark when each hit printed its own.
+ */
+function hitLines(
+  direction: Direction,
+  hits: EdgeHit[],
+  showDepth: boolean,
+  shared: string | null,
+  quote?: (hit: EdgeHit) => Quote | undefined,
+): string[] {
+  const groups = new Map<string, HitGroup>();
+  const out: (string | HitGroup)[] = [];
+  for (const h of hits) {
+    if (!h.node) {
+      out.push(hitLine(direction, h, showDepth));
+      continue;
+    }
+    const mark = h.inferred ? INFERRED_MARK : "";
+    const key = `${h.relation}\0${h.node.path}\0${mark}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { lead: `  ${shared ? "" : `${h.relation} ${ARROW[direction]} `}${h.node.path}`, mark, items: [] };
+      groups.set(key, group);
+      out.push(group);
+    }
+    group.items.push({ hit: h as NodeHit, quote: quote?.(h) });
+  }
+  return out.map((g) => {
+    if (typeof g === "string") return g;
+    if (g.items.every((i) => !i.quote)) {
+      return `${g.lead}${g.mark}: ${g.items.map((i) => groupedHit(i.hit, showDepth, undefined)).join(", ")}`;
+    }
+    return [`${g.lead}${g.mark}`, ...g.items.map((i) => `    ${groupedHit(i.hit, showDepth, i.quote)}`)].join("\n");
+  });
+}
+
+type NodeHit = EdgeHit & { node: NodeV1 };
+
+/** One file's hits for one relation and inferred mark. */
+interface HitGroup {
+  lead: string;
+  mark: string;
+  items: { hit: NodeHit; quote?: Quote }[];
 }
 
 /**
@@ -156,10 +219,11 @@ export function callerBlocks(
   const blocks = results
     .filter((r) => r.hits.length > 0 || results.length === 1)
     .map(({ symbol, hits }) => {
-      const lines = [headerOf(symbol)];
-      if (hits.length === 0) lines.push(looseNoteFor(direction, symbol.name, 1));
-      else for (const h of hits) lines.push(hitLine(direction, h, showDepth, quote?.(h, symbol.name)));
-      return [...lines, ...unresolved(symbol.name)].join("\n");
+      if (hits.length === 0) return [headerOf(symbol), looseNoteFor(direction, symbol.name, 1), ...unresolved(symbol.name)].join("\n");
+      const shared = sharedRelation(direction, hits);
+      const header = shared ? `${headerOf(symbol)} · ${shared}` : headerOf(symbol);
+      const lines = hitLines(direction, hits, showDepth, shared, quote && ((h) => quote(h, symbol.name)));
+      return [header, ...lines, ...unresolved(symbol.name)].join("\n");
     });
   // Matching ignores case, so the quiet definitions can carry more than one name.
   if (quiet.length > 0) blocks.push([...quietLines(direction, quiet, results.length), ...quiet.flatMap((q) => unresolved(q.name))].join("\n"));

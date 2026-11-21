@@ -17,6 +17,7 @@ import { contextDirFor } from '../src/context/node-file.js';
 import { wiringPath } from '../src/graph/write.js';
 import { callerBlocks } from '../src/graph/traverse-cli.js';
 import type { GraphV1, NodeV1 } from '../src/graph/types.js';
+import type { EdgeHit } from '../src/graph/traverse.js';
 
 function builtRepo(): string {
   const d = mkdtempSync(join(tmpdir(), 'graft-traversecli-'));
@@ -48,8 +49,7 @@ test('graft callers: happy path shows header and the caller hit', () => {
   const d = builtRepo();
   const r = runCli(['callers', 'add', d]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /add · function · src\/math\.ts:/);
-  assert.match(r.stdout, /calls ← sub \(src\/math\.ts:/);
+  assert.match(r.stdout, /add · function · src\/math\.ts:L\d+-L\d+ · calls ←\n  src\/math\.ts\n {4}sub L5: /);
 });
 
 test('graft callers --json: shape matches {query, matches:[{symbol,hits}]}', () => {
@@ -197,16 +197,14 @@ test('graft callers --depth: depth flag walks the BFS transitively (blast radius
   // depth 2 also reaches `compute` and tags each hit with its depth.
   const shallow = runCli(['callers', 'add', d, '--depth', '1']);
   assert.equal(shallow.status, 0);
-  assert.match(shallow.stdout, /← sub \(/);
+  assert.match(shallow.stdout, /^ {4}sub L\d+:/m);
   assert.doesNotMatch(shallow.stdout, /compute/);
   assert.doesNotMatch(shallow.stdout, /\[depth/); // depth 1 → no depth tags
 
   const deeper = runCli(['callers', 'add', d, '--depth', '2']);
   assert.equal(deeper.status, 0);
-  assert.match(deeper.stdout, /← sub \(/);
-  assert.match(deeper.stdout, /\[depth 1\]/);
-  assert.match(deeper.stdout, /← compute \(/);
-  assert.match(deeper.stdout, /\[depth 2\]/);
+  assert.match(deeper.stdout, /^ {4}sub L\d+ \[depth 1\]:/m);
+  assert.match(deeper.stdout, /^ {4}compute L\d+ \[depth 2\]$/m);
 });
 
 test('graft callers --depth all: walks the entire connected closure', () => {
@@ -215,10 +213,8 @@ test('graft callers --depth all: walks the entire connected closure', () => {
   // like an unbounded depth, terminating when no new node is found.
   const all = runCli(['callers', 'add', d, '--depth', 'all']);
   assert.equal(all.status, 0);
-  assert.match(all.stdout, /← sub \(/);
-  assert.match(all.stdout, /\[depth 1\]/);
-  assert.match(all.stdout, /← compute \(/);
-  assert.match(all.stdout, /\[depth 2\]/);
+  assert.match(all.stdout, /^ {4}sub L\d+ \[depth 1\]:/m);
+  assert.match(all.stdout, /^ {4}compute L\d+ \[depth 2\]$/m);
 });
 
 test('graft callers --depth: rejects a non-numeric, non-"all" value with exit 1', () => {
@@ -247,14 +243,14 @@ test('graft callers: quotes the call site, and only where it is the right line',
   const r = runCli(['callers', 'add', d]);
   assert.equal(r.status, 0);
   // `sub` calls `add` on line 5 of the fixture. The edge is a claim; this is the
-  // evidence, and it saves opening the file to check.
-  assert.match(r.stdout, /calls ← sub \(src\/math\.ts:[^)]*\)\n\s+5: return add\(a, -b\);/);
+  // evidence, and it saves opening the file to check. The call's line stands in for
+  // the caller's first line, as it is where the reader goes next.
+  assert.match(r.stdout, /· calls ←\n  src\/math\.ts\n {4}sub L5: return add\(a, -b\);$/m);
 
   // A second-hop hit references what is BETWEEN it and the symbol, not the symbol
   // itself, so quoting it would point at the wrong line.
   const deep = runCli(['callers', 'add', d, '--depth', '2']);
-  assert.match(deep.stdout, /calls ← compute \(src\/math\.ts:[^)]*\) \[depth 2\]\n/);
-  assert.ok(!/\[depth 2\]\n\s+\d+:/.test(deep.stdout), 'no quote on a second-hop hit');
+  assert.match(deep.stdout, /^ {4}compute L\d+ \[depth 2\]$/m, 'no quote on a second-hop hit');
 
   // --json is a data contract: the quote is a text-output nicety and must stay out.
   const json = JSON.parse(runCli(['callers', 'add', d, '--json']).stdout);
@@ -268,8 +264,8 @@ test('graft callers: a caller in a test gets no quote, its line already names it
   execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'build', d], { stdio: 'pipe' });
   const r = runCli(['callers', 'add', d]);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /calls ← sub \(src\/math\.ts:[^)]*\)\n\s+5: return add\(a, -b\);/, 'production callers keep their quote');
-  assert.match(r.stdout, /calls ← addsTwo \(test\/math\.test\.ts:[^)]*\)(\n|$)/, 'the test caller is listed');
+  assert.match(r.stdout, /^  src\/math\.ts\n {4}sub L5: return add\(a, -b\);$/m, 'production callers keep their quote');
+  assert.match(r.stdout, /^  test\/math\.test\.ts: addsTwo L2$/m, 'the test caller is listed at its first line');
   assert.doesNotMatch(r.stdout, /add\(1, 1\)/, 'without its call line');
 });
 
@@ -295,8 +291,7 @@ function inferredThenExtractedRepo(): string {
 test('graft callers --depth: a hit reached through an inferred edge is marked, in text', () => {
   const r = runCli(['callers', 'add', inferredThenExtractedRepo(), '--depth', '2']);
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /calls ← sub \(.*\[depth 1\] \[inferred\]/);
-  assert.match(r.stdout, /calls ← compute \(.*\[depth 2\] \[inferred\]/);
+  assert.match(r.stdout, /^  src\/math\.ts \[inferred\]\n {4}sub L5 \[depth 1\]: .*\n {4}compute L\d+ \[depth 2\]$/m);
 });
 
 test('graft callers --depth --json: a hit reached through an inferred edge is marked, with the same hits', () => {
@@ -304,4 +299,44 @@ test('graft callers --depth --json: a hit reached through an inferred edge is ma
   assert.equal(r.status, 0);
   const hits = JSON.parse(r.stdout).matches[0].hits as { name: string; depth: number; inferred?: true }[];
   assert.deepEqual(hits.map((h) => [h.name, h.depth, h.inferred]), [['sub', 1, true], ['compute', 2, true]]);
+});
+
+/** A definition, and a depth-1 hit on another, for the report's layout. */
+const layoutNode = (path: string, name: string, span: string) => ({ id: `${path}#${name}`, name, kind: 'function', path, span }) as unknown as NodeV1;
+const layoutHit = (n: NodeV1, relation = 'calls', inferred?: true) => ({ node: n, id: n.id, relation, depth: 1, ...(inferred ? { inferred } : {}) }) as EdgeHit;
+
+test('callers report: each file once, its hits on one line, the shared relation once in the header', () => {
+  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
+  const [text] = callerBlocks(graph, 'in', false, [{
+    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
+    hits: [
+      layoutHit(layoutNode('test/a.test.ts', 'one', 'L5-L9')),
+      layoutHit(layoutNode('src/b.ts', 'two', 'L7-L8')),
+      layoutHit(layoutNode('test/a.test.ts', 'three', 'L12-L30')),
+    ],
+  }]);
+  assert.equal(text, [
+    'target · function · src/a.ts:L1-L3 · calls ←',
+    '  test/a.test.ts: one L5, three L12',
+    '  src/b.ts: two L7',
+  ].join('\n'));
+});
+
+test('callers report: mixed relations name their own, a quoted hit gives its call line, an inferred hit its own group', () => {
+  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
+  const [text] = callerBlocks(graph, 'in', false, [{
+    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
+    hits: [
+      layoutHit(layoutNode('src/b.ts', 'b.ts', 'L1'), 'imports'),
+      layoutHit(layoutNode('src/b.ts', 'two', 'L7-L9')),
+      layoutHit(layoutNode('src/b.ts', 'guess', 'L11-L12'), 'calls', true),
+    ],
+  }], (h) => (h.node?.name === 'two' ? { n: 8, text: '  return target();  ' } : undefined));
+  assert.equal(text, [
+    'target · function · src/a.ts:L1-L3',
+    '  imports ← src/b.ts: b.ts L1',
+    '  calls ← src/b.ts',
+    '    two L8: return target();',
+    '  calls ← src/b.ts [inferred]: guess L11',
+  ].join('\n'));
 });
