@@ -62,8 +62,15 @@ interface Quote {
 
 /** The relation and arrow every hit shares, printed once after the header, or null when they differ. */
 function sharedRelation(direction: Direction, hits: EdgeHit[]): string | null {
-  const relations = new Set(hits.map((h) => h.relation));
-  return relations.size === 1 ? `${hits[0].relation} ${ARROW[direction]}` : null;
+  const first = hits[0].relation;
+  return hits.every((h) => h.relation === first) ? `${first} ${ARROW[direction]}` : null;
+}
+
+/** A path or name as printed in a group: JSON-quoted when it holds one of the layout's own
+ * separators (`: `, `, `, ` [`), starts with `[` or `"`, or ends with a space, so a reader can
+ * tell where it ends and a mark begins. */
+function groupLabel(text: string): string {
+  return /: |, | \[|^[["]| $/.test(text) ? JSON.stringify(text) : text;
 }
 
 /** One hit inside its file's group: the name, then the hit's first line, or, when the call site
@@ -71,12 +78,13 @@ function sharedRelation(direction: Direction, hits: EdgeHit[]): string | null {
  * line is the evidence, and it saves opening the file to check. */
 function groupedHit(hit: NodeHit, showDepth: boolean, quote: Quote | undefined): string {
   const depthTag = showDepth ? ` [depth ${hit.depth}]` : "";
-  if (quote) return `${hit.node.name} L${quote.n}${depthTag}: ${quote.text.trim()}`;
-  return `${hit.node.name} ${hit.node.span.split("-")[0]}${depthTag}`;
+  const name = groupLabel(hit.node.name);
+  if (quote) return `${name} L${quote.n}${depthTag}: ${quote.text.trim()}`;
+  return `${name} ${hit.node.span.split("-")[0]}${depthTag}`;
 }
 
 /**
- * The hit lines of one definition, each file's path printed once. Hits group by relation, file and
+ * The hit lines of one definition, each path printed once a group. Hits group by relation, file and
  * inferred mark, in the order the walk found them; the mark follows the path. A group with no
  * quoted call site prints on one line (`path: name L8, name L20`); a group with quotes gives each
  * hit its own line under the path.
@@ -102,7 +110,7 @@ function hitLines(
     const key = `${h.relation}\0${h.node.path}\0${mark}`;
     let group = groups.get(key);
     if (!group) {
-      group = { lead: `  ${shared ? "" : `${h.relation} ${ARROW[direction]} `}${h.node.path}`, mark, items: [] };
+      group = { lead: `  ${shared ? "" : `${h.relation} ${ARROW[direction]} `}${groupLabel(h.node.path)}`, mark, items: [] };
       groups.set(key, group);
       out.push(group);
     }

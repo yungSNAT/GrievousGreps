@@ -230,11 +230,11 @@ Call hierarchy matched this tool's recall on 6 repositories and references on 7;
 
 **What an agent reads, in tokens.** On 17 November 2026 (UTC) the plain answers of the 16 November runs, as each tool prints them, were counted with tiktoken's `o200k_base` encoding. This tool's 210 callers answers came to 203,627 tokens, against 1,098,195 for `rg -n -w <name>` on the same names. In those runs codebase-memory-mcp and CodeGraph 1.6.2 spent fewer tokens on each call they found; this tool found more calls.
 
-On 21 November 2026 (UTC) this tool's answers were counted again the same way, on the same 210 symbols. At `b3c7345` they came to 203,706 tokens, 47.0 a call found, with 4,333 calls found (`gg-bench run` at `b3c7345`). The report now prints each file once, a file's unquoted callers on one line, a shared relation once, and a quoted caller at the line of its call: on top of `b3c7345` it came to 132,037 tokens, 30.5 a call found, with the same 6,743 hits in every answer and `--json` unchanged ([benchmark/results/2026-11-21/answer-tokens.md](benchmark/results/2026-11-21/answer-tokens.md)). That is fewer tokens a call found than codebase-memory-mcp's 34.0 and CodeGraph 1.6.2's 31.7 below, whose answers were not rerun; both still spent fewer tokens in all, as they found fewer calls.
+On 21 November 2026 (UTC) this tool's answers were counted again the same way, on the same 210 symbols. At `b3c7345` they came to 203,706 tokens, 47.0 a call found, with 4,333 calls found (`gg-bench run` at `b3c7345`). The report now prints a file's path once for each group of its hits (by relation and inferred mark), a group's unquoted callers on one line, a shared relation once, and a quoted caller at the line of its call: on top of `b3c7345` it came to 132,037 tokens, 30.5 a call found, with the same hits in every answer, 6,743 in all, and `--json` unchanged ([benchmark/results/2026-11-21/answer-tokens.md](benchmark/results/2026-11-21/answer-tokens.md)). That is fewer tokens a call found than codebase-memory-mcp's 34.0 and CodeGraph 1.6.2's 31.7 from the 16 November runs (table below), whose answers were not rerun; both still spent fewer tokens in all, as they found fewer calls.
 
 | Tool | Answers | Tokens | Median tokens an answer | Calls found | Tokens a call found |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| GrievousGreps, each file once, on `b3c7345` (21 Nov) | 210 | 132,037 | 230 | 4,333 | 30.5 |
+| GrievousGreps, grouped by file, on `b3c7345` (21 Nov) | 210 | 132,037 | 230 | 4,333 | 30.5 |
 | GrievousGreps `88c214e` | 210 | 203,627 | 290 | 4,328 | 47.0 |
 | codebase-memory-mcp, tests on | 210 | 92,944 | 219 | 2,733 | 34.0 |
 | Serena, defaults | 210 | 441,692 | 703 | 2,397 | 184.3 |

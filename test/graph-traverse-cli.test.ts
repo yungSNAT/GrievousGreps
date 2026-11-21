@@ -340,3 +340,40 @@ test('callers report: mixed relations name their own, a quoted hit gives its cal
     '  calls ← src/b.ts [inferred]: guess L11',
   ].join('\n'));
 });
+
+test('callers report: a path or name holding the layout separators is quoted, so a mark or a boundary cannot be read into it', () => {
+  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
+  const [text] = callerBlocks(graph, 'in', false, [{
+    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
+    hits: [
+      layoutHit(layoutNode('src/a [inferred]', 'plain', 'L2-L4')),
+      layoutHit(layoutNode('src/a', 'guess', 'L5-L6'), 'calls', true),
+      layoutHit(layoutNode('odd: dir/b.ts', 'one, two', 'L7-L8')),
+    ],
+  }]);
+  assert.equal(text, [
+    'target · function · src/a.ts:L1-L3 · calls ←',
+    '  "src/a [inferred]": plain L2',
+    '  src/a [inferred]: guess L5',
+    '  "odd: dir/b.ts": "one, two" L7',
+  ].join('\n'));
+});
+
+test('callers report: an unresolved import among grouped hits keeps its own line, in walk order', () => {
+  const graph = { nodes: [], edges: [] } as unknown as GraphV1;
+  const [text] = callerBlocks(graph, 'in', false, [{
+    symbol: layoutNode('src/a.ts', 'target', 'L1-L3'),
+    hits: [
+      layoutHit(layoutNode('src/b.ts', 'one', 'L2-L4'), 'imports'),
+      { node: null, id: 'pkg/missing', relation: 'imports', depth: 1 } as EdgeHit,
+      layoutHit(layoutNode('src/b.ts', 'two', 'L6-L7'), 'imports'),
+      layoutHit(layoutNode('src/c.ts', 'three', 'L9-L9'), 'imports'),
+    ],
+  }]);
+  assert.equal(text, [
+    'target · function · src/a.ts:L1-L3 · imports ←',
+    '  src/b.ts: one L2, two L6',
+    '  imports ← pkg/missing (unresolved import)',
+    '  src/c.ts: three L9',
+  ].join('\n'));
+});

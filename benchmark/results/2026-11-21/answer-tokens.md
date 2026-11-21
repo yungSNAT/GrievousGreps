@@ -5,6 +5,6 @@ The 210 symbols of the caller benchmark's truth on its 21 pinned repositories, a
 | Build | Answers | Bytes | Tokens | Median tokens an answer | Calls found | Tokens a call found |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `b3c7345` | 210 | 739,781 | 203,706 | 289.5 | 4,333 | 47.0 |
-| `b3c7345` with each file printed once | 210 | 496,111 | 132,037 | 229.5 | 4,333 | 30.5 |
+| `b3c7345` with hits grouped by file | 210 | 496,111 | 132,037 | 229.5 | 4,333 | 30.5 |
 
 Calls found are from `gg-bench run --tool dist/bin/graft.js` at `b3c7345`: recall 0.98, 4,333 of 4,403 calls, precision 0.95, 7 silent undercounts. The change leaves `--json`, which `gg-bench` scores, as it was. Every one of the 210 answers lists the same number of hits in both builds, 6,743 in all.
