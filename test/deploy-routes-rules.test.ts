@@ -256,3 +256,83 @@ func main() {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("blocks and class bodies are scopes: a name bound inside one does not stand for the outer binding", async () => {
+  const { root, graph } = await built({
+    "blk/server.js": `import express from "express";
+import { show } from "./show.js";
+
+const app = express();
+const r = express.Router();
+let auth = "/api";
+r.get("/x", show);
+
+if (process.env.DEBUG) {
+  function auth(req, res, next) {
+    next();
+  }
+}
+app.use(auth, r);
+
+function local() {
+  class app {
+    static get(path, handler) {}
+  }
+  app.get("/fake", show);
+}
+
+function blockLocal() {
+  if (process.env.DEBUG) {
+    const app = { get() {} };
+    app.get("/inner", show);
+  }
+  app.get("/outer", show);
+}
+`,
+    "blk/show.js": "export function show(req, res) {\n  res.end();\n}\n",
+    "gosvc/main.go": `package main
+
+import "net/http"
+
+type fake struct{}
+
+func (f fake) HandleFunc(p string, h any) {}
+
+func h(w http.ResponseWriter, r *http.Request) {}
+
+func main() {
+	mux := http.NewServeMux()
+	if true {
+		mux := 1
+		_ = mux
+		http := fake{}
+		http.HandleFunc("/shadow", h)
+	}
+	mux.HandleFunc("/go", h)
+	http.ListenAndServe(":8080", mux)
+}
+`,
+    "py/app.py": `from flask import Flask
+
+app = Flask(__name__)
+
+class Views:
+    app = None
+
+@app.route("/py")
+def py():
+    return ""
+`,
+  });
+  try {
+    // An unknown prefix gives no route: '/x' would be the block function read as middleware.
+    assert.deepEqual(routeIds(graph), [
+      "blk/server.js#route:GET /outer",
+      "gosvc/main.go#route:ANY /go",
+      "py/app.py#route:GET /py",
+    ]);
+    assert.ok(routeEdges(graph).includes("blk/server.js#route:GET /outer -> blk/show.js#show"), routeEdges(graph).join("\n"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
