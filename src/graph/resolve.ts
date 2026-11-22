@@ -508,8 +508,8 @@ export function resolveEdges(
   const pythonCtx: PythonCtx = { modules: pythonModules, perFileName, exports: pythonExports, ownerMethod, classParents, classTraits };
 
   for (const e of rawEdges) {
-    if (e.relation === "contains" && e.targetId) {
-      add(e.source, e.targetId, "contains", "extracted");
+    if ((e.relation === "contains" || e.relation === "references") && e.targetId) {
+      add(e.source, e.targetId, e.relation, "extracted");
     } else if (e.relation === "imports" && e.specifier) {
       const target =
         hasGoModules && e.file.endsWith(".go")
