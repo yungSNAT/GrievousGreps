@@ -75,7 +75,8 @@ function tool(dir: string): string {
 /** A temporary folder by its real path (the runner's temp folder can be a symlink or a short name). */
 function scratch(t: { after: (fn: () => void) => void }): string {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), "program-tree-")));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // Windows can hold a just-spawned .exe open for a moment after the child exits (EPERM).
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
   return dir;
 }
 /** `fn` with this process in `dir`. */
@@ -240,7 +241,7 @@ test("a program not on PATH: spawnSync reports it, execFileSync and spawn throw,
   assert.equal(r.error?.message, "trail-no-such-program was not found on PATH outside the working folder and its subfolders");
   assert.throws(() => execFileSync("trail-no-such-program", [], { env }), { code: "ENOENT", message: "trail-no-such-program was not found on PATH outside the working folder and its subfolders" });
   assert.throws(() => spawn("trail-no-such-program", [], { env }), { code: "ENOENT" });
-  rmSync(env.PATH, { recursive: true, force: true });
+  rmSync(env.PATH, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 });
 
 test("spawnSync(name, undefined, options) looks the name up in that options' PATH, as Node reads them", (t) => {
