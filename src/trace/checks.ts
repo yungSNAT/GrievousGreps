@@ -192,7 +192,7 @@ function deployState(text: string): { passed: boolean; state?: string } {
   const states: string[] = [];
   for (const m of text.matchAll(/"(?:state|status|conclusion)"\s*:\s*"([^"]+)"/gi)) states.push(m[1]!);
   // A line's own indent, and one gap before and after `:` and the bullet, so a run of blank lines or spaces is read once.
-  for (const m of text.matchAll(/^[^\S\r\n  ]*(?:state|status)\s*(?:[:=]\s*)?(?:[●•]\s*)?([A-Za-z_]+)\s*$/gim)) states.push(m[1]!);
+  for (const m of text.matchAll(/^[^\S\r\n\u2028\u2029]*(?:state|status)\s*(?:[:=]\s*)?(?:[●•]\s*)?([A-Za-z_]+)\s*$/gim)) states.push(m[1]!);
   for (const m of text.matchAll(/[●•]\s*([A-Za-z_]+)/g)) states.push(m[1]!);
   const last = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? '';
   const lastWord = last.replace(/^["'●•\s]+|["'\s]+$/g, '');
@@ -408,7 +408,7 @@ const SHA = /^[0-9a-f]{7,40}$/;
 const isSha = (t: string) => SHA.test(t) && /\d/.test(t) && /[a-f]/.test(t);
 const addOnce = (list: string[], v: string | undefined) => { if (v && !list.includes(v)) list.push(v); };
 // A line's own indent, and one gap after the flag, so a run of blank lines or spaces is read once.
-const PUSH_TAIL = /^[^\S\r\n  ]*(?:[+*=!-]\s*)?(?:([0-9a-f]{7,40})\.\.\.?([0-9a-f]{7,40})|\[new branch\])\s+(\S+)\s+->\s+(\S+)/gm;
+const PUSH_TAIL = /^[^\S\r\n\u2028\u2029]*(?:[+*=!-]\s*)?(?:([0-9a-f]{7,40})\.\.\.?([0-9a-f]{7,40})|\[new branch\])\s+(\S+)\s+->\s+(\S+)/gm;
 
 /** Branches and shas a `git push` command names. */
 function pushTargets(bare: string, facts: RunFacts): void {

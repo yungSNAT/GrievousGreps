@@ -806,7 +806,7 @@ function rustPathRoot(path: string | undefined, scopes: RustUseScope[], at: numb
 /** Where `text`'s last line starts: as far back as a `.` in a pattern that ends at `$` can reach. */
 function lastLineStart(text: string): number {
   let at = text.length;
-  while (at > 0 && !"\n\r  ".includes(text[at - 1]!)) at--;
+  while (at > 0 && !"\n\r\u2028\u2029".includes(text[at - 1]!)) at--;
   return at;
 }
 
