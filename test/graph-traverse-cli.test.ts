@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { contextDirFor } from '../src/context/node-file.js';
 import { wiringPath } from '../src/graph/write.js';
 import { callerBlocks } from '../src/graph/traverse-cli.js';
-import { referenceLine, wordRe } from '../src/blast/evidence.js';
+import { impactedEvidence, referenceLine, wordRe } from '../src/blast/evidence.js';
 import type { GraphV1, NodeV1 } from '../src/graph/types.js';
 import type { EdgeHit } from '../src/graph/traverse.js';
 
@@ -290,6 +290,31 @@ test('referenceLine: a string, a comment or a docstring naming the symbol is not
   assert.equal(at('a.c', '#define RUN install()\nvoid f() { RUN; }'), 1);
   // Only a string or a comment names it: no line is quoted.
   assert.equal(at('a.py', 'def main():\n    print("Please install click")'), null);
+});
+
+test('referenceLine: a regex literal, a Go raw string ending in a backslash and a Rust string over lines are read as what they are', () => {
+  const at = (path: string, text: string, span = 'L1-L20') => referenceLine(path, span, [wordRe('install')], () => text.split('\n'), true)?.n ?? null;
+  // A quote in a regex literal opens no string; a name in one is not a call.
+  assert.equal(at('a.ts', "function f() {\n  const r = /'/; install();\n}"), 2);
+  assert.equal(at('a.js', 'function f() {\n  const r = /[/"]install/g;\n  install();\n}'), 3);
+  // A slash after a value divides.
+  assert.equal(at('a.ts', 'function f(a: number, b: number) {\n  return a / b / install();\n}'), 2);
+  // A Go raw string has no escapes: a backslash before its backtick does not keep it open.
+  assert.equal(at('a.go', 'func f() {\n\ts := `C:\\`\n\tinstall()\n}'), 3);
+  // A Rust string, raw or not, runs across lines until it closes.
+  assert.equal(at('a.rs', 'fn f() {\n    let s = r#"say "hi"\ninstall()\n"#;\n    install();\n}'), 5);
+  assert.equal(at('a.rs', 'fn f() {\n    let s = "a\ninstall()\n";\n    install();\n}'), 5);
+});
+
+test('impactedEvidence: the note names the symbol the quoted line uses; an import path is still read in its string', () => {
+  const sym = { id: 'u', name: 'use', kind: 'function', path: 'src/u.ts', span: 'L1-L4', relation: 'calls', depth: 1 };
+  const read = (text: string) => () => text.split('\n');
+  const byName = impactedEvidence(sym, { names: ['alpha', 'beta'], modules: [] }, read('export function use() {\n  const x = "alpha"; beta();\n}'));
+  assert.equal(byName?.note, 'calls beta');
+  assert.equal(byName?.lines[0]?.n, 2);
+  const byModule = impactedEvidence(sym, { names: ['gamma'], modules: [/from\s+["']\.\/data\.js["']/] }, read('import { x } from "./data.js";\nexport function use() {\n  return x;\n}'));
+  assert.equal(byModule?.note, 'calls');
+  assert.equal(byModule?.lines[0]?.n, 1);
 });
 
 test('graft callers: a caller in a test gets no quote, its line already names it', () => {
