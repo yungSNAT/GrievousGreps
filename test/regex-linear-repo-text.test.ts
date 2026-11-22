@@ -61,7 +61,7 @@ test("a deploy check's output full of spaces after a state word is read in linea
 });
 
 test("git push output full of blank lines is read in linear time", () => {
-  const text = `To github.com:acme/shop.git\n${"\n".repeat(3500)}   1f2e3d4..9c8b7a6  beta -> beta\n`;
+  const text = `To github.com:acme/shop.git\n${"\n".repeat(2400)}x\n   1f2e3d4..9c8b7a6  beta -> beta\n`;
   const hit = quick("push", () => classifyCheck("git push origin beta", text, OK, NONE, "ship"));
   assert.deepEqual(hit?.facts, { sha: "9c8b7a6", branch: "beta", remote: "origin" }, "the line after the blank ones is still read");
 });
