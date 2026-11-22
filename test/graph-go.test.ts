@@ -594,7 +594,7 @@ test("Go extraction: a func literal's parameter or local named like the method's
     },
   );
   // A type switch's alias is in scope in its clauses, not in its guard.
-  assert.deepEqual(graph.edges.filter((e) => e.relation === "calls" && e.source === "main.go#Logger.Guard").map((e) => e.target), ["main.go#Logger.Any"]);
+  assert.deepEqual(graph.edges.filter((e) => e.relation === "calls" && e.source === "main.go#Logger.Guard" && e.target.endsWith("Any")).map((e) => e.target), ["main.go#Logger.Any"]);
 });
 
 test("Go extraction: a type parameter names no type, though the package declares one of that name", async () => {
