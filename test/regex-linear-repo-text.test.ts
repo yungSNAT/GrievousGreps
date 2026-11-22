@@ -95,7 +95,7 @@ test("a Rust item whose first line holds a long gap is read in linear time", asy
 test("a Rust return type that wraps a long gap is resolved in linear time", async () => {
   const d = dir("box", {
     "Cargo.toml": '[package]\nname = "m"\nversion = "0.1.0"\nedition = "2021"\n',
-    "src/lib.rs": `pub struct T;\nimpl T { pub fn m(&self) {} }\npub fn f() -> Box<${" ".repeat(N)}T>::Out { todo!() }\npub fn o() -> Option<${" ".repeat(N)}T>::Out { todo!() }\npub fn g() { f().m(); o().unwrap().m(); }\n`,
+    "src/lib.rs": `pub struct T;\nimpl T { pub fn m(&self) {} }\npub fn f() -> Box<${" ".repeat(N)}T>::Out { todo!() }\npub fn o() -> Option<${" ".repeat(N)}T>::Out { todo!() }\npub fn h() -> Box<A<${"B, ".repeat(N / 3)}>> { todo!() }\npub fn g() { f().m(); o().unwrap().m(); h().m(); }\n`,
   });
   const start = performance.now();
   await buildGraph(d);
