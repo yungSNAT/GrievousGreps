@@ -21,14 +21,16 @@ export async function built(files: Record<string, string>) {
   return { root, result, graph: readGraph(wiringPath(contextDirFor(root)))! };
 }
 
-export const routeIds = (graph: GraphV1) => graph.nodes.filter((n) => n.id.includes("#route:")).map((n) => n.id).sort();
+const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+export const routeIds = (graph: GraphV1) => graph.nodes.filter((n) => n.id.includes("#route:")).map((n) => n.id).sort(byCodeUnit);
 
 /** Edges into or out of a route node, as `source -> target`, inferred ones marked. */
 export function routeEdges(graph: GraphV1): string[] {
   return graph.edges
     .filter((e) => e.relation === "references" && (e.source.includes("#route:") || e.target.includes("#route:")))
     .map((e) => `${e.source} -> ${e.target}${e.confidence === "inferred" ? " (inferred)" : ""}`)
-    .sort();
+    .sort(byCodeUnit);
 }
 
 // Fixtures are template literals: one token each, so the duplication check reads code only.
