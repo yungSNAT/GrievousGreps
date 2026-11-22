@@ -658,7 +658,11 @@ function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects
     if (r.to !== "route") continue;
     for (const service of objects.get(`Service/${r.ns}/${r.service}`) ?? []) {
       for (const file of shippedBy(service)) {
-        for (const route of routesIn.get(file)!) if (routeServes(r.path, r.type, route.name)) add(r.from, route.id, "inferred");
+        for (const route of routesIn.get(file)!) {
+          // A route's signature is `route <framework> <name>`.
+          const framework = route.signature?.split(" ")[1] ?? "";
+          if (routeServes(r.path, r.type, route.name, framework)) add(r.from, route.id, "inferred");
+        }
       }
     }
   }

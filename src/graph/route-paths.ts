@@ -5,6 +5,9 @@
  */
 export type Seg = { lit: string } | { param: string; type?: string } | { rest: string };
 
+/** Whose path rules a route follows: its converters and whether its rest of the path may be empty. */
+export type Framework = "fastapi" | "flask" | "express" | "go";
+
 /** A path's segments, and whether it ends in a `/` that the framework matches literally. */
 export interface RoutePath {
   segs: Seg[];
@@ -13,11 +16,22 @@ export interface RoutePath {
 
 
 const PLAIN = /^[^:*?()+[\]{}<>\\]+$/;
-const TYPES: Record<string, RegExp> = {
-  int: /^\d+$/,
-  float: /^\d+\.\d+$/,
-  uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+/** What each converter accepts in one segment, as Werkzeug (Flask) and Starlette (FastAPI) define it. */
+const TYPES: Partial<Record<Framework, Record<string, RegExp>>> = {
+  flask: {
+    int: /^\d+$/,
+    float: /^\d+\.\d+$/,
+    uuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  },
+  fastapi: {
+    int: /^\d+$/,
+    float: /^\d+(?:\.\d+)?$/,
+    uuid: /^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i,
+  },
 };
+
+/** Whether a rest parameter also takes nothing: Starlette's `path` and Go's `...` do, Werkzeug's `path` and Express 5's `*name` do not. */
+const emptyRest = (framework: string, name: string) => framework === "fastapi" || framework === "go" || name === "";
 
 /** A path's segments; null when one is not plain, partly a parameter, or a rest that is not last. */
 export function segments(path: string, one: (seg: string) => Seg | null): RoutePath | null {
@@ -33,10 +47,10 @@ export function segments(path: string, one: (seg: string) => Seg | null): RouteP
 }
 
 /** A converter name as a segment: a type the matcher can check, the rest of the path, or null. */
-function converted(name: string, conv: string | undefined, plain: string, rest: string): Seg | null {
-  if (conv === undefined || conv === plain) return { param: name };
-  if (conv === rest) return { rest: name };
-  return Object.hasOwn(TYPES, conv) ? { param: name, type: conv } : null;
+function converted(name: string, conv: string | undefined, framework: "fastapi" | "flask"): Seg | null {
+  if (conv === undefined || conv === (framework === "flask" ? "string" : "str")) return { param: name };
+  if (conv === "path") return { rest: name };
+  return Object.hasOwn(TYPES[framework]!, conv) ? { param: name, type: conv } : null;
 }
 
 export const expressSeg = (s: string): Seg | null => {
@@ -46,12 +60,12 @@ export const expressSeg = (s: string): Seg | null => {
 
 export const fastapiSeg = (s: string): Seg | null => {
   const m = /^\{([A-Za-z_]\w*)(?::(\w+))?\}$/.exec(s);
-  return m ? converted(m[1], m[2], "str", "path") : null;
+  return m ? converted(m[1], m[2], "fastapi") : null;
 };
 
 export const flaskSeg = (s: string): Seg | null => {
   const m = /^<(?:(\w+):)?([A-Za-z_]\w*)>$/.exec(s);
-  return m ? converted(m[2], m[1], "string", "path") : null;
+  return m ? converted(m[2], m[1], "flask") : null;
 };
 
 const goSeg = (s: string): Seg | null => {
@@ -88,24 +102,26 @@ function parseCanonical(path: string): RoutePath {
 
 /**
  * Whether an Ingress path of `type` can send a request to `route` (a route node's name), by
- * whole segments. `Exact` needs the whole route, trailing `/` included; `Prefix` a route at
- * or below the path. A parameter matches one segment its converter accepts; a named rest
- * parameter one or more segments, an unnamed one (a Go subtree) also the bare trailing `/`.
- * `ImplementationSpecific` depends on the controller, so it matches nothing.
+ * whole segments, by `framework`'s rules. `Exact` needs the whole route, trailing `/`
+ * included; `Prefix` a route at or below the path. A parameter matches one segment its
+ * converter accepts; a rest parameter one or more segments, and also the bare trailing `/`
+ * where the framework lets it be empty. `ImplementationSpecific` depends on the controller,
+ * so it matches nothing.
  */
-export function routeServes(ingressPath: string, type: string, route: string): boolean {
+export function routeServes(ingressPath: string, type: string, route: string, framework: string): boolean {
   if (type !== "Exact" && type !== "Prefix") return false;
   const { segs, trailing } = parseCanonical(route.slice(route.indexOf(" ") + 1));
   const want = ingressPath.split("/").filter(Boolean);
+  const types = TYPES[framework as Framework] ?? {};
   for (let i = 0; i < want.length; i++) {
     const s = segs[i];
     if (!s) return false;
     if ("rest" in s) return true;
-    if ("lit" in s ? s.lit !== want[i] : s.type !== undefined && !TYPES[s.type].test(want[i])) return false;
+    if ("lit" in s ? s.lit !== want[i] : s.type !== undefined && !types[s.type]?.test(want[i])) return false;
   }
   if (type === "Prefix") return true;
   const wantTrailing = ingressPath.endsWith("/");
   if (segs.length === want.length) return want.length === 0 || trailing === wantTrailing;
   const next = segs[want.length];
-  return segs.length === want.length + 1 && next !== undefined && "rest" in next && next.rest === "" && wantTrailing;
+  return segs.length === want.length + 1 && next !== undefined && "rest" in next && emptyRest(framework, next.rest) && wantTrailing;
 }

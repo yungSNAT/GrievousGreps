@@ -167,7 +167,7 @@ test("FastAPI and Express routes link to their handlers, and each Ingress path o
     const route = graph.nodes.find((n) => n.id === "services/api/main.py#route:GET /api/users/{user_id}")!;
     assert.equal(route.kind, "resource");
     assert.equal(route.name, "GET /api/users/{user_id}");
-    assert.equal(route.signature, "route GET /api/users/{user_id}");
+    assert.equal(route.signature, "route fastapi GET /api/users/{user_id}");
     assert.equal(route.span, "L6-L8");
     const getUser = graph.nodes.find((n) => n.id === "services/api/main.py#get_user")!;
     const reached = impactOfMany(graph, [getUser], 2, "in");
@@ -305,8 +305,23 @@ test("an Ingress path serves a route by whole segments: Prefix, Exact, parameter
     ["/v/1.5", "Exact", "GET /v/{n:float}", true],
     ["/k/not-a-uuid", "Exact", "GET /k/{k:uuid}", false],
   ];
-  for (const [p, type, route, want] of cases) assert.equal(routeServes(p, type, route), want, `${type} ${p} vs ${route}`);
-  assert.equal(routeServes("/", "ImplementationSpecific", "GET /x"), false, "a controller's own rules are not assumed");
+  // Read as Flask routes, and the `ANY` ones (method-less) as Go's.
+  for (const [p, type, route, want] of cases) {
+    assert.equal(routeServes(p, type, route, route.startsWith("ANY ") ? "go" : "flask"), want, `${type} ${p} vs ${route}`);
+  }
+  assert.equal(routeServes("/", "ImplementationSpecific", "GET /x", "flask"), false, "a controller's own rules are not assumed");
+  // Where the frameworks differ: whether a rest may be empty, and what float and uuid accept.
+  const uuid = "0123456789abcdef0123456789abcdef";
+  const differ: Array<[string, string, Record<string, boolean>]> = [
+    ["/files/", "GET /files/{p...}", { fastapi: true, go: true, flask: false, express: false }],
+    ["/files/", "GET /files/{...}", { express: true, go: true }],
+    ["/v/1", "GET /v/{n:float}", { fastapi: true, flask: false }],
+    ["/v/1.5", "GET /v/{n:float}", { fastapi: true, flask: true }],
+    [`/k/${uuid}`, "GET /k/{k:uuid}", { fastapi: true, flask: false }],
+  ];
+  for (const [p, route, by] of differ) {
+    for (const [fw, want] of Object.entries(by)) assert.equal(routeServes(p, "Exact", route, fw), want, `${fw}: ${p} vs ${route}`);
+  }
 });
 
 test("a route in a file the Service's image does not ship, or behind a Service with no image chain, gets no Ingress link", async () => {
@@ -493,6 +508,7 @@ func main() {
       "dup1/main.py#route:GET /d1",
       "gosvc/main.go#route:ANY /exact/",
       "mnt/main.py#route:GET /m",
+      "svc/app.py#route:ANY /never",
       "svc/app.py#route:GET /items/",
       "svc/app.py#route:GET /typed/{n:int}",
       "web/server.js#route:GET /ok/c",
@@ -507,6 +523,135 @@ func main() {
     ]);
     assert.ok(edges.includes("web/server.js#route:GET /ok/c -> web/show.js#show"), edges.join("\n"));
     assert.ok(!edges.some((e) => e.startsWith("web/server.js#route:GET /ok/shadowed ->")), "a parameter shadows the imported handler");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("each framework's own rules: empty methods, converters and rests, scopes, middleware and a require in a function", async () => {
+  const { root, graph } = await built({
+    "py/flaskapp.py": `from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/opts", methods=[])
+def opts():
+    return ""
+
+@app.route("/v/<float:n>")
+def flt(n):
+    return n
+
+def unrelated(items):
+    for app in items:
+        print(app)
+`,
+    "py/fastapp.py": `from fastapi import FastAPI
+
+api = FastAPI()
+
+@api.api_route("/any", methods=[])
+def any_method():
+    return 1
+
+@api.get("/files/{p:path}")
+def files(p):
+    return p
+
+@api.get("/v/{n:float}")
+def flt(n):
+    return n
+`,
+    "py/Dockerfile": "FROM python:3.12\nCOPY . /app\n",
+    "web/server.js": `import express from "express";
+import { show } from "./show.js";
+
+const app = express();
+const r = express.Router();
+
+function auth(req, res, next) {
+  next();
+}
+
+function list(req, res) {
+  res.end();
+}
+
+function wired(opts = show) {
+  app.get("/wired", show);
+}
+
+function nested() {
+  function inner() {
+    const show = 1;
+    return show;
+  }
+  app.get("/nested", show);
+}
+
+function setup() {
+  list = function () {};
+  app.get("/list", list);
+}
+
+r.get("/r", show);
+app.use(auth, r);
+`,
+    "web/show.js": "export function show(req, res) {\n  res.end();\n}\n",
+    "web/lazy.js": `function make() {
+  const express = require("express");
+  const lazy = express();
+  lazy.get("/made", (req, res) => res.end());
+}
+`,
+    "gosvc/main.go": `package main
+
+import "net/http"
+
+type fake struct{}
+
+func (http fake) HandleFunc(p string, h any) {}
+
+func (http fake) run() {
+	http.HandleFunc("/recv", h)
+}
+
+func h(w http.ResponseWriter, r *http.Request) {}
+
+func main() {
+	http.HandleFunc("/real", h)
+}
+`,
+    "compose.yaml": "services:\n  py: { build: py, image: acme/py }\n",
+    "k8s/app.yaml": apps(["py"], [path("/files/", "Exact", "py"), path("/v/1", "Exact", "py")]),
+  });
+  try {
+    assert.deepEqual(routeIds(graph), [
+      "gosvc/main.go#route:ANY /real",
+      "py/fastapp.py#route:ANY /any",
+      "py/fastapp.py#route:GET /files/{p...}",
+      "py/fastapp.py#route:GET /v/{n:float}",
+      "py/flaskapp.py#route:GET /v/{n:float}",
+      "py/flaskapp.py#route:OPTIONS /opts",
+      "web/lazy.js#route:GET /made",
+      "web/server.js#route:GET /list",
+      "web/server.js#route:GET /nested",
+      "web/server.js#route:GET /r",
+      "web/server.js#route:GET /wired",
+    ]);
+    const signature = (id: string) => graph.nodes.find((n) => n.id === id)?.signature;
+    assert.equal(signature("py/flaskapp.py#route:GET /v/{n:float}"), "route flask GET /v/{n:float}");
+    assert.equal(signature("py/fastapp.py#route:GET /v/{n:float}"), "route fastapi GET /v/{n:float}");
+    const edges = routeEdges(graph);
+    // FastAPI's path converter and float take '/files/' and '1'; Flask's float needs a fraction.
+    assert.deepEqual(edges.filter((e) => e.startsWith("k8s/")), [
+      "k8s/app.yaml#Ingress/default/main -> py/fastapp.py#route:GET /files/{p...} (inferred)",
+      "k8s/app.yaml#Ingress/default/main -> py/fastapp.py#route:GET /v/{n:float} (inferred)",
+    ]);
+    for (const route of ["/wired", "/nested", "/r"]) {
+      assert.ok(edges.includes(`web/server.js#route:GET ${route} -> web/show.js#show`), `${route}: ${edges.join("\n")}`);
+    }
+    assert.ok(!edges.some((e) => e.startsWith("web/server.js#route:GET /list ->")), "list is reassigned in setup");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
