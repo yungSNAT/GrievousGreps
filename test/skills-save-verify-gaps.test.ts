@@ -332,6 +332,12 @@ describe("verification against a folded release", () => {
   });
 
   test("an offer's recorded yes does not replace a qualifying check of the release", () => {
+    // The npm view call passed as an npm-view check, but the run is still open when it is saved,
+    // so the sheet records no qualifying check; that, not a missing npm view, is what refuses it.
+    assert.equal(sheet.end, "open");
+    assert.equal(sheet.checkIndex, null);
+    const view = sheet.calls.find((c) => c.check?.family === "npm-view");
+    assert.deepEqual(view?.check, { family: "npm-view", passed: true, facts: { version: "1.4.3", pkg: "acme-cli" } });
     const { offer, context, proof } = exchange(true);
     // Offer consent compiles in the repeated moment. The compiler refuses this
     // run before verifySave checks which question the person's yes answered.
