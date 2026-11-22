@@ -247,7 +247,7 @@ func main() {
       path("/files/a/b", "Exact", "api"),
       path("/items", "Prefix", "web"),
       path("/items/42", "Exact", "web"),
-      path("/static/css", "ImplementationSpecific", "web"),
+      path("/static/css", "Prefix", "web"),
     ]),
   });
   try {
@@ -257,7 +257,7 @@ func main() {
       "items/main.go#route:GET /items",
       "items/main.go#route:GET /items/{id}",
       "shop/app.py#route:GET /files/{name...}",
-      "shop/app.py#route:GET|DELETE /store/cart/{cart_id}",
+      "shop/app.py#route:GET|DELETE /store/cart/{cart_id:int}",
     ]);
     assert.deepEqual(routeEdges(graph), [
       "items/main.go#route:ANY /static/{...} -> items/main.go#listItems",
@@ -267,9 +267,9 @@ func main() {
       "k8s/app.yaml#Ingress/default/main -> items/main.go#route:GET /items (inferred)",
       "k8s/app.yaml#Ingress/default/main -> items/main.go#route:GET /items/{id} (inferred)",
       "k8s/app.yaml#Ingress/default/main -> shop/app.py#route:GET /files/{name...} (inferred)",
-      "k8s/app.yaml#Ingress/default/main -> shop/app.py#route:GET|DELETE /store/cart/{cart_id} (inferred)",
+      "k8s/app.yaml#Ingress/default/main -> shop/app.py#route:GET|DELETE /store/cart/{cart_id:int} (inferred)",
       "shop/app.py#route:GET /files/{name...} -> shop/app.py#files",
-      "shop/app.py#route:GET|DELETE /store/cart/{cart_id} -> shop/app.py#cart",
+      "shop/app.py#route:GET|DELETE /store/cart/{cart_id:int} -> shop/app.py#cart",
     ]);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -292,8 +292,21 @@ test("an Ingress path serves a route by whole segments: Prefix, Exact, parameter
     ["/other", "Prefix", "ANY /{...}", true],
     ["/x", "Prefix", "GET /", false],
     ["/", "Exact", "GET /", true],
+    ["/files", "Exact", "ANY /files/{...}", false],
+    ["/files/", "Exact", "ANY /files/{...}", true],
+    ["/files/", "Exact", "GET /files/{p...}", false],
+    ["/foo", "Exact", "GET /foo/", false],
+    ["/foo/", "Exact", "GET /foo/", true],
+    ["/foo/", "Exact", "GET /foo", false],
+    ["/foo", "Prefix", "GET /foo/", true],
+    ["/users/abc", "Exact", "GET /users/{id:int}", false],
+    ["/users/42", "Exact", "GET /users/{id:int}", true],
+    ["/users/abc", "Prefix", "GET /users/{id:int}/x", false],
+    ["/v/1.5", "Exact", "GET /v/{n:float}", true],
+    ["/k/not-a-uuid", "Exact", "GET /k/{k:uuid}", false],
   ];
   for (const [p, type, route, want] of cases) assert.equal(routeServes(p, type, route), want, `${type} ${p} vs ${route}`);
+  assert.equal(routeServes("/", "ImplementationSpecific", "GET /x"), false, "a controller's own rules are not assumed");
 });
 
 test("a route in a file the Service's image does not ship, or behind a Service with no image chain, gets no Ingress link", async () => {
@@ -352,6 +365,148 @@ test("names that only look like a framework, and apps in tests, give no routes",
   });
   try {
     assert.deepEqual(routeIds(graph), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** A Deployment and Service per name, each running `acme/<name>`, and one Ingress with `paths`. */
+const apps = (names: string[], paths: string[]) => `${names.map((n) => `apiVersion: apps/v1
+kind: Deployment
+metadata: { name: ${n} }
+spec:
+  template:
+    metadata: { labels: { app: ${n} } }
+    spec: { containers: [ { name: ${n}, image: acme/${n}:1 } ] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: ${n} }
+spec: { selector: { app: ${n} } }
+---
+`).join("")}apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: main }
+spec:
+  rules:
+    - http:
+        paths:
+${paths.join("\n")}
+`;
+
+test("review cases: slashes, typed parameters, hosts, unknown prefixes, shadowed names, shared images and bind mounts", async () => {
+  const { root, graph } = await built({
+    "svc/app.py": `from fastapi import FastAPI, APIRouter
+
+app = FastAPI()
+items = APIRouter(prefix="/items")
+hidden = APIRouter()
+
+@items.get("/")
+def list_items():
+    return []
+
+@app.api_route("/never", methods=[])
+def never():
+    return 0
+
+@app.get("/typed/{n:int}")
+def typed(n):
+    return n
+
+@hidden.get("/hidden")
+def hidden_route():
+    return 1
+
+app.include_router(items)
+
+def make(FastAPI):
+    other = FastAPI()
+
+    @other.get("/fake")
+    def fake():
+        return 1
+
+def register(app):
+    app.include_router(hidden)
+`,
+    "svc/Dockerfile": "FROM python:3.12\nCOPY app.py /app/\n",
+    "web/server.js": `import express from "express";
+import { show } from "./show.js";
+
+const app = express();
+const a = express.Router();
+const b = express.Router();
+const c = express.Router();
+const prefix = "/v1";
+a.get("/a", show);
+b.get("/b", show);
+c.get("/c", show);
+app.use(prefix, a);
+app.use(\`/tpl\`, b);
+app.use("/ok", c);
+
+function wire(show) {
+  c.get("/shadowed", show);
+}
+`,
+    "web/show.js": "export function show(req, res) {\n  res.end();\n}\n",
+    "web/Dockerfile": "FROM node:24\nCOPY . /srv\n",
+    "gosvc/main.go": `package main
+
+import "net/http"
+
+func h(w http.ResponseWriter, r *http.Request) {}
+
+func main() {
+	http.HandleFunc("api.example.com/host", h)
+	http.HandleFunc("/exact/{$}", h)
+}
+`,
+    "gosvc/Dockerfile": "FROM golang:1.25\nCOPY . /src\n",
+    "dup1/main.py": 'from fastapi import FastAPI\napp = FastAPI()\n\n@app.get("/d1")\ndef d1():\n    return 1\n',
+    "dup1/Dockerfile": "FROM python:3.12\nCOPY . /app\n",
+    "dup2/Dockerfile": "FROM python:3.12\nCOPY . /app\n",
+    "mnt/main.py": 'from fastapi import FastAPI\napp = FastAPI()\n\n@app.get("/m")\ndef m():\n    return 1\n',
+    "mntbuild/Dockerfile": "FROM python:3.12\nCOPY Dockerfile /app/\n",
+    "compose.yaml": `services:
+  svc: { build: svc, image: acme/svc }
+  web: { build: web, image: acme/web }
+  gosvc: { build: gosvc, image: acme/gosvc }
+  dup1: { build: dup1, image: acme/dup }
+  dup2: { build: dup2, image: acme/dup }
+  mnt: { build: mntbuild, image: acme/mnt, volumes: [ "./mnt:/app" ] }
+`,
+    "k8s/app.yaml": apps(["svc", "web", "gosvc", "dup", "mnt"], [
+      path("/items", "Prefix", "svc"),
+      path("/typed/abc", "Exact", "svc"),
+      path("/typed/7", "ImplementationSpecific", "svc"),
+      path("/", "Prefix", "web"),
+      path("/exact/", "Exact", "gosvc"),
+      path("/host", "Prefix", "gosvc"),
+      path("/", "Prefix", "dup"),
+      path("/", "Prefix", "mnt"),
+    ]),
+  });
+  try {
+    assert.deepEqual(routeIds(graph), [
+      "dup1/main.py#route:GET /d1",
+      "gosvc/main.go#route:ANY /exact/",
+      "mnt/main.py#route:GET /m",
+      "svc/app.py#route:GET /items/",
+      "svc/app.py#route:GET /typed/{n:int}",
+      "web/server.js#route:GET /ok/c",
+      "web/server.js#route:GET /ok/shadowed",
+    ]);
+    const edges = routeEdges(graph);
+    assert.deepEqual(edges.filter((e) => e.startsWith("k8s/")), [
+      "k8s/app.yaml#Ingress/default/main -> gosvc/main.go#route:ANY /exact/ (inferred)",
+      "k8s/app.yaml#Ingress/default/main -> svc/app.py#route:GET /items/ (inferred)",
+      "k8s/app.yaml#Ingress/default/main -> web/server.js#route:GET /ok/c (inferred)",
+      "k8s/app.yaml#Ingress/default/main -> web/server.js#route:GET /ok/shadowed (inferred)",
+    ]);
+    assert.ok(edges.includes("web/server.js#route:GET /ok/c -> web/show.js#show"), edges.join("\n"));
+    assert.ok(!edges.some((e) => e.startsWith("web/server.js#route:GET /ok/shadowed ->")), "a parameter shadows the imported handler");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

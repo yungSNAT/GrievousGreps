@@ -456,11 +456,10 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
           const path = obj(p, `${what}: path`);
           if (typeof path.path === "string") named.push(path.path);
           const svc = backend(path.backend, "path backend");
-          // A trailing `/*` (some controllers' ImplementationSpecific form) is the prefix before it.
           // A path or type that is not a string links no route; the file is not skipped for it.
           const at = path.path ?? "/";
           const type = path.pathType ?? "ImplementationSpecific";
-          const plain = typeof at === "string" ? at.replace(/\/\*$/, "") || "/" : "";
+          const plain = typeof at === "string" ? at : "";
           if (svc && !rewritten && typeof type === "string" && /^\/[^*()[\]{}$^+?|\\]*$/.test(plain)) {
             refs.push({ from, to: "route", ns, service: svc, path: plain, type });
           }
@@ -602,10 +601,11 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
 /**
  * Each Ingress rule path to the routes its backend Service can serve: routes in the files
  * that Service's images ship, whose path the Ingress path can match. The files are found by
- * the links that carry an image only: Service to workload, workload to the compose service
- * that builds its image, compose service to its stage and bind mounts, stage to its earlier
- * stages and copied files. A compose dependency or a ConfigMap is not followed. Always
- * inferred: a route's path is read from code.
+ * the links that carry an image only: Service to workload, workload to the one compose
+ * service that builds its image (none when several do), compose service to its stage, stage
+ * to its earlier stages and copied files. A compose dependency, a bind mount (which the
+ * cluster does not run) or a ConfigMap is not followed. Always inferred: a route's path is
+ * read from code.
  */
 function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects: Map<string, string[]>,
   add: (source: string, target: string, confidence: EdgeV1["confidence"]) => void): void {
@@ -626,7 +626,7 @@ function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects
   const carries: Record<string, ReadonlySet<string>> = {
     service: new Set(["workload"]),
     workload: new Set(["compose"]),
-    compose: new Set(["stage", "file"]),
+    compose: new Set(["stage"]),
     stage: new Set(["stage", "file"]),
   };
   const next = new Map<string, string[]>();
@@ -634,6 +634,8 @@ function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects
     const from = role.get(e.source);
     if (from && carries[from].has(role.get(e.target) ?? (routesIn.has(e.target) ? "file" : ""))) pushTo(next, e.source, e.target);
   }
+  // An image name more than one compose service builds does not say which one the workload runs.
+  for (const [id, targets] of next) if (role.get(id) === "workload" && targets.length > 1) next.delete(id);
   const shipped = new Map<string, string[]>();
   const shippedBy = (service: string): string[] => {
     const known = shipped.get(service);

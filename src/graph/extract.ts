@@ -619,7 +619,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   // residual on the file node so a term outside every symbol still surfaces it.
   nodes[0].body_text = fileResidual(source, nodes.slice(1));
   // After the residual: a route's registration line stays searchable on the file.
-  const routes = extractRoutes(root, { rel, source, lang, nodes, importedSymbols, goImports, mint: (base) => mintId(base, minted) });
+  const routes = extractRoutes(root, { rel, lang, nodes, importedSymbols, goImports, mint: (base) => mintId(base, minted) });
   for (const n of routes.nodes) nodes.push(n);
   for (const e of routes.edges) rawEdges.push(e);
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
