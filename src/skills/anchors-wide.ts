@@ -267,7 +267,8 @@ function topName(text: string): string | null | undefined {
     const v = m[1]!.trim();
     const q = /^(["'])(.*?)\1\s*(?:#.*)?$/.exec(v);
     if (q) return q[1] === '"' && q[2]!.includes('\\') ? undefined : q[2]!;
-    const bare = v.replace(/\s+#.*$/, '').trim();
+    // A comment starts after the first space of its run, so the run is read once.
+    const bare = v.replace(/(?<!\s)\s+#.*$/, '').trim();
     if (!bare || /^[|>&*!%@`"'[{]/.test(bare)) return undefined;
     return bare;
   }
@@ -306,7 +307,8 @@ function ciGone(top: string, x: string, folder: () => CiFolder): boolean {
 
 /** The service keys one indent under a column-0 `services:`; null when not sure (4.13, P25). */
 export function composeServices(text: string): Set<string> | null {
-  if (/^\s*(?:include|extends)\s*:/m.test(text) || /<<\s*:/.test(text)) return null;
+  // A key's indent stays on its own line, so a run of blank lines is not read again from each.
+  if (/^[^\S\r\n\u2028\u2029]*(?:include|extends)\s*:/m.test(text) ||/<<\s*:/.test(text)) return null;
   const lines = text.replace(/\r/g, '').split('\n');
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -341,7 +343,7 @@ function serviceGone(top: string, f: Found, env: NodeJS.ProcessEnv): boolean {
   for (const e of new Set([join(f.at, '.env'), join(folder, '.env'), join(top, '.env')])) {
     if (!lexists(e)) continue;
     const text = readSmall(e, MAX_CI_BYTES);
-    if (text === null || /^\s*(?:export\s+)?COMPOSE_FILE\s*=/m.test(text)) return false;
+    if (text === null || /^[^\S\r\n\u2028\u2029]*(?:export\s+)?COMPOSE_FILE\s*=/m.test(text)) return false;
   }
   const text = readSmall(c.file, MAX_COMPOSE_BYTES);
   const names = text === null ? null : composeServices(text);
@@ -353,11 +355,11 @@ function serviceGone(top: string, f: Found, env: NodeJS.ProcessEnv): boolean {
  * scan the CLI's source until `deadline` (default: WIDE_SCAN_MS from now). A check that throws or runs out of time is
  * not gone, and a scan past its deadline caches nothing.
  */
-export function wideGone(skill: ParsedSkill, checkout: string, env: NodeJS.ProcessEnv = process.env, opts: { scan: boolean; deadline?: number } = { scan: false }): WideAnchor[] {
+export function wideGone(skill: ParsedSkill, checkout: string, env: NodeJS.ProcessEnv = process.env, opts?: { scan: boolean; deadline?: number }): WideAnchor[] {
   const out: WideAnchor[] = [];
   if (!checkout) return out;
   const top = resolve(checkout);
-  const deadline = opts.deadline ?? Date.now() + WIDE_SCAN_MS;
+  const deadline = opts?.deadline ?? Date.now() + WIDE_SCAN_MS;
   const names = new Map<string, string[] | null>();
   let ci: CiFolder | undefined;
   const folder = () => (ci ??= ciFolder(top, deadline));
@@ -374,7 +376,7 @@ export function wideGone(skill: ParsedSkill, checkout: string, env: NodeJS.Proce
       else if (f.kind === 'service' && serviceGone(top, f, env)) out.push(plain(f));
       else if (f.kind === 'subcommand' && f.cli && !isSparse()) {
         const key = `${f.cli.pkgDir}\0${f.cli.prog}`;
-        if (!names.has(key)) names.set(key, cliNames(f.cli, top, env, { scan: opts.scan, deadline }));
+        if (!names.has(key)) names.set(key, cliNames(f.cli, top, env, { scan: opts?.scan ?? false, deadline }));
         if (subcommandGone(names.get(key)!, f.name)) out.push(plain(f));
       }
     } catch { /* not sure */ }

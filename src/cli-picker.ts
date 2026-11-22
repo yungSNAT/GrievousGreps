@@ -396,10 +396,10 @@ export interface PickerIO {
 export async function drivePicker(
   initial: PickerState,
   title?: string | null,
-  io: PickerIO = { out: process.stderr, stdin: process.stdin },
+  io?: PickerIO,
 ): Promise<PickerState | null> {
   let state = initial;
-  const { out, stdin } = io;
+  const { out, stdin }: PickerIO = io ?? { out: process.stderr, stdin: process.stdin };
 
   // Rows on screen, not lines: a line wider than the terminal wraps.
   let lastLines = 0;

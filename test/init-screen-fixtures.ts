@@ -41,11 +41,11 @@ export function guardrailCandidate(): InitCandidate {
   };
 }
 
-export function prefCandidate(ref: { t: string; o: number; s: string } = { t: "/home/dev/.claude/projects/-home-dev-cli/s1.jsonl", o: 0, s: "c".repeat(64) }): InitCandidate {
+export function prefCandidate(ref?: { t: string; o: number; s: string }): InitCandidate {
   return {
     id: "i-c3d9e0b871", kind: "preference", key: "pref:0123456789abcdef", plainName: "", nameWords: ["explain", "simply", "one", "example"],
     count: { days: 12, from: "2026-07-03", to: "2026-10-14" }, scope: "personal", applies: "every repo", typed: true, ticked: true,
-    pref: { refs: [ref] }, evidence: [], rank: 1,
+    pref: { refs: [ref ?? { t: "/home/dev/.claude/projects/-home-dev-cli/s1.jsonl", o: 0, s: "c".repeat(64) }] }, evidence: [], rank: 1,
   };
 }
 

@@ -156,9 +156,13 @@ function oneSitting(times: number[]): boolean {
   return Math.max(...times) - Math.min(...times) < SITTING_MS;
 }
 
+/** An email address. The part before the @ takes at most 64 characters, the most an address's can hold, so a long
+ * run of these characters with no @ in it (a key, a hash) is read once rather than once from each character. */
+const EMAIL = /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
 /** Email addresses replaced: a learning can be committed, and an address is nobody's business there. */
 export function noEmails(text: string): string {
-  return text.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]");
+  return text.replace(EMAIL, "[email]");
 }
 
 /**
@@ -187,7 +191,7 @@ export function scrub(text: string): string {
     .replace(/\b(?:mb|trl|nn)_[A-Za-z0-9]{16,}/g, "[redacted]")
     .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, "[redacted]")
     .replace(/\b(password|passwd|secret|token|api[_-]?key)(\s*[:=]\s*)\S+/gi, "$1$2[redacted]")
-    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, "[email]");
+    .replace(EMAIL, "[email]");
 }
 
 /* -------------------------------------------------------------------------- */
