@@ -9,7 +9,8 @@
  * picks, an Ingress to its Services, and a workload to the compose service that builds
  * its image (`inferred`: a name match). Only names are kept: no environment value and
  * no ConfigMap or Secret data reaches a node. A file that does not parse, or a field of
- * the wrong type, skips the whole file with a reason; nothing is guessed.
+ * the wrong type, skips the whole file with a reason; nothing is guessed. Kustomization
+ * files are read and linked in `kustomize.ts`.
  */
 import { posix } from "node:path";
 import { LineCounter, parseAllDocuments, type Document } from "yaml";
@@ -17,8 +18,31 @@ import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
+import { kustomize, linkKustomize } from "./kustomize.js";
 
-export type DeployFormat = "dockerfile" | "compose" | "kubernetes";
+export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize";
+
+/** A patch a kustomization lists: a file, the objects an inline patch names, and its target. */
+export interface KustomizePatch {
+  path?: string;
+  objects?: Array<{ kind: string; name: string }>;
+  target?: { kind?: string; name?: string; namespace?: string; selector?: true };
+}
+
+/** What a kustomization lists and transforms; resolved once every file is read. */
+export interface KustomizeRef {
+  from: string;
+  to: "kustomize";
+  dir: string;
+  component: boolean;
+  entries: Array<{ field: "resources" | "bases" | "components"; path: string }>;
+  patches: KustomizePatch[];
+  prefix: string;
+  suffix: string;
+  namespace?: string;
+  images: Array<{ name: string; newName: string }>;
+  generators: Array<{ kind: "ConfigMap" | "Secret"; name: string; id: string }>;
+}
 
 export type DeployRef =
   /** A resource in the same file, by id. */
@@ -37,7 +61,8 @@ export type DeployRef =
   /** An image a workload runs (`built: false`) or a compose service builds (`built: true`). */
   | { from: string; to: "image"; image: string; built: boolean }
   /** An Ingress rule path and its backend Service, for the routes that Service's images ship. */
-  | { from: string; to: "route"; ns: string; service: string; path: string; type: string };
+  | { from: string; to: "route"; ns: string; service: string; path: string; type: string }
+  | KustomizeRef;
 
 export interface DeployExtract {
   nodes: NodeV1[];
@@ -49,17 +74,21 @@ export interface DeployExtract {
 const COMPOSE = /^(docker-)?compose(\.[^/]+)?\.ya?ml$/;
 const DOCKERFILE = /^(dockerfile([._-].+)?|.+\.dockerfile|containerfile)$/;
 const MAX_FILE_CANDIDATES = 50_000;
+/** The names Kustomize reads a kustomization from, in its order. */
+const KUSTOMIZATION_FILES = ["kustomization.yaml", "kustomization.yml", "Kustomization"];
 
 /** The deployment format a path's name says, or null. Every other YAML file is a manifest candidate. */
 export function deployFormatOf(path: string): DeployFormat | null {
-  const base = posix.basename(path.replace(/\\/g, "/")).toLowerCase();
+  const exact = posix.basename(path.replace(/\\/g, "/"));
+  if (KUSTOMIZATION_FILES.includes(exact)) return "kustomize";
+  const base = exact.toLowerCase();
   if (base.endsWith(".dockerignore")) return null;
   if (DOCKERFILE.test(base)) return "dockerfile";
   if (COMPOSE.test(base)) return "compose";
   return /\.ya?ml$/.test(base) ? "kubernetes" : null;
 }
 
-class Skip extends Error {}
+export class Skip extends Error {}
 
 function fileNode(rel: string, source: string): NodeV1 {
   return {
@@ -70,7 +99,7 @@ function fileNode(rel: string, source: string): NodeV1 {
   };
 }
 
-function resource(rel: string, id: string, name: string, lines: [number, number], signature: string, words: string[]): NodeV1 {
+export function resource(rel: string, id: string, name: string, lines: [number, number], signature: string, words: string[]): NodeV1 {
   return {
     id: `${rel}#${id}`, name, kind: "resource", path: rel, span: `L${lines[0]}-L${lines[1]}`,
     signature, exported: true, origin: "deploy", body_hash: contentHash(`${signature}\n${words.join(" ")}`),
@@ -79,7 +108,7 @@ function resource(rel: string, id: string, name: string, lines: [number, number]
 }
 
 /** A skip reason as printed and cached: control characters removed, at most 120 characters. */
-function reasonText(message: string): string {
+export function reasonText(message: string): string {
   const text = message.replace(/\p{Cc}/gu, " ");
   return text.length > 120 ? `${text.slice(0, 119)}…` : text;
 }
@@ -231,30 +260,30 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
 
 // ── YAML: compose and Kubernetes ────────────────────────────────────────────
 
-type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
+export type Obj = Record<string, unknown>;
+export const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
-function obj(v: unknown, what: string): Obj {
+export function obj(v: unknown, what: string): Obj {
   if (v === undefined || v === null) return {};
   if (!isObj(v)) throw new Skip(`${what} is not a mapping`);
   return v;
 }
 
-function list(v: unknown, what: string): unknown[] {
+export function list(v: unknown, what: string): unknown[] {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v)) throw new Skip(`${what} is not a list`);
   return v;
 }
 
 /** A string field the graph reads; one holding `{{` is an unrendered template, not a name. */
-function str(v: unknown, what: string): string | undefined {
+export function str(v: unknown, what: string): string | undefined {
   if (v === undefined || v === null) return undefined;
   if (typeof v !== "string") throw new Skip(`${what} is not a string`);
   if (v.includes("{{")) throw new Skip(`${what} is a template, not rendered`);
   return v;
 }
 
-function strict(v: unknown, what: string): string {
+export function strict(v: unknown, what: string): string {
   const s = str(v, what);
   if (s === undefined) throw new Skip(`${what} is not a string`);
   return s;
@@ -264,7 +293,7 @@ function strings(v: unknown, what: string): Record<string, string> {
   return Object.fromEntries(Object.entries(obj(v, what)).map(([k, x]) => [k, strict(x, `${what} ${k}`)]));
 }
 
-function yamlFile(rel: string, source: string, format: "compose" | "kubernetes"): { nodes: NodeV1[]; refs: DeployRef[] } | null {
+function yamlFile(rel: string, source: string, format: "compose" | "kubernetes" | "kustomize"): { nodes: NodeV1[]; refs: DeployRef[] } | null {
   // A manifest has `apiVersion` and `kind` at the top level; a lockfile, CI or settings file
   // has not, so it is never parsed and never reported. (The repository walk already leaves
   // out every file above `MAX_FILE_BYTES`, so no file parsed here is larger.)
@@ -277,11 +306,12 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes")
     const range = (node as { range?: [number, number, number] } | undefined)?.range ?? d.range ?? [0, 1, 1];
     return [counter.linePos(range[0]).line, counter.linePos(Math.max(range[0], range[1] - 1)).line];
   };
+  if (format === "kustomize") return kustomize(rel, docs, lines);
   return format === "compose" ? compose(rel, docs, lines) : kubernetes(rel, docs, lines);
 }
 
 /** A document's value; too many aliases (a 'billion laughs' file) is a skip, not a crash. */
-function js(d: Document | undefined): unknown {
+export function js(d: Document | undefined): unknown {
   try {
     return d?.toJS();
   } catch (err) {
@@ -289,10 +319,10 @@ function js(d: Document | undefined): unknown {
   }
 }
 
-type Lines = (d: Document, node: unknown) => [number, number];
+export type Lines = (d: Document, node: unknown) => [number, number];
 
 /** A path a compose file names, repo-relative; null for one outside the repository or remote. */
-function under(dir: string, p: string): string | null {
+export function under(dir: string, p: string): string | null {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p) || p.startsWith("git@") || posix.isAbsolute(p)) return null;
   const joined = posix.normalize(posix.join(dir, p));
   return joined.startsWith("../") || joined === ".." ? null : joined.replace(/\/$/, "") || ".";
@@ -474,7 +504,7 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
 // ── Resolution ──────────────────────────────────────────────────────────────
 
 /** An image name without registry `docker.io`, `library/`, tag or digest. */
-function imageRepo(image: string): string {
+export function imageRepo(image: string): string {
   let s = image.split("@")[0];
   const slash = s.lastIndexOf("/");
   const colon = s.lastIndexOf(":");
@@ -482,7 +512,7 @@ function imageRepo(image: string): string {
   return s.replace(/^docker\.io\//, "").replace(/^library\//, "");
 }
 
-function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+export function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const list = map.get(key);
   if (list) list.push(value);
   else map.set(key, [value]);
@@ -556,6 +586,8 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
     if (r.to === "labels") pushTo(labels, r.ns, r);
     else if (r.to === "image" && r.built) pushTo(built, imageRepo(r.image), r.from);
   }
+  // Before the object and selector links: Kustomize's names and namespaces add keys to both.
+  linkKustomize({ nodes, refs, fileExists, objects, labels, built, add, skipped });
   for (const r of refs) {
     if (r.to === "id") add(r.from, r.id);
     else if (r.to === "copy") {

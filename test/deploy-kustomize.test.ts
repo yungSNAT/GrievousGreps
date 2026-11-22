@@ -1,0 +1,300 @@
+/**
+ * Kustomize in the deploy graph (`src/graph/kustomize.ts`): a kustomization links to what it
+ * lists and patches, an `images` rename joins a workload to the compose service that builds
+ * the new name, a generator gives a name-only node, deployed names and namespaces resolve,
+ * and every include not followed is reported. No generator value is read.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { buildGraph } from "../src/graph/build.js";
+import { readGraph, wiringPath } from "../src/graph/write.js";
+import { contextDirFor } from "../src/context/node-file.js";
+import { impactOfMany } from "../src/graph/traverse.js";
+import { checkGraphInvariants } from "../src/graph/invariants.js";
+import { deployFormatOf, extractDeploy, resolveDeploy, type DeployRef } from "../src/graph/deploy.js";
+import type { GraphV1, NodeV1 } from "../src/graph/types.js";
+
+const LITERAL = "LITERAL-VALUE-NEVER-STORED";
+
+async function built(files: Record<string, string>) {
+  const root = mkdtempSync(join(tmpdir(), "gg-kustomize-"));
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), text);
+  }
+  const result = await buildGraph(root);
+  return { root, result, graph: readGraph(wiringPath(contextDirFor(root)))! };
+}
+
+async function withBuild(files: Record<string, string>, check: (b: Awaited<ReturnType<typeof built>>) => void) {
+  const b = await built(files);
+  try {
+    check(b);
+  } finally {
+    rmSync(b.root, { recursive: true, force: true });
+  }
+}
+
+function refs(graph: GraphV1): string[] {
+  const deployIds = new Set(graph.nodes.filter((n) => n.kind === "resource").map((n) => n.id));
+  return graph.edges
+    .filter((e) => e.relation === "references" && deployIds.has(e.source))
+    .map((e) => `${e.source} -> ${e.target}${e.confidence === "inferred" ? " (inferred)" : ""}`)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+const DEPLOYMENT = `apiVersion: apps/v1
+kind: Deployment
+metadata: { name: api }
+spec:
+  template:
+    metadata: { labels: { app: api } }
+    spec:
+      containers:
+        - name: api
+          image: api
+          envFrom: [ { configMapRef: { name: app-config } } ]
+`;
+const SERVICE = "apiVersion: v1\nkind: Service\nmetadata: { name: api }\nspec: { selector: { app: api } }\n";
+
+const REPO: Record<string, string> = {
+  "src/app.py": "def handle():\n    return 1\n",
+  Dockerfile: "FROM python:3.12\nCOPY src/ /app/src/\n",
+  "compose.yaml": "services:\n  api: { build: ., image: ghcr.io/acme/api }\n",
+  "base/kustomization.yaml": `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+configMapGenerator:
+  - name: app-config
+    literals: [ "MODE=${LITERAL}" ]
+`,
+  "base/deployment.yaml": DEPLOYMENT,
+  "base/service.yaml": SERVICE,
+  "overlays/prod/kustomization.yaml": `resources:
+  - ../../base
+  - https://github.com/acme/shared//deploy?ref=v1
+patches:
+  - path: replicas.yaml
+images:
+  - name: api
+    newName: ghcr.io/acme/api
+    newTag: "2.0"
+secretGenerator:
+  - name: app-secret
+    literals: [ "password=${LITERAL}" ]
+`,
+  "overlays/prod/replicas.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { replicas: 3 }\n",
+  "overlays/dev/kustomization.yaml": "resources: [ ../../base ]\n",
+};
+
+test("kustomization files are named by their file names", () => {
+  assert.equal(deployFormatOf("overlays/prod/kustomization.yaml"), "kustomize");
+  assert.equal(deployFormatOf("base/Kustomization"), "kustomize");
+  assert.equal(deployFormatOf("base/kustomization.yml"), "kustomize");
+  assert.equal(deployFormatOf("base/deployment.yaml"), "kubernetes");
+});
+
+test("an overlay reaches its base and what it patches, an image rename joins the compose build, and generators link by name", async () => {
+  await withBuild(REPO, ({ result, graph }) => {
+    assert.deepEqual(result.skipped, [
+      { path: "overlays/prod/kustomization.yaml", reason: "resources https://github.com/acme/shared//deploy?ref=v1 not followed: remote" },
+    ]);
+    assert.deepEqual(refs(graph).filter((e) => /ustomization|Generator|replicas|inferred/.test(e)), [
+      "base/deployment.yaml#Deployment/default/api -> base/kustomization.yaml#configMapGenerator:app-config",
+      "base/deployment.yaml#Deployment/default/api -> compose.yaml#service:api (inferred)",
+      "base/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "base/kustomization.yaml#kustomization -> base/kustomization.yaml#configMapGenerator:app-config",
+      "base/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api",
+      "overlays/dev/kustomization.yaml#kustomization -> base/kustomization.yaml#kustomization",
+      "overlays/prod/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "overlays/prod/kustomization.yaml#kustomization -> base/kustomization.yaml#kustomization",
+      "overlays/prod/kustomization.yaml#kustomization -> overlays/prod/kustomization.yaml#secretGenerator:app-secret",
+      "overlays/prod/kustomization.yaml#kustomization -> overlays/prod/replicas.yaml#Deployment/default/api",
+      "overlays/prod/replicas.yaml#Deployment/default/api -> base/deployment.yaml#Deployment/default/api",
+    ]);
+    assert.deepEqual(checkGraphInvariants(graph).problems, []);
+    const node = graph.nodes.find((n) => n.id === "overlays/prod/kustomization.yaml#kustomization")!;
+    assert.equal(node.name, "overlays/prod");
+    assert.equal(node.signature, "Kustomization overlays/prod");
+    const handle = graph.nodes.find((n) => n.name === "handle")!;
+    const reached = impactOfMany(graph, [handle], 8, "in");
+    assert.ok(reached.some((h) => h.id === "overlays/prod/kustomization.yaml#kustomization"), "blast reaches the overlay");
+    assert.ok(reached.some((h) => h.id === "base/service.yaml#Service/default/api"), "and the Service through the renamed image");
+  });
+});
+
+function everyFile(dir: string): string[] {
+  return readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? everyFile(join(dir, f)) : [join(dir, f)]));
+}
+
+test("no generator literal reaches the graph or its caches", async () => {
+  await withBuild(REPO, ({ root }) => {
+    for (const f of everyFile(contextDirFor(root))) assert.ok(!readFileSync(f, "utf8").includes(LITERAL), f);
+  });
+});
+
+test("a malformed kustomization is skipped with a reason; an image rename without a compose build links nothing", async () => {
+  await withBuild({
+    "a/kustomization.yaml": "resources: not-a-list\n",
+    "b/kustomization.yaml": "resources: [ d.yaml ]\nimages: [ { name: api, newName: elsewhere/api } ]\n",
+    "b/d.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { template: { metadata: { labels: { app: api } }, spec: { containers: [ { name: api, image: api } ] } } }\n",
+    "c/kustomization.yaml": "? [ x, y ]\n: z\nresources: [ 1 ]\n",
+    "e/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\n",
+    "f/kustomization.yaml": "a: &a [1,1,1,1,1,1,1,1,1,1]\nb: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a,*a]\nc: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b,*b]\nd: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c,*c]\nresources: *d\n",
+  }, ({ result, graph }) => {
+    const skipped = result.skipped.filter((s) => s.path !== "f/kustomization.yaml");
+    assert.deepEqual(skipped, [
+      { path: "a/kustomization.yaml", reason: "resources is not a list" },
+      { path: "c/kustomization.yaml", reason: "resources entry is not a string" },
+      { path: "e/kustomization.yaml", reason: "kind ConfigMap is not Kustomization or Component" },
+    ]);
+    assert.match(result.skipped.find((s) => s.path === "f/kustomization.yaml")!.reason, /^not valid YAML/);
+    assert.deepEqual(refs(graph), ["b/kustomization.yaml#kustomization -> b/d.yaml#Deployment/default/api"]);
+  });
+});
+
+test("every include or patch not followed is reported, and a URL's credentials are not", async () => {
+  await withBuild({
+    "app/kustomization.yaml": `resources:
+  - deploy.yaml
+  - missing.yaml
+  - ../nowhere
+  - /etc/k8s
+  - ../../outside
+  - github.com/acme/base?ref=v1
+  - git@github.com:acme/x.git
+  - https://user:tok3n@example.com/x.yaml
+  - empty.yaml
+components: [ ../comp-missing ]
+patches:
+  - path: gone.yaml
+  - path: ops.yaml
+    target: { kind: Deployment, name: web }
+  - path: ops.yaml
+    target: { labelSelector: "a=b" }
+  - patch: |
+      - op: replace
+        path: /x
+        value: 1
+`,
+    "app/deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web }\nspec: { template: { spec: { containers: [] } } }\n",
+    "app/ops.yaml": "- op: replace\n  path: /spec/replicas\n  value: 2\n",
+    "app/empty.yaml": "# nothing yet\n",
+  }, ({ result, graph }) => {
+    const path = "app/kustomization.yaml";
+    assert.deepEqual(result.skipped, [
+      "resources missing.yaml not found",
+      "resources ../nowhere not found",
+      "resources /etc/k8s not followed: outside the repository",
+      "resources ../../outside not followed: outside the repository",
+      "resources github.com/acme/base?ref=v1 not followed: remote",
+      "resources git@github.com:acme/x.git not followed: remote",
+      "resources https://example.com/x.yaml not followed: remote",
+      "resources empty.yaml gave no Kubernetes objects",
+      "components ../comp-missing not found",
+      "patch gone.yaml not found",
+      "patch ops.yaml target selects by label or annotation: not followed",
+      "patch inline names no object and has no target",
+    ].map((reason) => ({ path, reason })));
+    assert.ok(!JSON.stringify(result.skipped).includes("tok3n"));
+    assert.deepEqual(refs(graph), ["app/kustomization.yaml#kustomization -> app/deploy.yaml#Deployment/default/web"]);
+  });
+});
+
+test("namespace, namePrefix and nameSuffix give the deployed names that other objects use", async () => {
+  await withBuild({
+    "base/kustomization.yaml": "resources: [ deployment.yaml, service.yaml ]\n",
+    "base/deployment.yaml": DEPLOYMENT,
+    "base/service.yaml": SERVICE,
+    "prod/kustomization.yaml": "namespace: prod\nnamePrefix: prod-\nnameSuffix: -v2\nresources: [ ../base ]\n",
+    "edge/ingress.yaml": `apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: edge, namespace: prod }
+spec: { defaultBackend: { service: { name: prod-api-v2 } } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: edge, namespace: staging }
+spec: { defaultBackend: { service: { name: prod-api-v2 } } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: metrics, namespace: prod }
+spec: { selector: { app: api } }
+`,
+  }, ({ graph }) => {
+    assert.deepEqual(refs(graph).filter((e) => e.startsWith("edge/")), [
+      "edge/ingress.yaml#Ingress/prod/edge -> base/service.yaml#Service/default/api (inferred)",
+      "edge/ingress.yaml#Service/prod/metrics -> base/deployment.yaml#Deployment/default/api (inferred)",
+    ]);
+  });
+});
+
+test("bases, components, inline and targeted patches link to the objects they change", async () => {
+  await withBuild({
+    "base/kustomization.yaml": "resources: [ deployment.yaml, service.yaml ]\n",
+    "base/deployment.yaml": DEPLOYMENT,
+    "base/service.yaml": SERVICE,
+    "comp/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1alpha1\nkind: Component\nresources: [ extra.yaml ]\npatches:\n  - path: probe.yaml\n",
+    "comp/extra.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: extra }\n",
+    "comp/probe.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { minReadySeconds: 5 }\n",
+    "over/kustomization.yaml": `bases: [ ../base ]
+components: [ ../comp ]
+namePrefix: x-
+patchesStrategicMerge:
+  - |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata: { name: api }
+    spec: { replicas: 2 }
+patches:
+  - path: ops.yaml
+    target: { kind: Service, name: "a.*" }
+  - path: ops.yaml
+    target: { kind: Service, name: "(api|web)" }
+`,
+    "over/ops.yaml": "- op: add\n  path: /metadata/labels/x\n  value: y\n",
+  }, ({ result, graph }) => {
+    assert.deepEqual(result.skipped, [{ path: "over/kustomization.yaml", reason: "patch ops.yaml target uses a regular expression: not followed" }]);
+    assert.deepEqual(refs(graph).filter((e) => /ustomization|probe/.test(e)), [
+      "base/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "base/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api",
+      "comp/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "comp/kustomization.yaml#kustomization -> comp/extra.yaml#ConfigMap/default/extra",
+      "comp/kustomization.yaml#kustomization -> comp/probe.yaml#Deployment/default/api",
+      "comp/probe.yaml#Deployment/default/api -> base/deployment.yaml#Deployment/default/api",
+      "over/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "over/kustomization.yaml#kustomization -> base/kustomization.yaml#kustomization",
+      "over/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api",
+      "over/kustomization.yaml#kustomization -> comp/kustomization.yaml#kustomization",
+    ]);
+  });
+});
+
+test("a cycle between kustomizations is reported once and a long chain stays bounded", { timeout: 120_000 }, () => {
+  const nodes: NodeV1[] = [];
+  const refsOut: DeployRef[] = [];
+  const read = (rel: string, text: string) => {
+    const x = extractDeploy(rel, text, deployFormatOf(rel)!);
+    assert.equal(x.skipped, undefined, rel);
+    for (const n of x.nodes) nodes.push(n);
+    for (const r of x.refs) refsOut.push(r);
+  };
+  const N = 20_000;
+  for (let i = 0; i < N; i++) {
+    read(`k${i}/kustomization.yaml`, `namePrefix: p-\nresources: [ d.yaml, ../k${(i + 1) % N} ]\n`);
+    read(`k${i}/d.yaml`, `apiVersion: v1\nkind: ConfigMap\nmetadata: { name: c${i} }\n`);
+  }
+  const start = performance.now();
+  const { edges, skipped } = resolveDeploy(nodes, refsOut, () => true);
+  const ms = performance.now() - start;
+  assert.ok(ms < 20_000, `took ${ms.toFixed(0)} ms`);
+  assert.equal(skipped.filter((s) => s.reason.startsWith("cycle")).length, 1);
+  assert.ok(skipped.some((s) => s.reason === "name, patch and generator links omitted after 200000 built objects"));
+  assert.equal(edges.filter((e) => e.source.endsWith("#kustomization")).length, 2 * N);
+});
