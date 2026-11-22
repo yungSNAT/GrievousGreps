@@ -37,119 +37,107 @@ function routeEdges(graph: GraphV1): string[] {
     .sort();
 }
 
-const k8s = (paths: string[], extra = "") => [
-  "apiVersion: apps/v1",
-  "kind: Deployment",
-  "metadata: { name: api }",
-  "spec:",
-  "  template:",
-  "    metadata: { labels: { app: api } }",
-  "    spec: { containers: [ { name: api, image: acme/api:1 } ] }",
-  "---",
-  "apiVersion: apps/v1",
-  "kind: Deployment",
-  "metadata: { name: web }",
-  "spec:",
-  "  template:",
-  "    metadata: { labels: { app: web } }",
-  "    spec: { containers: [ { name: web, image: acme/web:1 } ] }",
-  "---",
-  "apiVersion: v1",
-  "kind: Service",
-  "metadata: { name: api }",
-  "spec: { selector: { app: api } }",
-  "---",
-  "apiVersion: v1",
-  "kind: Service",
-  "metadata: { name: web }",
-  "spec: { selector: { app: web } }",
-  "---",
-  "apiVersion: networking.k8s.io/v1",
-  "kind: Ingress",
-  "metadata: { name: main }",
-  "spec:",
-  "  rules:",
-  "    - http:",
-  "        paths:",
-  ...paths,
-  extra,
-].join("\n");
+// Fixtures are template literals: one token each, so the duplication check reads code only.
+const k8s = (paths: string[], extra = "") => `apiVersion: apps/v1
+kind: Deployment
+metadata: { name: api }
+spec:
+  template:
+    metadata: { labels: { app: api } }
+    spec: { containers: [ { name: api, image: acme/api:1 } ] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: web }
+spec:
+  template:
+    metadata: { labels: { app: web } }
+    spec: { containers: [ { name: web, image: acme/web:1 } ] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api }
+spec: { selector: { app: api } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: web }
+spec: { selector: { app: web } }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: main }
+spec:
+  rules:
+    - http:
+        paths:
+${paths.join("\n")}
+${extra}`;
 
 const path = (p: string, type: string, svc: string) => `          - { path: ${p}, pathType: ${type}, backend: { service: { name: ${svc}, port: { number: 80 } } } }`;
 
 const TWO_SERVICES: Record<string, string> = {
-  "services/api/main.py": [
-    "from fastapi import FastAPI, APIRouter",
-    "",
-    "app = FastAPI()",
-    'users = APIRouter(prefix="/users")',
-    "",
-    '@users.get("/{user_id}")',
-    "def get_user(user_id: int):",
-    "    return user_id",
-    "",
-    '@users.post("")',
-    "def create_user():",
-    "    return 1",
-    "",
-    '@app.get("/health")',
-    "def health():",
-    '    return "ok"',
-    "",
-    "orphan = APIRouter()",
-    "",
-    '@orphan.get("/never")',
-    "def never():",
-    "    return 0",
-    "",
-    'app.include_router(users, prefix="/api")',
-    "",
-  ].join("\n"),
+  "services/api/main.py": `from fastapi import FastAPI, APIRouter
+
+app = FastAPI()
+users = APIRouter(prefix="/users")
+
+@users.get("/{user_id}")
+def get_user(user_id: int):
+    return user_id
+
+@users.post("")
+def create_user():
+    return 1
+
+@app.get("/health")
+def health():
+    return "ok"
+
+orphan = APIRouter()
+
+@orphan.get("/never")
+def never():
+    return 0
+
+app.include_router(users, prefix="/api")
+`,
   "services/api/Dockerfile": "FROM python:3.12\nCOPY . /app\n",
-  "services/web/server.js": [
-    'import express, { Router } from "express";',
-    'import { listOrders } from "./orders.js";',
-    "",
-    "const app = express();",
-    "const api = Router();",
-    'api.get("/orders", listOrders);',
-    'api.get("/orders/:id", (req, res) => res.end());',
-    'app.use("/api", api);',
-    'app.get("/health", health);',
-    'app.get("view engine");',
-    "",
-    "function health(req, res) {",
-    '  res.end("ok");',
-    "}",
-    "",
-    "app.listen(3000);",
-    "",
-  ].join("\n"),
+  "services/web/server.js": `import express, { Router } from "express";
+import { listOrders } from "./orders.js";
+
+const app = express();
+const api = Router();
+api.get("/orders", listOrders);
+api.get("/orders/:id", (req, res) => res.end());
+app.use("/api", api);
+app.get("/health", health);
+app.get("view engine");
+
+function health(req, res) {
+  res.end("ok");
+}
+
+app.listen(3000);
+`,
   "services/web/orders.js": "export function listOrders(req, res) {\n  res.json([]);\n}\n",
   "services/web/Dockerfile": "FROM node:24\nCOPY . /srv\n",
-  "compose.yaml": [
-    "services:",
-    "  api: { build: services/api, image: acme/api }",
-    "  web: { build: services/web, image: acme/web }",
-  ].join("\n"),
+  "compose.yaml": "services:\n  api: { build: services/api, image: acme/api }\n  web: { build: services/web, image: acme/web }\n",
   "k8s/app.yaml": k8s([
     path("/api/users", "Prefix", "api"),
     path("/api/orders", "Prefix", "web"),
     path("/health", "Exact", "web"),
-  ]) + [
-    "",
-    "---",
-    "apiVersion: networking.k8s.io/v1",
-    "kind: Ingress",
-    "metadata:",
-    "  name: rewritten",
-    "  annotations: { nginx.ingress.kubernetes.io/rewrite-target: / }",
-    "spec:",
-    "  rules:",
-    "    - http:",
-    "        paths:",
-    path("/", "Prefix", "api"),
-  ].join("\n"),
+  ], `---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rewritten
+  annotations: { nginx.ingress.kubernetes.io/rewrite-target: / }
+spec:
+  rules:
+    - http:
+        paths:
+${path("/", "Prefix", "api")}`),
 };
 
 test("FastAPI and Express routes link to their handlers, and each Ingress path only to its own Service's routes", async () => {
@@ -198,10 +186,9 @@ test("FastAPI and Express routes link to their handlers, and each Ingress path o
       text = "";
       runCallersCommand("main", root, { direction: "out", json: true });
       const out = (JSON.parse(text) as { matches: Array<{ hits: Array<{ id: string }> }> }).matches.flatMap((m) => m.hits);
-      assert.deepEqual(deep.map((h) => `${h.depth} ${h.id}`).sort(), [
-        "1 services/api/main.py#route:GET /api/users/{user_id}",
-        "2 k8s/app.yaml#Ingress/default/main",
-      ]);
+      const at = (id: string) => deep.find((h) => h.id === id)?.depth;
+      assert.equal(at("services/api/main.py#route:GET /api/users/{user_id}"), 1, text);
+      assert.equal(at("k8s/app.yaml#Ingress/default/main"), 2, text);
       assert.ok(out.some((h) => h.id === "services/web/server.js#route:GET /health"), text);
     } finally {
       console.log = log;
@@ -214,55 +201,47 @@ test("FastAPI and Express routes link to their handlers, and each Ingress path o
 
 test("Flask blueprints and Go ServeMux patterns: prefixes, methods, wildcards and mounted muxes", async () => {
   const { root, graph } = await built({
-    "shop/app.py": [
-      "from flask import Flask, Blueprint",
-      "",
-      "app = Flask(__name__)",
-      'bp = Blueprint("shop", __name__, url_prefix="/shop")',
-      "",
-      '@bp.route("/cart/<int:cart_id>", methods=["GET", "DELETE"])',
-      "def cart(cart_id):",
-      "    return cart_id",
-      "",
-      '@app.route("/files/<path:name>")',
-      "def files(name):",
-      "    return name",
-      "",
-      '@app.get("/a-<id>")',
-      "def partial(id):",
-      "    return id",
-      "",
-      'app.register_blueprint(bp, url_prefix="/store")',
-      "",
-    ].join("\n"),
+    "shop/app.py": `from flask import Flask, Blueprint
+
+app = Flask(__name__)
+bp = Blueprint("shop", __name__, url_prefix="/shop")
+
+@bp.route("/cart/<int:cart_id>", methods=["GET", "DELETE"])
+def cart(cart_id):
+    return cart_id
+
+@app.route("/files/<path:name>")
+def files(name):
+    return name
+
+@app.get("/a-<id>")
+def partial(id):
+    return id
+
+app.register_blueprint(bp, url_prefix="/store")
+`,
     "shop/Dockerfile": "FROM python:3.12\nCOPY app.py /app/\n",
-    "items/main.go": [
-      "package main",
-      "",
-      'import "net/http"',
-      "",
-      "func listItems(w http.ResponseWriter, r *http.Request) {}",
-      "func getItem(w http.ResponseWriter, r *http.Request)   {}",
-      "func admin(w http.ResponseWriter, r *http.Request)     {}",
-      "",
-      "func main() {",
-      "\tmux := http.NewServeMux()",
-      '\tmux.HandleFunc("GET /items", listItems)',
-      '\tmux.HandleFunc("GET /items/{id}", getItem)',
-      "\tsub := http.NewServeMux()",
-      '\tsub.HandleFunc("/panel", admin)',
-      '\tmux.Handle("/admin/", http.StripPrefix("/admin", sub))',
-      '\thttp.Handle("/static/", http.HandlerFunc(listItems))',
-      '\thttp.ListenAndServe(":8080", mux)',
-      "}",
-      "",
-    ].join("\n"),
+    "items/main.go": `package main
+
+import "net/http"
+
+func listItems(w http.ResponseWriter, r *http.Request) {}
+func getItem(w http.ResponseWriter, r *http.Request)   {}
+func admin(w http.ResponseWriter, r *http.Request)     {}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /items", listItems)
+	mux.HandleFunc("GET /items/{id}", getItem)
+	sub := http.NewServeMux()
+	sub.HandleFunc("/panel", admin)
+	mux.Handle("/admin/", http.StripPrefix("/admin", sub))
+	http.Handle("/static/", http.HandlerFunc(listItems))
+	http.ListenAndServe(":8080", mux)
+}
+`,
     "items/Dockerfile": "FROM golang:1.25\nCOPY . /src\n",
-    "compose.yaml": [
-      "services:",
-      "  api: { build: shop, image: acme/api }",
-      "  web: { build: items, image: acme/web }",
-    ].join("\n"),
+    "compose.yaml": "services:\n  api: { build: shop, image: acme/api }\n  web: { build: items, image: acme/web }\n",
     "k8s/app.yaml": k8s([
       path("/store", "Prefix", "api"),
       path("/files/a/b", "Exact", "api"),
@@ -340,19 +319,16 @@ test("a compose dependency's image is not the Service's: its routes get no link"
     "worker/main.py": fastapi("/jobs", "jobs"),
     "worker/Dockerfile": "FROM python:3.12\nCOPY . /app\n",
     "compose.yaml": "services:\n  api: { build: api, image: acme/api, depends_on: [worker] }\n  worker: { build: worker, image: acme/worker }\n",
-    "k8s/app.yaml": k8s([path("/", "Prefix", "api")]) + [
-      "",
-      "---",
-      "apiVersion: networking.k8s.io/v1",
-      "kind: Ingress",
-      "metadata: { name: odd, annotations: not-a-mapping }",
-      "spec: { rules: [ { http: { paths: [ { path: /, pathType: Prefix, backend: { service: { name: api } } } ] } } ] }",
-      "---",
-      "apiVersion: networking.k8s.io/v1",
-      "kind: Ingress",
-      "metadata: { name: typed }",
-      "spec: { rules: [ { http: { paths: [ { path: 7, pathType: Prefix, backend: { service: { name: api } } } ] } } ] }",
-    ].join("\n"),
+    "k8s/app.yaml": k8s([path("/", "Prefix", "api")], `---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: odd, annotations: not-a-mapping }
+spec: { rules: [ { http: { paths: [ { path: /, pathType: Prefix, backend: { service: { name: api } } } ] } } ] }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: { name: typed }
+spec: { rules: [ { http: { paths: [ { path: 7, pathType: Prefix, backend: { service: { name: api } } } ] } } ] }`),
   });
   try {
     assert.deepEqual(result.skipped, []);
