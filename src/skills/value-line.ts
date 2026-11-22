@@ -188,7 +188,7 @@ export function markValueSaid(repoKey: string, env?: NodeJS.ProcessEnv, now: Dat
 /** Skills on, and on for 7 days or more (P21: there is no week to count before that). */
 export function valueWeek(env?: NodeJS.ProcessEnv, now: Date = new Date()): boolean {
   const s = readSettings(env);
-  const on = s.onSince === null ? NaN : Date.parse(s.onSince);
+  const on = s.onSince === null ? Number.NaN : Date.parse(s.onSince);
   return s.skills === 'on' && !Number.isNaN(on) && now.getTime() - on >= WEEK_DAYS * DAY_MS;
 }
 

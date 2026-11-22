@@ -10,6 +10,7 @@ import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
 import { collectBindings, goLiteralScope, goReceiverVarOf, goTypeName, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
 import { parseDepth, type SyntaxNode } from "./depth-parser.js";
+import { extractRoutes } from "./routes.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 
 export type Language = "typescript" | "tsx" | "python" | "go" | "java" | "kotlin" | "swift" | "php" | "r";
@@ -105,7 +106,7 @@ export interface RawEdge {
   source: string; // resolved node id
   relation: Relation;
   file: string; // the file this edge originates in (scopes name resolution)
-  targetId?: string; // already-resolved target (contains)
+  targetId?: string; // already-resolved target (contains; a route's handler in its own file)
   specifier?: string; // module path to resolve (imports / imported-symbol references / Gleam calls)
   /** A Python file's module-level names, so resolve.ts can follow a re-export. Only on
    * the file's one export-table edge, which is not itself a graph edge. */
@@ -617,6 +618,10 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   // nodes[0] is the file node; the rest are its symbols. Index the module-level
   // residual on the file node so a term outside every symbol still surfaces it.
   nodes[0].body_text = fileResidual(source, nodes.slice(1));
+  // After the residual: a route's registration line stays searchable on the file.
+  const routes = extractRoutes(root, { rel, lang, nodes, importedSymbols, goImports, mint: (base) => mintId(base, minted) });
+  for (const n of routes.nodes) nodes.push(n);
+  for (const e of routes.edges) rawEdges.push(e);
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
   for (const [scope, fields] of bindings.fields) {
     const each = [...fields].flatMap(([attr, list]) => list.map((field): [string, PythonField] => [attr, field]));
