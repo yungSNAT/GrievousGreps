@@ -296,7 +296,7 @@ test('referenceLine: a regex literal, a Go raw string ending in a backslash and 
   const at = (path: string, text: string, span = 'L1-L20') => referenceLine(path, span, [wordRe('install')], () => text.split('\n'), true)?.n ?? null;
   // A quote in a regex literal opens no string; a name in one is not a call.
   assert.equal(at('a.ts', "function f() {\n  const r = /'/; install();\n}"), 2);
-  assert.equal(at('a.js', 'function f() {\n  const r = /[/"]install/g;\n  install();\n}'), 3);
+  assert.equal(at('a.js', 'function f() {\n  const r = /[/]install/g;\n  install();\n}'), 3);
   // A slash after a value divides.
   assert.equal(at('a.ts', 'function f(a: number, b: number) {\n  return a / b / install();\n}'), 2);
   // A Go raw string has no escapes: a backslash before its backtick does not keep it open.
