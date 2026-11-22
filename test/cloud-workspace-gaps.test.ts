@@ -32,7 +32,7 @@ process.env.DO_NOT_TRACK = "1";
 
 const mk = (slug: string, id: string, linkedAt: number, repos: string[]): Cloud => ({
   url: "http://trail.test",
-  token: `trl_${slug}`,
+  token: `trl_${slug}`, // nosemgrep -- a fake token for a fake workspace
   user: { name: "A", email: "a@x.test" },
   workspace: { id, name: slug, slug, url: `http://trail.test/${slug}`, invite_url: "" },
   repos,
