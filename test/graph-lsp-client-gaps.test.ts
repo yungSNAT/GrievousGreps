@@ -15,6 +15,7 @@ import { once } from "node:events";
 import { LspClient, type CallHierarchyItem } from "../src/graph/lsp/client.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const CALL_TIMEOUT_MS = 3000;
 
 const SERVER = String.raw`
 const fs = require("fs");
@@ -100,7 +101,8 @@ describe("LspClient with a fake language server", () => {
     fileB = join(dir, "b.js");
     writeFileSync(fileA, "function main() {\n  helper();\n}\n");
     writeFileSync(fileB, "export const b = 1;\n");
-    client = new LspClient(process.execPath, [script, logFile], dir, "javascript", 300);
+    // Long enough that a loaded CI runner answers every live call in time; the wedged call waits it out.
+    client = new LspClient(process.execPath, [script, logFile], dir, "javascript", CALL_TIMEOUT_MS);
     // Not initialized yet: queries and opens are no-ops.
     earlyItems = await client.prepareCallHierarchy(fileA, { line: 0, character: 9 });
     client.didOpen(fileB);
@@ -156,7 +158,7 @@ describe("LspClient with a fake language server", () => {
     assert.deepEqual(await client.prepareCallHierarchy(fileA, { line: 5, character: 0 }), []);
     const t0 = Date.now();
     assert.deepEqual(await client.prepareCallHierarchy(fileA, { line: 99, character: 0 }), []);
-    assert.ok(Date.now() - t0 >= 250, "waited for the per-call timeout");
+    assert.ok(Date.now() - t0 >= CALL_TIMEOUT_MS - 50, "waited for the per-call timeout");
   });
 
   test("outgoingCalls returns each call's target, dropping entries without one", async () => {
