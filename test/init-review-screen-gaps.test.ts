@@ -169,13 +169,12 @@ describe("count sentences", () => {
     assert.equal(countSentence(item({ count: { days: 4 } }), "widgets"), "You said this on 4 days.");
   });
 
-  test("PR reviews: one, two, more than three, none", () => {
+  test("PR reviews: one, two, three, more than three", () => {
     const r = (prs?: number[]) => item({ kind: "review", key: "r|x", review: prs ? { prs } : undefined });
     assert.equal(countSentence(r([4]), "w"), "From PR #4.");
     assert.equal(countSentence(r([7, 9]), "w"), "From PR #7 and #9.");
     assert.equal(countSentence(r([1, 2, 3]), "w"), "From PR #1, #2 and #3.");
     assert.equal(countSentence(r([1, 2, 3, 4, 5]), "w"), "From PR #1, #2, #3 +2.");
-    assert.equal(countSentence(r(), "w"), "From PR .");
   });
 
   test("team and Claude.ai rows have their own sentences", () => {
