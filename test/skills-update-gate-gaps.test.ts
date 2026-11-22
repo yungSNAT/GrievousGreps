@@ -11,7 +11,7 @@ import {
   updateGate,
 } from "../src/skills/update-gate.js";
 import { receiptPath } from "../src/skills/receipts.js";
-import { skillsOn } from "../src/skills/settings.js";
+import { setSkills, skillsOn } from "../src/skills/settings.js";
 import type { UpdateReceipt } from "../src/skills/types.js";
 import type { GateCtx } from "../src/trace/skill-session.js";
 import type { SkillSessionState } from "../src/trace/types.js";
@@ -247,31 +247,10 @@ describe("finding an unused update receipt", () => {
 
 test("the CLI consumes an eligible receipt whose conversation it cannot read", () => {
   const { dir, env, receipts } = scratch("missing-conversation");
-  // runCli captures stdio in pipes. Simulate a person's terminal for the
-  // separate, person-only setup command, without changing the test runner.
-  const setupEnv = { ...env, TERM: "xterm" };
-  for (const key of Object.keys(setupEnv)) {
-    if (
-      /^(?:CLAUDE|CODEX|CURSOR|COPILOT|CI$|CONTINUOUS_INTEGRATION$|GITHUB_ACTIONS$)/i.test(key) &&
-      key !== "CLAUDE_CONFIG_DIR" && key !== "CODEX_HOME"
-    ) {
-      delete (setupEnv as NodeJS.ProcessEnv)[key];
-    }
-  }
-  const terminal = encodeURIComponent(`
-    for (const stream of [process.stdin, process.stdout, process.stderr]) {
-      Object.defineProperty(stream, "isTTY", { value: true, configurable: true });
-    }
-    globalThis.fetch = async () => { throw new Error("Unexpected fetch while enabling skills"); };
-  `);
-  const enabled = runCli(["skills", "on"], {
-    home: dir,
-    env: {
-      ...setupEnv,
-      NODE_OPTIONS: [env.NODE_OPTIONS, `--import=data:text/javascript,${terminal}`].filter(Boolean).join(" "),
-    },
-  });
-  assert.equal(enabled.status, 0, enabled.describe());
+  // The person-only `skills on` command can't be proven from a test process on every platform
+  // (Windows has no process table to read), so the scratch settings are switched directly, as
+  // skills-settings.test.ts does; this test is about consuming the receipt.
+  setSkills(true, env);
   assert.equal(skillsOn(env), true);
 
   mkdirSync(receipts, { recursive: true });
