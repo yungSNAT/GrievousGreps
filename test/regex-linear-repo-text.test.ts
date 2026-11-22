@@ -168,11 +168,11 @@ test("a co-author trailer of many '<' is read in linear time", () => {
   git("commit", "-q", "-m", "base");
   writeFileSync(join(d, "a.txt"), "b\n");
   const trailer = `a${"<".repeat(N)}>x>`;
-  // A name holding a line separator was never read as `Name <email>`, and is kept whole too.
-  const broken = `Name${String.fromCharCode(0x2028)}x <mail@example.com>`;
-  git("commit", "-q", "-am", `change\n\nCo-authored-by: ${trailer}\nCo-authored-by: ${broken}\nCo-authored-by: Jo Bloggs <jo@example.com>`);
+  // A name holding a CR, U+2028 or U+2029 was never read as `Name <email>`, and is kept whole too.
+  const broken = [0x0d, 0x2028, 0x2029].map((c) => `Name${String.fromCharCode(c)}x <mail${c}@example.com>`);
+  git("commit", "-q", "-am", `change\n\nCo-authored-by: ${trailer}\n${broken.map((b) => `Co-authored-by: ${b}\n`).join("")}Co-authored-by: Jo Bloggs <jo@example.com>`);
   const names = quick("diffAuthors", () => diffAuthors(d, "HEAD~1"));
-  assert.deepEqual(names, ["T", "t@example.com", trailer, broken, "Jo Bloggs", "jo@example.com"]);
+  assert.deepEqual(names, ["T", "t@example.com", trailer, ...broken, "Jo Bloggs", "jo@example.com"]);
 });
 
 // CI files and a compose project's .env are read up to 64 KiB, so their padding stays under that. Each judgement is
