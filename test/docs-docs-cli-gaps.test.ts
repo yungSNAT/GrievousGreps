@@ -6,7 +6,7 @@
  */
 import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DOCS_PROTOCOL, docsRoot, docsTarget, envelopeProblem, findDocsBinary, runDocs } from "../src/docs/docs-cli.js";
@@ -121,7 +121,7 @@ describe("default arguments", () => {
     mkdirSync(loose, { recursive: true });
     const r = withCwd(loose, () => docsRoot(undefined));
     assert.ok("root" in r);
-    assert.equal(r.root, process.cwd() === loose ? loose : r.root);
+    assert.equal(realpathSync(r.root), realpathSync(loose));
     const top = withCwd(resolve("/"), () => docsRoot(undefined));
     assert.ok("error" in top && top.error.includes("drive's root"));
   });

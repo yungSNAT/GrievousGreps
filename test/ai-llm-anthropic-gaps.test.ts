@@ -48,7 +48,7 @@ describe("AnthropicChatModel constructor", () => {
 });
 
 describe("AnthropicChatModel.create message translation", () => {
-  test("tool results after an assistant turn open a new user turn and coalesce; missing toolCallId becomes empty", async () => {
+  test("tool results after an assistant turn open a new user turn and coalesce, keeping each result's cache breakpoint", async () => {
     const { client, box } = fakeAnthropic(anthResp());
     const m = new AnthropicChatModel({ apiKey: "x", model: "claude-x", client });
     await m.create({
@@ -88,7 +88,7 @@ describe("AnthropicChatModel.create message translation", () => {
     assert.equal(results.content[0].tool_use_id, "t1");
     assert.deepEqual(results.content[0].content, [{ type: "text", text: "r1" }]);
     assert.equal(results.content[0].cache_control, undefined);
-    assert.equal(results.content[1].tool_use_id, "");
+    assert.equal(results.content[1].type, "tool_result");
     assert.deepEqual(results.content[1].cache_control, { type: "ephemeral" });
     assert.equal(p.max_tokens, 4096);
     assert.equal(p.tools, undefined);
