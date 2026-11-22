@@ -165,7 +165,7 @@ export function minePreferences(typed: Line[], _now: Date = new Date()): PrefClu
 function clusterLines(typed: Line[], shape: (text: string) => boolean, same: number, minDays: number): PrefCluster[] {
   // Only the person's own words: a quoted block, a code block or a paste is never a preference's (D99, b5 review).
   const lines = typed.filter((l) => l && typeof l.text === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(l.day) && shape(l.text))
-    .map((l, i) => ({ ...l, raw: l.text, text: prefText(l.text), i, words: contentWords(prefText(l.text)), time: l.at ? Date.parse(l.at) : NaN }))
+    .map((l, i) => ({ ...l, raw: l.text, text: prefText(l.text), i, words: contentWords(prefText(l.text)), time: l.at ? Date.parse(l.at) : Number.NaN }))
     .filter((l) => l.words.length > 0);
   // Newest first: by time where known, else by order of reading.
   lines.sort((a, b) => (Number.isNaN(a.time) || Number.isNaN(b.time) ? b.i - a.i : b.time - a.time || b.i - a.i));

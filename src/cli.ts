@@ -1205,7 +1205,7 @@ grouped(program.command("map"), GROUP.find)
     const globalOpts = program.opts<{ dir?: string }>();
     let maxDirsW: number | undefined;
     if (opts.maxDirs !== undefined) {
-      const n = parseInt(opts.maxDirs, 10);
+      const n = Number.parseInt(opts.maxDirs, 10);
       if (!Number.isFinite(n) || n <= 0) {
         console.error(`✗ --max-dirs must be a positive integer, got "${opts.maxDirs}"`);
         process.exit(1);
