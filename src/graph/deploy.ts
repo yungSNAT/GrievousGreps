@@ -16,6 +16,7 @@ import { LineCounter, parseAllDocuments, type Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
+import { routeServes } from "./route-paths.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes";
 
@@ -34,7 +35,9 @@ export type DeployRef =
   | { from: string; to: "selector"; ns: string; match: Record<string, string> }
   | { from: string; to: "labels"; ns: string; labels: Record<string, string> }
   /** An image a workload runs (`built: false`) or a compose service builds (`built: true`). */
-  | { from: string; to: "image"; image: string; built: boolean };
+  | { from: string; to: "image"; image: string; built: boolean }
+  /** An Ingress rule path and its backend Service, for the routes that Service's images ship. */
+  | { from: string; to: "route"; ns: string; service: string; path: string; type: string };
 
 export interface DeployExtract {
   nodes: NodeV1[];
@@ -439,15 +442,27 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
           refs.push({ from, to: "object", kind: "Service", ns, name: svc });
           named.push(svc);
         }
+        return svc;
       };
       backend(spec.defaultBackend ?? spec.backend, "defaultBackend");
+      // A rewrite, a regular expression or a middleware changes the path the application sees.
+      // Annotations that are not a mapping are unknown: no route is linked.
+      const notes = meta.annotations ?? {};
+      const rewritten = !isObj(notes) || Object.keys(notes).some((k) => /(rewrite-target|use-regex|router\.middlewares)$/.test(k));
       for (const r of list(spec.rules, `${what}: rules`)) {
         const rule = obj(r, `${what}: rule`);
         if (typeof rule.host === "string") named.push(rule.host);
         for (const p of list(obj(rule.http, `${what}: rule.http`).paths, `${what}: paths`)) {
           const path = obj(p, `${what}: path`);
           if (typeof path.path === "string") named.push(path.path);
-          backend(path.backend, "path backend");
+          const svc = backend(path.backend, "path backend");
+          // A path or type that is not a string links no route; the file is not skipped for it.
+          const at = path.path ?? "/";
+          const type = path.pathType ?? "ImplementationSpecific";
+          const plain = typeof at === "string" ? at : "";
+          if (svc && !rewritten && typeof type === "string" && /^\/[^*()[\]{}$^+?|\\]*$/.test(plain)) {
+            refs.push({ from, to: "route", ns, service: svc, path: plain, type });
+          }
         }
       }
     }
@@ -579,5 +594,76 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   for (const expansion of expansions.values()) {
     for (const edge of expansion.edges.values()) out.push(edge);
   }
+  linkRoutes(nodes, refs, out, objects, add);
   return { edges: out, skipped };
+}
+
+/**
+ * Each Ingress rule path to the routes its backend Service can serve: routes in the files
+ * that Service's images ship, whose path the Ingress path can match. The files are found by
+ * the links that carry an image only: Service to workload, workload to the one compose
+ * service that builds its image (none when several do), compose service to its stage, stage
+ * to its earlier stages and copied files. A compose dependency, a bind mount (which the
+ * cluster does not run) or a ConfigMap is not followed. Always inferred: a route's path is
+ * read from code.
+ */
+function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects: Map<string, string[]>,
+  add: (source: string, target: string, confidence: EdgeV1["confidence"]) => void): void {
+  const routesIn = new Map<string, NodeV1[]>();
+  for (const n of nodes) if (n.kind === "resource" && n.origin === "ast") pushTo(routesIn, n.path, n);
+  if (!routesIn.size) return;
+  // What each deployment resource is, by the id after its file's path.
+  const role = new Map<string, "service" | "workload" | "compose" | "stage">();
+  for (const n of nodes) {
+    if (n.kind !== "resource" || n.origin !== "deploy") continue;
+    const local = n.id.slice(n.path.length + 1);
+    const kind = /^([A-Za-z]+)\//.exec(local)?.[1];
+    if (local.startsWith("service:")) role.set(n.id, "compose");
+    else if (local.startsWith("stage:")) role.set(n.id, "stage");
+    else if (kind === "Service") role.set(n.id, "service");
+    else if (kind && WORKLOADS.has(kind)) role.set(n.id, "workload");
+  }
+  const carries: Record<string, ReadonlySet<string>> = {
+    service: new Set(["workload"]),
+    workload: new Set(["compose"]),
+    compose: new Set(["stage"]),
+    stage: new Set(["stage", "file"]),
+  };
+  const next = new Map<string, string[]>();
+  for (const e of edges) {
+    const from = role.get(e.source);
+    if (from && carries[from].has(role.get(e.target) ?? (routesIn.has(e.target) ? "file" : ""))) pushTo(next, e.source, e.target);
+  }
+  // An image name more than one compose service builds does not say which one the workload runs.
+  for (const [id, targets] of next) if (role.get(id) === "workload" && targets.length > 1) next.delete(id);
+  const shipped = new Map<string, string[]>();
+  const shippedBy = (service: string): string[] => {
+    const known = shipped.get(service);
+    if (known) return known;
+    const seen = new Set([service]);
+    const files: string[] = [];
+    for (let queue = [service]; queue.length;) {
+      const at = queue.pop()!;
+      for (const t of next.get(at) ?? []) {
+        if (seen.has(t)) continue;
+        seen.add(t);
+        if (role.has(t)) queue.push(t);
+        else files.push(t);
+      }
+    }
+    shipped.set(service, files);
+    return files;
+  };
+  for (const r of refs) {
+    if (r.to !== "route") continue;
+    for (const service of objects.get(`Service/${r.ns}/${r.service}`) ?? []) {
+      for (const file of shippedBy(service)) {
+        for (const route of routesIn.get(file)!) {
+          // A route's signature is `route <framework> <name>`.
+          const framework = route.signature?.split(" ")[1] ?? "";
+          if (routeServes(r.path, r.type, route.name, framework)) add(r.from, route.id, "inferred");
+        }
+      }
+    }
+  }
 }

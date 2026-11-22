@@ -136,7 +136,7 @@ export function markUnusedSaid(skillId: string, env?: NodeJS.ProcessEnv, now: Da
   let due = false;
   updateSkillState(skillId, (s) => {
     if (!s || !unusedSince(s, now)) return s;
-    const said = s.unusedSaidAt ? Date.parse(s.unusedSaidAt) : NaN;
+    const said = s.unusedSaidAt ? Date.parse(s.unusedSaidAt) : Number.NaN;
     const used = Date.parse(s.lastUsedAt || s.addedAt);
     if (!Number.isNaN(said) && !(used > said)) return s;
     s.unusedSaidAt = now.toISOString();
