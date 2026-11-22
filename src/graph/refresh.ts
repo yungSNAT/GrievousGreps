@@ -110,7 +110,7 @@ function sleep(ms: number): Promise<void> {
 function firstBuildWait(opts: RefreshOptions): number {
   if (opts.firstBuildWaitMs !== undefined) return opts.firstBuildWaitMs;
   const v = process.env.GRAFT_FIRST_BUILD_WAIT_MS;
-  const ms = v === undefined || v === "" ? NaN : Number(v);
+  const ms = v === undefined || v === "" ? Number.NaN : Number(v);
   return Number.isFinite(ms) && ms >= 0 ? ms : FIRST_BUILD_WAIT_MS;
 }
 
