@@ -125,12 +125,21 @@ test("a Makefile line holding a long gap before no colon is read in linear time"
   assert.deepEqual(gone.map((a) => `${a.kind}:${a.name}`), ["make:release"], "the targets after it are still read");
 });
 
-test("compose and CI files full of blank lines or spaces are read in linear time", () => {
-  quick("compose keys", () => composeServices(`services:\n${"\n".repeat(N)}x\n`));
-  // Each judgement is the one the same files without the padding get.
+// CI files and a compose project's .env are read up to 64 KiB, so their padding stays under that. Each judgement is
+// the one the same files without the padding get.
+const CI_N = 60_000;
+
+test("a compose file full of blank lines is read in linear time", () => {
+  assert.deepEqual(quick("compose keys", () => composeServices(`services:\n${"\n".repeat(N)}  web:\n    image: x\n`)), composeServices("services:\n  web:\n    image: x\n"));
+});
+
+test("a CI file whose name line holds a long gap is read in linear time", () => {
   const ci = (gap: string) => wide(checkout("ci", { ".github/workflows/ci.yml": `name: CI${gap}x # note\non: push\n` }), ["gh workflow run Deploy"]);
-  assert.deepEqual(quick("ci name", () => ci(" ".repeat(N))), ci(" "));
+  assert.deepEqual(quick("ci name", () => ci(" ".repeat(CI_N))), ci(" "));
+});
+
+test("a compose project's .env full of blank lines is read in linear time", () => {
   const svc = (gap: string) =>
     wide(checkout("svc", { "compose.yaml": "services:\n  web:\n    image: x\n", ".env": `${gap}x\n` }), ["docker compose up worker"]);
-  assert.deepEqual(quick("compose env", () => svc("\n".repeat(N))), svc("\n"));
+  assert.deepEqual(quick("compose env", () => svc("\n".repeat(CI_N))), svc("\n"));
 });
