@@ -119,7 +119,7 @@ function tomlString(s: string): { value: string; rest: string } | null {
       const n = nx === 'u' ? 4 : 8;
       const hex = s.slice(i + 1, i + 1 + n);
       if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length !== n) return null;
-      out += String.fromCodePoint(parseInt(hex, 16));
+      out += String.fromCodePoint(Number.parseInt(hex, 16));
       i += n;
       continue;
     }
