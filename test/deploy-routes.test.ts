@@ -13,7 +13,7 @@ import { readGraph, wiringPath } from "../src/graph/write.js";
 import { contextDirFor } from "../src/context/node-file.js";
 import { calleesOf, impactOfMany } from "../src/graph/traverse.js";
 import { checkGraphInvariants } from "../src/graph/invariants.js";
-import { routeServes } from "../src/graph/routes.js";
+import { routeServes } from "../src/graph/route-paths.js";
 import { runCallersCommand } from "../src/graph/traverse-cli.js";
 import type { GraphV1 } from "../src/graph/types.js";
 

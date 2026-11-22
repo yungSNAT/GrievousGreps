@@ -16,7 +16,7 @@ import { LineCounter, parseAllDocuments, type Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
-import { routeServes } from "./routes.js";
+import { routeServes } from "./route-paths.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes";
 
