@@ -329,7 +329,8 @@ function scriptsNear(checkout: string, dir: string): Record<string, unknown> | n
   }
 }
 
-const TARGET_LINE = /^([^\s:#=][^:#=]*?)\s*::?(?!=)/;
+// The name ends at its last non-space character before the colon, so a run of spaces is read once.
+const TARGET_LINE = /^([^\s:#=](?:[^:#=]*[^\s:#=])?)\s*::?(?!=)/;
 /**
  * Has the Makefile a target X? null when it can't be known: no Makefile, the one make reads first can't be read here,
  * an include, a % rule, a target named by a variable, `define` or `$(eval` (any could make X).

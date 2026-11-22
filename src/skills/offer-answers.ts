@@ -26,8 +26,7 @@ function form(typed: string): string {
   return String(typed ?? '').replace(/[‘’]/g, "'").toLowerCase().trim()
     .replace(TRAILING_EMOJI, '')
     .replace(/^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g, '')
-    .replace(/,/g, ' ')
-    .replace(/\s+/g, ' ');
+    .replace(/[,\s]+/g, ' ');
 }
 
 const PLAIN_YES = /^(y|yes|yeah|yep|yup|sure|ok|okay|go ahead|do it|please do|sounds good)( please| go ahead| do it)?$/;

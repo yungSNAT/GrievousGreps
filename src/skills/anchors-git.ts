@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Anchor } from './anchors.js';
+import { stripTrailingSlashes } from '../util/paths.js';
 
 export const MAX_READ = 1024 * 1024;
 
@@ -49,7 +50,8 @@ export function gitOf(checkout: string): Git | null {
     const sec = /^\s*\[\s*remote\s+"([^"]+)"\s*\]/.exec(line);
     if (sec) { current = sec[1]!; continue; }
     if (/^\s*\[/.test(line)) { current = null; continue; }
-    const url = /^\s*url\s*=\s*(.+?)\s*$/.exec(line);
+    // The value runs from its first to its last non-space character, so a run of spaces is read once.
+    const url = /^\s*url\s*=\s*(\S(?:.*\S)?)\s*$/.exec(line);
     if (current && url) remotes.set(current, url[1]!);
   }
   const reftable = exists(join(common, 'reftable'));
@@ -60,7 +62,7 @@ export function gitOf(checkout: string): Git | null {
 
 /** `host/owner/repo` for an https, ssh or scp-style URL; null otherwise (a remote's name). */
 function urlKey(url: string): string | null {
-  const u = url.trim().replace(/\/+$/, '').replace(/\.git$/, '');
+  const u = stripTrailingSlashes(url.trim()).replace(/\.git$/, '');
   const m = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/i.exec(u);
   if (m) return `${m[1]!.toLowerCase()}/${m[2]}`;
   const scp = /^(?:[^@/:]+@)?([^/:]+):([^/].*)$/.exec(u);
