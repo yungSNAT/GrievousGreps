@@ -1036,14 +1036,29 @@ const RUST_OWNER_KINDS: ReadonlySet<Kind> = new Set<Kind>(["struct", "enum", "tr
  * target. `undecided`: an in-repo name this walk cannot pin to one definition. */
 type PythonName = NodeV1 | { module: string } | "external" | "undecided";
 
+/** The text before the first comma whose next `<` or `>` is not a `>` (`split(/,(?![^<]*>)/)[0]`), in one pass:
+ * the pattern read on from every comma, so a long list inside `<…>` cost the square of its length. */
+function firstTypeArgument(text: string): string {
+  let angle = 0;
+  for (let comma = text.indexOf(","); comma >= 0; comma = text.indexOf(",", comma + 1)) {
+    if (angle <= comma) {
+      angle = comma + 1;
+      while (angle < text.length && text[angle] !== "<" && text[angle] !== ">") angle++;
+    }
+    if (text[angle] !== ">") return text.slice(0, comma);
+  }
+  return text;
+}
+
 /** A type as written, past references and smart pointers, which method calls see through. */
 function rustPlainText(written: string): string {
   let text = written.trim();
   for (let hops = 0; hops < 5; hops++) {
     text = text.replace(/^&\s*('\w+\s+)?(mut\s+)?/, "").replace(/^(impl|dyn)\s+/, "").trim();
-    const wrapped = /^(?:[\w:]*::)?(?:Box|Arc|Rc)<\s*(.+)>$/s.exec(text);
+    // No `\s*` after `<`: the part kept is trimmed, and a `\s*` beside `.+` let a run of spaces be split every way.
+    const wrapped = /^(?:[\w:]*::)?(?:Box|Arc|Rc)<(.+)>$/s.exec(text);
     if (!wrapped) break;
-    text = wrapped[1]!.split(/,(?![^<]*>)/)[0]!.trim();
+    text = firstTypeArgument(wrapped[1]!).trim();
   }
   return text;
 }
@@ -1060,8 +1075,9 @@ function rustReturnText(node: NodeV1, self: string | undefined): string | undefi
  * a bare one does not say; a type that wraps nothing stays what it is. */
 function rustUnwrapped(text: string): string | undefined {
   if (/^(?:[\w:]*::)?(?:Option|Result)$/.test(text)) return undefined;
-  const wrapped = /^(?:[\w:]*::)?(?:Option|Result)<\s*(.+)>$/s.exec(text);
-  return wrapped ? rustPlainText(wrapped[1]!.split(/,(?![^<]*>)/)[0]!) : text;
+  // No `\s*` after `<`, as in rustPlainText, which trims the part kept.
+  const wrapped = /^(?:[\w:]*::)?(?:Option|Result)<(.+)>$/s.exec(text);
+  return wrapped ? rustPlainText(firstTypeArgument(wrapped[1]!)) : text;
 }
 
 /** The type's name, or undefined for what only an impl can say: `Self::Iter`, `<T as Tr>::Out`. */
