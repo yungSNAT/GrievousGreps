@@ -196,7 +196,7 @@ function readCache(env?: NodeJS.ProcessEnv): CacheFile {
 }
 
 const fresh = (e: CacheEntry | undefined, now: Date) => {
-  const at = e ? Date.parse(e.at) : NaN;
+  const at = e ? Date.parse(e.at) : Number.NaN;
   return !Number.isNaN(at) && now.getTime() - at < CACHE_MS && at - now.getTime() < 60_000;
 };
 

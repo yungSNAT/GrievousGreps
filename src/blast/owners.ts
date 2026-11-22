@@ -226,11 +226,14 @@ export function diffAuthors(root: string, base: string): string[] {
   for (const raw of out.split("\n")) {
     const line = raw.trim();
     if (line === "") continue;
-    // A co-author trailer is `Name <email>`; both halves are worth excluding.
-    const m = /^(.*?)\s*<([^>]+)>$/.exec(line);
-    if (m) {
-      if (m[1]) names.add(m[1]);
-      names.add(m[2]);
+    // A co-author trailer is `Name <email>`; both halves are worth excluding. The email runs from the
+    // first `<` after the line's second-to-last `>` to the last, found in one pass however many `<` it holds.
+    // A name that holds a line break (CR, U+2028, U+2029) makes the line no trailer, as it always did.
+    const open = line.endsWith(">") ? line.indexOf("<", line.lastIndexOf(">", line.length - 2) + 1) : -1;
+    const name = open >= 0 ? line.slice(0, open).trimEnd() : "";
+    if (open >= 0 && open < line.length - 2 && !/[\r\u2028\u2029]/.test(name)) {
+      if (name) names.add(name);
+      names.add(line.slice(open + 1, -1));
       continue;
     }
     names.add(line);
