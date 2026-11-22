@@ -127,8 +127,10 @@ test("a Makefile line holding a long gap before no colon is read in linear time"
 
 test("compose and CI files full of blank lines or spaces are read in linear time", () => {
   quick("compose keys", () => composeServices(`services:\n${"\n".repeat(N)}x\n`));
-  const ci = checkout("ci", { ".github/workflows/ci.yml": `name: CI${" ".repeat(N)}x # note\non: push\n` });
-  assert.deepEqual(quick("ci name", () => wide(ci, ["gh workflow run Deploy"])), ["ci-file:Deploy"], "a name that is not there is still gone");
-  const svc = checkout("svc", { "compose.yaml": "services:\n  web:\n    image: x\n", ".env": `${"\n".repeat(N)}x\n` });
-  assert.deepEqual(quick("compose env", () => wide(svc, ["docker compose up worker"])), ["service:worker"], "the .env is read to its end");
+  // Each judgement is the one the same files without the padding get.
+  const ci = (gap: string) => wide(checkout("ci", { ".github/workflows/ci.yml": `name: CI${gap}x # note\non: push\n` }), ["gh workflow run Deploy"]);
+  assert.deepEqual(quick("ci name", () => ci(" ".repeat(N))), ci(" "));
+  const svc = (gap: string) =>
+    wide(checkout("svc", { "compose.yaml": "services:\n  web:\n    image: x\n", ".env": `${gap}x\n` }), ["docker compose up worker"]);
+  assert.deepEqual(quick("compose env", () => svc("\n".repeat(N))), svc("\n"));
 });
