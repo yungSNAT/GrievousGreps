@@ -124,7 +124,7 @@ describe("folding Bash calls and their results", () => {
   });
 
   test("a result tail is withheld if it retains a credential, not if the credential aged out", () => {
-    const fakeToken = "ghp_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const fakeToken = `ghp_${"A".repeat(36)}`; // nosemgrep -- a made-up credential the redaction must withhold
     const credentialLine = `Unexpected credential in command output: ${fakeToken}`;
     assert.equal(cleanTail(credentialLine), undefined);
 

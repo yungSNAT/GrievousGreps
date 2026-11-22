@@ -1,6 +1,7 @@
 import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { existsSync, fstatSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import {
@@ -21,7 +22,7 @@ describe("private filesystem helpers", () => {
   });
 
   after(() => {
-    if (root) fs.rmSync(root, { recursive: true, force: true });
+    if (root) rmSync(root, { recursive: true, force: true });
   });
 
   test("the re-exported helpers create a directory and persist JSON", () => {
@@ -30,7 +31,7 @@ describe("private filesystem helpers", () => {
     const settings = { enabled: true, count: 2 };
 
     ensurePrivateDir(dir);
-    assert.equal(fs.statSync(dir).isDirectory(), true);
+    assert.equal(statSync(dir).isDirectory(), true);
     writePrivateJson(path, settings);
     assert.deepEqual(readJsonSafe(path), settings);
   });
@@ -39,36 +40,36 @@ describe("private filesystem helpers", () => {
     const path = join(root, "whole-file", "helper");
 
     writePrivate(path, "original café");
-    assert.equal(fs.readFileSync(path, "utf8"), "original café");
+    assert.equal(readFileSync(path, "utf8"), "original café");
     if (process.platform !== "win32") {
-      assert.equal(fs.statSync(path).mode & 0o777, 0o600);
+      assert.equal(statSync(path).mode & 0o777, 0o600);
     }
 
     writePrivate(path, "", 0o700);
-    assert.equal(fs.readFileSync(path, "utf8"), "");
+    assert.equal(readFileSync(path, "utf8"), "");
     if (process.platform !== "win32") {
-      assert.equal(fs.statSync(path).mode & 0o777, 0o700);
+      assert.equal(statSync(path).mode & 0o777, 0o700);
     }
   });
 
   test("a failed rename leaves the destination intact and removes the temporary file", () => {
     const parent = join(root, "failed-rename");
     const destination = join(parent, "occupied");
-    fs.mkdirSync(destination, { recursive: true });
+    mkdirSync(destination, { recursive: true });
     const child = join(destination, "keep.txt");
-    fs.writeFileSync(child, "keep me");
+    writeFileSync(child, "keep me");
 
     assert.throws(() => writePrivate(destination, "replacement"), { syscall: "rename" });
-    assert.equal(fs.readFileSync(child, "utf8"), "keep me");
-    assert.deepEqual(fs.readdirSync(parent), ["occupied"]);
+    assert.equal(readFileSync(child, "utf8"), "keep me");
+    assert.deepEqual(readdirSync(parent), ["occupied"]);
   });
 
   test("whole-file writes replace symlinks rather than modifying their targets", (t) => {
     const target = join(root, "link-target.txt");
     const link = join(root, "file-link.txt");
-    fs.writeFileSync(target, "original target");
+    writeFileSync(target, "original target");
     try {
-      fs.symlinkSync(target, link, "file");
+      symlinkSync(target, link, "file");
     } catch (error) {
       const { code } = error as NodeJS.ErrnoException;
       if (process.platform === "win32" && (code === "EPERM" || code === "EACCES")) {
@@ -80,14 +81,14 @@ describe("private filesystem helpers", () => {
 
     if (fs.constants.O_NOFOLLOW) {
       assert.throws(() => appendPrivateLine(link, "must not reach the target"));
-      assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
-      assert.equal(fs.readFileSync(target, "utf8"), "original target");
+      assert.equal(lstatSync(link).isSymbolicLink(), true);
+      assert.equal(readFileSync(target, "utf8"), "original target");
     }
 
     writePrivate(link, "replacement");
-    assert.equal(fs.lstatSync(link).isFile(), true);
-    assert.equal(fs.readFileSync(link, "utf8"), "replacement");
-    assert.equal(fs.readFileSync(target, "utf8"), "original target");
+    assert.equal(lstatSync(link).isFile(), true);
+    assert.equal(readFileSync(link, "utf8"), "replacement");
+    assert.equal(readFileSync(target, "utf8"), "original target");
   });
 
   test("append creates missing parent directories and preserves earlier lines", () => {
@@ -98,9 +99,9 @@ describe("private filesystem helpers", () => {
     appendPrivateLine(path, largestAllowed);
     appendPrivateLine(path, "next event");
 
-    assert.equal(fs.readFileSync(path, "utf8"), `${largestAllowed}\nnext event\n`);
+    assert.equal(readFileSync(path, "utf8"), `${largestAllowed}\nnext event\n`);
     if (process.platform !== "win32") {
-      assert.equal(fs.statSync(path).mode & 0o777, 0o600);
+      assert.equal(statSync(path).mode & 0o777, 0o600);
     }
   });
 
@@ -113,14 +114,14 @@ describe("private filesystem helpers", () => {
       assert.throws(() => appendPrivateLine(path, line), /holds a line break/);
     }
     assert.throws(() => appendPrivateLine(path, oversized), /4 KB or more is refused/);
-    assert.equal(fs.existsSync(dirname(path)), false);
+    assert.equal(existsSync(dirname(path)), false);
   });
 
   test("append refuses a non-regular descriptor and closes it without writing", () => {
     const path = join(root, "non-regular-append.log");
-    fs.writeFileSync(path, "unchanged\n");
-    const logStat = fs.statSync(path);
-    const directoryStat = fs.statSync(root);
+    writeFileSync(path, "unchanged\n");
+    const logStat = statSync(path);
+    const directoryStat = statSync(root);
     const realFstatSync = fs.fstatSync;
     const examined: number[] = [];
 
@@ -142,8 +143,8 @@ describe("private filesystem helpers", () => {
     assert.equal(examined.length, 1);
     const [fd] = examined;
     assert.ok(fd !== undefined);
-    assert.throws(() => fs.fstatSync(fd), { code: "EBADF" });
-    assert.equal(fs.readFileSync(path, "utf8"), "unchanged\n");
+    assert.throws(() => fstatSync(fd), { code: "EBADF" });
+    assert.equal(readFileSync(path, "utf8"), "unchanged\n");
   });
 
   test("withLock returns the callback's value and removes its own lock", () => {
@@ -151,14 +152,14 @@ describe("private filesystem helpers", () => {
     const lock = `${path}.lock`;
 
     const result = withLock(path, () => {
-      assert.match(fs.readFileSync(lock, "utf8"), new RegExp(`^${process.pid} `));
+      assert.ok(readFileSync(lock, "utf8").startsWith(`${process.pid} `));
       writePrivate(path, "committed");
       return 9;
     });
 
     assert.deepEqual(result, { ok: true, value: 9 });
-    assert.equal(fs.readFileSync(path, "utf8"), "committed");
-    assert.equal(fs.existsSync(lock), false);
+    assert.equal(readFileSync(path, "utf8"), "committed");
+    assert.equal(existsSync(lock), false);
   });
 
   test("withLock preserves the callback's result and leaves a lock it cannot verify", () => {
@@ -180,6 +181,6 @@ describe("private filesystem helpers", () => {
       syncBuiltinESMExports();
     }
 
-    assert.match(fs.readFileSync(lock, "utf8"), new RegExp(`^${process.pid} `));
+    assert.ok(readFileSync(lock, "utf8").startsWith(`${process.pid} `));
   });
 });
