@@ -200,7 +200,9 @@ describe("structured rung ladder", () => {
       assert.deepEqual(first.calls.map((c) => c.tool_choice), [FORCED_RECORD, "required"]);
       assert.deepEqual(res.toolCalls[0].args, { z: 1 });
       assert.equal(spy.mock.callCount(), 1);
-      assert.match(String(spy.mock.calls[0].arguments[0]), new RegExp(`openai:${name}.*forced tool_choice`));
+      const warning = String(spy.mock.calls[0].arguments[0]);
+      const at = warning.indexOf(`openai:${name}`);
+      assert.ok(at >= 0 && warning.indexOf("forced tool_choice", at) > at, warning);
 
       const second = scripted([textReply('{"name":"record","parameters":"{\\"q\\":3}"}')]);
       const res2 = await model(second.client, name).create(toolReq());
