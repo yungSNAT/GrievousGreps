@@ -553,13 +553,14 @@ test("Go extraction: a func literal's parameter or local named like the method's
         "func (l *Logger) ElseIf() { run(func(*Entry) { if l := &Entry{}; false { _ = l } else if l := &Logger{}; true { l.SetLevel(1) } }) }\n" +
         "func (l *Logger) TwoVars() { run(func(*Entry) { var a, l *Entry; _ = a; l.SetLevel(1) }) }\n" +
         "func (l *Logger) Any() any { return nil }\n" +
-        "func (l *Logger) Guard() { run(func(*Entry) { switch l := l.Any().(type) { default: _ = l } }) }\n",
+        "func (l *Logger) Guard() { run(func(*Entry) { switch l := l.Any().(type) { default: _ = l } }) }\n" +
+        "func (l *Logger) InClause(x any) { run(func(*Entry) { switch l := x.(type) { default: l.SetLevel(1) } }) }\n",
   });
 
   const calls = (fn: string) =>
     graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target).sort();
   assert.deepEqual(
-    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Reused", "Nested", "Captured", "Later", "Shadowed", "Cased", "Selected", "Switched", "Inner", "IfBody", "ElseIf", "TwoVars"].map((fn) => [fn, calls(fn)])),
+    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Reused", "Nested", "Captured", "Later", "Shadowed", "Cased", "Selected", "Switched", "Inner", "IfBody", "ElseIf", "TwoVars", "InClause"].map((fn) => [fn, calls(fn)])),
     {
       Param: ["main.go#Entry.SetLevel"],
       // A local takes the type it is given from its declaration to the end of its block.
@@ -591,6 +592,8 @@ test("Go extraction: a func literal's parameter or local named like the method's
       ElseIf: ["main.go#Logger.SetLevel"],
       // `var a, l *Entry` types both names.
       TwoVars: ["main.go#Entry.SetLevel"],
+      // Inside its clauses the alias hides the receiver.
+      InClause: [],
     },
   );
   // A type switch's alias is in scope in its clauses, not in its guard.
