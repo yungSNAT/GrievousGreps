@@ -215,7 +215,7 @@ export function guardrailCounts(st: SkillSessionState, ctx: GateCtx, sent: Sent)
     let d: { at?: unknown; restSha?: unknown };
     try { d = JSON.parse(line); } catch { continue; }
     sent.push(['guardrail', { class: 'no-timeout', outcome: 'sure-fail' }]);
-    const at = typeof d.at === 'string' ? Date.parse(d.at) : NaN;
+    const at = typeof d.at === 'string' ? Date.parse(d.at) : Number.NaN;
     if (Number.isNaN(at) || typeof d.restSha !== 'string') continue;
     const avoided = passed.some((c) => {
       const t = Date.parse(c.at);

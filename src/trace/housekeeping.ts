@@ -41,7 +41,7 @@ function dropShownHeld(dir: string, now: Date): void {
   for (const name of names) {
     if (name.startsWith('.')) continue;
     const held = readJsonSafe<{ shownAt?: unknown }>(join(dir, name, 'held.json'));
-    const shown = typeof held?.shownAt === 'string' ? Date.parse(held.shownAt) : NaN;
+    const shown = typeof held?.shownAt === 'string' ? Date.parse(held.shownAt) : Number.NaN;
     if (!Number.isNaN(shown) && now.getTime() - shown > DAY) {
       try { rmSync(join(dir, name), { recursive: true, force: true }); } catch { /* next time */ }
     }
@@ -55,7 +55,7 @@ function dropOldProbes(path: string, now: Date): void {
   const box = raw.entries && typeof raw.entries === 'object' && !Array.isArray(raw.entries) ? (raw.entries as Record<string, unknown>) : raw;
   let changed = false;
   for (const [k, v] of Object.entries(box)) {
-    const at = v && typeof v === 'object' ? Date.parse(String((v as { at?: unknown }).at)) : NaN;
+    const at = v && typeof v === 'object' ? Date.parse(String((v as { at?: unknown }).at)) : Number.NaN;
     if (!Number.isNaN(at) && now.getTime() - at > 10 * 60_000) {
       delete box[k];
       changed = true;
@@ -70,7 +70,7 @@ function dropOldProbes(path: string, now: Date): void {
 export function housekeeping(now: Date = new Date(), env?: NodeJS.ProcessEnv): void {
   const mark = trailPath(env, 'state', 'housekeeping.json');
   const last = readJsonSafe<{ at?: unknown }>(mark);
-  const lastAt = typeof last?.at === 'string' ? Date.parse(last.at) : NaN;
+  const lastAt = typeof last?.at === 'string' ? Date.parse(last.at) : Number.NaN;
   if (!Number.isNaN(lastAt) && now.getTime() - lastAt < HOUR && now.getTime() >= lastAt) return;
   // One process does it; another one meanwhile skips it.
   withLock(mark, () => {

@@ -14,7 +14,7 @@ export function versionOf(data: Record<string, unknown>): number {
   const meta = data.metadata;
   const fromMeta = typeof meta === "object" && meta !== null && !Array.isArray(meta) ? (meta as Record<string, unknown>).version : undefined;
   for (const v of [fromMeta, data.version]) {
-    const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+    const n = typeof v === "number" ? v : typeof v === "string" && /^\d+$/.test(v.trim()) ? Number(v) : Number.NaN;
     if (Number.isSafeInteger(n) && n >= 1) return n;
   }
   return 1;
