@@ -124,6 +124,9 @@ test("a git config whose remote URL holds a long gap is read in linear time", ()
   const d = dir("gitcfg", { ".git/config": `[remote "origin"]\n\turl = a${" ".repeat(N)}b \n`, ".git/HEAD": "ref: refs/heads/main\n" });
   const git = quick("gitOf", () => gitOf(d));
   assert.equal(git?.remotes.get("origin"), `a${" ".repeat(N)}b`);
+  // The one change: a url of only whitespace is not read.
+  const blank = dir("gitcfg-blank", { ".git/config": `[remote "origin"]\n\turl =   \t\n[remote "up"]\n\turl = x\n`, ".git/HEAD": "ref: refs/heads/main\n" });
+  assert.deepEqual([...gitOf(blank)!.remotes], [["up", "x"]]);
 });
 
 /** A checkout with a git shape, `make` on its PATH and its own Trail home. */
@@ -170,7 +173,10 @@ test("a co-author trailer of many '<' is read in linear time", () => {
   const trailer = `a${"<".repeat(N)}>x>`;
   // A name holding a CR, U+2028 or U+2029 was never read as `Name <email>`, and is kept whole too.
   const broken = [0x0d, 0x2028, 0x2029].map((c) => `Name${String.fromCharCode(c)}x <mail${c}@example.com>`);
-  git("commit", "-q", "-am", `change\n\nCo-authored-by: ${trailer}\n${broken.map((b) => `Co-authored-by: ${b}\n`).join("")}Co-authored-by: Jo Bloggs <jo@example.com>`);
+  // From a file: the message is longer than a Windows command line may be.
+  const message = join(d, ".git", "MESSAGE");
+  writeFileSync(message, `change\n\nCo-authored-by: ${trailer}\n${broken.map((b) => `Co-authored-by: ${b}\n`).join("")}Co-authored-by: Jo Bloggs <jo@example.com>`);
+  git("commit", "-q", "-a", "-F", message);
   const names = quick("diffAuthors", () => diffAuthors(d, "HEAD~1"));
   assert.deepEqual(names, ["T", "t@example.com", trailer, ...broken, "Jo Bloggs", "jo@example.com"]);
 });
