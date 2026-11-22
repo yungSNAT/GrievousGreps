@@ -42,8 +42,7 @@ function writeSources(dir: string): void {
 }
 
 function build(dir: string): void {
-  let r = runCli(["build", "--dir", dir], { timeoutMs: 120000 });
-  if (r.status !== 0) r = runCli(["build", dir], { timeoutMs: 120000 });
+  const r = runCli(["build", dir], { timeoutMs: 120000 });
   assert.equal(r.status, 0, `build failed: ${r.stderr}`);
 }
 

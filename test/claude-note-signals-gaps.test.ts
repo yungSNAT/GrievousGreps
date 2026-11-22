@@ -67,7 +67,8 @@ describe("file names in recorded shell commands", () => {
 
   test("matches a POSIX absolute path and supports the default platform", () => {
     const file = posix.join(posix.sep, "work", "shop", "src", "totals.ts");
-    assert.deepEqual(`tee ${file} README.md`.match(fileWordRe("linux")), [file]);
+    const linux = fileWordRe("linux");
+    assert.deepEqual(Array.from(`tee ${file} README.md`.matchAll(linux), (m) => m[0]), [file]);
     assert.deepEqual("tee totals.ts README.md".match(fileWordRe()), ["totals.ts"]);
   });
 });
