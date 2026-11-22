@@ -298,7 +298,11 @@ test('referenceLine: a regex literal, a Go raw string ending in a backslash and 
   assert.equal(at('a.ts', "function f() {\n  const r = /'/; install();\n}"), 2);
   assert.equal(at('a.js', 'function f() {\n  const r = /[/]install/g;\n  install();\n}'), 3);
   // A slash after a value divides.
-  assert.equal(at('a.ts', 'function f(a: number, b: number) {\n  return a / b / install();\n}'), 2);
+  assert.equal(at('a.ts', 'function f(a: number, b: number) {\n  return a / install() / b;\n}'), 2);
+  // A JSX closing tag or self-closing `/>` starts no regex.
+  assert.equal(at('a.tsx', 'function F() {\n  return <tr><td>{a}</td><td>{install(b)}</td></tr>;\n}'), 2);
+  assert.equal(at('a.tsx', 'function F() {\n  return <div><p>Run</p>{install()}<p>x</p></div>;\n}'), 2);
+  assert.equal(at('a.jsx', 'function F() {\n  return <A x={1} /><B onClick={install} />;\n}'), 2);
   // A Go raw string has no escapes: a backslash before its backtick does not keep it open.
   assert.equal(at('a.go', 'func f() {\n\ts := `C:\\`\n\tinstall()\n}'), 3);
   // A Rust string, raw or not, runs across lines until it closes.

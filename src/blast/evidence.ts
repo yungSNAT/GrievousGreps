@@ -115,8 +115,8 @@ export function referenceLine(
 }
 
 /** Extensions whose line comments start with `#`, and those whose start with `--`. */
-export const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
-export const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
+const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
+const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
 
 /** Whether a quote opens at `text[i]`. A `'` between digits (`1'000`) does not, nor, in Rust, one that is no char literal (a lifetime). */
 export function opensQuote(text: string, i: number, rust: boolean): boolean {
@@ -159,10 +159,12 @@ function closeOf(text: string, i: number, open: string): number {
 const BEFORE_REGEX = new Set(["return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "yield", "await"]);
 
 /** Where a JavaScript regex literal starting at `text[i]` ends, past its flags, or -1 when the `/` divides the value
- * before it (a name, a number, a string or a closing bracket) or the line ends first. */
+ * before it (a name, a number, a string or a closing bracket), closes a JSX tag (`</td>`, `/>`) or the line ends first. */
 function regexEnd(text: string, i: number): number {
+  if (text[i + 1] === ">") return -1;
   let k = i - 1;
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
+  if (text[k] === "<") return -1;
   if (k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
     let s = k;
     while (s > 0 && /[\w$]/.test(text[s - 1])) s--;
