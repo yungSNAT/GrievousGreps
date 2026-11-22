@@ -106,7 +106,7 @@ describe("WorkspaceConnector offline gaps", { concurrency: false }, () => {
           writeCloud?: Save;
           saveCloud?: Save;
         };
-        const matches = () => workspace.readClouds(env)[0]?.token === token;
+        const matches = () => Object.is(workspace.readClouds(env)[0]?.token, token);
 
         if (store.writeClouds) {
           store.writeClouds([cloud], env);

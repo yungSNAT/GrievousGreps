@@ -114,7 +114,7 @@ describe("app server gaps", () => {
         throw new Error(`unexpected fetch: ${method} ${url}`);
       }
       return Response.json({
-        token: installationToken,
+        token: installationToken, // nosemgrep -- a fake token from the offline GitHub stand-in
         expires_at: "2099-01-01T00:00:00Z",
       }, { status: 201 });
     });
