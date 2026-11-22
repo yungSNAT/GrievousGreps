@@ -6,6 +6,7 @@
  */
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo } from "./helpers.js";
@@ -17,6 +18,7 @@ import { noEmails, scrub } from "../src/init/look-back.js";
 import { gitOf } from "../src/skills/anchors-git.js";
 import { composeServices, wideGone } from "../src/skills/anchors-wide.js";
 import { goneAnchors } from "../src/skills/anchors.js";
+import { diffAuthors } from "../src/blast/owners.js";
 import type { ParsedSkill } from "../src/skills/types.js";
 
 const LIMIT_MS = 3000;
@@ -123,6 +125,20 @@ test("a Makefile line holding a long gap before no colon is read in linear time"
   const c = checkout("make", { "Makefile": `a${" ".repeat(N)}=\ntest:\n\tgo test ./...\n` });
   const gone = quick("make", () => goneAnchors(skill(["make release"]), c.d, c.env));
   assert.deepEqual(gone.map((a) => `${a.kind}:${a.name}`), ["make:release"], "the targets after it are still read");
+});
+
+test("a co-author trailer of many '<' is read in linear time", () => {
+  const d = dir("owners", { "a.txt": "a\n" });
+  const git = (...args: string[]) => execFileSync("git", ["-C", d, "-c", "user.name=T", "-c", "user.email=t@example.com", ...args], { stdio: "pipe" });
+  git("init", "-q", "-b", "main");
+  git("add", "-A");
+  git("commit", "-q", "-m", "base");
+  writeFileSync(join(d, "a.txt"), "b\n");
+  const trailer = `a${"<".repeat(N)}>x>`;
+  git("commit", "-q", "-am", `change\n\nCo-authored-by: ${trailer}`);
+  const names = quick("diffAuthors", () => diffAuthors(d, "HEAD~1"));
+  assert.ok(names.includes(trailer), "a trailer that is not `Name <email>` is kept whole");
+  assert.deepEqual(diffAuthors(d, "HEAD~1").filter((n) => n !== trailer), ["T", "t@example.com"]);
 });
 
 // CI files and a compose project's .env are read up to 64 KiB, so their padding stays under that. Each judgement is
