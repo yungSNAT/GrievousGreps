@@ -77,7 +77,8 @@ function bindingAt(n: SyntaxNode, lang: Language): { names: string[]; declares: 
     case "assignment_expression": case "augmented_assignment_expression": case "assignment_statement": return field("left", false);
     case "for_in_statement": return field("left", n.childForFieldName("kind") !== null);
     case "short_var_declaration": return field("left", true);
-    case "range_clause": return field("left", n.children.some((c) => c.type === ":="));
+    case "range_clause": case "receive_statement": return field("left", n.children.some((c) => c.type === ":="));
+    case "type_switch_statement": return field("alias", true);
     case "variable_declarator": case "function_declaration": case "generator_function_declaration":
     case "function_definition": case "class_definition": return field("name", true);
     // A TypeScript class or enum is named by a type_identifier.
@@ -148,24 +149,29 @@ export class Scopes {
 
   /**
    * The scope a declaration of `name` at `n` binds in: its block, or its function for a
-   * JavaScript `var` and every Python binding; null for a Python `global` or `nonlocal`, which
-   * binds elsewhere.
+   * JavaScript `var`, a declaration in the function's own body and a Python binding outside a
+   * class body; null for a Python `global` or `nonlocal`, which binds elsewhere.
    */
   private home(n: SyntaxNode, name: string): number | null {
     const f = enclosing(n);
     if (f && this.lifted.get(f.id)?.has(name)) return null;
-    // A catch parameter and a declared for-in/of target bind in that clause or loop; anything else, a definition included, in the scope around it.
-    const start = n.type === "catch_clause" || n.type === "for_in_statement" ? n : n.parent;
+    // A catch parameter, a declared for-in/of target and a Go type switch's variable bind in that clause, loop or
+    // switch; anything else, a definition included, in the scope around it.
+    const start = n.type === "catch_clause" || n.type === "for_in_statement" || n.type === "type_switch_statement" ? n : n.parent;
     for (let p = start; p; p = p.parent) {
       if (FUNCTIONS.has(p.type)) return p.id;
-      if (this.blocks.has(p.type) && !isVar(n)) return p.id;
+      if (!this.blocks.has(p.type) || isVar(n)) continue;
+      // A function's body block is the function's scope: there Go `:=` assigns a parameter of the same name.
+      const f = p.parent && FUNCTIONS.has(p.parent.type) && p.parent.childForFieldName("body")?.id === p.id ? p.parent : null;
+      return (f ?? p).id;
     }
     return MODULE;
   }
 
   /** The binding `name` means at `node`, as a key; null for a function parameter. */
   use(node: SyntaxNode, name: string): string | null {
-    let inFunction = false;
+    // From a function itself (a `nonlocal` lookup), a class body around it is not seen either.
+    let inFunction = FUNCTIONS.has(node.type);
     for (let p = node.parent; p; p = p.parent) {
       if (FUNCTIONS.has(p.type)) {
         if (this.params.get(p.id)?.has(name)) return null;

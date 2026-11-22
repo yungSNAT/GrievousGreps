@@ -310,6 +310,16 @@ func main() {
 	}
 	mux.HandleFunc("/go", h)
 	http.ListenAndServe(":8080", mux)
+	switch http := any(mux).(type) {
+	default:
+		http.HandleFunc("/switch", h)
+	}
+}
+
+func param(mux *http.ServeMux) {
+	mux.HandleFunc("/param", h)
+	mux, err := http.NewServeMux(), error(nil)
+	_ = err
 }
 `,
     "py/app.py": `from flask import Flask
@@ -319,16 +329,71 @@ app = Flask(__name__)
 class Views:
     app = None
 
+    def setup(self):
+        @app.route("/method")
+        def method():
+            return ""
+
 @app.route("/py")
 def py():
     return ""
+
+def factory():
+    app = Flask("f")
+
+    class Holder:
+        app = None
+
+        def rebind(self):
+            nonlocal app
+            app = Flask("g")
+
+    @app.route("/nonlocal")
+    def nl():
+        return ""
+`,
+    "blk/types.ts": `import express from "express";
+import { show } from "./show.js";
+
+const app = express();
+
+function caught() {
+  try {
+    show();
+  } catch (app) {
+    app.get("/caught", show);
+  }
+  for (const app of [show]) {
+    app.get("/looped", show);
+  }
+  if (show) {
+    var app = { get() {} };
+  }
+  app.get("/var", show);
+}
+
+function enums() {
+  enum app { A }
+  app.get("/enum", show);
+}
+
+function abstracts() {
+  abstract class app {
+    static get(path: string, handler: unknown) {}
+  }
+  app.get("/abstract", show);
+}
+
+app.get("/ts", show);
 `,
   });
   try {
     // An unknown prefix gives no route: '/x' would be the block function read as middleware.
     assert.deepEqual(routeIds(graph), [
       "blk/server.js#route:GET /outer",
+      "blk/types.ts#route:GET /ts",
       "gosvc/main.go#route:ANY /go",
+      "py/app.py#route:GET /method",
       "py/app.py#route:GET /py",
     ]);
     assert.ok(routeEdges(graph).includes("blk/server.js#route:GET /outer -> blk/show.js#show"), routeEdges(graph).join("\n"));
