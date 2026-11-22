@@ -52,7 +52,9 @@ function withHome<T>(home: string, fn: () => T, extra: Record<string, string | u
 
 function gitRepo(tag: string): string {
   const repo = scratch(tag);
-  spawnSync("git", ["init", "-q"], { cwd: repo });
+  for (const args of [["init", "-q"], ["config", "user.name", "upkeep test"], ["config", "user.email", "upkeep@example.invalid"], ["config", "commit.gpgsign", "false"]]) {
+    assert.equal(spawnSync("git", args, { cwd: repo }).status, 0, `git ${args.join(" ")}`);
+  }
   return repo;
 }
 
@@ -104,13 +106,9 @@ describe("runUpkeep", () => {
       t.skip("symlinks are not available here");
       return;
     }
-    spawnSync("git", ["add", "-A"], { cwd: repo });
-    spawnSync("git", ["commit", "-q", "-m", "link"], { cwd: repo });
-    const detected = withHome(home, () => linkOutOfRepo(repo, homedir()));
-    if (!detected) {
-      t.skip("linkOutOfRepo does not flag this layout");
-      return;
-    }
+    assert.equal(spawnSync("git", ["add", "-A"], { cwd: repo }).status, 0, "git add");
+    assert.equal(spawnSync("git", ["commit", "-q", "-m", "link"], { cwd: repo }).status, 0, "git commit");
+    assert.ok(withHome(home, () => linkOutOfRepo(repo, homedir())), "the committed link is flagged as leaving the repo");
     writeStamp(repo, "0.23.0", ["claude"], { global: false, mcp: true, hooks: true, statusline: false });
     const r = withHome(home, () => runUpkeep(repo, "99.0.0", { background: false, home }), { GRAFT_NO_TRAIL_SWITCH: "1" });
     assert.equal(r.lines.some((l) => /refreshed this repo's agent wiring/.test(l)), false);
@@ -118,7 +116,7 @@ describe("runUpkeep", () => {
     assert.equal(JSON.parse(readFileSync(stampPath(repo), "utf8")).version, "0.23.0", "stamp left as it was");
   });
 
-  test("a graft-wired repo moves to trail once the trail command is on PATH", (t) => {
+  test("a graft-wired repo moves to trail once the trail command is on PATH", () => {
     const repo = gitRepo("upk-totrail");
     const home = scratch("upk-totrail-home");
     const bin = scratch("upk-totrail-bin");
@@ -128,14 +126,9 @@ describe("runUpkeep", () => {
     writeFileSync(join(bin, "trail.cmd"), "@echo 99.0.0\r\n");
     const path = `${bin}${delimiter}${process.env.PATH ?? ""}`;
     withHome(home, () => {
-      try {
-        runInit(repo, { global: false, build: false, home, brand: "graft" } as Parameters<typeof runInit>[1]);
-      } catch { /* checked below */ }
+      runInit(repo, { global: false, build: false, home, brand: "graft" } as Parameters<typeof runInit>[1]);
       writeStamp(repo, "0.1.0", ["claude"], { global: false, mcp: true, hooks: true, statusline: false });
-      if (!shouldMoveToTrail(repo)) {
-        t.skip("this layout is not seen as a graft repo ready to move");
-        return;
-      }
+      assert.equal(shouldMoveToTrail(repo), true, "the graft-wired repo is ready to move");
       const r = runUpkeep(repo, "99.0.0", { background: false, home });
       const text = r.lines.join("\n");
       assert.match(text, /graft is now trail, and this repo just moved to it/);
