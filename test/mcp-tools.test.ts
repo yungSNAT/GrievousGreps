@@ -143,15 +143,14 @@ test('graft_trace_calls round-trips a caller on the built fixture', async () => 
   const d = builtRepo();
   const r = await callTool(d, 'graft_trace_calls', { symbol: 'add' });
   assert.equal(r.isError, false);
-  assert.match(r.text, /add · function · src\/math\.ts:/);
-  assert.match(r.text, /calls ← sub \(src\/math\.ts:/);
+  assert.match(r.text, /add · function · src\/math\.ts:L\d+-L\d+ · calls ←\n  src\/math\.ts: sub L4$/m);
 });
 
 test('graft_trace_calls: qualified/--in narrowing still resolves through the shared resolver', async () => {
   const d = builtRepo();
   const r = await callTool(d, 'graft_trace_calls', { symbol: 'add', in: 'src' });
   assert.equal(r.isError, false);
-  assert.match(r.text, /calls ← sub/);
+  assert.match(r.text, /· calls ←\n  src\/math\.ts: sub L\d+$/m);
   // `in` is a path prefix: an unindexed one is a caller mistake, reported as such.
   const miss = await callTool(d, 'graft_trace_calls', { symbol: 'add', in: 'nowhere' });
   assert.equal(miss.isError, true);
@@ -162,7 +161,7 @@ test('graft_trace_calls direction:out round-trips a callee, and reports a loud n
   const d = builtRepo();
   const callee = await callTool(d, 'graft_trace_calls', { symbol: 'sub', direction: 'out' });
   assert.equal(callee.isError, false);
-  assert.match(callee.text, /calls → add \(src\/math\.ts:/);
+  assert.match(callee.text, /· calls →\n  src\/math\.ts: add L1$/m);
 
   // `add` calls nothing, so its callees are empty — must be a loud note, not silence.
   const empty = await callTool(d, 'graft_trace_calls', { symbol: 'add', direction: 'out' });
@@ -182,7 +181,7 @@ test('graft_trace_calls refuses a direction outside "in" and "out" instead of re
   // Some clients send null for an omitted optional field: that is the default, "in".
   const absent = await callTool(d, 'graft_trace_calls', { symbol: 'add', direction: null });
   assert.equal(absent.isError, false, absent.text);
-  assert.match(absent.text, /← sub \(src\/math\.ts:/);
+  assert.match(absent.text, /· calls ←\n  src\/math\.ts: sub L\d+$/m);
 });
 
 test('graft_trace_calls: unknown symbol / missing symbol are soft isErrors', async () => {
@@ -201,15 +200,12 @@ test('graft_trace_calls: depth param is honored (depth 2 reaches further than de
   const d = chainRepo();
   const shallow = await callTool(d, 'graft_trace_calls', { symbol: 'add', depth: 1 });
   assert.equal(shallow.isError, false);
-  assert.match(shallow.text, /← sub \(/);
+  assert.match(shallow.text, /: sub L\d+$/m);
   assert.doesNotMatch(shallow.text, /compute/);
 
   const deeper = await callTool(d, 'graft_trace_calls', { symbol: 'add', depth: 2 });
   assert.equal(deeper.isError, false);
-  assert.match(deeper.text, /← sub \(/);
-  assert.match(deeper.text, /\[depth 1\]/);
-  assert.match(deeper.text, /← compute \(/);
-  assert.match(deeper.text, /\[depth 2\]/);
+  assert.match(deeper.text, /: sub L\d+ \[depth 1\], compute L\d+ \[depth 2\]$/m);
 });
 
 test('graft_trace_calls depth>1 on a file aggregates dependents that call into a symbol the file defines, not just file-level imports', async () => {
@@ -219,8 +215,10 @@ test('graft_trace_calls depth>1 on a file aggregates dependents that call into a
   // Walking only the FILE node's incoming edges would find b.ts via `imports`
   // but drop it via `calls`, since a `calls` edge targets the SYMBOL id
   // (`src/a.ts#helper`), never the FILE id. edgeWalk aggregates over both.
-  assert.match(r.text, /imports ← b\.ts \(src\/b\.ts/);
-  assert.match(r.text, /calls ← useB \(src\/b\.ts/);
+  // 2 relations: each group names its own, and the header names none.
+  assert.doesNotMatch(r.text, /^a\.ts · .* · (imports|calls) ←$/m);
+  assert.match(r.text, /^  imports ← src\/b\.ts: b\.ts L\d+/m);
+  assert.match(r.text, /^  calls ← src\/b\.ts: useB L\d+/m);
 });
 
 test('graft_trace_calls: unknown symbol is a soft isError with the check-spelling message', async () => {
@@ -297,7 +295,7 @@ test('callTool honors a dirOverride for a graph built in a non-default dir', asy
 
   const callers = await callTool(repo, 'graft_trace_calls', { symbol: 'add' }, graphDir);
   assert.equal(callers.isError, false);
-  assert.match(callers.text, /calls ← sub \(src\/math\.ts:/);
+  assert.match(callers.text, /· calls ←\n  src\/math\.ts: sub L\d+$/m);
 
   // Without the override, tools fall back to the default `<repo>/graft`,
   // which doesn't exist here — must report no graph, not silently succeed.
@@ -365,5 +363,5 @@ test('graft_trace_calls with depth marks a hit reached through an inferred edge'
   writeFileSync(file, JSON.stringify(g));
   const r = await callTool(d, 'graft_trace_calls', { symbol: 'add', depth: 2 });
   assert.equal(r.isError, false);
-  assert.match(r.text, /calls ← compute \(.*\[depth 2\] \[inferred\]/);
+  assert.match(r.text, /^  src\/math\.ts \[inferred\]: sub L\d+ \[depth 1\], compute L\d+ \[depth 2\]$/m);
 });
