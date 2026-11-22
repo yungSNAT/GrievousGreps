@@ -179,6 +179,7 @@ export function linkKustomize(ctx: Context): void {
   const perDir = new Map<string, KustomizeRef[]>();
   for (const k of all) pushTo(perDir, k.dir, k);
   const ks = all.filter((k) => perDir.get(k.dir)!.length === 1);
+  const refused = new Set(all.filter((k) => perDir.get(k.dir)!.length > 1).map((k) => k.dir));
   for (const k of all) if (perDir.get(k.dir)!.length > 1) report(k, "not read: Kustomize refuses a folder with more than one kustomization file");
   const byDir = new Map(ks.map((k) => [k.dir, k]));
   for (const k of ks) if (k.unread.length) report(k, `fields not read: ${k.unread.join(", ")}`);
@@ -191,8 +192,10 @@ export function linkKustomize(ctx: Context): void {
     const local = under(k.dir, p);
     const target = local === null ? undefined : byDir.get(local) ?? objectsIn.get(local);
     if (target) return target;
-    if (local === null || outside(p)) report(k, `${field} ${shown(p)} not followed: ${outside(p) ? "remote" : "outside the repository"}`);
-    else report(k, `${field} ${shown(p)} ${ctx.fileExists(local) ? "gave no Kubernetes objects" : "not found"}`);
+    if (local !== null && refused.has(local)) report(k, `${field} ${shown(p)} not read: its folder has more than one kustomization file`);
+    else if (local !== null && ctx.fileExists(local)) report(k, `${field} ${shown(p)} gave no Kubernetes objects`);
+    else if (local === null || outside(p)) report(k, `${field} ${shown(p)} not followed: ${outside(p) ? "remote" : "outside the repository"}`);
+    else report(k, `${field} ${shown(p)} not found`);
     return null;
   };
   // A file used only as a patch is not an object of the cluster: drop it from the object and selector lookups.
@@ -231,16 +234,17 @@ export function linkKustomize(ctx: Context): void {
   let steps = 0;
   const step = (k: KustomizeRef, n: number) => {
     steps += n;
-    if (steps > MAX_STEPS) report(k, `name, patch, generator and image links omitted from here on after ${MAX_STEPS} match steps`);
+    // Pushed directly, so the per-file report cap cannot hide it.
+    if (steps > MAX_STEPS) ctx.skipped.push({ path: fileOf(k), reason: `name, patch, generator and image links omitted from here on after ${MAX_STEPS} match steps` });
     return steps <= MAX_STEPS;
   };
   const refsFrom = new Map<string, DeployRef[]>();
   for (const r of ctx.refs) if (r.to === "object" || r.to === "image" || r.to === "labels") pushTo(refsFrom, r.from, r);
   const aliased = new Set<string>();
-  for (const k of ks) {
+  linking: for (const k of ks) {
     const built = members.get(k) ?? [];
     aliases(built, refsFrom, aliased, ctx);
-    if (!step(k, built.length * (k.generators.length + k.images.length + 1))) return;
+    if (!step(k, built.length * (k.generators.length + k.images.length + 1))) break;
     for (const m of built) {
       for (const r of refsFrom.get(m.id) ?? []) {
         if (r.to === "object") {
@@ -257,11 +261,11 @@ export function linkKustomize(ctx: Context): void {
     const scopes = k.component && parents.has(k) ? parents.get(k)! : [k];
     for (const scope of scopes) {
       for (const p of k.patches) {
-        if (!patch(k, scope, p, members.get(scope) ?? [], { objectsIn, report, step, ctx })) return;
+        if (!patch(k, scope, p, members.get(scope) ?? [], { objectsIn, report, step, ctx })) break linking;
       }
     }
   }
-  for (const [k, n] of reports) if (n > MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: `and ${n - MAX_REPORTS} more not followed` });
+  for (const [k, n] of reports) if (n > MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: `and ${n - MAX_REPORTS} more reports` });
 }
 
 /** Remove a patch file's object from the object and selector lookups. */
@@ -360,15 +364,15 @@ function patch(k: KustomizeRef, scope: KustomizeRef, p: KustomizePatch, built: M
   let own: NodeV1[] = [];
   if (p.path) {
     const local = under(k.dir, p.path);
-    own = local === null ? [] : objectsIn.get(local) ?? [];
-    if (local === null || (!own.length && outside(p.path))) {
+    if (local === null) {
       report(k, `${label} not followed: ${outside(p.path) ? "remote" : "outside the repository"}`);
       return true;
     }
+    own = objectsIn.get(local) ?? [];
     // A JSON 6902 patch file holds operations, not objects: its target says what it changes.
     if (!own.length && !ctx.fileExists(local)) {
-      report(k, `${label} not found`);
-      if (!p.target) return true;
+      report(k, `${label} ${outside(p.path) ? "not followed: remote" : "not found"}`);
+      if (!p.target || outside(p.path)) return true;
     }
   }
   for (const n of own) ctx.add(k.from, n.id);
@@ -396,7 +400,8 @@ function patch(k: KustomizeRef, scope: KustomizeRef, p: KustomizePatch, built: M
     }
     if (!step(k, built.length * 3)) return false;
     const matches = built.filter((m) => kind(m.kind) && names(m).some(name) && [m.ns, m.namespace ?? m.ns].some(namespace));
-    if (!matches.some((m) => !own.some((n) => n.id === m.id))) report(k, `${label} matched no object this kustomization builds`);
+    const ownIds = new Set(own.map((n) => n.id));
+    if (!matches.some((m) => !ownIds.has(m.id))) report(k, `${label} matched no object this kustomization builds`);
     if (!step(k, own.length * matches.length)) return false;
     link(own.map((n) => n.id), matches);
     return true;

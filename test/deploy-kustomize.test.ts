@@ -310,13 +310,19 @@ test("review cases: patch documents, namespaces, local dotted folders, unread fi
     "ns/p.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api, namespace: a }\nspec: { replicas: 2 }\n",
     "multi/kustomization.yaml": `resources: [ ../base ]
 patchesStrategicMerge: [ two.yaml ]
+patches:
+  - path: frag.yaml
+    target: { kind: Service, name: api }
 patchesJson6902:
   - path: ops.yaml
     target: { kind: "Deploy.*", name: api }
 `,
-    "multi/two.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { replicas: 2 }\n---\napiVersion: v1\nkind: Service\nmetadata: { name: api }\nspec: { type: NodePort }\n",
+    "multi/frag.yaml": "apiVersion: v1\nkind: Service\nmetadata: { name: frag }\nspec: { type: NodePort }\n",
+    "multi/two.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { replicas: 2, template: { metadata: { labels: { app: api } } } }\n---\napiVersion: v1\nkind: Service\nmetadata: { name: api }\nspec: { type: NodePort }\n",
     "multi/ops.yaml": "- op: replace\n  path: /spec/replicas\n  value: 3\n",
-    "config.d/kustomization.yaml": "resources: [ ../base ]\n",
+    "config.d/kustomization.yaml": "resources: [ ../base ]\npatches:\n  - path: patches.d/ops.yaml\n    target: { kind: Service, name: api }\n",
+    "config.d/patches.d/ops.yaml": "- op: add\n  path: /metadata/labels/x\n  value: y\n",
+    "edge2/ingress.yaml": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: edge2 }\nspec: { defaultBackend: { service: { name: frag } } }\n---\napiVersion: v1\nkind: Service\nmetadata: { name: sel }\nspec: { selector: { app: api } }\n",
     "top/kustomization.yaml": "resources: [ ../config.d ]\n",
     "dup/kustomization.yaml": "resources: [ x.yaml ]\n",
     "dup/Kustomization": "resources: [ x.yaml ]\n",
@@ -341,7 +347,7 @@ patchesJson6902:
     assert.ok(!JSON.stringify(result.skipped).includes("SEKRET"));
     const m = reasons("many/kustomization.yaml");
     assert.equal(m.length, 21);
-    assert.equal(m.at(-1), "and 5 more not followed");
+    assert.equal(m.at(-1), "and 5 more reports");
     const all = refs(graph);
     assert.deepEqual(all.filter((e) => e.startsWith("ns/")), [
       "ns/kustomization.yaml#kustomization -> ns/a.yaml#Deployment/a/api",
@@ -350,15 +356,21 @@ patchesJson6902:
       "ns/p.yaml#Deployment/a/api -> ns/a.yaml#Deployment/a/api",
     ]);
     assert.deepEqual(all.filter((e) => e.startsWith("multi/")), [
+      "multi/frag.yaml#Service/default/frag -> base/service.yaml#Service/default/api",
       "multi/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
       "multi/kustomization.yaml#kustomization -> base/kustomization.yml#kustomization",
       "multi/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api",
+      "multi/kustomization.yaml#kustomization -> multi/frag.yaml#Service/default/frag",
       "multi/kustomization.yaml#kustomization -> multi/two.yaml#Deployment/default/api",
       "multi/kustomization.yaml#kustomization -> multi/two.yaml#Service/default/api",
       "multi/two.yaml#Deployment/default/api -> base/deployment.yaml#Deployment/default/api",
       "multi/two.yaml#Service/default/api -> base/service.yaml#Service/default/api",
     ]);
     assert.ok(all.includes("top/kustomization.yaml#kustomization -> config.d/kustomization.yaml#kustomization"));
+    assert.ok(all.includes("config.d/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api"));
+    // Files used only as patches are no target of selectors or references.
+    assert.ok(!all.some((e) => / -> multi\//.test(e) && !e.startsWith("multi/")), all.join("\n"));
+    assert.deepEqual(all.filter((e) => e.startsWith("edge2/")), ["edge2/ingress.yaml#Service/default/sel -> base/deployment.yaml#Deployment/default/api (inferred)"]);
     assert.deepEqual(all.filter((e) => e.startsWith("comp/")), [
       "comp/c.yaml#Deployment/default/api -> base/deployment.yaml#Deployment/default/api",
       "comp/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
@@ -367,4 +379,22 @@ patchesJson6902:
     assert.deepEqual(all.filter((e) => e.startsWith("dup/")), []);
     assert.ok(!all.some((e) => e.startsWith("base/service.yaml#Service/default/api -> multi/")));
   });
+});
+
+test("the match-step bound is reported past the per-file cap, with the count of the other reports", () => {
+  const nodes: NodeV1[] = [];
+  const refsOut: DeployRef[] = [];
+  const read = (rel: string, text: string) => {
+    const x = extractDeploy(rel, text, deployFormatOf(rel)!);
+    for (const n of x.nodes) nodes.push(n);
+    for (const r of x.refs) refsOut.push(r);
+  };
+  read("k/d.yaml", Array.from({ length: 2000 }, (_, i) => `apiVersion: v1\nkind: ConfigMap\nmetadata: { name: c${i} }\n`).join("---\n"));
+  const missing = Array.from({ length: 25 }, (_, i) => `  - m${i}.yaml`).join("\n");
+  const inline = Array.from({ length: 400 }, () => '  - "{ apiVersion: v1, kind: ConfigMap, metadata: { name: c0 } }"').join("\n");
+  read("k/kustomization.yaml", `resources:\n  - d.yaml\n${missing}\npatchesStrategicMerge:\n${inline}\n`);
+  const { skipped } = resolveDeploy(nodes, refsOut, (p) => p === "k/d.yaml");
+  const reasons = skipped.filter((s) => s.path === "k/kustomization.yaml").map((s) => s.reason);
+  assert.ok(reasons.includes("name, patch, generator and image links omitted from here on after 2000000 match steps"), reasons.join("\n"));
+  assert.equal(reasons.at(-1), "and 5 more reports");
 });
