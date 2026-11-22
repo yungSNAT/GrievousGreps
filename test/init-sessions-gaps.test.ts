@@ -19,7 +19,7 @@ let scratch: string;
 
 before(() => {
   scratch = mkdtempSync(join(tmpdir(), "init-sessions-gaps-"));
-  scratch = realpathSync(scratch);
+  scratch = realpathSync.native(scratch); // the long form on Windows, as child processes report it
   mock.method(globalThis, "fetch", async () => {
     throw new Error("Session discovery must not use the network");
   });
@@ -54,7 +54,7 @@ function checkout(parent: string, name: string, remote?: string): string {
 
 function canonicalRoots(paths: string[]): Set<string> {
   // Git may report Windows paths with forward slashes.
-  return new Set(paths.map((path) => realpathSync(path)));
+  return new Set(paths.map((path) => realpathSync.native(path)));
 }
 
 function projects(home: string): string {
