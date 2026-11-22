@@ -136,12 +136,6 @@ export const F16 = (() => {
   return table;
 })();
 
-export function f16ToF32(bits: Uint16Array): Float32Array {
-  const out = new Float32Array(bits.length);
-  for (let i = 0; i < bits.length; i++) out[i] = F16[bits[i]];
-  return out;
-}
-
 const F32 = new Float32Array(1);
 const U32 = new Uint32Array(F32.buffer);
 

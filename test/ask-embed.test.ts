@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MODEL_DIR, f16ToF32, f32ToF16, loadTokenizer, openEmbedder, tokenIds } from "../src/ask/embed.js";
+import { F16, MODEL_DIR, f32ToF16, loadTokenizer, openEmbedder, tokenIds } from "../src/ask/embed.js";
 
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "ask-embed", "model2vec.json"), "utf8")) as {
   cases: { text: string; ids: number[]; vector: number[] }[];
@@ -48,7 +48,7 @@ for (const whole of [true, false]) {
 test("float16 conversion round-trips every finite float16 value", () => {
   const all = new Uint16Array(65536).map((_, i) => i);
   const finite = all.filter((h) => ((h >> 10) & 0x1f) !== 31);
-  assert.deepEqual(f32ToF16(f16ToF32(finite)), finite);
+  assert.deepEqual(f32ToF16(Float32Array.from(finite, (h) => F16[h])), finite);
   // Ties go to even, and values past float16's range saturate.
   assert.deepEqual([...f32ToF16(new Float32Array([1 + 2 ** -11, 1 + 3 * 2 ** -11, 70000, -70000]))], [0x3c00, 0x3c02, 0x7c00, 0xfc00]);
 });
