@@ -58,18 +58,19 @@ function signals(...entries: Entry[]) {
 }
 
 describe("file names in recorded shell commands", () => {
+  const words = (text: string, re: RegExp) => Array.from(text.matchAll(re), (m) => m[0]);
+
   test("keeps the Windows drive and directories in native and Git Bash paths", () => {
     const native = win32.join("C:", "work", "shop", "src", "totals.ts");
     const gitBash = native.split(win32.sep).join(posix.sep);
     const command = `sed -i 's/old/new/' "${native}" "${gitBash}" README.md`;
-    assert.deepEqual(command.match(fileWordRe("win32")), [native, gitBash]);
+    assert.deepEqual(words(command, fileWordRe("win32")), [native, gitBash]);
   });
 
   test("matches a POSIX absolute path and supports the default platform", () => {
     const file = posix.join(posix.sep, "work", "shop", "src", "totals.ts");
-    const linux = fileWordRe("linux");
-    assert.deepEqual(Array.from(`tee ${file} README.md`.matchAll(linux), (m) => m[0]), [file]);
-    assert.deepEqual("tee totals.ts README.md".match(fileWordRe()), ["totals.ts"]);
+    assert.deepEqual(words(`tee ${file} README.md`, fileWordRe("linux")), [file]);
+    assert.deepEqual(words("tee totals.ts README.md", fileWordRe()), ["totals.ts"]);
   });
 });
 
