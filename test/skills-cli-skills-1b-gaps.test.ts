@@ -2,6 +2,7 @@ import { test, describe, before, after, mock } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { join, relative, sep } from "node:path";
 import {
@@ -39,7 +40,7 @@ describe("phase 1b CLI commands", () => {
     try {
       restoreFetch?.();
     } finally {
-      if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
+      if (scratch) rmSync(scratch, { recursive: true, force: true });
     }
   });
 
@@ -48,8 +49,8 @@ describe("phase 1b CLI commands", () => {
     const cwd = join(root, "work");
     const home = join(root, "home");
     const trailHome = join(home, ".trail");
-    fs.mkdirSync(cwd, { recursive: true });
-    fs.mkdirSync(trailHome, { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(trailHome, { recursive: true });
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: home,
@@ -80,7 +81,7 @@ describe("phase 1b CLI commands", () => {
       code: 1,
       lines: [held.line],
     });
-    assert.equal(fs.existsSync(skillsDir(env)), false);
+    assert.equal(existsSync(skillsDir(env)), false);
   });
 
   test("draft print reports a missing pending item in a fresh checkout", () => {
@@ -96,7 +97,7 @@ describe("phase 1b CLI commands", () => {
     const template = WALLS.find((wall) => wall.guardrail?.fileName === "no-timeout.md")?.guardrail;
     assert.ok(template);
     const path = writeEveryRepo({ ...guard(), title: template.title }, "my-portability-rule.md", env);
-    const active = parseNote(fs.readFileSync(path, "utf8"), path);
+    const active = parseNote(readFileSync(path, "utf8"), path);
     assert.ok(active?.id);
     assert.equal(active.status, "active");
 
@@ -109,7 +110,7 @@ describe("phase 1b CLI commands", () => {
       back: `change status: retired to status: active in ${relative(trailHome, path).split(sep).join("/")} under your Trail home`,
     });
 
-    const retired = fs.readFileSync(path, "utf8");
+    const retired = readFileSync(path, "utf8");
     const note = parseNote(retired, path);
     assert.equal(note?.status, "retired");
     assert.equal(note?.id, active.id);
@@ -119,61 +120,61 @@ describe("phase 1b CLI commands", () => {
     assert.equal(again?.code, 0);
     assert.match(again.lines[0]!, /was already forgotten/);
     assert.equal(again.dropped, undefined);
-    assert.equal(fs.readFileSync(path, "utf8"), retired);
+    assert.equal(readFileSync(path, "utf8"), retired);
   });
 
   test("forget by id searches the current repo's personal notes as well as every-repo notes", () => {
     const { cwd, env, key } = checkout("repo-learning");
     const original = writeEveryRepo(guard(), "no-timeout.md", env);
-    const text = fs.readFileSync(original, "utf8");
+    const text = readFileSync(original, "utf8");
     const note = parseNote(text, original);
     assert.ok(note?.id);
 
     const dir = repoNotesDir(key, env);
-    fs.mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true });
     const local = join(dir, "no-timeout.md");
-    fs.renameSync(original, local);
+    renameSync(original, local);
 
     const out = forgetLearning(note.id, cwd, env);
     assert.equal(out?.code, 0);
     assert.match(out.lines[0]!, /file stays, marked retired/);
-    assert.equal(parseNote(fs.readFileSync(local, "utf8"), local)?.status, "retired");
-    assert.deepEqual(fs.readdirSync(everyRepoDir(env)), []);
+    assert.equal(parseNote(readFileSync(local, "utf8"), local)?.status, "retired");
+    assert.deepEqual(readdirSync(everyRepoDir(env)), []);
   });
 
   test("forget by id ignores oversized notes, non-Markdown files, and Markdown-named directories", () => {
     const { cwd, env } = workspace("ignored-learnings");
     const path = writeEveryRepo(guard(), "no-timeout.md", env);
-    const text = fs.readFileSync(path, "utf8");
+    const text = readFileSync(path, "utf8");
     const note = parseNote(text, path);
     assert.ok(note?.id);
 
     const dir = everyRepoDir(env);
     const oversized = `${text}\n${"x".repeat(64 * 1024)}\n`;
-    fs.writeFileSync(path, oversized);
+    writeFileSync(path, oversized);
     const backup = join(dir, "backup.txt");
-    fs.writeFileSync(backup, text);
-    fs.mkdirSync(join(dir, "directory.md"));
+    writeFileSync(backup, text);
+    mkdirSync(join(dir, "directory.md"));
 
     assert.deepEqual(forgetLearning(note.id, cwd, env), {
       code: 1,
       lines: [`✗ no learning called ${note.id} here`],
     });
-    assert.equal(fs.readFileSync(path, "utf8"), oversized);
-    assert.equal(fs.readFileSync(backup, "utf8"), text);
+    assert.equal(readFileSync(path, "utf8"), oversized);
+    assert.equal(readFileSync(backup, "utf8"), text);
   });
 
   test("forget reports no match if the learning disappears between stat and read", () => {
     const { cwd, env } = workspace("vanishing-learning");
     const file = "no-timeout.md";
     const path = writeEveryRepo(guard(), file, env);
-    const note = parseNote(fs.readFileSync(path, "utf8"), path);
+    const note = parseNote(readFileSync(path, "utf8"), path);
     assert.ok(note?.id);
 
     const listedPath = join(everyRepoDir(env), file);
     const readFile = fs.readFileSync;
     const read = mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
-      if (args[0] === listedPath) fs.unlinkSync(listedPath);
+      if (args[0] === listedPath) unlinkSync(listedPath);
       return readFile(...args);
     });
 
@@ -188,20 +189,20 @@ describe("phase 1b CLI commands", () => {
       syncBuiltinESMExports();
     }
 
-    assert.deepEqual(fs.readdirSync(everyRepoDir(env)), [], "forget did not recreate the file");
+    assert.deepEqual(readdirSync(everyRepoDir(env)), [], "forget did not recreate the file");
   });
 
   test("forget moves only the matching skill lesson and reports how to restore it", () => {
     const { cwd, env } = workspace("skill-lesson");
     const skill = "review-changes";
     const dir = join(skillsDir(env), skill, "lessons");
-    fs.mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true });
     const id = "ls-ab12cd";
     const file = "review-scope.md";
     const saved = `---\nid: "${id}"\n---\nCheck the scope of the changes first.\n`;
     const other = "---\nid: ls-abcdef\n---\nLook for missing tests.\n";
-    fs.writeFileSync(join(dir, file), saved);
-    fs.writeFileSync(join(dir, "other.md"), other);
+    writeFileSync(join(dir, file), saved);
+    writeFileSync(join(dir, "other.md"), other);
 
     assert.deepEqual(forgetLearning(id, cwd, env), {
       code: 0,
@@ -212,9 +213,9 @@ describe("phase 1b CLI commands", () => {
         back: `in your Trail home, move skills/${skill}/lessons/.forgotten/${file} up one folder`,
       },
     });
-    assert.equal(fs.existsSync(join(dir, file)), false);
-    assert.equal(fs.readFileSync(join(dir, ".forgotten", file), "utf8"), saved);
-    assert.equal(fs.readFileSync(join(dir, "other.md"), "utf8"), other);
+    assert.equal(existsSync(join(dir, file)), false);
+    assert.equal(readFileSync(join(dir, ".forgotten", file), "utf8"), saved);
+    assert.equal(readFileSync(join(dir, "other.md"), "utf8"), other);
     assert.deepEqual(forgetLearning(id, cwd, env), {
       code: 1,
       lines: [`✗ no learning called ${id}`],
