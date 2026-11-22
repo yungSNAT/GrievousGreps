@@ -19,7 +19,7 @@
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. On the 21 public repositories its fixes were tuned on, its [measured recall](#measured-recall) is 0.98, against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d`, all 3 measured on 16 November 2026 (UTC); on 5 repositories no build had seen, it was 0.34 against 0.22 for 0.29.0. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences, background network requests and symlinks among them.
+Use it over upstream if your agent relies on `callers`. On the 21 public repositories its fixes were tuned on, its [measured recall](#measured-recall) is 0.98, against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d`, all 3 measured on 16 November 2026 (UTC). On 5 repositories no build had seen, it was 0.34 against 0.22 for 0.29.0 (18 November, at `4be1b3b`). Its Rust recall is partial. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences, background network requests and symlinks among them.
 
 ## Install
 
@@ -73,7 +73,7 @@ trail ask "<question>"               # the files and symbols that answer it, ran
 trail viz                            # an interactive viewer of the graph, served on localhost
 ```
 
-`trail viz --export site/` writes the viewer as one self-contained `index.html` instead, with no script or style loaded from elsewhere.
+`trail viz --export site/` writes the viewer as one self-contained `index.html` instead, with no script or style loaded from elsewhere ([measured](benchmark/README.md#install-and-use-measurements)).
 
 `trail ask` ranks files by the question's words and, by default, by its meaning, and merges the 2 rankings. Meaning comes from [potion-code-16M-v2](https://huggingface.co/minishlab/potion-code-16M-v2/tree/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b) (MIT), a static embedding model of 33.5 MB (its weights and tokenizer) in the package's `models/` folder, which runs in Node on the CPU with no account, no download and no network. `trail build` embeds each source file in chunks of whole lines into the map's `.cache/ask-vectors.bin`, and later builds embed only the files that changed. That is the first-run cost, which [benchmark/](benchmark/README.md#install-and-use-measurements) measures. On [semble's benchmark](benchmark/README.md#search-on-sembles-benchmark) this raised NDCG@10 from 0.750 by words only (with `TRAIL_SEMANTIC=0`) to 0.793, both at `ebef20c` on 19 November (UTC). Set `TRAIL_SEMANTIC=0` to rank by words only; the next build removes the vectors. A query from a folder of several repositories ranks by words only.
 
@@ -148,7 +148,7 @@ About 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 
 
 Against 0.29.0, recall rose on 20 of the 21 repositories; vue did not move. Silent undercounts remain.
 
-The 3 columns were run on Linux with Node 26.13.1 on 16 November 2026 (UTC); [benchmark/](benchmark/README.md#recall-history) has the records and every earlier run.
+The 3 columns were run on Linux with Node 26.13.1 on 16 November 2026 (UTC); [benchmark/](benchmark/README.md#recall-history) has the records and the earlier runs.
 
 These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results; the unseen set above measures that. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
 
