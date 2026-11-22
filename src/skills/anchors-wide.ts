@@ -267,7 +267,8 @@ function topName(text: string): string | null | undefined {
     const v = m[1]!.trim();
     const q = /^(["'])(.*?)\1\s*(?:#.*)?$/.exec(v);
     if (q) return q[1] === '"' && q[2]!.includes('\\') ? undefined : q[2]!;
-    const bare = v.replace(/\s+#.*$/, '').trim();
+    // A comment starts after the first space of its run, so the run is read once.
+    const bare = v.replace(/(?<!\s)\s+#.*$/, '').trim();
     if (!bare || /^[|>&*!%@`"'[{]/.test(bare)) return undefined;
     return bare;
   }
@@ -306,7 +307,8 @@ function ciGone(top: string, x: string, folder: () => CiFolder): boolean {
 
 /** The service keys one indent under a column-0 `services:`; null when not sure (4.13, P25). */
 export function composeServices(text: string): Set<string> | null {
-  if (/^\s*(?:include|extends)\s*:/m.test(text) || /<<\s*:/.test(text)) return null;
+  // A key's indent stays on its own line, so a run of blank lines is not read again from each.
+  if (/^[^\S\r\n  ]*(?:include|extends)\s*:/m.test(text) ||/<<\s*:/.test(text)) return null;
   const lines = text.replace(/\r/g, '').split('\n');
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -341,7 +343,7 @@ function serviceGone(top: string, f: Found, env: NodeJS.ProcessEnv): boolean {
   for (const e of new Set([join(f.at, '.env'), join(folder, '.env'), join(top, '.env')])) {
     if (!lexists(e)) continue;
     const text = readSmall(e, MAX_CI_BYTES);
-    if (text === null || /^\s*(?:export\s+)?COMPOSE_FILE\s*=/m.test(text)) return false;
+    if (text === null || /^[^\S\r\n  ]*(?:export\s+)?COMPOSE_FILE\s*=/m.test(text)) return false;
   }
   const text = readSmall(c.file, MAX_COMPOSE_BYTES);
   const names = text === null ? null : composeServices(text);

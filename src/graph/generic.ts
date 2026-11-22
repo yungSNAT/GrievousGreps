@@ -334,7 +334,9 @@ export function extractGeneric(rel: string, source: string, langName: string): E
     while (minted.has(id)) id = `${idBase}~${n++}`;
     minted.add(id);
     const startRow = whole.startPosition.row, endRow = whole.endPosition.row;
-    const sigLine = (lines[startRow] ?? "").trim().replace(/\s*\{?\s*$/, "");
+    const line = (lines[startRow] ?? "").trim();
+    // A trailing `{` and the gap before it go, read once from the end.
+    const sigLine = line.endsWith("{") ? line.slice(0, -1).trimEnd() : line;
     const owner = langName === "rust" ? rustOwnerOf(whole) : undefined;
     const returns = langName === "rust" ? whole.childForFieldName?.("return_type")?.text : undefined;
     nodes.push({
@@ -530,7 +532,7 @@ function rustStdReceiver(call: TsNode | undefined): boolean {
   const text = call?.parent?.childForFieldName?.("value")?.text;
   if (!text || /\bpar_|_par_/.test(text)) return false;
   return /\.(iter|iter_mut|into_iter|chars|bytes|lines|keys|values|values_mut|drain|split_whitespace)\(\)/.test(text)
-    || /^\([^()]*\.\.[^()]*\)$/.test(text)
+    || (/^\([^()]*\)$/.test(text) && text.includes(".."))
     || /^(std::|Vec::|String::|Box::|vec!|format!|Some\(|Ok\(|Err\(|")/.test(text);
 }
 
@@ -617,7 +619,7 @@ function rustValueChain(value: TsNode | null | undefined, owner: string | undefi
   }
   if (fn?.type === "identifier") return { fn: rustWholePath(undefined, fn.text, scopes, n.startIndex) ?? fn.text, root: rustPathRoot(undefined, scopes, n.startIndex, fn.text), methods: [] };
   if (fn?.type !== "scoped_identifier") return undefined;
-  const path = fn.childForFieldName?.("path")?.text.replace(/::<.*>$/, "").replace(/<.*>$/, "");
+  const path = rustPathNoGenerics(fn.childForFieldName?.("path")?.text);
   const name = fn.childForFieldName?.("name")?.text;
   if (!path || !name) return undefined;
   const root = rustPathRoot(path, scopes, n.startIndex);
@@ -776,7 +778,9 @@ function rustBounds(owner: string | undefined, from: TsNode | undefined): string
     const header = body ? n.text.slice(0, body.startIndex - n.startIndex) : n.text;
     for (const m of header.matchAll(pattern)) {
       for (const bound of (m[1] ?? "").split("+")) {
-        const name = bound.trim().replace(/<.*$/, "").replace(/^.*::/, "");
+        const text = bound.trim();
+        const open = text.indexOf("<", lastLineStart(text));
+        const name = (open < 0 ? text : text.slice(0, open)).replace(/^.*::/, "");
         if (/^[A-Z]/.test(name)) out.push(name);
       }
     }
@@ -799,10 +803,30 @@ function rustPathRoot(path: string | undefined, scopes: RustUseScope[], at: numb
   return /^(crate|self|super)$/.test(root) ? undefined : root;
 }
 
+/** Where `text`'s last line starts: as far back as a `.` in a pattern that ends at `$` can reach. */
+function lastLineStart(text: string): number {
+  let at = text.length;
+  while (at > 0 && !"\n\r  ".includes(text[at - 1]!)) at--;
+  return at;
+}
+
+/** `text` cut at the first `open` on its last line, when a `>` ends it after that: what
+ * `.replace(/<open>.*>$/, "")` cuts, found in one pass rather than one per `<`. */
+function cutAngleTail(text: string, open: string): string {
+  if (!text.endsWith(">")) return text;
+  const at = text.indexOf(open, lastLineStart(text));
+  return at >= 0 && at + open.length < text.length ? text.slice(0, at) : text;
+}
+
+/** A path less the generic arguments that end it: a trailing `::<…>` first, then a trailing `<…>`. */
+function rustPathNoGenerics(path: string | undefined): string | undefined {
+  return path === undefined ? undefined : cutAngleTail(cutAngleTail(path, "::<"), "<");
+}
+
 /** `Engine::new` → `Engine`, `Self::new` → the enclosing impl's type. Undefined for a
  * module path (`rules::parse`), which says nothing about an owner. */
 function rustCallOwner(path: string | undefined, enc: Def | undefined): string | undefined {
-  const last = path?.replace(/::<.*>$/, "").replace(/<.*>$/, "").split("::").pop();
+  const last = rustPathNoGenerics(path)?.split("::").pop();
   if (last === "Self") return enc?.owner;
   return last && /^[A-Z]/.test(last) ? last : undefined;
 }
@@ -857,7 +881,7 @@ function rustUseBindings(text: string, globs?: string[]): Map<string, { first: s
       }
       return;
     }
-    const [path, alias] = item.split(/\s+as\s+/);
+    const [path, alias] = item.split(/(?<!\s)\s+as\s+/);
     const segments = (path ?? "").trim().split("::");
     const last = segments.at(-1);
     const whole = [...above, ...segments];
@@ -896,7 +920,8 @@ function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; g
   let anyGlob = false;
   const visit = (n: TsNode, scope: RustUseScope): void => {
     if (n.type === "use_declaration") {
-      const glob = /(\w+)::\*/.exec(n.text)?.[1];
+      // Each pattern here starts a match only where a run of its characters starts, so a long word is read once.
+      const glob = /(?<!\w)(\w+)::\*/.exec(n.text)?.[1];
       if (/\*/.test(n.text)) anyGlob = true;
       if (glob === "super") scope.closed = false;
       // `super::*` and `self::*` in a `mod tests` name this same file.
@@ -906,7 +931,7 @@ function rustUses(root: TsNode): { scopes: RustUseScope[]; names: Set<string>; g
         scope.fulls.set(name, full);
         names.add(name);
       }
-      for (const m of n.text.matchAll(/(\w+)\s+as\s+(\w+)/g)) scope.renames.set(m[2]!, m[1]!);
+      for (const m of n.text.matchAll(/(?<!\w)(\w+)\s+as\s+(\w+)/g)) scope.renames.set(m[2]!, m[1]!);
       return;
     }
     let inner = scope;
@@ -1016,7 +1041,7 @@ function extractRustPubUses(root: TsNode, rel: string, rawEdges: RawEdge[], regi
     // `extern crate self as x;` names this crate's root, which a `self::` path would not.
     if (crate) into.names.push([crate[2] ?? crate[1]!, crate[1] === "self" ? "crate" : crate[1]!]);
     else for (const [name, { full }] of rustUseBindings(c.text)) into.names.push([name, full]);
-    for (const m of c.text.matchAll(/([\w:]+)::\*/g)) into.globs.push(m[1]!);
+    for (const m of c.text.matchAll(/(?<![\w:])([\w:]+)::\*/g)) into.globs.push(m[1]!);
   }
   for (const pub of byMacros.values()) {
     if (pub.names.length || pub.globs.length) rawEdges.push({ source: rel, relation: "imports", file: rel, rustPubUses: pub });
@@ -1200,7 +1225,7 @@ function rustUseModule(text: string): string | null {
   let s = text.replace(/^\s*use\s+/, "").replace(/;\s*$/, "").trim();
   const brace = s.indexOf("{");
   if (brace >= 0) s = s.slice(0, brace).replace(/::\s*$/, "");
-  else s = s.replace(/\s+as\s+\w+$/, "");
+  else s = s.replace(/(?<!\s)\s+as\s+\w+$/, "");
   s = s.trim();
   if (s !== "crate" && !s.startsWith("crate::")) return null; // only in-crate absolute imports
   if (s.includes("*")) return null; // glob — no single module target

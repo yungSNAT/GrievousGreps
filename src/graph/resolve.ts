@@ -1041,7 +1041,8 @@ function rustPlainText(written: string): string {
   let text = written.trim();
   for (let hops = 0; hops < 5; hops++) {
     text = text.replace(/^&\s*('\w+\s+)?(mut\s+)?/, "").replace(/^(impl|dyn)\s+/, "").trim();
-    const wrapped = /^(?:[\w:]*::)?(?:Box|Arc|Rc)<\s*(.+)>$/s.exec(text);
+    // No `\s*` after `<`: the part kept is trimmed, and a `\s*` beside `.+` let a run of spaces be split every way.
+    const wrapped = /^(?:[\w:]*::)?(?:Box|Arc|Rc)<(.+)>$/s.exec(text);
     if (!wrapped) break;
     text = wrapped[1]!.split(/,(?![^<]*>)/)[0]!.trim();
   }
@@ -1060,7 +1061,8 @@ function rustReturnText(node: NodeV1, self: string | undefined): string | undefi
  * a bare one does not say; a type that wraps nothing stays what it is. */
 function rustUnwrapped(text: string): string | undefined {
   if (/^(?:[\w:]*::)?(?:Option|Result)$/.test(text)) return undefined;
-  const wrapped = /^(?:[\w:]*::)?(?:Option|Result)<\s*(.+)>$/s.exec(text);
+  // No `\s*` after `<`, as in rustPlainText, which trims the part kept.
+  const wrapped = /^(?:[\w:]*::)?(?:Option|Result)<(.+)>$/s.exec(text);
   return wrapped ? rustPlainText(wrapped[1]!.split(/,(?![^<]*>)/)[0]!) : text;
 }
 
