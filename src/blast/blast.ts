@@ -17,7 +17,7 @@ import { impactOfMany, type EdgeHit } from "../graph/traverse.js";
 import type { GraphV1, NodeV1 } from "../graph/types.js";
 import { dirLabel, moduleIndex, parentDir, shortLabel, type ModuleIndex } from "./modules.js";
 import type { ChangedFile, Hunk, LineRange } from "./diff.js";
-import { wordRe } from "./evidence.js";
+import { DASH_COMMENTS, HASH_COMMENTS, opensQuote, wordRe } from "./evidence.js";
 import type { Owner, Reviewer } from "./owners.js";
 
 const SPAN_RE = /^L(\d+)-L(\d+)$/;
@@ -504,18 +504,6 @@ function callEnd(lines: string[], n: number, at: number, last: number): number {
     if (depth === 0) return n;
   }
   return n;
-}
-
-/** Extensions whose line comments start with `#`, and those whose start with `--`. */
-const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
-const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
-
-/** Whether a quote opens at `text[i]`. A `'` between digits (`1'000`) does not, nor, in Rust, one that is no char literal (a lifetime). */
-function opensQuote(text: string, i: number, rust: boolean): boolean {
-  const ch = text[i];
-  if (ch === '"' || ch === "`") return true;
-  if (ch !== "'" || (/\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? ""))) return false;
-  return !rust || /^'(?:[^'\\]|\\[^']{1,9})'/.test(text.slice(i));
 }
 
 /**

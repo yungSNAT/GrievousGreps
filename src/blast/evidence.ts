@@ -89,21 +89,98 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
  *
  * This is the whole trick behind "why is this symbol here": the edge says A calls
  * B, and this finds the line where it does it. Shared so `blast`'s panel, its
- * comment and `graft callers` all quote the same line for the same edge.
+ * comment and `graft callers` all quote the same line for the same edge. With
+ * `inCode`, a mention in a string or a comment does not count ({@link codeOf}).
  */
 export function referenceLine(
   path: string,
   span: string,
   needles: RegExp[],
   read: (path: string) => string[] | null,
+  inCode = false,
 ): { n: number; text: string } | null {
   const range = spanRange(span);
   const lines = read(path);
   if (!range || !lines) return null;
+  const syntax = inCode ? syntaxOf(path) : null;
+  let open: string | null = null;
   for (const [i, text] of lines.slice(range.start - 1, range.end).entries()) {
-    if (needles.some((re) => re.test(text))) return { n: range.start + i, text };
+    let seen = text;
+    // A name in a string or a comment is text about the symbol, not a use of it.
+    if (syntax) ({ code: seen, open } = codeOf(text, syntax, open));
+    if (needles.some((re) => re.test(seen))) return { n: range.start + i, text };
   }
   return null;
+}
+
+/** Extensions whose line comments start with `#`, and those whose start with `--`. */
+export const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
+export const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
+
+/** Whether a quote opens at `text[i]`. A `'` between digits (`1'000`) does not, nor, in Rust, one that is no char literal (a lifetime). */
+export function opensQuote(text: string, i: number, rust: boolean): boolean {
+  const ch = text[i];
+  if (ch === '"' || ch === "`") return true;
+  if (ch !== "'" || (/\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? ""))) return false;
+  return !rust || /^'(?:[^'\\]|\\[^']{1,9})'/.test(text.slice(i));
+}
+
+/** How a file writes comments, by its extension, as blast's `codeLines` reads them. */
+interface Syntax { slash: boolean; dash: boolean; hash: boolean; rust: boolean }
+
+function syntaxOf(path: string): Syntax {
+  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const hash = HASH_COMMENTS.has(ext);
+  const dash = DASH_COMMENTS.has(ext);
+  return { hash, dash, slash: ext === "php" || (!hash && !dash), rust: ext === "rs" };
+}
+
+/** Where the string or block comment `open` closes at or after `i` (past its last character), or -1 when it runs past
+ * the line. Backslash escapes count in strings. */
+function closeOf(text: string, i: number, open: string): number {
+  if (open === "*/") {
+    const end = text.indexOf("*/", i);
+    return end < 0 ? -1 : end + 2;
+  }
+  for (let j = i; j < text.length; j++) {
+    if (text[j] === "\\") j++;
+    else if (text.startsWith(open, j)) return j + open.length;
+  }
+  return -1;
+}
+
+/**
+ * A line with each string and comment blanked to one space, and the string or block comment still open at its end:
+ * a block comment, a triple-quoted string or a backtick string runs on to the next line; a `"` or `'` string closes
+ * with its line. `open` is what the previous line left open. Comments are read as {@link syntaxOf} says.
+ */
+function codeOf(text: string, syntax: Syntax, open: string | null): { code: string; open: string | null } {
+  let code = "";
+  let i = 0;
+  if (open) {
+    const end = closeOf(text, 0, open);
+    if (end < 0) return { code, open };
+    code = " ";
+    i = end;
+    open = null;
+  }
+  for (; i < text.length; i++) {
+    const ch = text[i];
+    // `\/*` is an escaped slash in a regex literal (`/\/*$/`), never a comment.
+    if (syntax.slash && text.startsWith("/*", i) && text[i - 1] !== "\\") open = "*/";
+    else if ((syntax.slash && text.startsWith("//", i)) || (syntax.dash && text.startsWith("--", i)) || (syntax.hash && ch === "#" && (i === 0 || /\s/.test(text[i - 1])))) break;
+    else if (text.startsWith('"""', i) || text.startsWith("'''", i)) open = text.slice(i, i + 3);
+    else if (opensQuote(text, i, syntax.rust)) open = ch;
+    else code += ch;
+    if (open) {
+      const end = closeOf(text, i + open.length, open);
+      if (end < 0) return { code, open: open === '"' || open === "'" ? null : open };
+      code += " ";
+      i = end - 1;
+      open = null;
+    }
+  }
+  return { code, open: null };
 }
 
 /** A symbol name, matched as a whole word — `export` must not hit `exportViz`. */
@@ -128,7 +205,7 @@ export function impactedEvidence(
   // A changed symbol's own name is the strongest signal; a file-level dependent
   // usually reaches the diff through its import line, which names a MODULE
   // instead, so both are tried in that order.
-  const byName = referenceLine(sym.path, sym.span, reach.names.map(wordRe), read);
+  const byName = referenceLine(sym.path, sym.span, reach.names.map(wordRe), read, true);
   if (byName) {
     const hit = reach.names.find((n) => wordRe(n).test(byName.text));
     return {

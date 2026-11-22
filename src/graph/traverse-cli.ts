@@ -149,7 +149,7 @@ function quoteFor(
   read: (path: string) => string[] | null,
 ): Quote | undefined {
   if (!hit.node || hit.depth > 1 || isTestPath(hit.node.path)) return undefined;
-  return referenceLine(hit.node.path, hit.node.span, [wordRe(name)], read) ?? undefined;
+  return referenceLine(hit.node.path, hit.node.span, [wordRe(name)], read, true) ?? undefined;
 }
 
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched
