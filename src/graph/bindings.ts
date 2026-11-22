@@ -19,7 +19,7 @@ import type { Language, WalkCtx } from "./extract.js";
  * own methods returns (`self.config = self.make_config()`), or a value of no known type. */
 export type PythonField = { type: string } | { returns: string } | { unknown: true };
 
-interface GoSpan { from: number; to: number; type: string }
+interface GoSpan { from: number; to: number; block: number; type: string }
 
 export class FileBindings {
   private map = new Map<string, string>();
@@ -47,12 +47,12 @@ export class FileBindings {
   /** Go func literals: where each parameter or local is in scope (source offsets) and its type, `?` when none is read. */
   private goSpans = new Map<string, GoSpan[]>();
 
-  /** Go: a func literal's variable, in scope from `from` to `to`. A `:=` naming a variable already
-   * declared in the same block assigns it and declares nothing, so it is not recorded. */
+  /** Go: a func literal's variable, in scope from `from` to `to` in the block starting at `block`. A `:=`
+   * naming a variable already declared in the same block assigns it and declares nothing, so it is not recorded. */
   spanGo(scopePath: string, name: string, span: GoSpan, declares = true): void {
     const key = `${scopePath}|${name}`;
     const spans = this.goSpans.get(key) ?? [];
-    if (!declares && spans.some((s) => s.to === span.to && s.from <= span.from)) return;
+    if (!declares && spans.some((s) => s.block === span.block && s.from <= span.from)) return;
     spans.push(span);
     this.goSpans.set(key, spans);
   }
@@ -787,15 +787,13 @@ function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): vo
   const scopePath = scope.join(".");
   const span = scope.at(-1)?.startsWith("@") ? goSpan(node) : null;
   if (!span) {
-    const set = (name: string, type: string) => bindings.setGo(scopePath, name, type);
-    bindGoTyped(node, scopePath, bindings, set, set);
+    bindGoTyped(node, scopePath, bindings, (name, type) => bindings.setGo(scopePath, name, type));
     return;
   }
   // A func literal's variable is in scope from its declaration to the end of its block, so it is
   // recorded with where it is in scope; one declared with no type read gets `?`, which names none.
   const types = new Map<string, string>();
-  const set = (name: string, type: string) => types.set(name, type);
-  bindGoTyped(node, scopePath, bindings, set, set);
+  bindGoTyped(node, scopePath, bindings, (name, type) => types.set(name, type));
   const declares = node.type !== "short_var_declaration";
   for (const name of goDeclaredNames(node)) bindings.spanGo(scopePath, name, { ...span, type: types.get(name) ?? "?" }, declares);
 }
@@ -806,22 +804,24 @@ const GO_SCOPES: ReadonlySet<string> = new Set([
   "expression_case", "default_case", "type_case", "communication_case",
 ]);
 
-/** Where the variables a Go declaration node introduces are in scope: a parameter in its function's
- * whole literal, a local from the end of its declaration to the end of the innermost block or clause
- * holding it, a type switch's alias in every clause. Null for a node that declares no variable. */
-function goSpan(node: SyntaxNode): { from: number; to: number } | null {
+/** Where the variables a Go declaration node introduces are in scope, and the block they belong to (its start
+ * offset): a parameter in its function's whole literal, in the body's block; a local from the end of its declaration
+ * to the end of the innermost block or clause holding it, each `if`, `for` and `switch` header its own block; a type
+ * switch's alias in every clause, not its guard. Null for a node that declares no variable. */
+function goSpan(node: SyntaxNode): { from: number; to: number; block: number } | null {
   if (node.type === "parameter_declaration" || node.type === "variadic_parameter_declaration") {
     const fn = node.parent?.parent;
-    return fn && GO_FUNCTIONS.has(fn.type) ? { from: fn.startIndex, to: fn.endIndex } : null;
+    const body = fn?.childForFieldName("body");
+    return fn && body && GO_FUNCTIONS.has(fn.type) ? { from: fn.startIndex, to: fn.endIndex, block: body.startIndex } : null;
   }
   if (node.type === "type_switch_statement") {
-    const alias = node.childForFieldName("alias");
-    return alias ? { from: alias.endIndex, to: node.endIndex } : null;
+    const open = node.children.find((c) => c.type === "{");
+    return node.childForFieldName("alias") && open ? { from: open.endIndex, to: node.endIndex, block: node.startIndex } : null;
   }
   if (!["var_spec", "short_var_declaration", "range_clause", "receive_statement"].includes(node.type)) return null;
   let holder = node.parent;
   while (holder && !GO_SCOPES.has(holder.type)) holder = holder.parent;
-  return holder ? { from: node.endIndex, to: holder.endIndex } : null;
+  return holder ? { from: node.endIndex, to: holder.endIndex, block: holder.startIndex } : null;
 }
 
 /** The variable names a Go declaration node introduces in its scope. */
@@ -842,23 +842,24 @@ function goDeclaredNames(node: SyntaxNode): string[] {
 
 type SetGo = (name: string, type: string) => void;
 
-function bindGoTyped(node: SyntaxNode, scopePath: string, bindings: FileBindings, setLocal: SetGo, setParam: SetGo): void {
+function bindGoTyped(node: SyntaxNode, scopePath: string, bindings: FileBindings, set: SetGo): void {
   if (node.type === "parameter_declaration") {
     // A function type's parameters (`var cb func(l *Logger)`) name no variable here.
     if (!GO_FUNCTIONS.has(node.parent?.parent?.type ?? "")) return;
     const type = goTypeName(node.childForFieldName("type"));
-    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) setParam(name.text, type);
+    if (type) for (const name of node.namedChildren.filter((c) => c.type === "identifier")) set(name.text, type);
     return;
   }
   if (node.type === "var_spec") {
     const name = node.childForFieldName("name");
     const type = goTypeName(node.childForFieldName("type"));
-    if (name?.type === "identifier" && type) setLocal(name.text, type);
+    // `var a, l *Entry` gives each name the type.
+    if (type) for (const each of node.namedChildren.filter((c) => c.type === "identifier")) set(each.text, type);
     const values = node.childForFieldName("value")?.namedChildren ?? [];
     const first = values[0];
     if (name?.type === "identifier" && !type && values.length === 1 && first?.type === "call_expression") {
       const result = goCallResult(first);
-      if (result) setLocal(name.text, result);
+      if (result) set(name.text, result);
     }
     return;
   }
@@ -888,7 +889,7 @@ function bindGoTyped(node: SyntaxNode, scopePath: string, bindings: FileBindings
       // One call on the right gives its first result to the first name; `a, b := f(), g()` pairs them.
       typeName = goCallResult(expr);
     }
-    if (typeName) setLocal(nameNode.text, typeName);
+    if (typeName) set(nameNode.text, typeName);
   }
 }
 

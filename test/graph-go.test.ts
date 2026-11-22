@@ -548,13 +548,18 @@ test("Go extraction: a func literal's parameter or local named like the method's
         "func (l *Logger) Cased() { run(func(*Entry) { switch { case true: var l *Entry; l.SetLevel(1) }; l.SetLevel(2) }) }\n" +
         "func (l *Logger) Selected(ch chan *Entry) { run(func(*Entry) { select { case l := <-ch: l.SetLevel(1) }; l.SetLevel(2) }) }\n" +
         "func (l *Logger) Switched(x any) { run(func(*Entry) { switch l := x.(type) { default: _ = l }; l.SetLevel(1) }) }\n" +
-        "func (l *Logger) Inner() { run(func(l *Entry) { run(func(*Entry) { l.SetLevel(1) }) }) }\n",
+        "func (l *Logger) Inner() { run(func(l *Entry) { run(func(*Entry) { l.SetLevel(1) }) }) }\n" +
+        "func (l *Logger) IfBody() { run(func(*Entry) { if l := &Entry{}; true { l := &Logger{}; l.SetLevel(1) } }) }\n" +
+        "func (l *Logger) ElseIf() { run(func(*Entry) { if l := &Entry{}; false { _ = l } else if l := &Logger{}; true { l.SetLevel(1) } }) }\n" +
+        "func (l *Logger) TwoVars() { run(func(*Entry) { var a, l *Entry; _ = a; l.SetLevel(1) }) }\n" +
+        "func (l *Logger) Any() any { return nil }\n" +
+        "func (l *Logger) Guard() { run(func(*Entry) { switch l := l.Any().(type) { default: _ = l } }) }\n",
   });
 
   const calls = (fn: string) =>
     graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target).sort();
   assert.deepEqual(
-    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Reused", "Nested", "Captured", "Later", "Shadowed", "Cased", "Selected", "Switched", "Inner"].map((fn) => [fn, calls(fn)])),
+    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Reused", "Nested", "Captured", "Later", "Shadowed", "Cased", "Selected", "Switched", "Inner", "IfBody", "ElseIf", "TwoVars"].map((fn) => [fn, calls(fn)])),
     {
       Param: ["main.go#Entry.SetLevel"],
       // A local takes the type it is given from its declaration to the end of its block.
@@ -581,8 +586,15 @@ test("Go extraction: a func literal's parameter or local named like the method's
       Switched: ["main.go#Logger.SetLevel"],
       // An inner literal sees the enclosing literal's parameter.
       Inner: ["main.go#Entry.SetLevel"],
+      // An if, for or switch header is its own block, so a := in the body or an else if declares a new variable.
+      IfBody: ["main.go#Logger.SetLevel"],
+      ElseIf: ["main.go#Logger.SetLevel"],
+      // `var a, l *Entry` types both names.
+      TwoVars: ["main.go#Entry.SetLevel"],
     },
   );
+  // A type switch's alias is in scope in its clauses, not in its guard.
+  assert.deepEqual(graph.edges.filter((e) => e.relation === "calls" && e.source === "main.go#Logger.Guard").map((e) => e.target), ["main.go#Logger.Any"]);
 });
 
 test("Go extraction: a type parameter names no type, though the package declares one of that name", async () => {
