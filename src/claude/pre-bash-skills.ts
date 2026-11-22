@@ -232,7 +232,7 @@ function gatedAsk(input: any, cmd: string, env: NodeJS.ProcessEnv): PreBashDecis
     };
   }
   const now = nowOf(env);
-  const since = group.approvedAt === null ? NaN : now.getTime() - Date.parse(group.approvedAt);
+  const since = group.approvedAt === null ? Number.NaN : now.getTime() - Date.parse(group.approvedAt);
   // A yes from the last 30 minutes; one stamped after now (a clock that moved back, a file written by hand) covers nothing.
   const approved = since >= 0 && since <= APPROVED_MS;
   if (approved && typeof group.askedStep === 'number' && step.n > group.askedStep && sameStep(cmd, step.text, live.params)) return null;

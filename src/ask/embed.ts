@@ -131,7 +131,7 @@ export const F16 = (() => {
     const exp = (h >> 10) & 0x1f;
     const frac = h & 0x3ff;
     table[h] =
-      exp === 0 ? sign * 2 ** -14 * (frac / 1024) : exp === 31 ? (frac ? NaN : sign * Infinity) : sign * 2 ** (exp - 15) * (1 + frac / 1024);
+      exp === 0 ? sign * 2 ** -14 * (frac / 1024) : exp === 31 ? (frac ? Number.NaN : sign * Infinity) : sign * 2 ** (exp - 15) * (1 + frac / 1024);
   }
   return table;
 })();
