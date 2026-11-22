@@ -89,8 +89,7 @@ function answerForm(typed: string): string {
   return String(typed ?? '').replace(/[\u2018\u2019]/g, "'").toLowerCase().trim()
     .replace(TRAILING_EMOJI, '')
     .replace(/^[\s.!?,;:]+|(?<![\s.!?,;:])[\s.!?,;:]+$/g, '')
-    .replace(/,/g, ' ')
-    .replace(/\s+/g, ' ');
+    .replace(/[,\s]+/g, ' ');
 }
 
 /** D116 item 3: the go-ahead phrases a run spans turns on, as the line's whole first clause. */
