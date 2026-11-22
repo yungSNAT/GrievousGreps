@@ -193,7 +193,7 @@ patches:
       "resources /etc/k8s not followed: outside the repository",
       "resources ../../outside not followed: outside the repository",
       "resources github.com/acme/base?ref=v1 not followed: remote",
-      "resources git@github.com:acme/x.git not followed: remote",
+      "resources github.com:acme/x.git not followed: remote",
       "resources https://example.com/x.yaml not followed: remote",
       "resources empty.yaml gave no Kubernetes objects",
       "components ../comp-missing not found",
@@ -297,4 +297,74 @@ test("a cycle between kustomizations is reported once and a long chain stays bou
   assert.equal(skipped.filter((s) => s.reason.startsWith("cycle")).length, 1);
   assert.ok(skipped.some((s) => s.reason === "name, patch and generator links omitted after 200000 built objects"));
   assert.equal(edges.filter((e) => e.source.endsWith("#kustomization")).length, 2 * N);
+});
+
+test("review cases: patch documents, namespaces, local dotted folders, unread fields, credentials, report counts", async () => {
+  const many = Array.from({ length: 25 }, (_, i) => `  - m${i}.yaml`).join("\n");
+  await withBuild({
+    "base/kustomization.yml": "resources: [ deployment.yaml, service.yaml ]\n",
+    "base/deployment.yaml": DEPLOYMENT,
+    "base/service.yaml": SERVICE,
+    "ns/kustomization.yaml": "resources: [ a.yaml ]\npatches:\n  - path: p.yaml\n",
+    "ns/a.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api, namespace: a }\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api, namespace: b }\n",
+    "ns/p.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api, namespace: a }\nspec: { replicas: 2 }\n",
+    "multi/kustomization.yaml": `resources: [ ../base ]
+patchesStrategicMerge: [ two.yaml ]
+patchesJson6902:
+  - path: ops.yaml
+    target: { kind: "Deploy.*", name: api }
+`,
+    "multi/two.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { replicas: 2 }\n---\napiVersion: v1\nkind: Service\nmetadata: { name: api }\nspec: { type: NodePort }\n",
+    "multi/ops.yaml": "- op: replace\n  path: /spec/replicas\n  value: 3\n",
+    "config.d/kustomization.yaml": "resources: [ ../base ]\n",
+    "top/kustomization.yaml": "resources: [ ../config.d ]\n",
+    "dup/kustomization.yaml": "resources: [ x.yaml ]\n",
+    "dup/Kustomization": "resources: [ x.yaml ]\n",
+    "dup/x.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: x }\n",
+    "helm/kustomization.yaml": "helmCharts: [ { name: x } ]\ncommonLabels: { a: b }\nresources: []\n",
+    "comp/kustomization.yaml": "kind: Component\npatches: [ { path: c.yaml } ]\n",
+    "comp/c.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec: { paused: true }\n",
+    "o1/kustomization.yaml": "resources: [ ../base ]\ncomponents: [ ../comp ]\n",
+    "o2/kustomization.yaml": "resources: [ ../base ]\ncomponents: [ ../comp ]\n",
+    "creds/kustomization.yaml": "resources:\n  - oauth2:SEKRET1@gitlab.com/org/repo\n  - github.com/o/r?ref=v1&token=SEKRET2\n",
+    "many/kustomization.yaml": `resources:\n${many}\n`,
+  }, ({ result, graph }) => {
+    const reasons = (path: string) => result.skipped.filter((s) => s.path === path).map((s) => s.reason);
+    assert.deepEqual(result.skipped.map((s) => s.path).filter((p) => !/^(dup|helm|creds|many)\//.test(p)), []);
+    assert.deepEqual(reasons("dup/kustomization.yaml"), ["not read: Kustomize refuses a folder with more than one kustomization file"]);
+    assert.deepEqual(reasons("dup/Kustomization"), ["not read: Kustomize refuses a folder with more than one kustomization file"]);
+    assert.deepEqual(reasons("helm/kustomization.yaml"), ["fields not read: helmCharts, commonLabels"]);
+    assert.deepEqual(reasons("creds/kustomization.yaml"), [
+      "resources gitlab.com/org/repo not followed: remote",
+      "resources github.com/o/r?ref=v1 not followed: remote",
+    ]);
+    assert.ok(!JSON.stringify(result.skipped).includes("SEKRET"));
+    const m = reasons("many/kustomization.yaml");
+    assert.equal(m.length, 21);
+    assert.equal(m.at(-1), "and 5 more not followed");
+    const all = refs(graph);
+    assert.deepEqual(all.filter((e) => e.startsWith("ns/")), [
+      "ns/kustomization.yaml#kustomization -> ns/a.yaml#Deployment/a/api",
+      "ns/kustomization.yaml#kustomization -> ns/a.yaml#Deployment/b/api",
+      "ns/kustomization.yaml#kustomization -> ns/p.yaml#Deployment/a/api",
+      "ns/p.yaml#Deployment/a/api -> ns/a.yaml#Deployment/a/api",
+    ]);
+    assert.deepEqual(all.filter((e) => e.startsWith("multi/")), [
+      "multi/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "multi/kustomization.yaml#kustomization -> base/kustomization.yml#kustomization",
+      "multi/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api",
+      "multi/kustomization.yaml#kustomization -> multi/two.yaml#Deployment/default/api",
+      "multi/kustomization.yaml#kustomization -> multi/two.yaml#Service/default/api",
+      "multi/two.yaml#Deployment/default/api -> base/deployment.yaml#Deployment/default/api",
+      "multi/two.yaml#Service/default/api -> base/service.yaml#Service/default/api",
+    ]);
+    assert.ok(all.includes("top/kustomization.yaml#kustomization -> config.d/kustomization.yaml#kustomization"));
+    assert.deepEqual(all.filter((e) => e.startsWith("comp/")), [
+      "comp/c.yaml#Deployment/default/api -> base/deployment.yaml#Deployment/default/api",
+      "comp/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
+      "comp/kustomization.yaml#kustomization -> comp/c.yaml#Deployment/default/api",
+    ]);
+    assert.deepEqual(all.filter((e) => e.startsWith("dup/")), []);
+    assert.ok(!all.some((e) => e.startsWith("base/service.yaml#Service/default/api -> multi/")));
+  });
 });

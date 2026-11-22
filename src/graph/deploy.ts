@@ -25,7 +25,7 @@ export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize"
 /** A patch a kustomization lists: a file, the objects an inline patch names, and its target. */
 export interface KustomizePatch {
   path?: string;
-  objects?: Array<{ kind: string; name: string }>;
+  objects?: Array<{ kind: string; name: string; namespace?: string }>;
   target?: { kind?: string; name?: string; namespace?: string; selector?: true };
 }
 
@@ -42,6 +42,8 @@ export interface KustomizeRef {
   namespace?: string;
   images: Array<{ name: string; newName: string }>;
   generators: Array<{ kind: "ConfigMap" | "Secret"; name: string; id: string }>;
+  /** Fields present that add objects or change names or selectors, which the graph does not follow. */
+  unread: string[];
 }
 
 export type DeployRef =
