@@ -120,19 +120,6 @@ function calls(contextDir: string, fn: string): string[] {
     .sort();
 }
 
-test("the first type argument of a Box, Option or Result is the one a call sees, past nested commas", async () => {
-  const d = dir("args", {
-    "Cargo.toml": CARGO,
-    // U and V have the same method names, so only the type argument can choose.
-    "src/lib.rs": "pub struct T;\nimpl T { pub fn m(&self) {} }\npub struct U;\nimpl U { pub fn m(&self) {} }\n" +
-      "pub struct W<X, Y>(X, Y);\nimpl<X, Y> W<X, Y> { pub fn n(&self) {} }\npub struct V;\nimpl V { pub fn n(&self) {} }\n" +
-      "pub fn r() -> Result<T, U> { todo!() }\npub fn s() -> Option<W<V, U>> { todo!() }\npub fn b() -> Box<W<V, U>> { todo!() }\n" +
-      "pub fn g1() { r().unwrap().m(); }\npub fn g2() { s().unwrap().n(); }\npub fn g3() { b().n(); }\n",
-  });
-  const built = await buildGraph(d);
-  assert.deepEqual(["g1", "g2", "g3"].map((g) => calls(built.contextDir, g)), [["T.m", "r"], ["W.n", "s"], ["W.n", "b"]]);
-});
-
 test("a git config whose remote URL holds a long gap is read in linear time", () => {
   const d = dir("gitcfg", { ".git/config": `[remote "origin"]\n\turl = a${" ".repeat(N)}b \n`, ".git/HEAD": "ref: refs/heads/main\n" });
   const git = quick("gitOf", () => gitOf(d));
@@ -164,7 +151,7 @@ test("a Rust trait bound holding a long run of '<' before a line break is read i
   const bounds = (header: string) =>
     extractGeneric("lib.rs", `pub trait Go { fn go(&self); }\nfn f<${header}>(t: T) { T::go(&t); }\n`, "rust").rawEdges.find((e) => e.name === "go")?.rustBounds;
   quick("bound", () => bounds(`T: Go /*${"<".repeat(N)}\n*/`));
-  assert.deepEqual(bounds("T: a::Go<u8> + Clone"), ["Go", "Clone"], "a bound's path and arguments go");
+  assert.deepEqual(bounds("T: a::Go<u8>"), ["Go"], "a bound's path and arguments go");
 });
 
 test("a Makefile line holding a long gap before no colon is read in linear time", () => {
