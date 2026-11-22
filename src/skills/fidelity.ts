@@ -85,7 +85,7 @@ export function fidelityOf(
     const params = inj.params ?? {};
     const steps = Array.isArray(inj.steps) && inj.steps.length === count ? inj.steps : skill.steps.map((s) => fillParams(s.cmd, params));
     const check = inj.check ?? (skill.check ? fillParams(skill.check, params) : null);
-    const from = inj.at ? Date.parse(inj.at) : NaN;
+    const from = inj.at ? Date.parse(inj.at) : Number.NaN;
     const list = calls
       .map((c, ix) => ({ c, ix }))
       .filter(({ c }) => typeof c.tool !== 'string' && (Number.isNaN(from) || Date.parse(c.at) >= from - SLACK_MS));

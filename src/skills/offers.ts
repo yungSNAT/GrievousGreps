@@ -147,7 +147,7 @@ export function offerBudget(c: BudgetCtx): BudgetVerdict {
 
   const records = foldOffers(readOffers(c.env));
   const shown = records.filter((r) => r.event === 'shown');
-  const since = s.onSince === null ? NaN : Date.parse(s.onSince);
+  const since = s.onSince === null ? Number.NaN : Date.parse(s.onSince);
   if (!Number.isNaN(since) && now.getTime() - since < WEEK_MS && shown.some((r) => Date.parse(r.at) >= since)) return { ok: false, why: 'first-week' };
   const weekAgo = now.getTime() - WEEK_MS;
   if (shown.filter((r) => Date.parse(r.at) > weekAgo && Date.parse(r.at) <= now.getTime() + 5000).length >= WEEK_CAP) return { ok: false, why: 'week' };

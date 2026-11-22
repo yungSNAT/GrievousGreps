@@ -131,16 +131,10 @@ export const F16 = (() => {
     const exp = (h >> 10) & 0x1f;
     const frac = h & 0x3ff;
     table[h] =
-      exp === 0 ? sign * 2 ** -14 * (frac / 1024) : exp === 31 ? (frac ? NaN : sign * Infinity) : sign * 2 ** (exp - 15) * (1 + frac / 1024);
+      exp === 0 ? sign * 2 ** -14 * (frac / 1024) : exp === 31 ? (frac ? Number.NaN : sign * Infinity) : sign * 2 ** (exp - 15) * (1 + frac / 1024);
   }
   return table;
 })();
-
-export function f16ToF32(bits: Uint16Array): Float32Array {
-  const out = new Float32Array(bits.length);
-  for (let i = 0; i < bits.length; i++) out[i] = F16[bits[i]];
-  return out;
-}
 
 const F32 = new Float32Array(1);
 const U32 = new Uint32Array(F32.buffer);

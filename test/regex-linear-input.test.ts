@@ -36,6 +36,10 @@ test("Python config files full of blank lines or spaces are read in linear time"
 
 test("pyproject.toml lists and tables that never close are read in linear time", () => {
   for (const line of ["where = [", "packages = [", "package-dir = {"]) {
+    // Opener lines alone: nothing later closes the list or table for the old patterns to finish on.
+    const open = mkdtempSync(join(tmpdir(), "regex-linear-opener-"));
+    writeFileSync(join(open, "pyproject.toml"), `${line}\n`.repeat(N / 5));
+    quick(`readPythonRoots on '${line}' alone`, () => readPythonRoots(open, [join(open, "pyproject.toml")]));
     const dir = mkdtempSync(join(tmpdir(), "regex-linear-open-"));
     writeFileSync(join(dir, "pyproject.toml"), `${`${line}\n`.repeat(N / 5)}where = ["lib"]\n`);
     const roots = quick(`readPythonRoots on '${line}'`, () => readPythonRoots(dir, [join(dir, "pyproject.toml")]));
@@ -87,9 +91,9 @@ const CAPTURES_ONLY = new Set(["go module", "pnpm", "where", "package_dir", "pac
 const PAIRS: [string, RegExp, RegExp][] = [
   ["go module", /^\s*module\s+(\S+)/m, /^[^\S\r\n\u2028\u2029]*module\s+(\S+)/m],
   ["pnpm", /^\s*-\s*['"]?([^'"\s#!]+)/gm, /^[^\S\r\n\u2028\u2029]*-\s*['"]?([^'"\s#!]+)/gm],
-  ["where", /^\s*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm, /^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm],
+  ["where", /^\s*(where|pythonpath)\s*=\s*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm, /^[^\S\r\n\u2028\u2029]*(where|pythonpath)\s*=\s*(\[[^\][]*\]|"[^"]*"|'[^']*')/gm],
   ["package_dir", /^\s*package_dir\s*=\s*(?:\r?\n\s*)?=\s*(\S+)/gm, /^[^\S\r\n\u2028\u2029]*package_dir\s*=\s*=\s*(\S+)/gm],
-  ["packages", /^\s*packages\s*=\s*\[([^\]]*)\]/gm, /^[^\S\r\n\u2028\u2029]*packages\s*=\s*\[([^\]]*)\]/gm],
+  ["packages", /^\s*packages\s*=\s*\[([^\]]*)\]/gm, /^[^\S\r\n\u2028\u2029]*packages\s*=\s*\[([^\][]*)\]/gm],
   ["python-source", /^\s*python-source\s*=\s*["']([^"']+)["']/gm, /^[^\S\r\n\u2028\u2029]*python-source\s*=\s*["']([^"']+)["']/gm],
   ["empty key", /^\s*(?:""|'')\s*=\s*["']([^"']+)["']/gm, /^[^\S\r\n\u2028\u2029]*(?:""|'')\s*=\s*["']([^"']+)["']/gm],
   ["setup where", /^\s*where\s*=\s*(\S+)/gm, /^[^\S\r\n\u2028\u2029]*where\s*=\s*(\S+)/gm],
