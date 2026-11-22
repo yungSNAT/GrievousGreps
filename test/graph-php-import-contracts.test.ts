@@ -5,8 +5,11 @@ import { extractGeneric, isWarm, loadWasmLanguage, parseWasm, warmGenericGrammar
 
 await warmGenericGrammars(["php"]);
 const grammar = await loadWasmLanguage("php");
-assert.ok(grammar, "the shipped breadth PHP grammar must load");
-assert.ok(isWarm("php"), "the shipped breadth PHP grammar must be available");
+
+test("the shipped breadth PHP grammar loads", () => {
+  assert.ok(grammar, "the shipped breadth PHP grammar must load");
+  assert.ok(isWarm("php"), "the shipped breadth PHP grammar must be available");
+});
 
 function imports(source: string): string[] {
   const root = parseWasm(grammar, source);
