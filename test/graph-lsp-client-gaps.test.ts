@@ -10,6 +10,8 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import { LspClient, type CallHierarchyItem } from "../src/graph/lsp/client.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -194,7 +196,10 @@ test("a server that doesn't exist: initialize returns false and queries return n
 test("a server that has already exited when initialize runs is reported as failed", async () => {
   const client = new LspClient(process.execPath, ["-e", "process.exit(3)"], dir, "javascript", 300);
   try {
-    await sleep(1500); // let the exit event land first
+    // Wait for the exit event itself: a fixed sleep loses the race on a loaded machine, and then
+    // initialize waits out its 120 s timeout.
+    const proc = (client as unknown as { proc: ChildProcess }).proc;
+    if (proc.exitCode === null && proc.signalCode === null) await once(proc, "exit");
     const t0 = Date.now();
     assert.equal(await client.initialize(), false);
     assert.ok(Date.now() - t0 < 10000, "bailed without waiting on an initialize response");
