@@ -15,7 +15,8 @@ import { extractGeneric, warmGenericGrammars } from "../src/graph/generic.js";
 import { buildGraph } from "../src/graph/build.js";
 import { classifyCheck, type RunFacts } from "../src/trace/checks.js";
 import { noEmails, scrub } from "../src/init/look-back.js";
-import { gitOf } from "../src/skills/anchors-git.js";
+import { branchGone, gitOf } from "../src/skills/anchors-git.js";
+import { readGraph, wiringPath } from "../src/graph/write.js";
 import { composeServices, wideGone } from "../src/skills/anchors-wide.js";
 import { goneAnchors } from "../src/skills/anchors.js";
 import { diffAuthors } from "../src/blast/owners.js";
@@ -94,15 +95,36 @@ test("a Rust item whose first line holds a long gap is read in linear time", asy
   assert.ok(nodes.some((n) => n.label === "t" || n.id.endsWith("#t")), "the next item is still read");
 });
 
+const CARGO = '[package]\nname = "m"\nversion = "0.1.0"\nedition = "2021"\n';
+
 test("a Rust return type that wraps a long gap is resolved in linear time", async () => {
-  const d = dir("box", {
-    "Cargo.toml": '[package]\nname = "m"\nversion = "0.1.0"\nedition = "2021"\n',
-    "src/lib.rs": `pub struct T;\nimpl T { pub fn m(&self) {} }\npub fn f() -> Box<${" ".repeat(N)}T>::Out { todo!() }\npub fn o() -> Option<${" ".repeat(N)}T>::Out { todo!() }\npub fn h() -> Box<A<${"B, ".repeat(N / 3)}>> { todo!() }\npub fn g() { f().m(); o().unwrap().m(); h().m(); }\n`,
-  });
+  const build = (gap: string, list: string) => buildGraph(dir("box", {
+    "Cargo.toml": CARGO,
+    "src/lib.rs": `pub struct T;\nimpl T { pub fn m(&self) {} }\npub fn f() -> Box<${gap}T>::Out { todo!() }\npub fn o() -> Option<${gap}T>::Out { todo!() }\npub fn h() -> Box<A<${list}>> { todo!() }\npub fn g() { f().m(); o().unwrap().m(); h().m(); }\n`,
+  }));
   const start = performance.now();
-  await buildGraph(d);
+  const built = await build(" ".repeat(N), "B, ".repeat(N / 3));
   const ms = performance.now() - start;
   assert.ok(ms < LIMIT_MS * 3, `buildGraph took ${ms.toFixed(0)} ms`);
+  assert.deepEqual(calls(built.contextDir, "g"), calls((await build(" ", "B, ")).contextDir, "g"), "the calls the same file without the padding has");
+});
+
+/** Each call edge from `fn` to a method, as `Type.method`. */
+const calls = (contextDir: string, fn: string) =>
+  readGraph(wiringPath(contextDir))!.edges
+    .filter((e) => e.relation === "calls" && e.source.endsWith(`#${fn}`))
+    .map((e) => e.target.slice(e.target.indexOf("#") + 1))
+    .sort();
+
+test("the first type argument of a Box, Option or Result is the one a call sees, past nested commas", async () => {
+  const d = dir("args", {
+    "Cargo.toml": CARGO,
+    "src/lib.rs": "pub struct T;\nimpl T { pub fn m(&self) {} }\npub struct W<X, Y>(X, Y);\nimpl<X, Y> W<X, Y> { pub fn n(&self) {} }\n" +
+      "pub fn r() -> Result<T, Vec<u8>> { todo!() }\npub fn s() -> Option<W<u8, u16>> { todo!() }\npub fn b() -> Box<W<u8, u16>> { todo!() }\n" +
+      "pub fn g() { r().unwrap().m(); s().unwrap().n(); b().n(); }\n",
+  });
+  const built = await buildGraph(d);
+  assert.deepEqual(calls(built.contextDir, "g"), ["W.n", "W.n", "T.m", "b", "r", "s"].sort());
 });
 
 test("a git config whose remote URL holds a long gap is read in linear time", () => {
@@ -121,6 +143,23 @@ function checkout(tag: string, files: Record<string, string>): { d: string; env:
 const wide = (c: { d: string; env: NodeJS.ProcessEnv }, cmds: string[]) =>
   wideGone(skill(cmds), c.d, c.env, { scan: true, deadline: Date.now() + 10_000 }).map((a) => `${a.kind}:${a.name}`);
 
+test("a remote URL holding a long run of slashes is matched to a step's URL in linear time", () => {
+  const anchor = { kind: "branch" as const, name: "main", step: 1, remote: "https://github.com/acme/shop.git" };
+  const judge = (url: string) => {
+    const d = dir("urlkey", { ".git/config": `[remote "origin"]\n\turl = ${url}\n`, ".git/HEAD": "ref: refs/heads/main\n", ".git/refs/remotes/origin/main": `${"4e1c9a2f".padEnd(40, "0")}\n` });
+    return branchGone(gitOf(d)!, anchor);
+  };
+  assert.equal(quick("urlKey", () => judge(`https://github.com/acme/shop${"/".repeat(N)}x`)), null, "another repo's URL names no remote");
+  assert.deepEqual(judge("https://github.com/acme/shop.git///"), { gone: false, remote: "origin" }, "trailing slashes still go");
+});
+
+test("a Rust trait bound holding a long run of '<' before a line break is read in linear time", async () => {
+  await warmGenericGrammars(["rust"]);
+  const src = (pad: string) => `pub trait Go { fn go(&self); }\nfn f<T: Go /*${pad}\n*/>(t: T) { t.go(); }\n`;
+  const edges = (pad: string) => extractGeneric("lib.rs", src(pad), "rust").rawEdges.map((e) => `${e.relation} ${e.source} ${e.name ?? ""}`);
+  assert.deepEqual(quick("bound", () => edges("<".repeat(N))), edges("<"));
+});
+
 test("a Makefile line holding a long gap before no colon is read in linear time", () => {
   const c = checkout("make", { "Makefile": `a${" ".repeat(N)}=\ntest:\n\tgo test ./...\n` });
   const gone = quick("make", () => goneAnchors(skill(["make release"]), c.d, c.env));
@@ -135,10 +174,11 @@ test("a co-author trailer of many '<' is read in linear time", () => {
   git("commit", "-q", "-m", "base");
   writeFileSync(join(d, "a.txt"), "b\n");
   const trailer = `a${"<".repeat(N)}>x>`;
-  git("commit", "-q", "-am", `change\n\nCo-authored-by: ${trailer}`);
+  // A name holding a line separator was never read as `Name <email>`, and is kept whole too.
+  const broken = `Name${String.fromCharCode(0x2028)}x <mail@example.com>`;
+  git("commit", "-q", "-am", `change\n\nCo-authored-by: ${trailer}\nCo-authored-by: ${broken}\nCo-authored-by: Jo Bloggs <jo@example.com>`);
   const names = quick("diffAuthors", () => diffAuthors(d, "HEAD~1"));
-  assert.ok(names.includes(trailer), "a trailer that is not `Name <email>` is kept whole");
-  assert.deepEqual(diffAuthors(d, "HEAD~1").filter((n) => n !== trailer), ["T", "t@example.com"]);
+  assert.deepEqual(names, ["T", "t@example.com", trailer, broken, "Jo Bloggs", "jo@example.com"]);
 });
 
 // CI files and a compose project's .env are read up to 64 KiB, so their padding stays under that. Each judgement is
