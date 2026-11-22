@@ -19,6 +19,8 @@ import type { Language, WalkCtx } from "./extract.js";
  * own methods returns (`self.config = self.make_config()`), or a value of no known type. */
 export type PythonField = { type: string } | { returns: string } | { unknown: true };
 
+interface GoSpan { from: number; to: number; type: string }
+
 export class FileBindings {
   private map = new Map<string, string>();
   /** Python only: class scope path (`build.Worker`) → what each statement assigns its
@@ -42,9 +44,30 @@ export class FileBindings {
     this.set(scopePath, name, prior === undefined || prior === type ? type : "?");
   }
 
-  /** Whether `name` is bound in exactly this scope. */
-  has(scopePath: string, name: string): boolean {
-    return this.map.has(`${scopePath}|${name}`);
+  /** Go func literals: where each parameter or local is in scope (source offsets) and its type, `?` when none is read. */
+  private goSpans = new Map<string, GoSpan[]>();
+
+  /** Go: a func literal's variable, in scope from `from` to `to`. A `:=` naming a variable already
+   * declared in the same block assigns it and declares nothing, so it is not recorded. */
+  spanGo(scopePath: string, name: string, span: GoSpan, declares = true): void {
+    const key = `${scopePath}|${name}`;
+    const spans = this.goSpans.get(key) ?? [];
+    if (!declares && spans.some((s) => s.to === span.to && s.from <= span.from)) return;
+    spans.push(span);
+    this.goSpans.set(key, spans);
+  }
+
+  /** Go: the type of the func literal variable `name` at offset `at`, innermost literal and latest
+   * declaration first; undefined when no literal variable of that name is in scope there. */
+  goAt(scope: string[], literals: readonly string[], name: string, at: number): string | undefined {
+    for (let i = literals.length; i > 0; i--) {
+      let best: GoSpan | undefined;
+      for (const s of this.goSpans.get(`${[...scope, ...literals.slice(0, i)].join(".")}|${name}`) ?? []) {
+        if (s.from <= at && at < s.to && (!best || s.from > best.from)) best = s;
+      }
+      if (best) return best.type;
+    }
+    return undefined;
   }
 
   /** Innermost-first: for scope ["a","b"] name "x", tries `a.b|x`, `a|x`, `|x`. */
@@ -234,11 +257,15 @@ type RecvCtx = Pick<WalkCtx, "scope" | "goLiterals" | "enclosingClass" | "goRece
 export function resolveRecvType(
   receiver: string | undefined,
   ctx: RecvCtx,
+  at?: number,
 ): string | undefined {
   if (!receiver) return undefined;
   if (receiver === "self" || receiver === "cls" || receiver === "this") return ctx.enclosingClass ?? undefined;
   if (receiver === "super") return ctx.rSuperClass ?? undefined;
-  if (ctx.lang === "go" && receiver.includes(".")) return goFieldType(receiver, ctx);
+  if (ctx.lang === "go" && receiver.includes(".")) return goFieldType(receiver, ctx, at);
+  // A func literal's parameter or local in scope at the call hides the receiver and the enclosing scopes' names.
+  const literal = ctx.lang === "go" && at !== undefined ? ctx.bindings.goAt(ctx.scope, ctx.goLiterals, receiver, at) : undefined;
+  if (literal !== undefined) return literal;
   if (receiver.startsWith("self.") || receiver.startsWith("this.")) {
     return (
       ctx.bindings.lookup(ctx.scope, receiver) ??
@@ -249,10 +276,8 @@ export function resolveRecvType(
   // PHP static call `Foo::bar()`: the scope operand is a class name, so it *is*
   // the receiver type. (Member calls pass a `$var` receiver, filtered by the `$`.)
   if (ctx.lang === "php" && !receiver.startsWith("$")) return receiver;
-  const bound = ctx.bindings.lookup(ctx.lang === "go" ? [...ctx.scope, ...ctx.goLiterals] : ctx.scope, receiver);
-  // A func literal's own parameter or local named like the Go receiver hides the receiver.
-  const isGoReceiver =
-    ctx.lang === "go" && receiver === ctx.goReceiverVar && (ctx.goLiterals.length === 0 || bound === ctx.bindings.lookup(ctx.scope, receiver));
+  const bound = ctx.bindings.lookup(ctx.scope, receiver);
+  const isGoReceiver = ctx.lang === "go" && receiver === ctx.goReceiverVar;
   return (
     (isGoReceiver ? ctx.enclosingClass : undefined) ??
     bound ??
@@ -272,9 +297,9 @@ export function resolveRecvType(
   );
 }
 
-function goFieldType(receiver: string, ctx: RecvCtx): string | undefined {
+function goFieldType(receiver: string, ctx: RecvCtx, at?: number): string | undefined {
   const [head, field] = receiver.split(".");
-  const owner = resolveRecvType(head, ctx);
+  const owner = resolveRecvType(head, ctx, at);
   return owner ? (ctx.bindings.lookup([owner], `self.${field}`) ?? undefined) : undefined;
 }
 
@@ -760,29 +785,43 @@ function javaNewTypeName(value: SyntaxNode | null | undefined): string | null {
 
 function handleGo(node: SyntaxNode, scope: string[], bindings: FileBindings): void {
   const scopePath = scope.join(".");
-  // A func literal's local shadows only from its declaration and in its block, which a lookup cannot
-  // see, so where an enclosing scope gives the name another type, the literal's binding names none.
-  const outer = scope.at(-1)?.startsWith("@") ? (name: string) => bindings.lookup(scope.slice(0, -1), name) : () => null;
-  const typed = new Set<string>();
-  const setLocal = (name: string, type: string) => {
-    const prior = outer(name);
-    typed.add(name);
-    bindings.setGo(scopePath, name, prior === null || prior === type ? type : "?");
-  };
-  // A parameter types the literal's whole body, so it takes its type whatever an enclosing scope says.
-  const setParam = (name: string, type: string) => {
-    typed.add(name);
-    bindings.setGo(scopePath, name, type);
-  };
-  bindGoTyped(node, scopePath, bindings, setLocal, setParam);
-  // A name the literal declares with no type read hides the enclosing scope's type all the same.
-  // A `:=` in the literal's own body naming a variable the literal already declared reuses it; in a nested block
-  // it declares a new one.
-  const inBody = node.type === "short_var_declaration" && node.parent?.type === "block" && node.parent.parent?.type === "func_literal";
-  const reuses = (name: string) => inBody && bindings.has(scopePath, name);
-  for (const name of goDeclaredNames(node)) {
-    if (!typed.has(name) && !reuses(name) && outer(name) !== null) bindings.setGo(scopePath, name, "?");
+  const span = scope.at(-1)?.startsWith("@") ? goSpan(node) : null;
+  if (!span) {
+    const set = (name: string, type: string) => bindings.setGo(scopePath, name, type);
+    bindGoTyped(node, scopePath, bindings, set, set);
+    return;
   }
+  // A func literal's variable is in scope from its declaration to the end of its block, so it is
+  // recorded with where it is in scope; one declared with no type read gets `?`, which names none.
+  const types = new Map<string, string>();
+  const set = (name: string, type: string) => types.set(name, type);
+  bindGoTyped(node, scopePath, bindings, set, set);
+  const declares = node.type !== "short_var_declaration";
+  for (const name of goDeclaredNames(node)) bindings.spanGo(scopePath, name, { ...span, type: types.get(name) ?? "?" }, declares);
+}
+
+/** The nodes that end a Go variable's scope: blocks, and the statements and clauses whose header can declare one. */
+const GO_SCOPES: ReadonlySet<string> = new Set([
+  "block", "func_literal", "if_statement", "for_statement", "expression_switch_statement", "type_switch_statement",
+  "expression_case", "default_case", "type_case", "communication_case",
+]);
+
+/** Where the variables a Go declaration node introduces are in scope: a parameter in its function's
+ * whole literal, a local from the end of its declaration to the end of the innermost block or clause
+ * holding it, a type switch's alias in every clause. Null for a node that declares no variable. */
+function goSpan(node: SyntaxNode): { from: number; to: number } | null {
+  if (node.type === "parameter_declaration" || node.type === "variadic_parameter_declaration") {
+    const fn = node.parent?.parent;
+    return fn && GO_FUNCTIONS.has(fn.type) ? { from: fn.startIndex, to: fn.endIndex } : null;
+  }
+  if (node.type === "type_switch_statement") {
+    const alias = node.childForFieldName("alias");
+    return alias ? { from: alias.endIndex, to: node.endIndex } : null;
+  }
+  if (!["var_spec", "short_var_declaration", "range_clause", "receive_statement"].includes(node.type)) return null;
+  let holder = node.parent;
+  while (holder && !GO_SCOPES.has(holder.type)) holder = holder.parent;
+  return holder ? { from: node.endIndex, to: holder.endIndex } : null;
 }
 
 /** The variable names a Go declaration node introduces in its scope. */

@@ -1025,7 +1025,7 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
             callee.receiver && node.startIndex < (ctx.goLocals.get(callee.receiver) ?? Infinity)
               ? ctx.goImports.get(callee.receiver)
               : undefined;
-          const bound = goPackage ? undefined : resolveRecvType(callee.receiver, ctx);
+          const bound = goPackage ? undefined : resolveRecvType(callee.receiver, ctx, node.startIndex);
           const held = ctx.lang === "go" && bound ? goHeld(bound, ctx) : undefined;
           const recvType = held === undefined ? bound : undefined;
           const recvAttr = recvType || ctx.lang !== "python" ? undefined : pythonAttrReceiver(callee.receiver, ctx);

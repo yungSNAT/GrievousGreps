@@ -542,29 +542,45 @@ test("Go extraction: a func literal's parameter or local named like the method's
         "func (l *Logger) AfterBlock(xs []*Entry) { run(func(*Entry) { for _, l := range xs { _ = l }; l.SetLevel(1) }) }\n" +
         "func (l *Logger) Reused() { run(func(l *Entry) { l, ok := l, true; _ = ok; l.SetLevel(1) }) }\n" +
         "func (l *Logger) Nested(ch chan *Logger) { run(func(l *Entry) { if true { l, ok := <-ch, true; _ = ok; l.SetLevel(1) } }) }\n" +
-        "func (l *Logger) Captured() { run(func(*Entry) { l.SetLevel(1) }) }\n",
+        "func (l *Logger) Captured() { run(func(*Entry) { l.SetLevel(1) }) }\n" +
+        "func (l *Logger) Later(ls []*Logger) { run(func(*Entry) { for _, e := range ls { e.SetLevel(1) } }); e := &Entry{}; _ = e }\n" +
+        "func (l *Logger) Shadowed() { run(func(*Entry) { l.SetLevel(1); l := &Entry{}; l.SetLevel(2) }) }\n" +
+        "func (l *Logger) Cased() { run(func(*Entry) { switch { case true: var l *Entry; l.SetLevel(1) }; l.SetLevel(2) }) }\n" +
+        "func (l *Logger) Selected(ch chan *Entry) { run(func(*Entry) { select { case l := <-ch: l.SetLevel(1) }; l.SetLevel(2) }) }\n" +
+        "func (l *Logger) Switched(x any) { run(func(*Entry) { switch l := x.(type) { default: _ = l }; l.SetLevel(1) }) }\n" +
+        "func (l *Logger) Inner() { run(func(l *Entry) { run(func(*Entry) { l.SetLevel(1) }) }) }\n",
   });
 
   const calls = (fn: string) =>
-    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target);
+    graph.edges.filter((e) => e.relation === "calls" && e.source === `main.go#Logger.${fn}` && e.target.endsWith("SetLevel")).map((e) => e.target).sort();
   assert.deepEqual(
-    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Reused", "Nested", "Captured"].map((fn) => [fn, calls(fn)])),
+    Object.fromEntries(["Param", "Local", "Untyped", "Iface", "Ranged", "Received", "AfterBlock", "Reused", "Nested", "Captured", "Later", "Shadowed", "Cased", "Selected", "Switched", "Inner"].map((fn) => [fn, calls(fn)])),
     {
       Param: ["main.go#Entry.SetLevel"],
-      // A local after a captured receiver of another type, or a name declared with no type read, gets no type
-      // rather than the receiver's.
-      Local: [],
+      // A local takes the type it is given from its declaration to the end of its block.
+      Local: ["main.go#Entry.SetLevel"],
+      // A name declared with no type read gets none, rather than the receiver's.
       Untyped: [],
       Iface: [],
       Ranged: [],
       Received: [],
-      // Accepted miss: a literal is one scope, so the range's l hides the receiver after its block too.
-      AfterBlock: [],
+      // The range's l is gone after its block, so the receiver is back.
+      AfterBlock: ["main.go#Logger.SetLevel"],
       // A `:=` that names the literal's own parameter again reuses it.
       Reused: ["main.go#Entry.SetLevel"],
       // In a nested block the same `:=` declares a new variable, of a type not read here.
       Nested: [],
       Captured: ["main.go#Logger.SetLevel"],
+      // The function's own e, declared after the literal, never types the range's e inside it.
+      Later: [],
+      // Before the literal's l is declared the receiver is in scope; after it, the local is.
+      Shadowed: ["main.go#Entry.SetLevel", "main.go#Logger.SetLevel"],
+      // A case clause's local, a select case's received value and a type switch's alias end with their clause or switch.
+      Cased: ["main.go#Entry.SetLevel", "main.go#Logger.SetLevel"],
+      Selected: ["main.go#Logger.SetLevel"],
+      Switched: ["main.go#Logger.SetLevel"],
+      // An inner literal sees the enclosing literal's parameter.
+      Inner: ["main.go#Entry.SetLevel"],
     },
   );
 });
