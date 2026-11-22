@@ -110,21 +110,27 @@ test("a Rust return type that wraps a long gap is resolved in linear time", asyn
 });
 
 /** Each call edge from `fn` to a method, as `Type.method`. */
-const calls = (contextDir: string, fn: string) =>
-  readGraph(wiringPath(contextDir))!.edges
+function calls(contextDir: string, fn: string): string[] {
+  const graph = readGraph(wiringPath(contextDir))!;
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  return graph.edges
     .filter((e) => e.relation === "calls" && e.source.endsWith(`#${fn}`))
-    .map((e) => e.target.slice(e.target.indexOf("#") + 1))
+    .map((e) => byId.get(e.target))
+    .map((n) => (n?.owner ? `${n.owner}.${n.name}` : (n?.name ?? "?")))
     .sort();
+}
 
 test("the first type argument of a Box, Option or Result is the one a call sees, past nested commas", async () => {
   const d = dir("args", {
     "Cargo.toml": CARGO,
-    "src/lib.rs": "pub struct T;\nimpl T { pub fn m(&self) {} }\npub struct W<X, Y>(X, Y);\nimpl<X, Y> W<X, Y> { pub fn n(&self) {} }\n" +
-      "pub fn r() -> Result<T, Vec<u8>> { todo!() }\npub fn s() -> Option<W<u8, u16>> { todo!() }\npub fn b() -> Box<W<u8, u16>> { todo!() }\n" +
-      "pub fn g() { r().unwrap().m(); s().unwrap().n(); b().n(); }\n",
+    // U and V have the same method names, so only the type argument can choose.
+    "src/lib.rs": "pub struct T;\nimpl T { pub fn m(&self) {} }\npub struct U;\nimpl U { pub fn m(&self) {} }\n" +
+      "pub struct W<X, Y>(X, Y);\nimpl<X, Y> W<X, Y> { pub fn n(&self) {} }\npub struct V;\nimpl V { pub fn n(&self) {} }\n" +
+      "pub fn r() -> Result<T, U> { todo!() }\npub fn s() -> Option<W<V, U>> { todo!() }\npub fn b() -> Box<W<V, U>> { todo!() }\n" +
+      "pub fn g1() { r().unwrap().m(); }\npub fn g2() { s().unwrap().n(); }\npub fn g3() { b().n(); }\n",
   });
   const built = await buildGraph(d);
-  assert.deepEqual(calls(built.contextDir, "g"), ["W.n", "W.n", "T.m", "b", "r", "s"].sort());
+  assert.deepEqual(["g1", "g2", "g3"].map((g) => calls(built.contextDir, g)), [["T.m", "r"], ["W.n", "s"], ["W.n", "b"]]);
 });
 
 test("a git config whose remote URL holds a long gap is read in linear time", () => {
@@ -155,9 +161,10 @@ test("a remote URL holding a long run of slashes is matched to a step's URL in l
 
 test("a Rust trait bound holding a long run of '<' before a line break is read in linear time", async () => {
   await warmGenericGrammars(["rust"]);
-  const src = (pad: string) => `pub trait Go { fn go(&self); }\nfn f<T: Go /*${pad}\n*/>(t: T) { t.go(); }\n`;
-  const edges = (pad: string) => extractGeneric("lib.rs", src(pad), "rust").rawEdges.map((e) => `${e.relation} ${e.source} ${e.name ?? ""}`);
-  assert.deepEqual(quick("bound", () => edges("<".repeat(N))), edges("<"));
+  const bounds = (header: string) =>
+    extractGeneric("lib.rs", `pub trait Go { fn go(&self); }\nfn f<${header}>(t: T) { T::go(&t); }\n`, "rust").rawEdges.find((e) => e.name === "go")?.rustBounds;
+  quick("bound", () => bounds(`T: Go /*${"<".repeat(N)}\n*/`));
+  assert.deepEqual(bounds("T: a::Go<u8> + Clone"), ["Go", "Clone"], "a bound's path and arguments go");
 });
 
 test("a Makefile line holding a long gap before no colon is read in linear time", () => {
