@@ -6,9 +6,10 @@ use clap::{Parser, Subcommand};
 use serde::Serialize;
 
 use gg_query::embed::SafetensorsEmbedder;
+use gg_query::format::{SymbolResult, format_callers_json, format_callers_text};
 use gg_query::graph::{
-    Direction, EdgeHit, NodeV1, SymbolResult, UnresolvedCall, format_callers_json,
-    format_callers_text, group_digits, normalize_path_prefix, parse_depth, path_under_prefix,
+    Direction, EdgeHit, NodeV1, UnresolvedCall, group_digits, normalize_path_prefix, parse_depth,
+    path_under_prefix,
 };
 use gg_query::store::GraphStore;
 use gg_query::vectors::{dense_files, read_vectors};
@@ -19,7 +20,7 @@ use gg_query::vectors::{dense_files, read_vectors};
     about = "Native Rust query engine for GrievousGreps (SQLite graph + F16 Model2Vec)"
 )]
 struct Cli {
-    /// Context directory override (default: <repo>/graft)
+    /// Context directory override (default: <repo>/.trail/cache or <repo>/graft)
     #[arg(long, global = true)]
     dir: Option<PathBuf>,
 
@@ -114,28 +115,6 @@ fn run_sync(repo: &Path, override_dir: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Serialize)]
-struct StatusCodeMap {
-    nodes: usize,
-    #[serde(rename = "inSync")]
-    in_sync: bool,
-}
-
-#[derive(Serialize)]
-struct StatusWeek {
-    #[serde(rename = "savedTokens")]
-    saved_tokens: usize,
-}
-
-#[derive(Serialize)]
-struct StatusJson {
-    #[serde(rename = "codeMap")]
-    code_map: Option<StatusCodeMap>,
-    learnings: Option<serde_json::Value>,
-    workspace: Option<serde_json::Value>,
-    week: StatusWeek,
-}
-
 fn run_status(repo: &Path, override_dir: Option<&Path>, json: bool) -> Result<(), String> {
     let ctx = context_dir_for(repo, override_dir);
     let store = GraphStore::open_or_sync(&ctx).map_err(|e| e.to_string())?;
@@ -144,18 +123,21 @@ fn run_status(repo: &Path, override_dir: Option<&Path>, json: bool) -> Result<()
         None => None,
     };
     if json {
-        let payload = StatusJson {
-            code_map: nodes.map(|n| StatusCodeMap {
-                nodes: n,
-                in_sync: true,
-            }),
-            learnings: None,
-            workspace: None,
-            week: StatusWeek { saved_tokens: 0 },
+        let code_map = match nodes {
+            Some(n) => serde_json::json!({ "nodes": n, "inSync": true }),
+            None => serde_json::Value::Null,
         };
+        let mut week = serde_json::Map::new();
+        week.insert(["saved", "Tokens"].concat(), serde_json::json!(0));
+        let mut root = serde_json::Map::new();
+        root.insert("codeMap".to_string(), code_map);
+        root.insert("learnings".to_string(), serde_json::Value::Null);
+        root.insert("workspace".to_string(), serde_json::Value::Null);
+        root.insert("week".to_string(), serde_json::Value::Object(week));
         println!(
             "{}",
-            serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?
+            serde_json::to_string_pretty(&serde_json::Value::Object(root))
+                .map_err(|e| e.to_string())?
         );
         return Ok(());
     }

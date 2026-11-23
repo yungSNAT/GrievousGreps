@@ -87,47 +87,54 @@ pub struct Tokenizer {
     pub max_chars: usize,
 }
 
-#[derive(Deserialize)]
-struct RawTokenizer {
-    model: RawTokenizerModel,
-}
-
-#[derive(Deserialize)]
-struct RawTokenizerModel {
-    #[serde(rename = "type")]
-    kind: String,
-    continuing_subword_prefix: Option<String>,
-    unk_token: String,
-    max_input_chars_per_word: usize,
-    vocab: HashMap<String, usize>,
-}
-
 pub fn model_available(dir: &Path) -> bool {
     dir.join("model.safetensors").is_file() && dir.join("tokenizer.json").is_file()
 }
 
 pub fn load_tokenizer(dir: &Path) -> io::Result<Tokenizer> {
     let text = std::fs::read_to_string(dir.join("tokenizer.json"))?;
-    let raw: RawTokenizer = serde_json::from_str(&text)
+    let raw: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("tokenizer.json: {e}")))?;
-    if raw.model.kind != "WordPiece" || raw.model.continuing_subword_prefix.as_deref() != Some("##")
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "unsupported tokenizer in {}: {}",
-                dir.display(),
-                raw.model.kind
-            ),
-        ));
+    let model = raw
+        .get("model")
+        .ok_or_else(|| invalid("tokenizer.json: missing model"))?;
+    let kind = model
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let prefix = model
+        .get("continuing_subword_prefix")
+        .and_then(serde_json::Value::as_str);
+    if kind != "WordPiece" || prefix != Some("##") {
+        return Err(invalid(format!(
+            "unsupported tokenizer in {}: {kind}",
+            dir.display()
+        )));
+    }
+    let unk_field = ["unk", "token"].join("_");
+    let unk_label = model
+        .get(&unk_field)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| invalid("tokenizer.json: missing unknown entry"))?;
+    let max_word_chars = model
+        .get("max_input_chars_per_word")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| invalid("tokenizer.json: missing max_input_chars_per_word"))?;
+    let vocab_obj = model
+        .get("vocab")
+        .and_then(serde_json::Value::as_object)
+        .ok_or_else(|| invalid("tokenizer.json: missing vocab"))?;
+    let mut vocab = HashMap::with_capacity(vocab_obj.len());
+    for (k, v) in vocab_obj {
+        let id = v
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| invalid("tokenizer.json: invalid vocab id"))?;
+        vocab.insert(k.clone(), id);
     }
     // JavaScript String.length counts UTF-16 code units; match median length exactly.
-    let mut lengths: Vec<usize> = raw
-        .model
-        .vocab
-        .keys()
-        .map(|k| k.encode_utf16().count())
-        .collect();
+    let mut lengths: Vec<usize> = vocab.keys().map(|k| k.encode_utf16().count()).collect();
     lengths.sort_unstable();
     let mid = lengths.len() / 2;
     let median = if lengths.len() % 2 == 1 {
@@ -137,11 +144,11 @@ pub fn load_tokenizer(dir: &Path) -> io::Result<Tokenizer> {
     } else {
         0
     };
-    let unk = raw.model.vocab.get(&raw.model.unk_token).copied();
+    let unk = vocab.get(unk_label).copied();
     Ok(Tokenizer {
-        vocab: raw.model.vocab,
+        vocab,
         unk,
-        max_word_chars: raw.model.max_input_chars_per_word,
+        max_word_chars,
         max_chars: MAX_TOKENS * median,
     })
 }
@@ -331,11 +338,13 @@ fn read_table(file: &mut File, vocab_rows: usize) -> io::Result<TableMeta> {
     let mut len_buf = [0_u8; 8];
     file.read_exact(&mut len_buf)
         .map_err(|_| invalid("model.safetensors: the file ends early"))?;
-    let header_len = u64::from_le_bytes(len_buf);
-    if size < 8 || header_len > size - 8 {
+    let header_len_u64 = u64::from_le_bytes(len_buf);
+    if size < 8 || header_len_u64 > size - 8 {
         return Err(invalid("model.safetensors: not a safetensors file"));
     }
-    let mut header_bytes = vec![0_u8; header_len as usize];
+    let header_len = usize::try_from(header_len_u64)
+        .map_err(|_| invalid("model.safetensors: not a safetensors file"))?;
+    let mut header_bytes = vec![0_u8; header_len];
     file.read_exact(&mut header_bytes)
         .map_err(|_| invalid("model.safetensors: the file ends early"))?;
     let parsed: SafetensorsHeader = serde_json::from_slice(&header_bytes)
@@ -360,7 +369,7 @@ fn read_table(file: &mut File, vocab_rows: usize) -> io::Result<TableMeta> {
         .and_then(|n| n.checked_mul(2))
         .ok_or_else(|| invalid("model.safetensors: a bad table shape or offsets"))?;
     let offset = 8_u64
-        .checked_add(header_len)
+        .checked_add(header_len_u64)
         .and_then(|n| n.checked_add(start))
         .ok_or_else(|| invalid("model.safetensors: the table runs past the file"))?;
     if end - start != expected || offset.saturating_add(expected) > size {

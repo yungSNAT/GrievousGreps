@@ -2,14 +2,18 @@
 //!
 //! Mirrors `test/ask-embed.test.ts`: asserts exact token IDs, float16 vector
 //! agreement (< 2e-3) in both on-demand row-seek and whole-table modes,
-//! complete 65,536 float16 round-trip, code-point truncation, malformed file
-//! rejection, and Reciprocal Rank Fusion (`fuse_by_file`).
+//! complete 65,536 float16 round-trip, code-point truncation, malformed model
+//! and sidecar rejection, and Reciprocal Rank Fusion (`fuse_by_file`).
 
 use std::fs;
 use std::path::PathBuf;
 
-use gg_query::embed::{SafetensorsEmbedder, f16_table, f32_to_f16, load_tokenizer, token_ids};
-use gg_query::vectors::{DenseFile, FuseHit, fuse_by_file, pointer_file};
+use gg_query::embed::{
+    MODEL_ID, SafetensorsEmbedder, f16_table, f32_to_f16, load_tokenizer, token_ids,
+};
+use gg_query::vectors::{
+    CACHE_DIR, DenseFile, FuseHit, VECTORS_FILE, fuse_by_file, pointer_file, read_vectors,
+};
 use serde::Deserialize;
 use tempfile::tempdir;
 
@@ -152,6 +156,37 @@ fn truncated_short_or_corrupt_model_is_rejected() {
             );
         }
     }
+}
+
+#[test]
+fn corrupt_ask_vectors_header_overflow_and_odd_lines_return_none() {
+    let dir = tempdir().expect("tempdir");
+    let cache = dir.path().join(CACHE_DIR);
+    fs::create_dir_all(&cache).expect("mkdir");
+    let bin = cache.join(VECTORS_FILE);
+
+    // header_len = u64::MAX must never overflow `8 + header_len` or panic.
+    let mut overflow = Vec::new();
+    overflow.extend_from_slice(&u64::MAX.to_le_bytes());
+    overflow.extend_from_slice(b"{}");
+    fs::write(&bin, &overflow).expect("write overflow");
+    assert!(read_vectors(dir.path()).expect("read").is_none());
+
+    // Odd lines array must be rejected as malformed.
+    let odd_header = serde_json::json!({
+        "version": 1,
+        "model": MODEL_ID,
+        "chunk": 750,
+        "dim": 4,
+        "files": [{"path": "src/a.ts", "hash": "abc", "lines": [1, 2, 3]}]
+    })
+    .to_string();
+    let mut odd = Vec::new();
+    odd.extend_from_slice(&(odd_header.len() as u64).to_le_bytes());
+    odd.extend_from_slice(odd_header.as_bytes());
+    odd.extend_from_slice(&[0_u8; 8]);
+    fs::write(&bin, &odd).expect("write odd");
+    assert!(read_vectors(dir.path()).expect("read").is_none());
 }
 
 #[test]

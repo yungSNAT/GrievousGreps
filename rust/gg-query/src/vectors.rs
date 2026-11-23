@@ -67,19 +67,35 @@ pub fn read_vectors(out_dir: &Path) -> io::Result<Option<VectorIndex>> {
     if buf.len() < 8 {
         return Ok(None);
     }
-    let header_len = u64::from_le_bytes(buf[0..8].try_into().unwrap()) as usize;
-    if 8 + header_len > buf.len() {
+    let Ok(header_len) = usize::try_from(u64::from_le_bytes(buf[0..8].try_into().unwrap())) else {
+        return Ok(None);
+    };
+    if header_len > buf.len() - 8 {
         return Ok(None);
     }
     let Ok(head) = serde_json::from_slice::<RawHeader>(&buf[8..8 + header_len]) else {
         return Ok(None);
     };
-    if head.version != 1 || head.model != MODEL_ID || head.chunk != CHUNK_CHARS || head.dim == 0 {
+    if head.version != 1
+        || head.model != MODEL_ID
+        || head.chunk != CHUNK_CHARS
+        || head.dim == 0
+        || head.files.iter().any(|f| !f.lines.len().is_multiple_of(2))
+    {
         return Ok(None);
     }
-    let chunks: usize = head.files.iter().map(|f| f.lines.len() / 2).sum();
+    let mut chunks: usize = 0;
+    for f in &head.files {
+        let Some(next) = chunks.checked_add(f.lines.len() / 2) else {
+            return Ok(None);
+        };
+        chunks = next;
+    }
+    let Some(expected_bytes) = chunks.checked_mul(head.dim).and_then(|n| n.checked_mul(2)) else {
+        return Ok(None);
+    };
     let payload = &buf[8 + header_len..];
-    if payload.len() != chunks.saturating_mul(head.dim).saturating_mul(2) {
+    if payload.len() != expected_bytes {
         return Ok(None);
     }
     let data = payload
