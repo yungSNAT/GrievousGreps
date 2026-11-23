@@ -12,7 +12,7 @@ import { posix } from "node:path";
 import type { Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import {
-  KUSTOMIZATION_FILES, Skip, js, list, obj, pushTo, reasonText, resource, str, strict, under,
+  KUSTOMIZATION_FILES, Skip, isObj, js, list, obj, pushTo, reasonText, resource, str, strict, under,
   type DeployRef, type KustomizeRef, type Lines,
 } from "./deploy.js";
 
@@ -28,12 +28,23 @@ const GENERATORS = [["configMapGenerator", "ConfigMap"], ["secretGenerator", "Se
 const MAX_LINKS = 2_000_000;
 const MAX_REPORTS = 20;
 
-export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } {
-  if (docs.length !== 1) throw new Skip("a kustomization is one YAML document");
-  const d = docs[0];
+/**
+ * Whether a file named like a kustomization is one: a single mapping whose `kind`, if any, is
+ * Kustomization or Component and whose `apiVersion`, if any, is Kustomize's. Any other such file
+ * (Kubernetes objects, a Flux `Kustomization`) is read as a manifest, as before.
+ */
+export function isKustomization(docs: Document[]): boolean {
+  if (docs.length !== 1) return false;
+  const top = js(docs[0]);
+  if (!isObj(top)) return false;
+  const { kind, apiVersion } = top;
+  return (kind === undefined || kind === "Kustomization" || kind === "Component")
+    && (apiVersion === undefined || (typeof apiVersion === "string" && apiVersion.startsWith("kustomize.config.k8s.io/")));
+}
+
+export function kustomize(rel: string, d: Document, lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } {
   const top = obj(js(d), "the file");
-  const kind = str(top.kind, "kind") ?? "Kustomization";
-  if (kind !== "Kustomization" && kind !== "Component") throw new Skip(`kind ${kind} is not Kustomization or Component`);
+  const kind = top.kind === "Component" ? "Component" : "Kustomization";
   const dir = posix.dirname(rel);
   const from = `${rel}#kustomization`;
   const entries = (["resources", "bases", "components"] as const).flatMap((field) =>
@@ -51,24 +62,25 @@ export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes:
     if (!/[\n{]/.test(p)) patches.push(p);
   }
   const nodes: NodeV1[] = [];
-  const refs: DeployRef[] = [];
-  const names = new Set<string>();
+  const generators: string[] = [];
+  const seen = new Set<string>();
+  const names: string[] = [];
   for (const [field, genKind] of GENERATORS) {
     list(top[field], field).forEach((x, i) => {
       // Only the name: literals, env files and file contents are never read.
       const name = strict(obj(x, `${field} entry`).name, `${field} name`);
       const id = `${rel}#${field}:${name}`;
-      if (names.has(`${field}:${name}`)) return;
-      names.add(`${field}:${name}`);
+      if (seen.has(id)) return;
+      seen.add(id);
+      generators.push(id);
+      names.push(name);
       nodes.push(resource(rel, `${field}:${name}`, name, lines(d, d.getIn([field, i], true)), `${genKind} ${name} (generated)`, [name]));
-      refs.push({ from, to: "id", id });
     });
   }
-  const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), str(top.namespace, "namespace"), ...[...names].map((n) => n.slice(n.indexOf(":") + 1))];
+  const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), str(top.namespace, "namespace"), ...names];
   nodes.unshift(resource(rel, "kustomization", dir, lines(d, d.contents), `${kind} ${dir}`, words.filter((w): w is string => !!w)));
   const present = (f: string) => top[f] !== undefined && top[f] !== null;
-  refs.push({ from, to: "kustomize", dir, entries, patches, unread: UNREAD.filter(present), unapplied: UNAPPLIED.filter(present) });
-  return { nodes, refs };
+  return { nodes, refs: [{ from, to: "kustomize", dir, entries, patches, generators, unread: UNREAD.filter(present), unapplied: UNAPPLIED.filter(present) }] };
 }
 
 interface Context {
@@ -82,19 +94,29 @@ interface Context {
 const OBJECT_ID = /^([A-Za-z]+)\/([^/]+)\/(.+)$/;
 
 /** An include as written, for a report: user information and every query parameter but `ref` and `version` removed. */
-function shown(p: string): string {
+function shown(raw: string): string {
+  const p = raw.replace(/^git::/i, "");
   const q = p.indexOf("?");
   const base = (q < 0 ? p : p.slice(0, q)).replace(/^((?:[a-z][a-z0-9+.-]*:)?\/\/)?[^/@\s]+@/i, "$1");
   const kept = q < 0 ? [] : p.slice(q + 1).split("&").filter((x) => /^(ref|version)=/.test(x));
   return kept.length ? `${base}?${kept.join("&")}` : base;
 }
 
-/** Why a path a kustomization names cannot be followed, or null when it is in the repository. */
-function outside(p: string): string | null {
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p) || /^[^/@\s]+@/.test(p) || /\?(ref|version|depth|timeout|submodules)=/.test(p)) return "remote";
-  // A go-getter address names its host first: `github.com/org/repo/path`.
-  if (/^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(p)) return "remote";
-  return null;
+/** Whether a path a kustomization names is remote, may be (a first segment like a host name), or is in the repository (null). */
+function outside(raw: string): "remote" | "host" | null {
+  const p = raw.replace(/^git::/i, "");
+  if (p !== raw || /^[a-z][a-z0-9+.-]*:\/\//i.test(p) || /^[^/@\s]+@/.test(p) || /\?(ref|version|depth|timeout|submodules)=/.test(p)) return "remote";
+  // A go-getter address names its host first: `github.com/org/repo/path`; so may a local folder such as `config.d/`.
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(p) ? "host" : null;
+}
+
+/** Why a path a kustomization names gave nothing to link. */
+function missing(field: string, p: string, local: string | null, fileExists: (path: string) => boolean): string {
+  const why = outside(p);
+  if (local === null || why === "remote") return `${field} ${shown(p)} not followed: ${why === "remote" ? "remote" : "outside the repository"}`;
+  if (KUSTOMIZATION_FILES.some((f) => fileExists(`${local}/${f}`))) return `${field} ${shown(p)} not read: its kustomization was skipped`;
+  if (fileExists(local)) return `${field} ${shown(p)} gave no Kubernetes objects`;
+  return `${field} ${shown(p)} not found${why === "host" ? ", or a remote base: not followed" : ""}`;
 }
 
 /** Link each kustomization to what it lists, and report what is not followed. */
@@ -138,9 +160,7 @@ export function linkKustomize(ctx: Context): void {
     const target = local === null ? undefined : byDir.get(local) ?? objectsIn.get(local);
     if (target) return target;
     if (local !== null && refused.has(local)) report(k, `${field} ${shown(p)} not read: its folder has more than one kustomization file`);
-    else if (local !== null && ctx.fileExists(local)) report(k, `${field} ${shown(p)} gave no Kubernetes objects`);
-    else if (local === null || outside(p)) report(k, `${field} ${shown(p)} not followed: ${outside(p) ? "remote" : "outside the repository"}`);
-    else report(k, `${field} ${shown(p)} not found`);
+    else report(k, missing(field, p, local, ctx.fileExists));
     return null;
   };
   let links = 0;
@@ -177,11 +197,16 @@ export function linkKustomize(ctx: Context): void {
     for (const p of k.patches) {
       const local = under(k.dir, p);
       const objs = local === null ? undefined : objectsIn.get(local);
-      if (objs) {
+      if (!objs) {
+        // A patch file with no objects, such as a JSON 6902 op list, has nothing to link.
+        if (local === null || !ctx.fileExists(local)) report(k, missing("patch", p, local, ctx.fileExists));
+      } else if (seen.has(objs)) report(k, `patch ${shown(p)} listed more than once: followed once`);
+      else {
+        seen.add(objs);
         if (!link(k, objs.map((n) => n.id))) break linking;
-      } else if (local === null || outside(p)) report(k, `patch ${shown(p)} not followed: ${outside(p) ? "remote" : "outside the repository"}`);
-      else if (!ctx.fileExists(local)) report(k, `patch ${shown(p)} not found`);
+      }
     }
+    if (!link(k, k.generators)) break linking;
   }
   reportCycles(ks, kids, report);
   for (const [k, n] of reports) if (n > MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: `and ${n - MAX_REPORTS} more reports` });

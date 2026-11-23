@@ -82,15 +82,33 @@ test("every edge but a kustomization's own is the one the manifests give without
     "b/ops.yaml": "- op: add\n  path: /metadata/labels/x\n  value: y\n",
     "raw/service.yaml": SERVICE,
     "raw/ingress.yaml": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: edge }\nspec: { defaultBackend: { service: { name: api } } }\n",
+    "cfg/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
   }];
   const plain = (edges: Array<{ source: string; target: string; confidence?: string }>) =>
-    edges.filter((e) => !e.source.includes("kustomization") && !e.target.includes("kustomization")).map((e) => `${e.source} -> ${e.target} ${e.confidence ?? ""}`).sort();
+    edges.filter((e) => !e.source.endsWith("#kustomization")).map((e) => `${e.source} -> ${e.target} ${e.confidence ?? ""}`).sort();
   for (const files of fixtures) {
-    const without = Object.fromEntries(Object.entries(files).filter(([p]) => !p.endsWith("kustomization.yaml")));
+    const without = Object.fromEntries(Object.entries(files).filter(([p, text]) => !p.endsWith("kustomization.yaml") || /^kind: ConfigMap$/m.test(text)));
     const withK = plain(resolveFiles(files).edges);
     assert.ok(withK.length > 0);
+    if (files["cfg/kustomization.yaml"]) assert.ok(withK.includes("a/deployment.yaml#Deployment/default/api -> cfg/kustomization.yaml#ConfigMap/default/app-config inferred"), withK.join("\n"));
     assert.deepEqual(withK, plain(resolveFiles(without).edges));
   }
+});
+
+test("a file named kustomization.yaml that holds Kubernetes objects, or a Flux Kustomization, is read as a manifest", async () => {
+  await withBuild({
+    "app/deploy.yaml": DEPLOYMENT,
+    "cfg/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
+    "two/kustomization.yaml": `${deployment("web").replace("image: web", "image: web, envFrom: [ { configMapRef: { name: web-config } } ]")}---\napiVersion: v1\nkind: ConfigMap\nmetadata: { name: web-config }\n`,
+    "flux/kustomization.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: { name: apps }\nspec: { path: ./apps }\n",
+  }, ({ result, graph }) => {
+    assert.deepEqual(result.skipped, []);
+    const all = refs(graph);
+    assert.ok(all.includes("app/deploy.yaml#Deployment/default/api -> cfg/kustomization.yaml#ConfigMap/default/app-config (inferred)"), all.join("\n"));
+    assert.ok(all.includes("two/kustomization.yaml#Deployment/default/web -> two/kustomization.yaml#ConfigMap/default/web-config"), all.join("\n"));
+    assert.ok(graph.nodes.some((n) => n.id === "flux/kustomization.yaml#Kustomization/default/apps"));
+    assert.ok(!graph.nodes.some((n) => n.id.endsWith("#kustomization")));
+  });
 });
 
 test("no generator literal reaches the graph or its caches", async () => {
@@ -111,7 +129,7 @@ test("a malformed kustomization is skipped with a reason", async () => {
     assert.deepEqual(result.skipped.filter((s) => s.path !== "f/kustomization.yaml"), [
       { path: "a/kustomization.yaml", reason: "resources is not a list" },
       { path: "c/kustomization.yaml", reason: "resources entry is not a string" },
-      { path: "e/kustomization.yaml", reason: "kind ConfigMap is not Kustomization or Component" },
+      { path: "e/kustomization.yaml", reason: "ConfigMap at line 1 has no metadata.name" },
     ]);
     assert.match(result.skipped.find((s) => s.path === "f/kustomization.yaml")!.reason, /^not valid YAML/);
     assert.deepEqual(refs(graph), ["b/kustomization.yaml#kustomization -> b/d.yaml#Deployment/default/api"]);
@@ -132,6 +150,10 @@ test("every include or patch file not followed is reported, and a URL's credenti
   - https://user:tok3n@example.com/x.yaml
   - oauth2:SEKRET1@gitlab.com/org/repo
   - github.com/o/r?ref=v1&token=SEKRET2
+  - git::https://user:tok3n@github.com/o/r//p?ref=v1
+  - git::https://user:tok3n@github.com/o/r//p
+  - config.d/x.yaml
+  - ../bad
   - empty.yaml
   - deploy.yaml
 components: [ ../comp-missing ]
@@ -139,11 +161,13 @@ patches:
   - path: gone.yaml
   - path: ops.yaml
     target: { labelSelector: "a=b" }
+  - path: deploy.yaml
 `,
+    "bad/kustomization.yaml": "resources: not-a-list\n",
     "app/deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web }\nspec: { template: { spec: { containers: [] } } }\n",
     "app/ops.yaml": "- op: replace\n  path: /spec/replicas\n  value: 2\n",
     "app/empty.yaml": "# nothing yet\n",
-    "dup/kustomization.yaml": "resources: [ x.yaml ]\n",
+    "dup/kustomization.yaml": "resources: [ x.yaml ]\nconfigMapGenerator: [ { name: g } ]\n",
     "dup/Kustomization": "resources: [ x.yaml ]\n",
     "dup/x.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: x }\n",
     "helm/kustomization.yaml": "helmCharts: [ { name: x } ]\ncommonLabels: { a: b }\nresources: []\n",
@@ -163,10 +187,15 @@ patches:
       "resources https://example.com/x.yaml not followed: remote",
       "resources gitlab.com/org/repo not followed: remote",
       "resources github.com/o/r?ref=v1 not followed: remote",
+      "resources https://github.com/o/r//p?ref=v1 not followed: remote",
+      "resources https://github.com/o/r//p not followed: remote",
+      "resources config.d/x.yaml not found, or a remote base: not followed",
+      "resources ../bad not read: its kustomization was skipped",
       "resources empty.yaml gave no Kubernetes objects",
       "resources deploy.yaml listed more than once: followed once",
       "components ../comp-missing not found",
       "patch gone.yaml not found",
+      "patch deploy.yaml listed more than once: followed once",
     ]);
     assert.ok(!/tok3n|SEKRET/.test(JSON.stringify(result.skipped)));
     assert.deepEqual(reasons("dup/kustomization.yaml"), ["not read: Kustomize refuses a folder with more than one kustomization file"]);

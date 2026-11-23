@@ -50,3 +50,15 @@ test("links from kustomizations stop at a bound, which is reported", { timeout: 
   assert.ok(skipped.some((s) => s.reason === "Kustomize links omitted from here on after 2000000"));
   assert.ok(edges.filter((e) => e.source.endsWith("#kustomization")).length <= 2_000_000);
 });
+
+test("a patch file listed many times is followed once, so it cannot use up the link bound", { timeout: 120_000 }, () => {
+  const { nodes, refsOut, read } = reader();
+  read("big/d.yaml", Array.from({ length: 2000 }, (_, i) => `apiVersion: v1\nkind: ConfigMap\nmetadata: { name: c${i} }\n`).join("---\n"));
+  read("a/kustomization.yaml", `patches:\n${Array.from({ length: 1001 }, () => "  - path: ../big/d.yaml").join("\n")}\n`);
+  read("z/kustomization.yaml", "resources: [ d.yaml ]\n");
+  read("z/d.yaml", DEPLOYMENT);
+  const { edges, skipped } = resolveDeploy(nodes, refsOut, (p) => p.endsWith(".yaml"));
+  assert.ok(skipped.some((s) => s.path === "a/kustomization.yaml" && s.reason === "patch ../big/d.yaml listed more than once: followed once"));
+  assert.ok(!skipped.some((s) => s.reason.startsWith("Kustomize links omitted")));
+  assert.ok(edges.some((e) => e.source === "z/kustomization.yaml#kustomization" && e.target === "z/d.yaml#Deployment/default/api"));
+});

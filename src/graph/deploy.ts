@@ -18,7 +18,7 @@ import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
-import { kustomize, linkKustomize } from "./kustomize.js";
+import { isKustomization, kustomize, linkKustomize } from "./kustomize.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize";
 
@@ -30,6 +30,8 @@ export interface KustomizeRef {
   entries: Array<{ field: "resources" | "bases" | "components"; path: string }>;
   /** The patch files it lists. */
   patches: string[];
+  /** Its generated ConfigMaps' and Secrets' node ids. */
+  generators: string[];
   /** Fields present that add objects or change names or selectors, which the graph does not follow. */
   unread: string[];
   /** Fields present whose names and namespaces are not applied to the references of the objects it builds. */
@@ -66,7 +68,7 @@ export interface DeployExtract {
 const COMPOSE = /^(docker-)?compose(\.[^/]+)?\.ya?ml$/;
 const DOCKERFILE = /^(dockerfile([._-].+)?|.+\.dockerfile|containerfile)$/;
 const MAX_FILE_CANDIDATES = 50_000;
-/** The names Kustomize reads a kustomization from, in its order. */
+/** The names Kustomize reads a kustomization from. */
 export const KUSTOMIZATION_FILES = ["kustomization.yaml", "kustomization.yml", "Kustomization"];
 
 /** The deployment format a path's name says, or null. Every other YAML file is a manifest candidate. */
@@ -253,7 +255,7 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
 // ── YAML: compose and Kubernetes ────────────────────────────────────────────
 
 type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
+export const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
 export function obj(v: unknown, what: string): Obj {
   if (v === undefined || v === null) return {};
@@ -289,7 +291,8 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes" 
   // A manifest has `apiVersion` and `kind` at the top level; a lockfile, CI or settings file
   // has not, so it is never parsed and never reported. (The repository walk already leaves
   // out every file above `MAX_FILE_BYTES`, so no file parsed here is larger.)
-  if (format === "kubernetes" && !(/^apiVersion:/m.test(source) && /^kind:/m.test(source))) return null;
+  const manifest = /^apiVersion:/m.test(source) && /^kind:/m.test(source);
+  if (format === "kubernetes" && !manifest) return null;
   const counter = new LineCounter();
   const docs = [...parseAllDocuments(source, { lineCounter: counter, uniqueKeys: false, logLevel: "error", merge: format === "compose" })];
   const bad = docs.find((d) => d.errors.length);
@@ -298,7 +301,8 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes" 
     const range = (node as { range?: [number, number, number] } | undefined)?.range ?? d.range ?? [0, 1, 1];
     return [counter.linePos(range[0]).line, counter.linePos(Math.max(range[0], range[1] - 1)).line];
   };
-  if (format === "kustomize") return kustomize(rel, docs, lines);
+  // A file named like a kustomization that is not one is read as a manifest candidate, as it was before.
+  if (format === "kustomize") return isKustomization(docs) ? kustomize(rel, docs[0], lines) : manifest ? kubernetes(rel, docs, lines) : null;
   return format === "compose" ? compose(rel, docs, lines) : kubernetes(rel, docs, lines);
 }
 
