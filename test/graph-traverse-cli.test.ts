@@ -305,6 +305,10 @@ test('referenceLine: a regex literal, a Go raw string ending in a backslash and 
   assert.equal(at('a.jsx', 'function F() {\n  return <A x={1} /><B onClick={install} />;\n}'), 2);
   // A `.js` file can hold JSX too: a `/` after `}` closes the tag (or divides), it starts no regex.
   assert.equal(at('a.js', 'function F() {\n  return <A x={1} /><B onClick={install} />;\n}'), 2);
+  // A multi-line tag's last line starts with `/>`, in any JS file.
+  assert.equal(at('a.js', 'function F() {\n  return <A\n    x={1}\n  /><B onClick={install} />;\n}'), 4);
+  // JSX text after `{a}` divides nothing and starts no regex.
+  assert.equal(at('a.tsx', 'function F() {\n  return <p>{a} / {install()}</p>;\n}'), 2);
   // Outside .jsx and .tsx a regex literal may start with `>`; a `/` in a later string must not end it early.
   for (const path of ['a.ts', 'a.js', 'a.mjs']) {
     assert.equal(at(path, 'function f(s) {\n  const t = s.replace(/>/g, "&gt;"); install("/");\n  install();\n}'), 2, path);

@@ -161,12 +161,12 @@ const BEFORE_REGEX = new Set(["return", "typeof", "case", "do", "else", "in", "o
 
 /** Where a JavaScript regex literal starting at `text[i]` ends, past its flags, or -1 when the `/` divides the value
  * before it (a name, a number, a string or a closing bracket), closes a JSX tag (`</td>`, `{x} />`) or the line ends
- * first. Only in a `.jsx` or `.tsx` file is any `/>` a tag's end (a multi-line tag's last line); elsewhere `/>/` is a
- * regex. */
+ * first. A `/>` starting a line ends a multi-line tag; elsewhere only a `.jsx` or `.tsx` file reads every `/>` as a
+ * tag's end, and other files read `/>/` as a regex. */
 function regexEnd(text: string, i: number, jsx: boolean): number {
-  if (jsx && text[i + 1] === ">") return -1;
   let k = i - 1;
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
+  if (text[i + 1] === ">" && (jsx || k < 0)) return -1;
   if (text[k] === "<") return -1;
   if (k >= 0 && /[\w$)\]}'"`]/.test(text[k])) {
     let s = k;
