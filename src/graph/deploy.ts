@@ -18,7 +18,8 @@ import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
-import { kustomize, linkKustomize, type DeployedView } from "./kustomize.js";
+import { kustomize } from "./kustomize.js";
+import { linkKustomize, type DeployedView } from "./kustomize-resolve.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize";
 

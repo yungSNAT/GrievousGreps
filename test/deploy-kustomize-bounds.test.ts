@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deployFormatOf, extractDeploy, resolveDeploy, resource, type DeployRef, type KustomizeRef } from "../src/graph/deploy.js";
 import type { NodeV1 } from "../src/graph/types.js";
-import { OPS, resolveFiles } from "./deploy-kustomize-fixtures.js";
+import { DEPLOYMENT, OPS, deployment, resolveFiles } from "./deploy-kustomize-fixtures.js";
 
 test("a cycle between kustomizations is reported once and a long chain stays bounded", { timeout: 120_000 }, () => {
   const nodes: NodeV1[] = [];
@@ -141,4 +141,39 @@ test("image renames charge each compose service they link to", () => {
   refsOut.push(k);
   const { skipped } = resolveDeploy(nodes, refsOut, (p) => p.endsWith(".yaml"));
   assert.ok(skipped.some((s) => s.reason === "name, patch, generator and image links omitted from here on after 2000000 match steps"));
+});
+
+test("an include listed many times is followed once and reported once", { timeout: 60_000 }, () => {
+  const { skipped, edges } = resolveFiles({
+    "base/kustomization.yaml": "resources: [ deployment.yaml, configmap.yaml ]\n",
+    "base/deployment.yaml": DEPLOYMENT,
+    "base/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
+    "root/kustomization.yaml": `resources:\n${Array.from({ length: 50_000 }, () => "  - ../base").join("\n")}\n`,
+  });
+  assert.deepEqual(skipped, [{ path: "root/kustomization.yaml", reason: "resources ../base listed more than once: followed once" }]);
+  assert.equal(edges.filter((e) => e.source === "base/deployment.yaml#Deployment/default/api" && e.target === "base/configmap.yaml#ConfigMap/default/app-config").length, 1);
+});
+
+test("generator links charge each generated object a workload names", { timeout: 60_000 }, () => {
+  const files: Record<string, string> = {
+    "root/kustomization.yaml": `resources:\n  - d.yaml\n${Array.from({ length: 1500 }, (_, i) => `  - ../b${i}`).join("\n")}\n`,
+    "root/d.yaml": Array.from({ length: 1500 }, (_, i) => deployment(`w${i}`).replace("image: w", "envFrom: [ { configMapRef: { name: cfg } } ], image: w")).join("---\n"),
+  };
+  for (let i = 0; i < 1500; i++) files[`b${i}/kustomization.yaml`] = "configMapGenerator: [ { name: cfg, literals: [ a=b ] } ]\n";
+  const { skipped } = resolveFiles(files);
+  assert.ok(skipped.some((s) => s.reason === "name, patch, generator and image links omitted from here on after 2000000 match steps"));
+});
+
+test("a diamond whose branches rename one base stays near linear and links once", { timeout: 120_000 }, () => {
+  const files: Record<string, string> = {
+    "base/kustomization.yaml": "resources: [ deployment.yaml, configmap.yaml ]\n",
+    "base/deployment.yaml": DEPLOYMENT,
+    "base/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
+    "root/kustomization.yaml": `resources:\n${Array.from({ length: 10_000 }, (_, i) => `  - ../m${i}`).join("\n")}\n`,
+  };
+  for (let i = 0; i < 10_000; i++) files[`m${i}/kustomization.yaml`] = `namePrefix: m${i}-\nresources: [ ../base ]\n`;
+  const { edges, skipped, ms } = resolveFiles(files);
+  assert.deepEqual(skipped, []);
+  assert.equal(edges.filter((e) => e.source === "base/deployment.yaml#Deployment/default/api" && e.target === "base/configmap.yaml#ConfigMap/default/app-config").length, 1);
+  assert.ok(ms < 10_000, `${ms} ms`);
 });
