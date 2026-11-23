@@ -60,7 +60,7 @@ test("Terraform blocks are nodes linked to the blocks, modules, source files and
       "infra/main.tf#module.net -> infra/modules/net/outputs.tf",
     ]);
     assert.deepEqual(reportsFor(result, "infra/main.tf"), [
-      "aws_iam_role_policy.p: a path not written from ${path.module} is not followed",
+      "aws_iam_role_policy.p: a path not written from path.module is not followed",
       "module.vpc: a module source that is not a local folder is not read",
     ]);
     const lambda = graph.nodes.find((n) => n.id === "infra/main.tf#aws_lambda_function.api")!;
@@ -117,11 +117,11 @@ test("Terraform: a plain path, a duplicate address, a module outside the reposit
     ]);
     assert.deepEqual(reportsFor(result, "live/main.tf"), [
       "data.archive_file.out: a path outside the repository is not followed",
-      "data.archive_file.root: a path not written from ${path.module} is not followed",
+      "data.archive_file.root: a path not written from path.module is not followed",
       "module.far: its module source is outside the repository",
     ]);
     assert.deepEqual(reportsFor(result, "mods/app/main.tf"), [
-      "data.archive_file.child: a path not written from ${path.module} is not followed",
+      "data.archive_file.child: a path not written from path.module is not followed",
       "x_z.one is declared in more than one file of mods/app: references to it give no link",
     ]);
     assert.ok(result.skipped.some((s) => s.path === "broken/main.tf" && /not valid HCL at line \d+/.test(s.reason)), JSON.stringify(result.skipped));
@@ -220,6 +220,114 @@ test("Terraform: thousands of blocks in a chain and deeply nested expressions ar
     assert.deepEqual(reportsFor(result, "big/main.tf"), []);
   });
   assert.ok(Date.now() - started < 60_000, `took ${Date.now() - started} ms`);
+});
+
+test("Terraform: an expression nested 20,000 deep is read in time linear in its size", async () => {
+  const deep = `resource "x_r" "r0" {\n  a = 1\n}\n\nresource "x_d" "deep" {\n  v = ${"[".repeat(20_000)}x_r.r0.id${"]".repeat(20_000)}\n}\n`;
+  const started = Date.now();
+  await withBuild({ "deep/main.tf": deep }, ({ graph }) => {
+    assert.deepEqual(tfLinks(graph), ["deep/main.tf#x_d.deep -> deep/main.tf#x_r.r0"]);
+  });
+  // A walk that looks up each node's parent took 39 s or more here.
+  assert.ok(Date.now() - started < 15_000, `took ${Date.now() - started} ms`);
+});
+
+test("Terraform: references in operators, interpolation, heredocs and depends_on link; template for names, comments and provider names do not", async () => {
+  await withBuild({
+    "ops/main.tf": `resource "aws_db_instance" "db" {
+  a = 1
+}
+
+resource "aws_x" "flag" {
+  a = 1
+}
+
+resource "aws_x" "num" {
+  a = 1
+}
+
+resource "aws_x" "y" {
+  a = 1
+}
+
+resource "aws_x" "str" {
+  a = 1
+}
+
+resource "aws_x" "doc" {
+  a = 1
+}
+
+resource "aws_x" "dep" {
+  a = 1
+}
+
+resource "aws_x" "hidden" {
+  a = 1
+}
+
+resource "s" "id" {
+  a = 1
+}
+
+resource "east" "x" {
+  a = 1
+}
+
+resource "aws_user" "u" {
+  # a = aws_x.hidden.id
+  /* b = aws_x.hidden.id */
+  port     = aws_db_instance.db.port + 1
+  off      = !aws_x.flag.enabled
+  neg      = -aws_x.num.value
+  ok       = aws_x.y.status == "ready"
+  name     = "\${aws_x.str.id}-x"
+  provider = east.x
+  q        = "%{ for s in var.list }\${s.id}%{ endfor }"
+  script   = <<-EOT
+    echo \${aws_x.doc.arn}
+    %{ for s in var.list ~}
+    \${s.id}
+    %{ endfor ~}
+  EOT
+  depends_on = [aws_x.dep]
+  lifecycle {
+    ignore_changes = [east.x]
+  }
+}
+`,
+  }, ({ result, graph }) => {
+    assert.deepEqual(tfLinks(graph), [
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_db_instance.db",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.dep",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.doc",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.flag",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.num",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.str",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.y",
+    ]);
+    assert.deepEqual(reportsFor(result, "ops/main.tf"), []);
+  });
+});
+
+test("Terraform: bare labels are read; a label that is not a name gives no node and a report; path.module alone is the module's folder", async () => {
+  await withBuild({
+    "labels/main.tf": `resource aws_x web {\n  a = 1\n}\n\nresource "Deployment/default/web" "x" {\n  a = 1\n}\n\nresource "aws_y" "z" {\n  w = aws_x.web.id\n}\n\ndata "archive_file" "a" {\n  source_dir = path.module\n}\n\ndata "archive_file" "b" {\n  source_dir = "\${path.module}"\n}\n`,
+    "labels/a.py": "def a():\n    return 1\n",
+  }, ({ result, graph }) => {
+    assert.deepEqual(graph.nodes.filter((n) => isTerraform(n.id) && n.kind === "resource").map((n) => n.id).sort(byCodeUnit), [
+      "labels/main.tf#aws_x.web",
+      "labels/main.tf#aws_y.z",
+      "labels/main.tf#data.archive_file.a",
+      "labels/main.tf#data.archive_file.b",
+    ]);
+    assert.deepEqual(tfLinks(graph), [
+      "labels/main.tf#aws_y.z -> labels/main.tf#aws_x.web",
+      "labels/main.tf#data.archive_file.a -> labels/a.py",
+      "labels/main.tf#data.archive_file.b -> labels/a.py",
+    ]);
+    assert.deepEqual(reportsFor(result, "labels/main.tf"), ["a resource block at line 5 whose labels are not names is not read"]);
+  });
 });
 
 test("Terraform: reports for one file stop at 20 and count the rest", async () => {

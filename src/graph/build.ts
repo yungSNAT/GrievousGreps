@@ -111,8 +111,9 @@ export async function warmGrammarsFor(paths: Iterable<string>): Promise<void> {
   }
   await warmGenericGrammars(generic);
   await warmContainerGrammars(containers);
-  if (list.some((path) => deployFormatOf(path) === "terraform")) await warmTerraform();
+  const terraformMissing = list.some((path) => deployFormatOf(path) === "terraform") && !(await warmTerraform());
   const missing = [
+    ...(terraformMissing ? ["terraform"] : []),
     ...[...generic].filter((name) => !isWarm(name)),
     ...[...containers].filter((name) => !isContainerWarm(name)),
   ];

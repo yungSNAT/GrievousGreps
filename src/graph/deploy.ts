@@ -92,7 +92,8 @@ export function deployFormatOf(path: string): DeployFormat | null {
   if (base.endsWith(".dockerignore")) return null;
   if (DOCKERFILE.test(base)) return "dockerfile";
   if (COMPOSE.test(base)) return "compose";
-  if (base.endsWith(".tf")) return "terraform";
+  // Terraform reads `.tf` exactly; `.tf.json` files are not read.
+  if (exact.endsWith(".tf")) return "terraform";
   return /\.ya?ml$/.test(base) ? "kubernetes" : null;
 }
 
@@ -144,6 +145,7 @@ function terraformFile(rel: string, source: string): { nodes: NodeV1[]; refs: De
   const nodes: NodeV1[] = [];
   const refs: DeployRef[] = [];
   const seen = new Set<string>();
+  for (const note of read.notes) refs.push({ from: rel, to: "tfnote", note });
   for (const b of read.blocks) {
     if (seen.has(b.address)) throw new Skip(`${b.address} is declared twice`);
     seen.add(b.address);
@@ -715,7 +717,7 @@ function linkTerraform(nodes: NodeV1[], refs: DeployRef[], add: (source: string,
     if (r.to === "tfnote") report(from, r.note);
     else if (r.to === "tf") {
       const found = blocks.get(`${r.dir} ${r.address}`) ?? [];
-      if (found.length > 1) report(from, `${r.address} is declared in more than one file of ${r.dir}: references to it give no link`);
+      if (found.length > 1) report(from, `${r.address} is declared in more than one file of ${r.dir} (override files are not merged): references to it give no link`);
       else if (found.length === 1 && counted.has(found[0])) report(pathOf.get(found[0])!, `${r.address} has count or for_each: references to it give no link`);
       else if (found.length === 1) add(r.from, found[0]);
     } else if (r.to === "tfmodule") {
