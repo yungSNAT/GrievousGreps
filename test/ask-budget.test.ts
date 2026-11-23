@@ -55,6 +55,14 @@ test("foldCode keeps a signature whose parameters span lines, and counts macros 
   assert.equal(foldCode(rust), ["fn run() {", "    ⋯ 2 lines", "    info!(\"{a}\");", "    let n = s.parse::<u32>();", "    ⋯ 2 lines", "}"].join("\n"));
 });
 
+test("foldCode keeps an object return type, and a call with nested generics", () => {
+  const load = ["function load(): {", "  id: string;", "  name: string;", "} {", "  const a = 1;", "  const b = 2;", "  const c = factory<Map<string, number>>(a);", "  return c;", "}"].join("\n");
+  assert.equal(
+    foldCode(load),
+    ["function load(): {", "  id: string;", "  name: string;", "} {", "  ⋯ 2 lines", "  const c = factory<Map<string, number>>(a);", "  return c;", "}"].join("\n"),
+  );
+});
+
 test("budgetAsk: text that is not ASCII is counted at a token a character", () => {
   const cjk = TS.replace("let sum = 0;", `let sum = 0; // ${"合計を計算する".repeat(20)}`);
   const r = budgetAsk(result([hit(1, cjk), hit(2, cjk), hit(3, cjk)]), 300);

@@ -24,7 +24,7 @@ const FOOTER_TOKENS = 32;
 
 /** A call: a name followed by `(`, allowing a macro's `!` and explicit generics
  * (`name<T>(`, `name::<T>(`). A line whose only such names are keywords is not one. */
-const CALL = /([A-Za-z_$][\w$]*)!?(?:(?:::)?<[^<>()]*>)?\s*\(/g;
+const CALL = /([A-Za-z_$][\w$]*)!?(?:(?:::)?<(?:[^<>()]|<[^<>()]*>)*>)?\s*\(/g;
 const NOT_CALLS = new Set([
   "if", "for", "while", "switch", "catch", "return", "function", "elif", "with", "match", "sizeof",
   "typeof", "await", "yield", "new", "fn", "def", "func", "foreach", "until", "unless", "when", "and", "or", "not",
@@ -36,16 +36,19 @@ function hasCall(line: string): boolean {
 }
 
 /** Lines of the signature: up to the first line that opens the body (`{`, `:`, `=>`,
- * `do` or `=` at its end) outside the parameter list's brackets, so destructured
- * and inline-typed parameters stay; at most 12, else the first 6. */
+ * `do` or `=` at its end) outside every bracket, so destructured and inline-typed
+ * parameters and object return types stay; at most 12, else the first 6. A final
+ * `{` after `:`, `<`, `(`, `,`, `|` or `&` opens a type or a parameter, not the body. */
 function signatureLength(lines: string[]): number {
   let depth = 0;
   for (const [i, line] of lines.slice(0, 12).entries()) {
-    for (const ch of line) {
-      if (ch === "(" || ch === "[") depth++;
-      else if (ch === ")" || ch === "]") depth--;
+    const text = line.trimEnd();
+    const body = text.endsWith("{") && !/[:<(,|&]\s*\{$/.test(text);
+    for (const ch of body ? text.slice(0, -1) : text) {
+      if (ch === "(" || ch === "[" || ch === "{") depth++;
+      else if (ch === ")" || ch === "]" || ch === "}") depth--;
     }
-    if (depth <= 0 && /(\{|:|=>|\bdo|=)\s*$/.test(line.trimEnd())) return i + 1;
+    if (depth <= 0 && (body || /(:|=>|\bdo|=)$/.test(text))) return i + 1;
   }
   return Math.min(lines.length, 6);
 }
