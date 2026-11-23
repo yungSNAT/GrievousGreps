@@ -62,13 +62,14 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
   for (const p of list(top.patchesStrategicMerge, "patchesStrategicMerge")) {
     if (typeof p !== "string") throw new Skip("patchesStrategicMerge entry is not a string");
     // An entry is a file path, or the patch itself written inline.
-    if (!/[\n{]/.test(p)) patches.push(p);
+    if (!/[\r\n{]/.test(p)) patches.push(p);
   }
   const nodes: NodeV1[] = [];
   const generators: string[] = [];
   const seen = new Set<string>();
   const names: string[] = [];
   for (const [field, genKind] of GENERATORS) {
+    const items = (d.get(field, true) as { items?: unknown[] } | undefined)?.items;
     list(top[field], field).forEach((x, i) => {
       // Only the name: literals, env files and file contents are never read.
       const name = strict(obj(x, `${field} entry`).name, `${field} name`);
@@ -77,7 +78,7 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
       seen.add(id);
       generators.push(id);
       names.push(name);
-      nodes.push(resource(rel, `${field}:${name}`, name, lines(d, d.getIn([field, i], true)), `${genKind} ${name} (generated)`, [name]));
+      nodes.push(resource(rel, `${field}:${name}`, name, lines(d, items?.[i]), `${genKind} ${name} (generated)`, [name]));
     });
   }
   const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), str(top.namespace, "namespace"), ...names];
@@ -112,6 +113,9 @@ function outside(raw: string): "remote" | "host" | null {
   // A go-getter address names its host first: `github.com/org/repo/path`; so may a local folder such as `config.d/`.
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(p) ? "host" : null;
 }
+
+/** The repository path a kustomization's path names; null for a `git::` address, which Kustomize reads as remote. */
+const local_ = (dir: string, p: string) => (/^git::/i.test(p) ? null : under(dir, p));
 
 /** Why a path a kustomization names gave nothing to link. */
 function missing(field: string, p: string, local: string | null, fileExists: (path: string) => boolean): string {
@@ -151,7 +155,7 @@ export function linkKustomize(ctx: Context): void {
   const byDir = new Map(ks.map((k) => [k.dir, k]));
   for (const k of ks) {
     if (k.unread.length) report(k, `fields not read: ${k.unread.join(", ")}`);
-    if (k.unapplied.length) report(k, `not applied to references, which link objects as written: ${k.unapplied.join(", ")}`);
+    for (const f of k.unapplied) report(k, `${f} not applied to references, which link objects as written`);
   }
   const objectsIn = new Map<string, NodeV1[]>();
   for (const n of ctx.nodes) {
@@ -159,7 +163,7 @@ export function linkKustomize(ctx: Context): void {
   }
   /** Each path's local target: a kustomization folder, objects in a file, or a report. A local path wins over a remote reading. */
   const follow = (k: KustomizeRef, field: string, p: string): KustomizeRef | NodeV1[] | null => {
-    const local = under(k.dir, p);
+    const local = local_(k.dir, p);
     const target = local === null ? undefined : byDir.get(local) ?? objectsIn.get(local);
     if (target) return target;
     if (local !== null && refused.has(local)) report(k, `${field} ${shown(p)} not read: its folder has more than one kustomization file`);
@@ -198,7 +202,7 @@ export function linkKustomize(ctx: Context): void {
       }
     }
     for (const p of k.patches) {
-      const local = under(k.dir, p);
+      const local = local_(k.dir, p);
       const objs = local === null ? undefined : objectsIn.get(local);
       if (!objs) {
         // A patch file with no objects, such as a JSON 6902 op list, has nothing to link.

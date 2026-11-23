@@ -305,7 +305,8 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes" 
   if (format === "kustomize") {
     const k = kustomizationIn(docs);
     if (k) return kustomize(rel, k, lines);
-    if (manifest) return kubernetes(rel, docs, lines);
+    // Only a name the manifest reader would take: an extensionless `Kustomization` was never read.
+    if (manifest && /\.ya?ml$/i.test(rel)) return kubernetes(rel, docs, lines);
     // Neither: several documents are reported, as Kustomize refuses them.
     if (docs.length > 1) throw new Skip("a kustomization is one YAML document");
     return null;

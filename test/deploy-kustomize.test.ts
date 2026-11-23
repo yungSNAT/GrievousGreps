@@ -43,7 +43,7 @@ secretGenerator:
   "overlays/dev/kustomization.yaml": "resources: [ ../../base ]\n",
 };
 
-const APPLIED = "not applied to references, which link objects as written:";
+const APPLIED = "not applied to references, which link objects as written";
 
 test("kustomization files are named by their file names", () => {
   assert.equal(deployFormatOf("overlays/prod/kustomization.yaml"), "kustomize");
@@ -64,35 +64,45 @@ test("a kustomization links to its base, the objects it lists, its patch files a
       "overlays/prod/kustomization.yaml#kustomization -> overlays/prod/replicas.yaml#Deployment/default/api",
     ]);
     assert.deepEqual(result.skipped, [
-      { path: "base/kustomization.yaml", reason: `${APPLIED} configMapGenerator` },
-      { path: "overlays/prod/kustomization.yaml", reason: `${APPLIED} images, secretGenerator, patches` },
+      { path: "base/kustomization.yaml", reason: `configMapGenerator ${APPLIED}` },
+      ...["images", "secretGenerator", "patches"].map((f) => ({ path: "overlays/prod/kustomization.yaml", reason: `${f} ${APPLIED}` })),
       { path: "overlays/prod/kustomization.yaml", reason: "resources https://github.com/acme/shared//deploy?ref=v1 not followed: remote" },
     ]);
   });
 });
 
-test("every edge but a kustomization's own is the one the manifests give without any kustomization file", () => {
-  const fixtures: Array<Record<string, string>> = [REPO, {
-    "a/kustomization.yaml": "namespace: prod\nnamePrefix: p-\nresources: [ deployment.yaml, web.yaml, ../b ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=b ] } ]\n",
-    "a/deployment.yaml": DEPLOYMENT,
-    "a/web.yaml": "apiVersion: v1\nkind: Service\nmetadata: { name: web }\nspec: { selector: { app: web } }\n",
-    "b/kustomization.yaml": "nameSuffix: -b\nresources: [ cfg/configmap.yaml, d.yaml ]\npatches: [ { path: ops.yaml, target: { kind: Deployment } } ]\n",
-    "b/cfg/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
-    "b/d.yaml": deployment("web"),
-    "b/ops.yaml": "- op: add\n  path: /metadata/labels/x\n  value: y\n",
-    "raw/service.yaml": SERVICE,
-    "raw/ingress.yaml": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: edge }\nspec: { defaultBackend: { service: { name: api } } }\n",
-    "cfg/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
-  }];
-  const plain = (edges: Array<{ source: string; target: string; confidence?: string }>) =>
-    edges.filter((e) => !e.source.endsWith("#kustomization")).map((e) => `${e.source} -> ${e.target} ${e.confidence ?? ""}`).sort();
-  for (const files of fixtures) {
-    const without = Object.fromEntries(Object.entries(files).filter(([p, text]) => !p.endsWith("kustomization.yaml") || /^kind: ConfigMap$/m.test(text)));
-    const withK = plain(resolveFiles(files).edges);
-    assert.ok(withK.length > 0);
-    if (files["cfg/kustomization.yaml"]) assert.ok(withK.includes("a/deployment.yaml#Deployment/default/api -> cfg/kustomization.yaml#ConfigMap/default/app-config inferred"), withK.join("\n"));
-    assert.deepEqual(withK, plain(resolveFiles(without).edges));
-  }
+/** Files with kustomizations, manifests named like them (one document, 2 documents, extensionless) and plain manifests. */
+const MIXED: Record<string, string> = {
+  "Dockerfile": "FROM python:3.12\nCOPY src/ /app/src/\n",
+  "compose.yaml": "services:\n  api: { build: ., image: ghcr.io/acme/api }\n",
+  "a/kustomization.yaml": "namespace: prod\nnamePrefix: p-\nresources: [ deployment.yaml, web.yaml, ../b ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=b ] } ]\nimages: [ { name: api, newName: ghcr.io/acme/api } ]\n",
+  "a/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: api }\nspec:\n  template:\n    metadata: { labels: { app: api } }\n    spec:\n      containers:\n        - name: api\n          image: api\n          envFrom: [ { configMapRef: { name: app-config } } ]\n",
+  "a/web.yaml": "apiVersion: v1\nkind: Service\nmetadata: { name: web }\nspec: { selector: { app: web } }\n",
+  "b/kustomization.yaml": "nameSuffix: -b\nresources: [ cfg/configmap.yaml, d.yaml ]\npatches: [ { path: ops.yaml, target: { kind: Deployment } } ]\n",
+  "b/cfg/configmap.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
+  "b/d.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web }\nspec: { template: { metadata: { labels: { app: web } }, spec: { containers: [ { name: c, image: web } ] } } }\n",
+  "b/ops.yaml": "- op: add\n  path: /metadata/labels/x\n  value: y\n",
+  "raw/service.yaml": "apiVersion: v1\nkind: Service\nmetadata: { name: api }\nspec: { selector: { app: api } }\n",
+  "raw/ingress.yaml": "apiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata: { name: edge }\nspec: { defaultBackend: { service: { name: api } } }\n",
+  "cfg/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
+  "two/kustomization.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: two }\nspec: { template: { metadata: { labels: { app: two } }, spec: { containers: [ { name: c, image: two, envFrom: [ { configMapRef: { name: two-config } } ] } ] } } }\n---\napiVersion: v1\nkind: ConfigMap\nmetadata: { name: two-config }\n",
+  "cm/Kustomization": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n"
+};
+
+/** The edges main gives for MIXED, recorded once at cd23a7e (before Kustomize) with its own deployFormatOf, extractDeploy and resolveDeploy. */
+const MAIN_EDGES = [
+  "a/deployment.yaml#Deployment/default/api -> b/cfg/configmap.yaml#ConfigMap/default/app-config inferred",
+  "a/deployment.yaml#Deployment/default/api -> cfg/kustomization.yaml#ConfigMap/default/app-config inferred",
+  "a/web.yaml#Service/default/web -> b/d.yaml#Deployment/default/web inferred",
+  "compose.yaml#service:api -> Dockerfile#stage:0 extracted",
+  "raw/ingress.yaml#Ingress/default/edge -> raw/service.yaml#Service/default/api extracted",
+  "raw/service.yaml#Service/default/api -> a/deployment.yaml#Deployment/default/api inferred",
+  "two/kustomization.yaml#Deployment/default/two -> two/kustomization.yaml#ConfigMap/default/two-config extracted"
+];
+
+test("every edge but a kustomization's own is the one main gives for the same files", () => {
+  const head = resolveFiles(MIXED).edges.filter((e) => !e.source.endsWith("#kustomization")).map((e) => `${e.source} -> ${e.target} ${e.confidence ?? ""}`).sort();
+  assert.deepEqual(head, MAIN_EDGES);
 });
 
 test("a file named kustomization.yaml that holds Kubernetes objects, a Flux Kustomization or nothing is read as a manifest; empty documents around a kustomization are ignored", async () => {
@@ -117,6 +127,25 @@ test("a file named kustomization.yaml that holds Kubernetes objects, a Flux Kust
       ["lead/kustomization.yaml#kustomization", "root/kustomization.yaml#kustomization", "trail/kustomization.yaml#kustomization"]);
     for (const k of ["trail/kustomization.yaml#kustomization -> trail/d.yaml#Deployment/default/t", "lead/kustomization.yaml#kustomization -> lead/d.yaml#Deployment/default/l"]) assert.ok(all.includes(k), all.join("\n"));
   });
+});
+
+test("an extensionless Kustomization that is not one stays unread, a git:: address never names a local folder, and a CR-only inline patch is not a path", () => {
+  const { edges, skipped } = resolveFiles({
+    "app/deploy.yaml": DEPLOYMENT,
+    "cm/Kustomization": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
+    "g/kustomization.yaml": 'resources: [ "git::https://github.com/o/r//p", "git::github.com/o/r", "git::github.com/o/r/d.yaml" ]\npatchesStrategicMerge:\n  - "apiVersion: v1\\rkind: ConfigMap\\rmetadata:\\r  name: x\\rdata:\\r  k: SENTINEL7"\n',
+    "g/git::https:/github.com/o/r/p/kustomization.yaml": "resources: []\n",
+    "g/git::github.com/o/r/kustomization.yaml": "resources: [ d.yaml ]\n",
+    "g/git::github.com/o/r/d.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: local }\n",
+  });
+  assert.deepEqual(edges.filter((e) => e.target.startsWith("cm/") || e.source === "g/kustomization.yaml#kustomization"), []);
+  assert.deepEqual(skipped.filter((s) => s.path === "g/kustomization.yaml").map((s) => s.reason), [
+    `patchesStrategicMerge ${APPLIED}`,
+    "resources https://github.com/o/r//p not followed: remote",
+    "resources github.com/o/r not followed: remote",
+    "resources github.com/o/r/d.yaml not followed: remote",
+  ]);
+  assert.ok(!JSON.stringify(skipped).includes("SENTINEL7"));
 });
 
 test("no generator literal reaches the graph or its caches", async () => {
@@ -190,7 +219,7 @@ patches:
   }, ({ result, graph }) => {
     const reasons = (path: string) => result.skipped.filter((s) => s.path === path).map((s) => s.reason);
     assert.deepEqual(reasons("app/kustomization.yaml"), [
-      `${APPLIED} patches`,
+      `patches ${APPLIED}`,
       "resources missing.yaml not found",
       "resources ../nowhere not found",
       "resources /etc/k8s not followed: outside the repository",
