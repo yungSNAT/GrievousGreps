@@ -58,6 +58,9 @@ interface Visit {
   bound: ReadonlySet<string>;
 }
 
+/** The parts of a `for` expression or `%{ for }` directive that name its variables and its collection. */
+const INTROS = new Set(["for_intro", "template_for_start"]);
+
 /** The names a `for` expression or `%{ for }` directive binds, or null for any other node. */
 function binds(n: TsNode, kids: TsNode[]): string[] | null {
   const intro = n.type === "for_tuple_expr" || n.type === "for_object_expr" ? kids.find((c) => c.type === "for_intro")
@@ -75,7 +78,8 @@ function* walk(n: TsNode, skip: (n: TsNode) => boolean = () => false): Iterable<
     if (skip(node)) continue;
     const names = binds(node, kids);
     const inner = names ? new Set([...bound, ...names]) : bound;
-    for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], node, inner]);
+    // The names are in scope after the intro; its collection expression is read with the outer ones.
+    for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], node, INTROS.has(kids[i].type) ? bound : inner]);
   }
 }
 

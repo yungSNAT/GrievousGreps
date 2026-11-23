@@ -280,7 +280,21 @@ resource "east" "x" {
   a = 1
 }
 
+resource "aws_instance" "example" {
+  a = 1
+}
+
+resource "aws_instance" "tmpl" {
+  a = 1
+}
+
+resource "aws_instance" "id" {
+  a = 1
+}
+
 resource "aws_user" "u" {
+  shadow   = [for aws_instance in aws_instance.example.list : aws_instance.id]
+  shadowed = "%{ for aws_instance in aws_instance.tmpl.list }\${aws_instance.id}%{ endfor }"
   # a = aws_x.hidden.id
   /* b = aws_x.hidden.id */
   port     = aws_db_instance.db.port + 1
@@ -305,6 +319,9 @@ resource "aws_user" "u" {
   }, ({ result, graph }) => {
     assert.deepEqual(tfLinks(graph), [
       "ops/main.tf#aws_user.u -> ops/main.tf#aws_db_instance.db",
+      // The collection is read with the outer names; the loop's own name is not a block.
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_instance.example",
+      "ops/main.tf#aws_user.u -> ops/main.tf#aws_instance.tmpl",
       "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.dep",
       "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.doc",
       "ops/main.tf#aws_user.u -> ops/main.tf#aws_x.flag",
