@@ -18,6 +18,15 @@ fn to_sqlite_i64(val: usize, label: &str) -> io::Result<i64> {
     })
 }
 
+fn checked_add_body_len(total: usize, blen: usize) -> io::Result<usize> {
+    total.checked_add(blen).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ask index: aggregate body length overflow",
+        )
+    })
+}
+
 type PostingCounts<'a> = HashMap<&'a str, (i64, i64, i64)>;
 type DocPostings<'a> = Vec<(&'a str, i64, i64, i64)>;
 
@@ -150,7 +159,7 @@ pub(crate) fn insert_ask_index(
             })?;
         to_sqlite_i64(blen, "body_len")?;
         body_lens.push(blen);
-        total_body_len = total_body_len.saturating_add(blen);
+        total_body_len = checked_add_body_len(total_body_len, blen)?;
 
         let mut doc_terms: HashSet<&str> = HashSet::new();
         let mut merged: HashMap<&str, (usize, usize, usize)> = HashMap::new();
@@ -192,4 +201,17 @@ pub(crate) fn insert_ask_index(
         total_body_len as f64 / nodes.len() as f64
     };
     Ok((body_lens, nodes.len(), avg_body_len))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_add_body_len_accumulates_and_rejects_overflow() {
+        assert_eq!(checked_add_body_len(12, 30).expect("sum fits"), 42);
+        let err = checked_add_body_len(usize::MAX, 1).expect_err("overflow must fail");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("aggregate body length overflow"));
+    }
 }
