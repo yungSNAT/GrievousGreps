@@ -18,6 +18,7 @@ type Ast = {
   type: string;
   text: string;
   startIndex: number;
+  endIndex?: number;
   isNamed: boolean;
   parent: Ast | null;
   children: Ast[];
@@ -100,10 +101,12 @@ describe("Go receiver and func literal scopes", () => {
       ["parameters", n("parameter_list", [param("w", n("pointer_type", [typeId("Logger")]))])],
       ["body", n("block")],
     ], 80);
+    shadow.endIndex = 130;
     const inherit = n("func_literal", [
       ["parameters", n("parameter_list")],
       ["body", n("block")],
     ], 140);
+    inherit.endIndex = 190;
     const method = n("method_declaration", [
       ["receiver", n("parameter_list", [param("w", n("pointer_type", [typeId("Worker")]))])],
       ["name", n("field_identifier", "Run")],
@@ -123,16 +126,18 @@ describe("Go receiver and func literal scopes", () => {
     assert.equal(goReceiverVarOf(syntax(method)), "w");
     assert.equal(goLiteralScope(syntax(shadow)), "@80");
     assert.equal(defName(syntax(inherit), "go"), "@140");
-    assert.equal(bindings.lookup(["Worker.Run", "@80"], "w"), "Logger");
-    assert.equal(bindings.has("Worker.Run.@140", "w"), false);
+    // A literal's parameter is in scope over the literal's whole span, and only there.
+    assert.equal(bindings.goAt(["Worker.Run"], ["@80"], "w", 90), "Logger");
+    assert.equal(bindings.goAt(["Worker.Run"], ["@80"], "w", 130), undefined);
+    assert.equal(bindings.goAt(["Worker.Run"], ["@140"], "w", 150), undefined);
 
     const methodCtx = ctx("go", bindings, {
       scope: ["Worker.Run"], enclosingClass: "Worker", goReceiverVar: "w",
     });
     assert.equal(resolveRecvType("w", methodCtx), "Worker");
     assert.equal(resolveRecvType("job", methodCtx), "Job");
-    assert.equal(resolveRecvType("w", { ...methodCtx, goLiterals: ["@80"] }), "Logger");
-    assert.equal(resolveRecvType("w", { ...methodCtx, goLiterals: ["@140"] }), "Worker");
+    assert.equal(resolveRecvType("w", { ...methodCtx, goLiterals: ["@80"] }, 90), "Logger");
+    assert.equal(resolveRecvType("w", { ...methodCtx, goLiterals: ["@140"] }, 150), "Worker");
     assert.equal(resolveRecvType("w.log", methodCtx), "Logger");
     assert.equal(resolveRecvType("w.missing", methodCtx), undefined);
     assert.equal(resolveRecvType("missing.log", methodCtx), undefined);
