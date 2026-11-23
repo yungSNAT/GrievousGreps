@@ -33,6 +33,7 @@ import { CACHE_DIR, contextDirFor } from "./context/node-file.js";
 import { loadGraphCached } from "./graph/load.js";
 import { ensureFreshChildren, ensureFreshGraph, indexLine, refreshNote } from "./graph/refresh.js";
 import { queryJson, setQueryIndex } from "./graph/query-json.js";
+import { budgetAsk, parseMaxTokens } from "./ask/budget.js";
 import { isWorkspaceBuildRoot, readWorkspace, workspaceRepos } from "./graph/workspace.js";
 import { NOT_GIT_LINE, NOT_GIT_PAIR_REFUSAL, homeFolderRefusal, isGitWorkTree } from "./init-guard.js";
 import { hasGraftIndex, nearestGraftRoot } from "./graph/root.js";
@@ -868,26 +869,35 @@ grouped(program.command("ask"), GROUP.find)
   .option("-n, --limit <n>", "max results", "8")
   .option("--source", "inline the source at each file:line hit (retriever mode: the pack IS the answer, no need to re-open files)")
   .option("--full", "with --source: inline whole definition spans instead of the default ≤8-line crux excerpts")
+  .option("--max-tokens <n>", "fit the answer to about n tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only (implies --source)")
   .option("--in <path>", "narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf)")
   .option("--json", "output the result as JSON")
   .option("--no-graph-rank", "rank by lexical relevance only, without the graph-connectivity re-rank (ablation/eval)")
   .option(...NO_REFRESH_FLAG)
-  .action(async (query: string, dirArg: string | undefined, opts: { limit: string; source?: boolean; full?: boolean; in?: string; json?: boolean; refresh?: boolean; graphRank?: boolean }) => {
+  .action(async (query: string, dirArg: string | undefined, opts: { limit: string; source?: boolean; full?: boolean; maxTokens?: string; in?: string; json?: boolean; refresh?: boolean; graphRank?: boolean }) => {
     // The prompt hook passes what the person typed on stdin, out of sight of `ps`.
     if (query === "-") query = readFileSync(0, "utf8").trim();
+    const maxTokens = opts.maxTokens === undefined ? undefined : parseMaxTokens(opts.maxTokens);
+    if (typeof maxTokens === "string") {
+      console.error(`✗ --${maxTokens.replace("max_tokens", "max-tokens")}`);
+      process.exit(1);
+    }
+    const budget = maxTokens !== undefined;
     const dir = noteQuery(queryRoot(dirArg));
     await refreshBefore(dir, opts);
     const askGlobalDir = program.opts<GlobalOpts>().dir;
     if (readWorkspace(dir, askGlobalDir)) {
       runWorkspaceAsk(dir, askGlobalDir, query, {
-        limit: Number(opts.limit), source: opts.source, full: opts.full, in: opts.in, json: opts.json,
+        limit: Number(opts.limit), source: opts.source, full: opts.full, in: opts.in, json: opts.json, maxTokens,
       });
       return;
     }
     const engine = engineFrom();
     let r;
     try {
-      r = engine.ask(dir, query, { limit: Number(opts.limit), source: opts.source, full: opts.full, in: opts.in, graphRank: opts.graphRank });
+      r = engine.ask(dir, query, {
+        limit: Number(opts.limit), source: opts.source || budget, full: opts.full || budget, in: opts.in, graphRank: opts.graphRank,
+      });
     } catch (err) {
       console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
@@ -900,7 +910,14 @@ grouped(program.command("ask"), GROUP.find)
     if (r.notesChecked) queryNote.notes = String(Math.min(r.notes?.length ?? 0, 2));
     // And how many of those may be stale: they name code that's gone (notes/stale.ts).
     if (r.notesChecked) queryNote.stale = String(Math.min(r.notes?.filter((h) => h.note.stale?.length).length ?? 0, 2));
-    if (opts.json) {
+    if (maxTokens !== undefined) {
+      const fitted = budgetAsk(r, maxTokens);
+      if (opts.json) console.log(queryJson(fitted.result));
+      else {
+        process.stdout.write(fitted.text);
+        printLines(cloudLines(dir, { command: "ask" }));
+      }
+    } else if (opts.json) {
       console.log(queryJson(r));
     } else {
       const { formatAsk } = await import("./ask/ask.js");

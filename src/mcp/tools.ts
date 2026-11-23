@@ -5,6 +5,7 @@
 import { Graft } from '../engine.js';
 import { join } from 'node:path';
 import { formatAsk, formatAskWithSaved, skeleton, formatSkeleton } from '../ask/ask.js';
+import { budgetAsk, parseMaxTokens } from '../ask/budget.js';
 import { formatCheckReport } from '../context/check.js';
 import { formatGraphCheckReport } from '../graph/check.js';
 import { loadGraphCached } from '../graph/load.js';
@@ -78,6 +79,11 @@ export const TOOLS: ToolDef[] = [
         in: {
           type: 'string',
           description: 'narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf); from a folder of several repositories, begin with the repository folder',
+        },
+        max_tokens: {
+          type: 'integer',
+          minimum: 1,
+          description: 'fit the answer to about this many tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only; a footer counts what was folded or left out',
         },
       },
       required: ['query'],
@@ -163,8 +169,10 @@ async function callWorkspaceTool(
       if (!query) return { text: 'graft_find_code requires a query', isError: true };
       const limit = typeof args.limit === 'number' ? args.limit : 5;
       const inArg = typeof args.in === 'string' && args.in ? args.in : undefined;
-      const r = federateAsk(root, dirOverride, query, { limit, source: true, full: args.full === true, in: inArg });
-      return { text: formatAsk(r), isError: false };
+      const maxTokens = args.max_tokens === undefined || args.max_tokens === null ? undefined : parseMaxTokens(args.max_tokens);
+      if (typeof maxTokens === 'string') return { text: `graft_find_code: ${maxTokens}`, isError: true };
+      const r = federateAsk(root, dirOverride, query, { limit, source: true, full: args.full === true || maxTokens !== undefined, in: inArg });
+      return { text: maxTokens === undefined ? formatAsk(r) : budgetAsk(r, maxTokens).text, isError: false };
     }
     case 'graft_trace_calls': {
       const symbol = String(args.symbol ?? args.file ?? '');
@@ -277,12 +285,14 @@ async function callSingleTool(
         const query = String(args.query ?? '');
         if (!query) return { text: 'graft_find_code requires a query', isError: true };
         const limit = typeof args.limit === 'number' ? args.limit : 5;
+        const maxTokens = args.max_tokens === undefined || args.max_tokens === null ? undefined : parseMaxTokens(args.max_tokens);
+        if (typeof maxTokens === 'string') return { text: `graft_find_code: ${maxTokens}`, isError: true };
         const engine = new Graft({ contextDir: dirOverride });
         const inArg = typeof args.in === 'string' && args.in ? args.in : undefined;
-        const r = engine.ask(root, query, { limit, source: true, full: args.full === true, in: inArg });
+        const r = engine.ask(root, query, { limit, source: true, full: args.full === true || maxTokens !== undefined, in: inArg });
         // Same event the CLI's `ask` reports: the learnings shown and the tokens saved.
         // One render serves both the answer and the saving the event reports.
-        const { text, savedTokens } = formatAskWithSaved(r);
+        const { text, savedTokens } = maxTokens === undefined ? formatAskWithSaved(r) : budgetAsk(r, maxTokens);
         recordLookup(r, root, undefined, savedTokens);
         return { text, isError: false };
       }
