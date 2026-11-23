@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { contextDirFor } from '../src/context/node-file.js';
 import { wiringPath } from '../src/graph/write.js';
 import { callerBlocks } from '../src/graph/traverse-cli.js';
+import { impactedEvidence, referenceLine, wordRe } from '../src/blast/evidence.js';
 import type { GraphV1, NodeV1 } from '../src/graph/types.js';
 import type { EdgeHit } from '../src/graph/traverse.js';
 
@@ -257,6 +258,69 @@ test('graft callers: quotes the call site, and only where it is the right line',
   assert.ok(!JSON.stringify(json).includes('return add(a, -b)'));
 });
 
+test('graft callers: a quote is a line that names the symbol in code, never in a string or a comment', () => {
+  const d = builtRepo();
+  writeFileSync(
+    join(d, 'src', 'run.ts'),
+    "import { add } from './math';\nexport function run(): number {\n  // add the two\n  console.log(\"add them\", 'add', `add`); /* add */\n" +
+      '  /* add\n     add(1, 2) */\n  return add(1, 2);\n}\n' +
+      "export function talk(): number {\n  console.log('add(1, 2)');\n  return add(3, 4);\n}\n",
+  );
+  execFileSync(process.execPath, ['--import', 'tsx', 'src/cli.ts', 'build', d], { stdio: 'pipe' });
+  const r = runCli(['callers', 'add', d]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /^ {4}run L7: return add\(1, 2\);$/m);
+  assert.match(r.stdout, /^ {4}talk L11: return add\(3, 4\);$/m);
+});
+
+test('referenceLine: a string, a comment or a docstring naming the symbol is not its reference, in any comment style', () => {
+  const at = (path: string, text: string, span = 'L1-L20') => referenceLine(path, span, [wordRe('install')], () => text.split('\n'), true)?.n ?? null;
+  // The ledger case: a Python caller whose first mention is inside a string.
+  assert.equal(at('examples/suppress.py', 'def main():\n    print("Please install click")\n    install()'), 3);
+  assert.equal(at('a.py', 'def main():\n    """Run install\n    then install again."""\n    # install it\n    x = \'install\'\n    install()'), 6);
+  assert.equal(at('a.py', "def main():\n    '''install'''\n    install()"), 3);
+  // Escapes do not end a string early.
+  assert.equal(at('a.ts', 'function f() {\n  g("\\"install\\" ok");\n  g(\'it\\\'s install\');\n  install();\n}'), 4);
+  // A Go raw string runs across lines; a Rust lifetime is not a quote.
+  assert.equal(at('a.go', 'func f() {\n\ts := `install\ninstall`\n\tinstall()\n}'), 4);
+  assert.equal(at('a.rs', "fn f<'a>(x: &'a str) { install(x) }"), 1);
+  assert.equal(at('a.rs', "fn f() {\n    let c = '\"'; install();\n}"), 2);
+  // A Ruby or shell comment starts with #; in C a # line is a directive, which is code.
+  assert.equal(at('a.rb', "def f\n  # install\n  install\nend"), 3);
+  assert.equal(at('a.c', '#define RUN install()\nvoid f() { RUN; }'), 1);
+  // Only a string or a comment names it: no line is quoted.
+  assert.equal(at('a.py', 'def main():\n    print("Please install click")'), null);
+});
+
+test('referenceLine: a regex literal, a Go raw string ending in a backslash and a Rust string over lines are read as what they are', () => {
+  const at = (path: string, text: string, span = 'L1-L20') => referenceLine(path, span, [wordRe('install')], () => text.split('\n'), true)?.n ?? null;
+  // A quote in a regex literal opens no string; a name in one is not a call.
+  assert.equal(at('a.ts', "function f() {\n  const r = /'/; install();\n}"), 2);
+  assert.equal(at('a.js', 'function f() {\n  const r = /[/]install/g;\n  install();\n}'), 3);
+  // A slash after a value divides.
+  assert.equal(at('a.ts', 'function f(a: number, b: number) {\n  return a / install() / b;\n}'), 2);
+  // A JSX closing tag or self-closing `/>` starts no regex.
+  assert.equal(at('a.tsx', 'function F() {\n  return <tr><td>{a}</td><td>{install(b)}</td></tr>;\n}'), 2);
+  assert.equal(at('a.tsx', 'function F() {\n  return <div><p>Run</p>{install()}<p>x</p></div>;\n}'), 2);
+  assert.equal(at('a.jsx', 'function F() {\n  return <A x={1} /><B onClick={install} />;\n}'), 2);
+  // A Go raw string has no escapes: a backslash before its backtick does not keep it open.
+  assert.equal(at('a.go', 'func f() {\n\ts := `C:\\`\n\tinstall()\n}'), 3);
+  // A Rust string, raw or not, runs across lines until it closes.
+  assert.equal(at('a.rs', 'fn f() {\n    let s = r#"say "hi"\ninstall()\n"#;\n    install();\n}'), 5);
+  assert.equal(at('a.rs', 'fn f() {\n    let s = "a\ninstall()\n";\n    install();\n}'), 5);
+});
+
+test('impactedEvidence: the note names the symbol the quoted line uses; an import path is still read in its string', () => {
+  const sym = { id: 'u', name: 'use', kind: 'function', path: 'src/u.ts', span: 'L1-L4', relation: 'calls', depth: 1 };
+  const read = (text: string) => () => text.split('\n');
+  const byName = impactedEvidence(sym, { names: ['alpha', 'beta'], modules: [] }, read('export function use() {\n  const x = "alpha"; beta();\n}'));
+  assert.equal(byName?.note, 'calls beta');
+  assert.equal(byName?.lines[0]?.n, 2);
+  const byModule = impactedEvidence(sym, { names: ['gamma'], modules: [/from\s+["']\.\/data\.js["']/] }, read('import { x } from "./data.js";\nexport function use() {\n  return x;\n}'));
+  assert.equal(byModule?.note, 'calls');
+  assert.equal(byModule?.lines[0]?.n, 1);
+});
+
 test('graft callers: a caller in a test gets no quote, its line already names it', () => {
   const d = builtRepo();
   mkdirSync(join(d, 'test'), { recursive: true });
@@ -333,7 +397,8 @@ test('callers report: a path or name holding the layout separators is quoted, so
     layoutHit('src/a [inferred]', 'plain', 'L2-L4'), layoutHit('src/a', 'guess', 'L5-L6', 'calls', true), layoutHit('odd: dir/b.ts', 'one, two', 'L7-L8'),
     layoutHit('[x]/c.ts', '"q"', 'L9'), layoutHit('d.ts ', 'e', 'L10'), layoutHit('f.ts', 'g ', 'L11'),
   ];
-  assert.deepEqual(layout(hits).slice(1), [
+  assert.deepEqual(layout(hits), [
+    'target · function · src/a.ts:L1-L3 · calls ←',
     '  "src/a [inferred]": plain L2', '  src/a [inferred]: guess L5', '  "odd: dir/b.ts": "one, two" L7',
     '  "[x]/c.ts": "\\"q\\"" L9', '  "d.ts ": e L10', '  f.ts: "g " L11',
   ]);
