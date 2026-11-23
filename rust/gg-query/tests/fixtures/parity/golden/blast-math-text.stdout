@@ -1,0 +1,9 @@
+blast radius — working tree vs HEAD (depth 2)
+  changed: 1 file in 1 area, 1 seed symbol
+  impacted: 2 symbols in 1 area
+
+– math.ts — 1 changed file, 0/0 reached by a test
+
+order.ts — 2 symbols in 2 files
+  imports ← order.ts (src/order.ts:L1-L13) [depth 1]
+  imports ← checkout.ts (src/checkout.ts:L1-L7) [depth 2]
