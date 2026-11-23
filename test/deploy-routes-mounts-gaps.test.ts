@@ -247,6 +247,7 @@ const PACKAGE_FORMS: Record<string, string> = {
   // Not listed by any review: the rule, not a list, denies them.
   locals: "locals()[\"users\"] = make()\n",
   finally: "try:\n    pass\nfinally:\n    users = None\n",
+  sysmodules: "import sys\nsys.modules[__name__].users = make()\n",
 };
 const MODULE_FORMS: Record<string, string> = {
   ok: "from .impl import bp\n",
@@ -261,6 +262,23 @@ const MODULE_FORMS: Record<string, string> = {
   setattr: "import sys\nfrom .impl import bp\nsetattr(sys.modules[__name__], \"bp\", make())\n",
   exceptgroup: "from .impl import bp\ntry:\n    setup()\nexcept* Exception as bp:\n    pass\n",
   importas: "from .impl import bp\nimport os.path as bp\n",
+  starafter: "from .impl import bp\nfrom .extra import *\n",
+  sysmodules: "import sys\nfrom .impl import bp\nsys.modules[__name__].bp = make()\n",
+  // A def, class or lambda header runs at module level.
+  defdefault: "from .impl import bp\ndef f(x=(bp := make())):\n    return x\n",
+  classbase: "from .impl import bp\nclass A((bp := object)):\n    pass\n",
+  lambdadefault: "from .impl import bp\nf = lambda x=(bp := make()): x\n",
+  decorator: "from .impl import bp\n@(bp := deco)\ndef f():\n    pass\n",
+  annotation: "from .impl import bp\ndef f(x: (bp := int)):\n    pass\n",
+  // Still routes: a star import before the name, setattr and vars inside a function, an annotation without a value.
+  okstar: "from .extra import *\nfrom .impl import bp\n",
+  okset: "from .impl import bp\ndef update(o, d):\n    for k, v in d.items():\n        setattr(o, k, v)\n    return vars(o)\n",
+  okannot: "from .impl import bp\nbp: object\n",
+};
+// The mounting file's own imports, `{p}` its package.
+const MAIN_FORMS: Record<string, string> = {
+  star: "from {p}.impl import bp\nfrom {p}.extra import *\n",
+  okstar: "from {p}.extra import *\nfrom {p}.impl import bp\n",
 };
 // Each form writes CommonJS exports in a way readCommonExports does not model: the module's exports are opaque.
 const COMMONJS_FORMS: Record<string, string> = {
@@ -285,8 +303,14 @@ const COMMONJS_FORMS: Record<string, string> = {
   optional: "module.exports = { r };\nmodule?.exports.r;",
   destructure: "exports.r = r;\n({ exports } = other);",
   arrowthis: "exports.r = r;\nconst set = () => { this.r = x; };",
-  // A read that changes nothing: still a route.
+  evalwrite: "exports.r = r;\neval(\"module.exports = { r: x }\");",
+  indirecteval: "exports.r = r;\n(0, eval)(\"exports.r = x\");",
+  construct: "exports.r = r;\nFunction(\"return this\")().r = x;",
+  cache: "exports.r = r;\nrequire.cache[__filename].exports = { r: x };",
+  arguments: "exports.r = r;\narguments[0].r = x;",
+  // Still routes: a read that changes nothing, and a function's own arguments.
   okmain: "module.exports = { r };\nif (require.main === module) start();",
+  okargs: "module.exports = { r };\nfunction first() { return arguments[0]; }",
 };
 
 test("an unmodelled binding form gives no route: a package's name, a rebound import, CommonJS exports", async () => {
@@ -301,14 +325,25 @@ test("an unmodelled binding form gives no route: a package's name, a rebound imp
     files[`md_${form}/__init__.py`] = "";
     files[`md_${form}/impl.py`] = "from flask import Blueprint\n\nbp = Blueprint(\"bp\", __name__)\n\n@bp.route(\"/z\")\ndef z():\n    return 1\n";
     files[`md_${form}/views.py`] = views;
+    files[`md_${form}/extra.py`] = "bp = 1\n";
     files[`md_${form}/main.py`] = `from flask import Flask\nfrom md_${form}.views import bp\n\napp = Flask(__name__)\napp.register_blueprint(bp, url_prefix="/${form}")\n`;
+  }
+  for (const [form, imports] of Object.entries(MAIN_FORMS)) {
+    files[`ms_${form}/__init__.py`] = "";
+    files[`ms_${form}/impl.py`] = files["md_ok/impl.py"];
+    files[`ms_${form}/extra.py`] = "bp = 1\n";
+    files[`ms_${form}/main.py`] = `from flask import Flask\n${imports.replaceAll("{p}", `ms_${form}`)}\napp = Flask(__name__)\napp.register_blueprint(bp, url_prefix="/${form}")\n`;
   }
   for (const [form, write] of Object.entries(COMMONJS_FORMS)) {
     files[`cj_${form}/m.js`] = `const { Router } = require("express");\nconst r = Router();\nr.get("/w", (req, res) => res.end());\n${write}\n`;
     files[`cj_${form}/server.js`] = `const express = require("express");\nconst { r } = require("./m");\nconst app = express();\napp.use("/${form}", r);\n`;
   }
   await withGraph(files, (graph) => {
-    assert.deepEqual(routeIds(graph), ["cj_ok/m.js#route:GET /ok/w", "cj_okmain/m.js#route:GET /okmain/w", "md_ok/impl.py#route:GET /ok/z", "pk_ok/users.py#route:GET /ok/u"]);
+    assert.deepEqual(routeIds(graph), [
+      "cj_ok/m.js#route:GET /ok/w", "cj_okargs/m.js#route:GET /okargs/w", "cj_okmain/m.js#route:GET /okmain/w",
+      "md_ok/impl.py#route:GET /ok/z", "md_okannot/impl.py#route:GET /okannot/z", "md_okset/impl.py#route:GET /okset/z",
+      "md_okstar/impl.py#route:GET /okstar/z", "ms_okstar/impl.py#route:GET /okstar/z", "pk_ok/users.py#route:GET /ok/u",
+    ]);
   });
 });
 

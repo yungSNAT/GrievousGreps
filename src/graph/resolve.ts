@@ -529,7 +529,8 @@ export function resolveEdges(
     },
     once: (module, name) => {
       const table = pythonExports.get(module);
-      return Boolean(table?.bindings && !table.dynamic && Object.hasOwn(table.bindings, name) && table.bindings[name] === 1);
+      const at = table?.bindings && Object.hasOwn(table.bindings, name) ? table.bindings[name] : [];
+      return !table?.dynamic && at.length === 1 && !(table!.starAt !== undefined && table!.starAt > at[0]);
     },
     imported: (file, local) => {
       const python = (pythonExports.get(file)?.imports ?? []).filter((i) => i.local === local);

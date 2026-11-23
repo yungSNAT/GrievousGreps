@@ -21,7 +21,7 @@ export interface MountImports {
   submodule(module: string, name: string): string | null;
   /** Whether a Python module may bind `name` itself: any binding of it, a star import, or a dynamic binding. */
   binds(module: string, name: string): boolean;
-  /** Whether a Python module's code binds `name` exactly once and binds no name dynamically. */
+  /** Whether a Python module's code binds `name` exactly once, with no star import after it, and binds no name dynamically. */
   once(module: string, name: string): boolean;
   /** The one import binding `local` at the top of `file`. */
   imported(file: string, local: string): Import | null;

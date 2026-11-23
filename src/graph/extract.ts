@@ -97,10 +97,12 @@ export interface PythonExports {
   /** Names defined under an `if` or `try`, so a run of the module may not bind them. */
   conditionalDefs: string[];
   /**
-   * For a module with imports or a package's `__init__.py`: how many times module-level code binds or unbinds each
-   * name, imports included; a route mount follows a name only when this is 1.
+   * For a module with imports or a package's `__init__.py`: where module-level code binds or unbinds each name,
+   * imports included; a route mount follows a name only when it is bound once and no star import follows.
    */
-  bindings?: Record<string, number>;
+  bindings?: Record<string, number[]>;
+  /** Where the last module-level star import is: it may rebind any name bound before it. */
+  starAt?: number;
   /** The module can bind names no count shows (`globals`, `setattr`, `exec`, a module `__getattr__`, ...). */
   dynamic?: true;
 }
@@ -1258,41 +1260,48 @@ function collectPythonExports(root: SyntaxNode): PythonExports | null {
   return out.imports.length || out.stars.length || out.all ? out : null;
 }
 
-/** Names that let a module bind any name at run time. */
-const PY_DYNAMIC = new Set(["globals", "locals", "vars", "setattr", "delattr", "exec", "eval", "__getattr__", "__dict__"]);
+/** Names that let code anywhere in a module bind its names at run time; `sys.modules` too. */
+const PY_DYNAMIC = new Set(["globals", "exec", "eval"]);
+/** Names that do so only in module-level code: elsewhere `setattr(obj, ...)` or `vars(o)` binds no module name. */
+const PY_DYNAMIC_TOP = new Set(["locals", "vars", "setattr", "delattr", "__getattr__", "__dict__"]);
 
 /**
- * The exports table with {@link PythonExports.bindings}, counted over module-level code: every compound statement's
- * body, `except` and `finally` included, but not a `def`, `class` or `lambda` body, where only `global` binds here.
- * Imports, assignment and `for` targets, walrus, `with ... as`, `except ... as`, `del`, `def` and `class` names, and
- * every name in a `case` pattern count. A package's `__init__.py` keeps a table even without imports.
+ * The exports table with {@link PythonExports.bindings}, over module-level code: every compound statement's body,
+ * `except` and `finally` included, and a `def`, `class` or `lambda` header (decorators, defaults, annotations, bases),
+ * but not its body, where only `global` binds here. Imports, assignment and `for` targets, walrus, `with ... as`,
+ * `except ... as`, `del`, `def` and `class` names, and every name in a `case` pattern count; an annotation without a
+ * value does not. A package's `__init__.py` keeps a table even without imports.
  */
 function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPackage: boolean): PythonExports | null {
   if (!table && !isPackage) return null;
-  const bindings: Record<string, number> = {};
+  const bindings: Record<string, number[]> = {};
   let dynamic = false;
-  const bind = (name: string | undefined) => {
-    if (name) bindings[name] = (Object.hasOwn(bindings, name) ? bindings[name] : 0) + 1;
+  let starAt: number | undefined;
+  const bind = (name: string | undefined, at: number) => {
+    if (name) (Object.hasOwn(bindings, name) ? bindings[name] : (bindings[name] = [])).push(at);
   };
   const targets = (node: SyntaxNode | null | undefined) => {
     const names = new Set<string>();
     if (node) collectPythonBindingNames(node, names);
-    for (const name of names) bind(name);
+    for (const name of names) bind(name, node!.startIndex);
   };
   const walk = (node: SyntaxNode, top: boolean): void => {
-    if (node.type === "identifier" && PY_DYNAMIC.has(node.text)) dynamic = true;
-    if (node.type === "global_statement") for (const c of node.namedChildren) bind(c.text);
-    const body = node.type === "function_definition" || node.type === "class_definition" || node.type === "lambda";
+    if (node.type === "identifier" && (PY_DYNAMIC.has(node.text) || (top && PY_DYNAMIC_TOP.has(node.text)))) dynamic = true;
+    if (node.type === "attribute" && node.text.replace(/\s+/g, "") === "sys.modules") dynamic = true;
+    if (node.type === "global_statement") for (const c of node.namedChildren) bind(c.text, c.startIndex);
+    const scope = node.type === "function_definition" || node.type === "class_definition" || node.type === "lambda";
     if (top) {
-      if (body) bind(node.childForFieldName("name")?.text);
+      if (scope) bind(node.childForFieldName("name")?.text, node.startIndex);
       else if (node.type === "import_statement") {
-        for (const c of node.namedChildren) bind(c.type === "aliased_import" ? c.childForFieldName("alias")?.text : c.text.split(".")[0]);
+        for (const c of node.namedChildren) bind(c.type === "aliased_import" ? c.childForFieldName("alias")?.text : c.text.split(".")[0], c.startIndex);
       } else if (node.type === "import_from_statement") {
         const module = node.childForFieldName("module_name");
+        if (module?.text === "sys") dynamic = true;
         for (const c of node.namedChildren) {
-          if (!sameSyntaxNode(c, module) && (c.type === "aliased_import" || c.type === "dotted_name")) bind((c.childForFieldName("alias") ?? c).text);
+          if (c.type === "wildcard_import") starAt = c.startIndex;
+          else if (!sameSyntaxNode(c, module) && (c.type === "aliased_import" || c.type === "dotted_name")) bind((c.childForFieldName("alias") ?? c).text, c.startIndex);
         }
-      } else if (node.type === "assignment" || node.type === "augmented_assignment" || node.type === "for_statement") targets(node.childForFieldName("left"));
+      } else if ((node.type === "assignment" && node.childForFieldName("right")) || node.type === "augmented_assignment" || node.type === "for_statement") targets(node.childForFieldName("left"));
       else if (node.type === "named_expression") targets(node.childForFieldName("name"));
       else if (node.type === "delete_statement" || node.type === "case_pattern") targets(node);
       else if (node.type === "as_pattern") {
@@ -1304,10 +1313,14 @@ function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPac
         if (as) targets(node.namedChildren.find((c) => c.startIndex >= as.endIndex));
       }
     }
-    for (const c of node.namedChildren) walk(c, top && !body);
+    const body = scope ? node.childForFieldName("body") : null;
+    for (const c of node.namedChildren) walk(c, top && !sameSyntaxNode(c, body));
   };
   walk(root, true);
-  return { ...(table ?? { imports: [], stars: [], all: null, conditionalDefs: [] }), bindings, ...(dynamic ? { dynamic: true as const } : {}) };
+  return {
+    ...(table ?? { imports: [], stars: [], all: null, conditionalDefs: [] }), bindings,
+    ...(starAt === undefined ? {} : { starAt }), ...(dynamic ? { dynamic: true as const } : {}),
+  };
 }
 
 /** Names a def's own imports bind, visible in its body and nested defs. */
