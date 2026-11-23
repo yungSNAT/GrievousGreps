@@ -10,7 +10,7 @@
  * its image (`inferred`: a name match). Only names are kept: no environment value and
  * no ConfigMap or Secret data reaches a node. A file that does not parse, or a field of
  * the wrong type, skips the whole file with a reason; nothing is guessed. Kustomization
- * files are read and linked in `kustomize.ts`.
+ * files are read and linked in `kustomize.ts`, Terraform files read in `terraform.ts`.
  */
 import { posix } from "node:path";
 import { LineCounter, parseAllDocuments, type Document } from "yaml";
@@ -19,8 +19,9 @@ import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
 import { kustomizationIn, kustomize, linkKustomize } from "./kustomize.js";
+import { readTerraform } from "./terraform.js";
 
-export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize";
+export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize" | "terraform";
 
 /** What a kustomization lists; linked once every file is read. Names in it are not resolved. */
 export interface KustomizeRef {
@@ -56,6 +57,16 @@ export type DeployRef =
   | { from: string; to: "image"; image: string; built: boolean }
   /** An Ingress rule path and its backend Service, for the routes that Service's images ship. */
   | { from: string; to: "route"; ns: string; service: string; path: string; type: string }
+  /** A Terraform address a block names, in its module (the folder of `.tf` files it is in). */
+  | { from: string; to: "tf"; dir: string; address: string }
+  /** A local module's folder, repo-relative. */
+  | { from: string; to: "tfmodule"; dir: string }
+  /** A file or folder a Terraform block reads, repo-relative. */
+  | { from: string; to: "tfpath"; path: string }
+  /** A Terraform block with `count` or `for_each`: references to it give no link. */
+  | { from: string; to: "tfcounted" }
+  /** What a Terraform block names that is not followed, for `trail build` to report. */
+  | { from: string; to: "tfnote"; note: string }
   | KustomizeRef;
 
 export interface DeployExtract {
@@ -68,6 +79,8 @@ export interface DeployExtract {
 const COMPOSE = /^(docker-)?compose(\.[^/]+)?\.ya?ml$/;
 const DOCKERFILE = /^(dockerfile([._-].+)?|.+\.dockerfile|containerfile)$/;
 const MAX_FILE_CANDIDATES = 50_000;
+/** Terraform reports kept for one file before a count of the rest. */
+const MAX_TF_REPORTS = 20;
 /** The names Kustomize reads a kustomization from. */
 export const KUSTOMIZATION_FILES = ["kustomization.yaml", "kustomization.yml", "Kustomization"];
 
@@ -79,6 +92,7 @@ export function deployFormatOf(path: string): DeployFormat | null {
   if (base.endsWith(".dockerignore")) return null;
   if (DOCKERFILE.test(base)) return "dockerfile";
   if (COMPOSE.test(base)) return "compose";
+  if (base.endsWith(".tf")) return "terraform";
   return /\.ya?ml$/.test(base) ? "kubernetes" : null;
 }
 
@@ -109,15 +123,47 @@ export function reasonText(message: string): string {
 
 export function extractDeploy(rel: string, source: string, format: DeployFormat): DeployExtract {
   try {
-    const out = format === "dockerfile" ? dockerfile(rel, source) : yamlFile(rel, source, format);
+    const out = format === "dockerfile" ? dockerfile(rel, source) : format === "terraform" ? terraformFile(rel, source) : yamlFile(rel, source, format);
     if (!out) return { nodes: [], refs: [] };
     return { nodes: [fileNode(rel, source), ...out.nodes], refs: out.refs };
   } catch (err) {
     if (!(err instanceof Skip)) throw err;
     // A Helm or other template is not YAML until rendered: say so beside whatever failed.
-    const templated = format !== "dockerfile" && source.includes("{{") && !err.message.includes("template");
+    const templated = format !== "dockerfile" && format !== "terraform" && source.includes("{{") && !err.message.includes("template");
     return { nodes: [], refs: [], skipped: reasonText(templated ? `${err.message} in a file holding {{ }} templates` : err.message) };
   }
+}
+
+// ── Terraform ───────────────────────────────────────────────────────────────
+
+/** Each `resource`, `data` and `module` block as a node named by its address, with what it names as refs. */
+function terraformFile(rel: string, source: string): { nodes: NodeV1[]; refs: DeployRef[] } {
+  const read = readTerraform(source);
+  if ("skipped" in read) throw new Skip(read.skipped);
+  const dir = posix.dirname(rel);
+  const nodes: NodeV1[] = [];
+  const refs: DeployRef[] = [];
+  const seen = new Set<string>();
+  for (const b of read.blocks) {
+    if (seen.has(b.address)) throw new Skip(`${b.address} is declared twice`);
+    seen.add(b.address);
+    const node = resource(rel, b.address, b.address, b.lines, `terraform ${b.kind}${b.type ? ` ${b.type}` : ""}`, [b.address]);
+    nodes.push(node);
+    const from = node.id;
+    for (const address of b.addresses) refs.push({ from, to: "tf", dir, address });
+    if (b.counted) refs.push({ from, to: "tfcounted" });
+    for (const note of b.notes) refs.push({ from, to: "tfnote", note });
+    const moduleDir = b.source ? under(dir, b.source) : null;
+    if (moduleDir !== null) refs.push({ from, to: "tfmodule", dir: moduleDir });
+    else if (b.source) refs.push({ from, to: "tfnote", note: `${b.address}: its module source is outside the repository` });
+    for (const p of b.paths) {
+      const path = under(dir, p);
+      if (path !== null) refs.push({ from, to: "tfpath", path });
+      else refs.push({ from, to: "tfnote", note: `${b.address}: a path outside the repository is not followed` });
+    }
+    for (const image of b.images) refs.push({ from, to: "image", image, built: false });
+  }
+  return { nodes, refs };
 }
 
 // ── Dockerfile ──────────────────────────────────────────────────────────────
@@ -591,6 +637,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
     else if (r.to === "image" && r.built) pushTo(built, imageRepo(r.image), r.from);
   }
   linkKustomize({ nodes, refs, fileExists, add, skipped });
+  linkTerraform(nodes, refs, add, (from, path) => expand(pathsById.get(from)!, from, path), skipped);
   for (const r of refs) {
     if (r.to === "id") add(r.from, r.id);
     else if (r.to === "copy") {
@@ -631,6 +678,53 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   }
   linkRoutes(nodes, refs, out, objects, add);
   return { edges: out, skipped };
+}
+
+/**
+ * Terraform links: an address to the one block of that address in the same module (folder), a local module to its
+ * `.tf` files, and a `${path.module}` path to the files under it. A block with `count` or `for_each`, or an address
+ * declared in more than one file of its module, gets no links from references; each block's notes, and those cases,
+ * are reported, at most {@link MAX_TF_REPORTS} for one file before a count of the rest.
+ */
+function linkTerraform(nodes: NodeV1[], refs: DeployRef[], add: (source: string, target: string) => void,
+  expand: (from: string, path: string) => void, skipped: { path: string; reason: string }[]): void {
+  const blocks = new Map<string, string[]>();
+  const files = new Map<string, string[]>();
+  const pathOf = new Map<string, string>();
+  for (const n of nodes) {
+    if (n.origin !== "deploy" || deployFormatOf(n.path) !== "terraform") continue;
+    const dir = posix.dirname(n.path);
+    pathOf.set(n.id, n.path);
+    if (n.kind === "file") pushTo(files, dir, n.id);
+    else pushTo(blocks, `${dir} ${n.name}`, n.id);
+  }
+  if (!pathOf.size) return;
+  const counted = new Set(refs.flatMap((r) => (r.to === "tfcounted" ? [r.from] : [])));
+  const reports = new Map<string, number>();
+  const reported = new Set<string>();
+  const report = (path: string, reason: string) => {
+    if (reported.has(`${path} ${reason}`)) return;
+    reported.add(`${path} ${reason}`);
+    const n = (reports.get(path) ?? 0) + 1;
+    reports.set(path, n);
+    if (n <= MAX_TF_REPORTS) skipped.push({ path, reason: reasonText(reason) });
+  };
+  for (const r of refs) {
+    const from = pathOf.get(r.from);
+    if (from === undefined) continue;
+    if (r.to === "tfnote") report(from, r.note);
+    else if (r.to === "tf") {
+      const found = blocks.get(`${r.dir} ${r.address}`) ?? [];
+      if (found.length > 1) report(from, `${r.address} is declared in more than one file of ${r.dir}: references to it give no link`);
+      else if (found.length === 1 && counted.has(found[0])) report(pathOf.get(found[0])!, `${r.address} has count or for_each: references to it give no link`);
+      else if (found.length === 1) add(r.from, found[0]);
+    } else if (r.to === "tfmodule") {
+      const tf = files.get(r.dir) ?? [];
+      if (!tf.length) report(from, `module source ${r.dir} has no .tf files read`);
+      for (const file of tf) add(r.from, file);
+    } else if (r.to === "tfpath") expand(r.from, r.path);
+  }
+  for (const [path, n] of reports) if (n > MAX_TF_REPORTS) skipped.push({ path, reason: `and ${n - MAX_TF_REPORTS} more Terraform reports` });
 }
 
 /**
