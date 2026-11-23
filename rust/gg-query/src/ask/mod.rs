@@ -142,16 +142,9 @@ pub fn discover_model_dir(explicit: Option<&Path>, repo: &Path) -> Option<PathBu
         return is_valid_model_dir(d).then(|| d.to_path_buf());
     }
     let rel = Path::new("models").join("potion-code-16M-v2");
-    for base in [
-        Some(repo.to_path_buf()),
-        env::current_dir().ok(),
-        env::args_os()
-            .next()
-            .map(PathBuf::from)
-            .and_then(|p| p.parent().map(Path::to_path_buf)),
-    ]
-    .into_iter()
-    .flatten()
+    for base in [Some(repo.to_path_buf()), env::current_dir().ok()]
+        .into_iter()
+        .flatten()
     {
         for ancestor in base.ancestors().take(6) {
             let cand = ancestor.join(&rel);
