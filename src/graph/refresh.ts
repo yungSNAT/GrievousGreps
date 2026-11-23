@@ -298,6 +298,7 @@ async function seedUnderLock(
  */
 export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}): Promise<RefreshResult> {
   if (opts.disabled || envDisabled()) return probeOnly(root, opts.contextDir);
+  let seen: Drift | null = null;
   try {
     const dir = resolve(root);
     const outDir = contextDirFor(dir, opts.contextDir);
@@ -327,6 +328,7 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
     // or by a different extractor build. Rebuild once — that lays the fingerprint
     // down, so it costs exactly one build, not one per query.
     const drift = probeDrift(dir, outDir);
+    seen = drift;
     if (drift && isClean(drift)) return seedNote ? { refreshed: false, note: seedNote, index: FRESH } : CLEAN_FRESH;
 
     // On the default layout this is `<root>/graft/.cache/.sync.lock`, the very file
@@ -376,7 +378,7 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
     return {
       refreshed: false,
       note: `graph refresh skipped: ${err instanceof Error ? err.message : String(err)}`,
-      index: stale("the refresh failed"),
+      ...(hasGraph(root, opts.contextDir) && { index: stale("the refresh failed", seen) }),
     };
   }
 }
@@ -396,7 +398,19 @@ function probeOnly(root: string, contextDir?: string): RefreshResult {
     if (drift && isClean(drift)) return CLEAN_FRESH;
     return { refreshed: false, index: stale(drift ? "refresh is off" : "no build fingerprint, and refresh is off", drift) };
   } catch {
-    return { refreshed: false, index: stale("refresh is off, and the graph could not be checked") };
+    return hasGraph(root, contextDir)
+      ? { refreshed: false, index: stale("refresh is off, and the graph could not be checked") }
+      : CLEAN;
+  }
+}
+
+/** Whether a graph is there to answer from: a failure before the graph was found
+ * says nothing about one. */
+function hasGraph(root: string, contextDir?: string): boolean {
+  try {
+    return existsSync(wiringPath(contextDirFor(resolve(root), contextDir)));
+  } catch {
+    return false;
   }
 }
 
@@ -414,6 +428,8 @@ export async function ensureFreshChildren(
   const disabled = opts.disabled || envDisabled();
   const refreshedIn: string[] = [];
   const staleIn: string[] = [];
+  const reasons = new Set<string>();
+  let staleFiles: number | undefined;
   let anyGraph = false;
   let files = 0;
   for (const child of children) {
@@ -426,13 +442,18 @@ export async function ensureFreshChildren(
     // which is exactly how `loadWorkspaceGraphs` reads them back.
     const r = await ensureFreshGraph(resolve(root, child), { disabled });
     if (r.index) anyGraph = true;
-    if (r.index?.state === "stale") staleIn.push(child);
+    if (r.index?.state === "stale") {
+      staleIn.push(child);
+      reasons.add(r.index.reason ?? "not rebuilt");
+      if (r.index.changed !== undefined) staleFiles = (staleFiles ?? 0) + r.index.changed;
+    }
     if (!r.refreshed) continue;
     refreshedIn.push(child);
     files += r.drift ? driftCount(r.drift) : 0;
   }
+  const reason = reasons.size === 1 ? [...reasons][0] : "not rebuilt";
   const index: IndexState | undefined = staleIn.length
-    ? { state: "stale", reason: `not rebuilt in ${staleIn.join(", ")}` }
+    ? { state: "stale", ...(staleFiles !== undefined && { changed: staleFiles }), reason: `${reason} in ${staleIn.join(", ")}` }
     : anyGraph ? FRESH : undefined;
   if (!refreshedIn.length) return { refreshed: false, ...(index && { index }) };
   return {

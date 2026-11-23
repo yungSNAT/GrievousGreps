@@ -18,6 +18,7 @@
  * degrade safely: no fingerprint → "unknown, rebuild"; no parse cache → the
  * rebuild is just cold.
  */
+import { readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CACHE_DIR } from "../context/node-file.js";
 import { contentHash } from "../util/id.js";
@@ -106,6 +107,37 @@ export function writeFingerprint(
   }
 }
 
+/**
+ * Every extractor stamp writes its own prints but all share one `wiring.json`, so
+ * when another graft built after this one (an `npx` MCP server beside a local hook
+ * binary), the graph on disk is that build's and its prints are the ones that
+ * describe it. This graft's own, older prints could match a tree the graph no
+ * longer reflects: a branch switch, the other build, and a switch back. Returns
+ * the newest other print set when it is newer than this graft's own, else null.
+ * Its prints are compared with the tree only; whether this graft's own extractor
+ * still wants a rebuild stays the job of its own sidecar, read first.
+ */
+function newerPrints(outDir: string): Fingerprint | null {
+  try {
+    const mine = fingerprintPath(outDir);
+    const cacheDir = join(outDir, CACHE_DIR);
+    let newest: { path: string; mtimeMs: number } | null = null;
+    const ownTime = statSync(mine).mtimeMs;
+    for (const name of readdirSync(cacheDir)) {
+      if (!name.startsWith(`${FINGERPRINT_PREFIX}.`) || !name.endsWith(".json")) continue;
+      const path = join(cacheDir, name);
+      if (path === mine) continue;
+      const mtimeMs = statSync(path).mtimeMs;
+      if (mtimeMs > ownTime && (!newest || mtimeMs > newest.mtimeMs)) newest = { path, mtimeMs };
+    }
+    if (!newest) return null;
+    const f = readJson<Fingerprint>(newest.path, dirname(outDir));
+    return f && f.version === FINGERPRINT_VERSION && typeof f.files === "object" && f.files ? f : null;
+  } catch {
+    return null;
+  }
+}
+
 /** `GRAFT_REFRESH=hash` — never trust a stat, confirm every file by its bytes. */
 export function alwaysHash(): boolean {
   return process.env.GRAFT_REFRESH === "hash";
@@ -152,8 +184,9 @@ export function driftCount(d: Drift): number {
  * rare tooling that rewrites content while preserving size and mtime.
  */
 export function probeDrift(root: string, outDir: string): Drift | null {
-  const fp = readFingerprint(outDir);
-  if (!fp) return null;
+  const own = readFingerprint(outDir);
+  if (!own) return null;
+  const fp = newerPrints(outDir) ?? own;
 
   const drift: Drift = { changed: [], added: [], removed: [] };
   const seen = new Set<string>();
