@@ -46,6 +46,7 @@ import { writeCards, writeIndex, writeCovers, type CardStats } from "./cards.js"
 import { writeAskIndex } from "../ask/index-file.js";
 import { writeVectors } from "../ask/vectors.js";
 import { deployFormatOf, extractDeploy, resolveDeploy, type DeployFormat, type DeployRef } from "./deploy.js";
+import { warmTerraform } from "./terraform.js";
 import { discoverScopes, scopeOf } from "./scopes.js";
 import type { GraphV1, Kind, NodeV1, Relation, ScopeV1, UnresolvedCallV1 } from "./types.js";
 import type { CruxSummarizer } from "../ai/crux.js";
@@ -110,7 +111,9 @@ export async function warmGrammarsFor(paths: Iterable<string>): Promise<void> {
   }
   await warmGenericGrammars(generic);
   await warmContainerGrammars(containers);
+  const terraformMissing = list.some((path) => deployFormatOf(path) === "terraform") && !(await warmTerraform());
   const missing = [
+    ...(terraformMissing ? ["terraform"] : []),
     ...[...generic].filter((name) => !isWarm(name)),
     ...[...containers].filter((name) => !isContainerWarm(name)),
   ];

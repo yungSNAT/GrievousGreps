@@ -34,8 +34,8 @@ export const GRAMMARS = [
 ];
 
 /** The tree-sitter-wasm bundle ships about a hundred grammars; these are the ones
- * GENERIC_LANGS, FALLBACK_LANGS and CONTAINER_LANGS load, which a test holds this to. */
-export const BUNDLE_WASM = ["astro", "bash", "c", "c_sharp", "clojure", "cpp", "dart", "elixir", "elm", "fortran", "gdscript", "gleam", "glsl", "go", "groovy", "haskell", "java", "julia", "kotlin", "lua", "nix", "objc", "ocaml", "perl", "php", "powershell", "python", "r", "rescript", "ruby", "rust", "scala", "solidity", "svelte", "swift", "tsx", "typescript", "vue", "zig"];
+ * GENERIC_LANGS, FALLBACK_LANGS and CONTAINER_LANGS load, and Terraform for the deploy graph, which a test holds this to. */
+export const BUNDLE_WASM = ["astro", "bash", "c", "c_sharp", "clojure", "cpp", "dart", "elixir", "elm", "fortran", "gdscript", "gleam", "glsl", "go", "groovy", "haskell", "java", "julia", "kotlin", "lua", "nix", "objc", "ocaml", "perl", "php", "powershell", "python", "r", "rescript", "ruby", "rust", "scala", "solidity", "svelte", "swift", "terraform", "tsx", "typescript", "vue", "zig"];
 export const BUNDLE_TAGS = ["go", "javascript", "python", "r", "tsx", "typescript"];
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

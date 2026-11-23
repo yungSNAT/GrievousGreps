@@ -14,7 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
 import { fingerprintPath } from "../src/graph/fingerprint.js";
@@ -326,6 +326,8 @@ test("seedGraph declines a --dir override and a checkout that already has a grap
   const landed = readdirSync(join(outOf(wt), ".cache")).sort();
   const why = `seeded .cache holds ${JSON.stringify(landed)}`;
   assert.ok(existsSync(fingerprintPath(outOf(wt))), `the freshness record travels — ${why}`);
+  const drift = Math.abs(statSync(fingerprintPath(outOf(wt))).mtimeMs - statSync(fingerprintPath(outOf(main))).mtimeMs);
+  assert.ok(drift < 1, `the copy keeps its build time, which decides whose prints describe the graph (off by ${drift} ms)`);
   assert.ok(landed.includes("ask-index.json"), `the ask sidecar travels — ${why}`);
   assert.ok(landed.includes("ask-vectors.bin"), `the semantic vectors travel, or the first query embeds every file — ${why}`);
   assert.ok(landed.some((f) => f.startsWith("extract.")), `the extraction memo travels — ${why}`);

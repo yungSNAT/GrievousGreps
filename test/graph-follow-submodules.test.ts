@@ -97,7 +97,7 @@ test("follow-submodules is opt-in, persisted for MCP refresh, and explicitly rev
       file: "modules/child/src/sub.ts",
     });
     assert.equal(mcp.isError, false, mcp.text);
-    assert.match(mcp.text, /^\[graft\] refreshed the graph/);
+    assert.match(mcp.text, /^index: fresh\n\[graft\] refreshed the graph/);
     assert.match(mcp.text, /changedSubValue/);
     assert.ok(isClean(probeDrift(parent, join(parent, "graft"))!));
 

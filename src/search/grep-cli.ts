@@ -14,6 +14,7 @@ import { loadGraphCached } from "../graph/load.js";
 import { grepGraph, type GrepGroup, type GrepResult } from "./grep.js";
 import { cmd } from "../brand.js";
 import { ignoredCode, ignoredLabel } from "./ignored-code.js";
+import { queryJson } from "../graph/query-json.js";
 
 export interface GrepCliOptions {
   ignoreCase?: boolean;
@@ -114,7 +115,7 @@ export function runGrepCommand(pattern: string, dir: string, opts: GrepCliOption
   }
 
   if (opts.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(queryJson(result));
     return;
   }
 

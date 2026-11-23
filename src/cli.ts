@@ -31,7 +31,8 @@ import { openBrowser } from "./util/browser.js";
 import { committedAtBase, learningsAtBase, teammateEdits, withBaseLearnings } from "./check/learning-edits.js";
 import { CACHE_DIR, contextDirFor } from "./context/node-file.js";
 import { loadGraphCached } from "./graph/load.js";
-import { ensureFreshChildren, ensureFreshGraph, refreshNote } from "./graph/refresh.js";
+import { ensureFreshChildren, ensureFreshGraph, indexLine, refreshNote } from "./graph/refresh.js";
+import { queryJson, setQueryIndex } from "./graph/query-json.js";
 import { isWorkspaceBuildRoot, readWorkspace, workspaceRepos } from "./graph/workspace.js";
 import { NOT_GIT_LINE, NOT_GIT_PAIR_REFUSAL, homeFolderRefusal, isGitWorkTree } from "./init-guard.js";
 import { hasGraftIndex, nearestGraftRoot } from "./graph/root.js";
@@ -271,7 +272,8 @@ function queryRoot(dir?: string): string {
  * Bring the graph up to date with the working tree before a query answers from it
  * — the same gate the MCP tools run (see `graph/refresh.ts`). Cheap when nothing
  * moved; a structural, $0 rebuild when it did. The note goes to stderr so `--json`
- * stdout stays machine-readable.
+ * stdout stays machine-readable. A stale graph is said on stderr every time; a
+ * fresh one only in `--json`'s `index`, so a plain answer costs no extra tokens.
  */
 async function refreshBefore(dir: string, opts: { refresh?: boolean }): Promise<void> {
   const globalDir = program.opts<GlobalOpts>().dir;
@@ -283,11 +285,13 @@ async function refreshBefore(dir: string, opts: { refresh?: boolean }): Promise<
     : await ensureFreshGraph(root, { contextDir: globalDir, disabled });
   const note = refreshNote(r);
   if (note) console.error(note);
+  if (r.index?.state === "stale") console.error(indexLine(r.index));
+  setQueryIndex(r.index);
 }
 
 /** Attached to every query command: `--no-refresh` answers from the graph exactly
  * as it is on disk, no rebuild. */
-const NO_REFRESH_FLAG = ["--no-refresh", "skip the freshness check: answer from the graph as-is"] as const;
+const NO_REFRESH_FLAG = ["--no-refresh", "no rebuild: answer from the graph as-is (a read-only check still reports a stale graph)"] as const;
 
 const VIZ_TABS = ["context", "code", "outline"] as const;
 type VizTab = (typeof VIZ_TABS)[number];
@@ -897,7 +901,7 @@ grouped(program.command("ask"), GROUP.find)
     // And how many of those may be stale: they name code that's gone (notes/stale.ts).
     if (r.notesChecked) queryNote.stale = String(Math.min(r.notes?.filter((h) => h.note.stale?.length).length ?? 0, 2));
     if (opts.json) {
-      console.log(JSON.stringify(r, null, 2));
+      console.log(queryJson(r));
     } else {
       const { formatAsk } = await import("./ask/ask.js");
       process.stdout.write(formatAsk(r));
@@ -917,7 +921,7 @@ grouped(program.command("skeleton"), GROUP.find)
     const { skeleton, formatSkeleton } = await import("./ask/ask.js");
     const globalOpts = program.opts<{ dir?: string }>();
     const r = skeleton(dir, file, { contextDir: globalOpts.dir });
-    if (opts.json) console.log(JSON.stringify(r, null, 2));
+    if (opts.json) console.log(queryJson(r));
     else process.stdout.write(formatSkeleton(r));
   });
 
@@ -1228,7 +1232,7 @@ grouped(program.command("map"), GROUP.find)
     }
     const map = buildRepoMap(graph, { maxDirs: maxDirsW });
     if (opts.json) {
-      console.log(JSON.stringify(map, null, 2));
+      console.log(queryJson(map));
       return;
     }
     process.stdout.write(formatRepoMap(map));
