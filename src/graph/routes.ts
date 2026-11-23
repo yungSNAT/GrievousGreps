@@ -67,7 +67,14 @@ interface Read {
   /** JavaScript: top-level `require` bindings, and the local name `module.exports` gives each exported name. */
   requires?: Record<string, Import>;
   exports?: Record<string, string>;
+  /** JavaScript: `module.exports` or `exports` written where its result is not known. */
+  opaque?: true;
+  /** Python: imports inside a function, by `Scopes` key. */
+  scoped?: Record<string, Import>;
 }
+
+/** The import name of a whole CommonJS module (`require("./x")`) and the export key of what `module.exports` holds. */
+export const MODULE_EXPORTS = "module.exports";
 
 /** An import: `name` is `default` for a whole CommonJS module or a default export, and empty for a whole Python module. */
 export interface Import {
@@ -84,6 +91,8 @@ export interface RouteFact {
   from: number;
   to: number;
   handler?: { targetId: string } | Import;
+  /** The names its own file's mounts already gave it. */
+  placed?: string[];
 }
 
 /**
@@ -96,6 +105,8 @@ export interface RouteFacts {
   routes: RouteFact[];
   requires?: Record<string, Import>;
   exports?: Record<string, string>;
+  opaque?: true;
+  scoped?: Record<string, Import>;
 }
 
 const MAX_PREFIXES = 8;
@@ -204,7 +215,8 @@ function readPython(root: SyntaxNode): Read | null {
       const module = childNode?.type === "attribute" ? childNode.childForFieldName("object") : null;
       const attr = module?.type === "identifier" ? childNode!.childForFieldName("attribute")?.text : undefined;
       const child = childNode?.type === "identifier" ? scopes.use(n, childNode.text) : attr ? scopes.use(n, module!.text) : null;
-      if (child === null) continue;
+      // A name bound twice in its scope may not be the router (or module) it was first.
+      if (child === null || scopes.count(child) !== 1) continue;
       let p: Seg[] | null;
       let replaces = false;
       if (method === "include_router" || method === "register_blueprint") {
@@ -247,7 +259,33 @@ function readPython(root: SyntaxNode): Read | null {
       if (path) routes.push({ at: n, via, framework: flask ? "flask" : "fastapi", methods, path, handler, decorated: true });
     }
   }
-  return { objects, mounts, routes, scopes };
+  return { objects, mounts, routes, scopes, scoped: pythonScopedImports(root, scopes) };
+}
+
+/** Imports inside a function (an app factory's `from .views import bp`), by `Scopes` key, each bound once there. */
+function pythonScopedImports(root: SyntaxNode, scopes: Scopes): Record<string, Import> {
+  const out: Record<string, Import> = {};
+  const bind = (at: SyntaxNode, local: string | undefined, imp: Import) => {
+    const key = local ? scopes.binding(at, local) : null;
+    if (key !== null && !key.startsWith(Scopes.module("")) && scopes.count(key) === 1) out[key] = imp;
+  };
+  for (const st of descendants(root)) {
+    if (st.type === "import_from_statement") {
+      const specifier = st.childForFieldName("module_name")?.text;
+      for (const n of specifier ? st.namedChildren.slice(1) : []) {
+        const name = n.type === "aliased_import" ? n.childForFieldName("name")?.text : n.type === "dotted_name" ? n.text : undefined;
+        if (name) bind(st, n.type === "aliased_import" ? n.childForFieldName("alias")?.text : name, { specifier: specifier!, name });
+      }
+    } else if (st.type === "import_statement") {
+      // `import a.b as c` binds the module a.b; a plain `import a.b` binds only `a`.
+      for (const n of st.namedChildren) {
+        const module = n.type === "aliased_import" ? n.childForFieldName("name")?.text : n.text;
+        const local = n.type === "aliased_import" ? n.childForFieldName("alias")?.text : module?.split(".")[0];
+        if (module && local) bind(st, local, { specifier: n.type === "aliased_import" ? module : local, name: "" });
+      }
+    }
+  }
+  return out;
 }
 
 // ── JavaScript and TypeScript: Express ──────────────────────────────────────
@@ -305,10 +343,8 @@ function readExpress(root: SyntaxNode, lang: Language): Read | null {
   const uses: Array<{ at: SyntaxNode; parent: string | null; args: SyntaxNode[] }> = [];
   const routes: Found[] = [];
   const requires: Record<string, Import> = {};
-  const cjsExports: Record<string, string> = {};
   for (const n of descendants(root)) {
     if (n.type === "variable_declarator") readRequire(n, scopes, requires);
-    if (n.type === "assignment_expression") readCommonExport(n, cjsExports);
     if (n.type === "variable_declarator" || n.type === "assignment_expression") {
       const declarator = n.type === "variable_declarator";
       const name = n.childForFieldName(declarator ? "name" : "left");
@@ -359,25 +395,27 @@ function readExpress(root: SyntaxNode, lang: Language): Read | null {
     const path = first === "none" ? [] : first;
     for (const a of u.args.slice(first === "none" ? 0 : 1)) {
       const prefix = u.parent === null ? null : path;
-      // `use("/x", require("./x"))`: the module's export, for route-mounts.ts to follow.
-      const specifier = requireOf(a);
-      if (specifier !== null) mounts.push({ parent: u.parent, child: "", import: { specifier, name: "default" }, prefix });
+      // `use("/x", require("./x"))`: what the module exports, for route-mounts.ts to follow.
+      const specifier = requireOf(a, scopes);
+      if (specifier !== null) mounts.push({ parent: u.parent, child: "", import: { specifier, name: MODULE_EXPORTS }, prefix });
+      // A name bound twice in its scope may not be the router it was first.
       const child = a.type === "identifier" ? scopes.use(u.at, a.text) : null;
-      if (child !== null) mounts.push({ parent: u.parent, child, prefix });
+      if (child !== null && scopes.count(child) === 1) mounts.push({ parent: u.parent, child, prefix });
     }
   }
-  return { objects, mounts, routes, scopes, requires, exports: cjsExports };
+  return { objects, mounts, routes, scopes, requires, ...readCommonExports(root) };
 }
 
-/** `const x = require("./x")` (the whole module, as `default`) or `const { a, b: c } = require("./x")`, at the top level. */
+/** `const x = require("./x")` (the whole module) or `const { a, b: c } = require("./x")`, bound once at the top level. */
 function readRequire(n: SyntaxNode, scopes: Scopes, out: Record<string, Import>): void {
-  const specifier = requireOf(n.childForFieldName("value"));
+  const specifier = requireOf(n.childForFieldName("value"), scopes);
   const name = n.childForFieldName("name");
   if (specifier === null || !name) return;
   const bind = (local: string, imported: string) => {
-    if (scopes.binding(n, local) === Scopes.module(local)) out[local] = { specifier, name: imported };
+    const key = scopes.binding(n, local);
+    if (key === Scopes.module(local) && scopes.count(key) === 1) out[local] = { specifier, name: imported };
   };
-  if (name.type === "identifier") bind(name.text, "default");
+  if (name.type === "identifier") bind(name.text, MODULE_EXPORTS);
   for (const p of name.type === "object_pattern" ? name.namedChildren : []) {
     if (p.type === "shorthand_property_identifier_pattern") bind(p.text, p.text);
     const key = p.type === "pair_pattern" ? p.childForFieldName("key") : null;
@@ -386,29 +424,47 @@ function readRequire(n: SyntaxNode, scopes: Scopes, out: Record<string, Import>)
   }
 }
 
-/** The plain string a `require(...)` call names. */
-function requireOf(n: SyntaxNode | null): string | null {
+/** The plain string a `require(...)` call names, when `require` is Node's loader: no binding in the file shadows it. */
+function requireOf(n: SyntaxNode | null, scopes: Scopes): string | null {
   const args = n?.type === "call_expression" && n.childForFieldName("function")?.text === "require" ? n.childForFieldName("arguments")?.namedChildren ?? [] : [];
-  return args.length === 1 ? literal(args[0]) : null;
+  const loader = args.length === 1 && scopes.use(n!, "require") === Scopes.module("require") && scopes.count(Scopes.module("require")) === 0;
+  return loader ? literal(args[0]) : null;
 }
 
-/** `module.exports = x` (as `default`), `module.exports = { a, b: c }`, and `exports.a = x` or `module.exports.a = x`. */
-function readCommonExport(n: SyntaxNode, out: Record<string, string>): void {
-  const left = n.childForFieldName("left");
-  const right = n.childForFieldName("right");
-  if (left?.type !== "member_expression" || !right) return;
-  const target = left.text.replace(/\s+/g, "");
-  if (target === "module.exports") {
-    if (right.type === "identifier") out.default = right.text;
-    for (const p of right.type === "object" ? right.namedChildren : []) {
+/**
+ * CommonJS exports as Node sets them, by the local name each holds: `module.exports = x` replaces the whole value
+ * (`MODULE_EXPORTS`) and every name, `module.exports = { a, b: c }` names its properties, and `exports.a = x` or
+ * `module.exports.a = x` sets one name; `exports.a` after a replacement writes to an object no longer exported. A write
+ * that is not a top-level statement may not run, so the exports are then opaque.
+ */
+function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
+  let out: Record<string, string> | undefined;
+  let replaced = false;
+  for (const n of descendants(root)) {
+    const left = n.type === "assignment_expression" ? n.childForFieldName("left") : null;
+    const target = left?.type === "member_expression" ? left.text.replace(/\s+/g, "") : "";
+    const named = /^(module\.)?exports\.([A-Za-z_$][\w$]*)$/.exec(target);
+    if (target !== "module.exports" && !named) continue;
+    if (n.parent?.type !== "expression_statement" || n.parent.parent?.type !== "program") return { opaque: true };
+    const right = n.childForFieldName("right");
+    const value = right?.type === "identifier" ? right.text : undefined;
+    if (named) {
+      if (!named[1] && replaced) continue;
+      out ??= {};
+      if (value) out[named[2]] = value;
+      else delete out[named[2]];
+      continue;
+    }
+    replaced = true;
+    out = {};
+    if (value) out[MODULE_EXPORTS] = value;
+    for (const p of right?.type === "object" ? right.namedChildren : []) {
       if (p.type === "shorthand_property_identifier") out[p.text] = p.text;
       const v = p.type === "pair" ? p.childForFieldName("value") : null;
       if (p.type === "pair" && p.childForFieldName("key")?.type === "property_identifier" && v?.type === "identifier") out[p.childForFieldName("key")!.text] = v.text;
     }
-    return;
   }
-  const named = /^(?:module\.)?exports\.([A-Za-z_$][\w$]*)$/.exec(target);
-  if (named && right.type === "identifier") out[named[1]] = right.text;
+  return out ? { exports: out } : {};
 }
 
 // ── Go: net/http ────────────────────────────────────────────────────────────
@@ -491,10 +547,14 @@ export function prefixesOf(g: MountGraph, name: string, depth = 0): Seg[][] {
   return out.slice(0, MAX_PREFIXES);
 }
 
-/** A route's node under one prefix, or null when the prefix ends in the rest of the path. */
-export function routeNode(rel: string, r: Pick<RouteFact, "framework" | "methods" | "path" | "from" | "to">, prefix: Seg[], mint: (base: string) => string): NodeV1 | null {
+/** A route's name under one prefix, or null when the prefix ends in the rest of the path. */
+export function routeName(r: Pick<RouteFact, "methods" | "path">, prefix: Seg[]): string | null {
   if (prefix.length && "rest" in prefix[prefix.length - 1]) return null;
-  const name = `${r.methods.length ? r.methods.join("|") : "ANY"} ${canonical([...prefix, ...r.path.segs], r.path.trailing)}`;
+  return `${r.methods.length ? r.methods.join("|") : "ANY"} ${canonical([...prefix, ...r.path.segs], r.path.trailing)}`;
+}
+
+/** A route's node, named by {@link routeName}. */
+export function routeNode(rel: string, r: Pick<RouteFact, "framework" | "from" | "to">, name: string, mint: (base: string) => string): NodeV1 {
   const signature = `route ${r.framework} ${name}`;
   return {
     id: mint(`${rel}#route:${name}`), name, kind: "resource", path: rel, span: `L${r.from}-L${r.to}`,
@@ -523,7 +583,7 @@ export interface RouteContext {
 
 /**
  * The file's routes as nodes, with `contains` and handler `references` edges, and the facts a mount in another file
- * needs ({@link RouteFacts}) when the file has a route it could not place or mounts an object it does not define.
+ * needs ({@link RouteFacts}) when the file has a route, a mount or CommonJS exports.
  */
 export function extractRoutes(root: SyntaxNode, ctx: RouteContext): { nodes: NodeV1[]; edges: RawEdge[]; facts?: RouteFacts } {
   // Each reader returns null, having read only its imports, for a file that imports no framework; a test serves nothing.
@@ -545,7 +605,7 @@ export function extractRoutes(root: SyntaxNode, ctx: RouteContext): { nodes: Nod
   }
   const local: MountGraph = { object: (key) => read.objects.get(key), into: (key) => read.mounts.filter((m) => m.child === key && !m.attr) };
   const prefixes = new Map<string, Seg[][]>();
-  const waiting: RouteFact[] = [];
+  const facts: RouteFact[] = [];
   for (const r of read.routes) {
     if (!prefixes.has(r.via)) prefixes.set(r.via, prefixesOf(local, r.via));
     const from = r.at.startPosition.row + 1;
@@ -560,20 +620,23 @@ export function extractRoutes(root: SyntaxNode, ctx: RouteContext): { nodes: Nod
     const imported = top && !own ? ctx.importedSymbols.get(r.handler!) : undefined;
     const handler = own ? { targetId: own.id } : imported ? { name: imported.name, specifier: imported.specifier } : undefined;
     const fact: RouteFact = { via: r.via, framework: r.framework, methods: r.methods, path: r.path, from, to, ...(handler ? { handler } : {}) };
-    const under = prefixes.get(r.via)!;
-    if (!under.length) waiting.push(fact);
-    for (const prefix of under) {
-      const node = routeNode(ctx.rel, fact, prefix, ctx.mint);
-      if (!node) continue;
+    const placed = new Set<string>();
+    for (const prefix of prefixes.get(r.via)!) {
+      const name = routeName(fact, prefix);
+      if (name === null || placed.has(name)) continue;
+      placed.add(name);
+      const node = routeNode(ctx.rel, fact, name, ctx.mint);
       nodes.push(node);
       edges.push(...routeEdges(ctx.rel, node.id, handler));
     }
+    facts.push(placed.size ? { ...fact, placed: [...placed] } : fact);
   }
-  // A mount of an object this file does not define may be one another file's facts resolve.
-  const outward = read.mounts.some((m) => m.attr || !read.objects.has(m.child));
-  if (!waiting.length && !outward) return { nodes, edges };
-  const facts: RouteFacts = { objects: Object.fromEntries(read.objects), mounts: read.mounts, routes: waiting };
-  if (read.requires && Object.keys(read.requires).length) facts.requires = read.requires;
-  if (read.exports && Object.keys(read.exports).length) facts.exports = read.exports;
-  return { nodes, edges, facts };
+  // Another file may mount any router here, or define one this file mounts, under prefixes this file cannot show.
+  if (!facts.length && !read.mounts.length && !read.exports && !read.opaque) return { nodes, edges };
+  const out: RouteFacts = { objects: Object.fromEntries(read.objects), mounts: read.mounts, routes: facts };
+  if (read.requires && Object.keys(read.requires).length) out.requires = read.requires;
+  if (read.exports) out.exports = read.exports;
+  if (read.opaque) out.opaque = true;
+  if (read.scoped && Object.keys(read.scoped).length) out.scoped = read.scoped;
+  return { nodes, edges, facts: out };
 }

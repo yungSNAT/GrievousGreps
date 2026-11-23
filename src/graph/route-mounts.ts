@@ -1,7 +1,7 @@
 /**
  * Routes on a router another file mounts: FastAPI's `include_router` and Flask's `register_blueprint` of an imported
  * router or blueprint (`users` or `users.router`), and Express's `use` of a router another module exports
- * (`module.exports`, `exports.a`, `export default`, `export const`), through re-exports. Each file's parse keeps
+ * (`module.exports`, `exports.a`, `export default`, `export const`), through ES re-exports. Each file's parse keeps
  * its {@link RouteFacts}; once imports resolve, a mount's child is followed to the file that defines it and its
  * routes get every prefix the mounts above it give, as in one file. Each route stays a node in the file that
  * registers it. A step that does not resolve to one router, or a prefix that is unknown anywhere above it, gives no
@@ -10,7 +10,7 @@
 import type { RawEdge } from "./extract.js";
 import type { Seg } from "./route-paths.js";
 import { Scopes } from "./route-scopes.js";
-import { prefixesOf, routeEdges, routeNode, type Import, type Mount, type MountGraph, type RouteFacts } from "./routes.js";
+import { MODULE_EXPORTS, prefixesOf, routeEdges, routeName, routeNode, type Import, type Mount, type MountGraph, type RouteFacts } from "./routes.js";
 import type { NodeV1 } from "./types.js";
 
 /** How imports resolve, from the resolver's own module maps. */
@@ -19,6 +19,8 @@ export interface MountImports {
   module(specifier: string, file: string): string | null;
   /** A Python package's submodule `name`. */
   submodule(module: string, name: string): string | null;
+  /** Whether a Python module binds `name` itself: a definition, an import or a star import that may. */
+  binds(module: string, name: string): boolean;
   /** The one import binding `local` at the top of `file`. */
   imported(file: string, local: string): Import | null;
   /** What an ES module exports as `name`: one of its own names, or another module's. */
@@ -48,15 +50,33 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
     if (!isJs(file) && imp.name === "") return { module };
     return followExport(module, imp.name, hops + 1);
   };
-  // What `module` gives an import of `name`; in Python a package's submodule when nothing in it binds the name.
+  // A package's submodule: what `from pkg import name` gives when the package binds no `name`, or asks itself for it.
+  const submodule = (module: string, name: string): Target => {
+    const sub = imports.submodule(module, name);
+    return sub ? { module: sub } : null;
+  };
+  const asking = new Set<string>();
+  // What `module` gives an import of `name`. A CommonJS module's default import, and a bare `require`, is its whole
+  // `module.exports`; `require` of an ES module gives its namespace, never a router.
   const followExport = (module: string, name: string, hops: number): Target => {
     if (hops > MAX_HOPS) return null;
     if (!isJs(module)) {
-      const sub = followLocal(module, name, hops + 1) ?? imports.submodule(module, name);
-      return typeof sub === "string" ? { module: sub } : sub;
+      const at = `${module}\0${name}`;
+      if (asking.has(at)) return submodule(module, name);
+      asking.add(at);
+      try {
+        return followLocal(module, name, hops + 1) ?? (imports.binds(module, name) ? null : submodule(module, name));
+      } finally {
+        asking.delete(at);
+      }
     }
-    const common = own(facts.get(module)?.exports, name);
-    const ex = common === undefined ? imports.exported(module, name) : { local: common };
+    const f = facts.get(module);
+    if (f?.opaque) return null;
+    if (f?.exports) {
+      const local = own(f.exports, name === "default" ? MODULE_EXPORTS : name);
+      return local === undefined ? null : followLocal(module, local, hops + 1);
+    }
+    const ex = name === MODULE_EXPORTS ? null : imports.exported(module, name);
     if (!ex) return null;
     if ("local" in ex) return followLocal(module, ex.local, hops + 1);
     const next = imports.module(ex.specifier, module);
@@ -71,8 +91,13 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
       if (m.import) {
         const module = imports.module(m.import.specifier, file);
         to = module ? followExport(module, m.import.name, 1) : null;
-      } else if ((m.attr || !f.objects[m.child]) && m.child.startsWith(MODULE_KEY)) {
-        to = followLocal(file, m.child.slice(MODULE_KEY.length), 0);
+      } else if (m.attr || !f.objects[m.child]) {
+        // A module-level name, or an import inside a function (a Flask app factory's).
+        const scoped = own(f.scoped, m.child);
+        const module = scoped ? imports.module(scoped.specifier, file) : null;
+        if (scoped) to = !module ? null : scoped.name === "" ? { module } : followExport(module, scoped.name, 1);
+        else if (m.child.startsWith(MODULE_KEY)) to = followLocal(file, m.child.slice(MODULE_KEY.length), 0);
+        else continue;
         if (m.attr) to = to && "module" in to ? followExport(to.module, m.attr, 1) : null;
       } else continue;
       if (!to || !("key" in to)) continue;
@@ -107,9 +132,13 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
     const under = new Map<string, Seg[][]>();
     for (const r of f.routes) {
       if (!under.has(r.via)) under.set(r.via, prefixesOf(graph, id(file, r.via)));
+      // Each path once per registration, and none its own file already placed.
+      const placed = new Set(r.placed);
       for (const prefix of under.get(r.via)!) {
-        const node = routeNode(file, r, prefix, mint);
-        if (!node) continue;
+        const name = routeName(r, prefix);
+        if (name === null || placed.has(name)) continue;
+        placed.add(name);
+        const node = routeNode(file, r, name, mint);
         nodes.push(node);
         edges.push(...routeEdges(file, node.id, r.handler));
       }

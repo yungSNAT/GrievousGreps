@@ -523,6 +523,11 @@ export function resolveEdges(
       return module === "external" || module === "ambiguous" ? null : module;
     },
     submodule: (module, name) => pythonModules.submodule(module, name),
+    binds: (module, name) => {
+      const table = pythonExports.get(module);
+      return Boolean(table?.stars.length) || (table?.imports ?? []).some((i) => i.local === name) || Boolean(table?.assigned?.includes(name))
+        || (perFileName.get(module)?.get(name) ?? []).some((n) => n.id.replace(/~\d+$/, "") === `${module}#${name}`);
+    },
     imported: (file, local) => {
       const python = (pythonExports.get(file)?.imports ?? []).filter((i) => i.local === local);
       const bound = python.length ? python : (tsModules.get(file)?.imports ?? []).filter((i) => i.local === local);
