@@ -62,7 +62,7 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
   for (const p of list(top.patchesStrategicMerge, "patchesStrategicMerge")) {
     if (typeof p !== "string") throw new Skip("patchesStrategicMerge entry is not a string");
     // An entry is a file path, or the patch itself written inline.
-    if (!/[\r\n{]/.test(p)) patches.push(p);
+    if (!/[\r\n\u0085\u2028\u2029{]/.test(p)) patches.push(p);
   }
   const nodes: NodeV1[] = [];
   const generators: string[] = [];
@@ -114,8 +114,8 @@ function outside(raw: string): "remote" | "host" | null {
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(p) ? "host" : null;
 }
 
-/** The repository path a kustomization's path names; null for a `git::` address, which Kustomize reads as remote. */
-const local_ = (dir: string, p: string) => (/^git::/i.test(p) ? null : under(dir, p));
+/** The repository path a kustomization's path names; null for a `git::` address, which Kustomize reads as remote, or a Windows drive path. */
+const local_ = (dir: string, p: string) => (/^git::|^[a-z]:[\\/]/i.test(p) ? null : under(dir, p));
 
 /** Why a path a kustomization names gave nothing to link. */
 function missing(field: string, p: string, local: string | null, fileExists: (path: string) => boolean): string {

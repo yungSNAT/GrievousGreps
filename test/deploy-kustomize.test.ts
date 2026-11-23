@@ -133,7 +133,7 @@ test("an extensionless Kustomization that is not one stays unread, a git:: addre
   const { edges, skipped } = resolveFiles({
     "app/deploy.yaml": DEPLOYMENT,
     "cm/Kustomization": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
-    "g/kustomization.yaml": 'resources: [ "git::https://github.com/o/r//p", "git::github.com/o/r", "git::github.com/o/r/d.yaml" ]\npatchesStrategicMerge:\n  - "apiVersion: v1\\rkind: ConfigMap\\rmetadata:\\r  name: x\\rdata:\\r  k: SENTINEL7"\n',
+    "g/kustomization.yaml": 'resources: [ "git::https://github.com/o/r//p", "git::github.com/o/r", "git::github.com/o/r/d.yaml", "C:/k8s/base" ]\npatchesStrategicMerge:\n  - "apiVersion: v1\\rkind: ConfigMap\\rmetadata:\\r  name: x\\rdata:\\r  k: SENTINEL7"\n  - "kind: ConfigMap\\Ldata:\\L  k: SENTINEL8"\n  - "kind: ConfigMap\\Pdata:\\P  k: SENTINEL9"\n  - "kind: ConfigMap\\Ndata:\\N  k: SENTINELA"\n',
     "g/git::https:/github.com/o/r/p/kustomization.yaml": "resources: []\n",
     "g/git::github.com/o/r/kustomization.yaml": "resources: [ d.yaml ]\n",
     "g/git::github.com/o/r/d.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: local }\n",
@@ -144,8 +144,9 @@ test("an extensionless Kustomization that is not one stays unread, a git:: addre
     "resources https://github.com/o/r//p not followed: remote",
     "resources github.com/o/r not followed: remote",
     "resources github.com/o/r/d.yaml not followed: remote",
+    "resources C:/k8s/base not followed: outside the repository",
   ]);
-  assert.ok(!JSON.stringify(skipped).includes("SENTINEL7"));
+  assert.ok(!/SENTINEL/.test(JSON.stringify(skipped)));
 });
 
 test("no generator literal reaches the graph or its caches", async () => {
