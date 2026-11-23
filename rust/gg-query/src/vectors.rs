@@ -98,12 +98,19 @@ pub fn read_vectors(out_dir: &Path) -> io::Result<Option<VectorIndex>> {
     if payload.len() != expected_bytes {
         return Ok(None);
     }
-    let data = payload
+    let f16 = f16_table();
+    let data: Vec<u16> = payload
         .as_chunks::<2>()
         .0
         .iter()
         .map(|&c| u16::from_le_bytes(c))
         .collect();
+    if data.iter().any(|&b| !f16[b as usize].is_finite()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "ask-vectors.bin: non-finite vector value",
+        ));
+    }
     Ok(Some(VectorIndex {
         model: head.model,
         dim: head.dim,

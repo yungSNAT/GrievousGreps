@@ -81,7 +81,7 @@ pub struct NodeV1 {
     #[serde(default)]
     pub body_hash: String,
     #[serde(default)]
-    pub chars: Option<usize>,
+    pub chars: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -261,7 +261,8 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
         if left_ok && right_ok {
             return true;
         }
-        start = abs + 1;
+        let step = haystack[abs..].chars().next().map_or(1, char::len_utf8);
+        start = abs + step;
     }
     false
 }

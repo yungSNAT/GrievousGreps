@@ -12,7 +12,14 @@ use crate::graph::{
 use crate::store::{GraphStore, sql_err};
 
 fn row_to_node(r: &Row<'_>) -> rusqlite::Result<NodeV1> {
-    let chars: Option<i64> = r.get(10)?;
+    let chars_raw: Option<i64> = r.get(10)?;
+    let chars = match chars_raw {
+        Some(c) if c >= 0 => Some(c as u64),
+        Some(_) => {
+            return Err(rusqlite::Error::IntegralValueOutOfRange(10, -1));
+        }
+        None => None,
+    };
     let exported: i64 = r.get(7)?;
     Ok(NodeV1 {
         id: r.get(0)?,
@@ -25,7 +32,7 @@ fn row_to_node(r: &Row<'_>) -> rusqlite::Result<NodeV1> {
         exported: exported != 0,
         origin: r.get(8)?,
         body_hash: r.get(9)?,
-        chars: chars.map(|c| c as usize),
+        chars,
     })
 }
 
@@ -68,6 +75,14 @@ impl GraphStore {
 
     /// Resolve a symbol query via indexed SQLite queries, matching `src/graph/traverse.ts::resolveSymbol`.
     pub fn resolve_symbol(&self, query: &str, in_prefix: Option<&str>) -> io::Result<Vec<NodeV1>> {
+        self.with_read_snapshot(|s| s.resolve_symbol_inner(query, in_prefix))
+    }
+
+    fn resolve_symbol_inner(
+        &self,
+        query: &str,
+        in_prefix: Option<&str>,
+    ) -> io::Result<Vec<NodeV1>> {
         let lower_query = query.to_lowercase();
         let mut matches = self.query_symbol_matches(&lower_query)?;
 
@@ -209,6 +224,15 @@ impl GraphStore {
         direction: Direction,
         max_depth: usize,
     ) -> io::Result<Vec<EdgeHit>> {
+        self.with_read_snapshot(|s| s.edge_walk_inner(symbol, direction, max_depth))
+    }
+
+    fn edge_walk_inner(
+        &self,
+        symbol: &NodeV1,
+        direction: Direction,
+        max_depth: usize,
+    ) -> io::Result<Vec<EdgeHit>> {
         if max_depth <= 1 {
             let mut hits = Vec::new();
             for (other, relation, inferred) in self.direct_neighbours(&symbol.id, direction)? {
@@ -232,10 +256,19 @@ impl GraphStore {
                 }
             }
         }
-        self.impact_of_many(&seeds, max_depth, direction)
+        self.impact_of_many_inner(&seeds, max_depth, direction)
     }
 
     pub fn impact_of_many(
+        &self,
+        seeds: &[String],
+        max_depth: usize,
+        direction: Direction,
+    ) -> io::Result<Vec<EdgeHit>> {
+        self.with_read_snapshot(|s| s.impact_of_many_inner(seeds, max_depth, direction))
+    }
+
+    fn impact_of_many_inner(
         &self,
         seeds: &[String],
         max_depth: usize,
@@ -332,7 +365,18 @@ impl GraphStore {
                 .optional()
                 .map_err(sql_err)?;
             if let Some(Some(c)) = chars {
-                baseline_chars += c as usize;
+                let val = usize::try_from(c).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("wiring.sqlite: invalid chars value {c}"),
+                    )
+                })?;
+                baseline_chars = baseline_chars.checked_add(val).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "wiring.sqlite: savings baseline_chars overflow",
+                    )
+                })?;
                 files += 1;
             }
         }

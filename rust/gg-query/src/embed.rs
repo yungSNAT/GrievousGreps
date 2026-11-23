@@ -133,6 +133,9 @@ pub fn load_tokenizer(dir: &Path) -> io::Result<Tokenizer> {
             .ok_or_else(|| invalid("tokenizer.json: invalid vocab id"))?;
         vocab.insert(k.clone(), id);
     }
+    if vocab.is_empty() {
+        return Err(invalid("tokenizer.json: empty vocabulary"));
+    }
     // JavaScript String.length counts UTF-16 code units; match median length exactly.
     let mut lengths: Vec<usize> = vocab.keys().map(|k| k.encode_utf16().count()).collect();
     lengths.sort_unstable();
@@ -394,26 +397,44 @@ pub struct SafetensorsEmbedder {
 impl SafetensorsEmbedder {
     pub fn open(dir: &Path, whole: bool) -> io::Result<Self> {
         let tok = load_tokenizer(dir)?;
-        let vocab_rows = tok.vocab.values().copied().max().map_or(0, |m| m + 1);
+        let vocab_rows = tok
+            .vocab
+            .values()
+            .copied()
+            .max()
+            .ok_or_else(|| invalid("tokenizer.json: empty vocabulary"))?
+            .checked_add(1)
+            .ok_or_else(|| invalid("tokenizer.json: vocab id overflow"))?;
         let mut file = File::open(dir.join("model.safetensors"))?;
         let table = read_table(&mut file, vocab_rows)?;
+        let row_bytes = table
+            .dim
+            .checked_mul(2)
+            .ok_or_else(|| invalid("model.safetensors: row size overflow"))?;
         let whole_data = if whole {
-            let byte_len = table.rows * table.dim * 2;
+            let byte_len = table
+                .rows
+                .checked_mul(row_bytes)
+                .ok_or_else(|| invalid("model.safetensors: table size overflow"))?;
             let mut raw = vec![0_u8; byte_len];
             file.seek(SeekFrom::Start(table.offset))?;
             file.read_exact(&mut raw)
                 .map_err(|_| invalid("model.safetensors: the file ends early"))?;
-            Some(
-                raw.as_chunks::<2>()
-                    .0
-                    .iter()
-                    .map(|&c| u16::from_le_bytes(c))
-                    .collect(),
-            )
+            let f16 = f16_table();
+            let values: Vec<u16> = raw
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|&c| u16::from_le_bytes(c))
+                .collect();
+            if values.iter().any(|&b| !f16[b as usize].is_finite()) {
+                return Err(invalid("model.safetensors: non-finite embedding value"));
+            }
+            Some(values)
         } else {
             None
         };
-        let row_buf = vec![0_u8; table.dim * 2];
+        let row_buf = vec![0_u8; row_bytes];
         Ok(Self {
             tok,
             file,
@@ -450,7 +471,11 @@ impl SafetensorsEmbedder {
                     .map_err(|_| invalid("model.safetensors: the file ends early"))?;
                 for (slot, &pair) in out.iter_mut().zip(self.row_buf.as_chunks::<2>().0) {
                     let bits = u16::from_le_bytes(pair);
-                    *slot += f16[bits as usize];
+                    let v = f16[bits as usize];
+                    if !v.is_finite() {
+                        return Err(invalid("model.safetensors: non-finite embedding value"));
+                    }
+                    *slot += v;
                 }
             }
         }

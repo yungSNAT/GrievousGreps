@@ -3,10 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use clap::{Parser, Subcommand};
-use serde::Serialize;
-
 use gg_query::embed::SafetensorsEmbedder;
-use gg_query::format::{SymbolResult, format_callers_json, format_callers_text};
+use gg_query::format::{SymbolResult, format_blast_json, format_callers_json, format_callers_text};
 use gg_query::graph::{
     Direction, EdgeHit, NodeV1, UnresolvedCall, group_digits, normalize_path_prefix, parse_depth,
     path_under_prefix,
@@ -171,40 +169,37 @@ fn run_callers(
     };
     let dir = Direction::parse(direction)?;
     let max_depth = parse_depth(depth, 1)?;
-    let matches = store
-        .resolve_symbol(symbol, in_prefix)
+    let (results, unresolved_by_name, saved) = store
+        .with_read_snapshot(|s| {
+            let matches = s.resolve_symbol(symbol, in_prefix)?;
+            if matches.is_empty() {
+                return Ok((Vec::new(), HashMap::new(), None));
+            }
+            let mut results = Vec::with_capacity(matches.len());
+            let mut unresolved_by_name: HashMap<String, Vec<UnresolvedCall>> = HashMap::new();
+            let mut paths: Vec<String> = Vec::new();
+            for m in matches {
+                let hits = s.edge_walk(&m, dir, max_depth)?;
+                paths.push(m.path.clone());
+                for h in &hits {
+                    if let Some(ref n) = h.node {
+                        paths.push(n.path.clone());
+                    }
+                }
+                if !unresolved_by_name.contains_key(&m.name) {
+                    unresolved_by_name.insert(m.name.clone(), s.unresolved_calls_for(&m.name)?);
+                }
+                results.push(SymbolResult { symbol: m, hits });
+            }
+            let saved = s.savings_for_paths(paths.iter().map(String::as_str))?;
+            Ok((results, unresolved_by_name, saved))
+        })
         .map_err(|e| e.to_string())?;
-    if matches.is_empty() {
+    if results.is_empty() {
         return Err(format!(
             "no symbol \"{symbol}\" in the graph — check spelling or run trail build"
         ));
     }
-
-    let mut results = Vec::with_capacity(matches.len());
-    let mut unresolved_by_name: HashMap<String, Vec<UnresolvedCall>> = HashMap::new();
-    let mut paths: Vec<String> = Vec::new();
-    for m in matches {
-        let hits = store
-            .edge_walk(&m, dir, max_depth)
-            .map_err(|e| e.to_string())?;
-        paths.push(m.path.clone());
-        for h in &hits {
-            if let Some(ref n) = h.node {
-                paths.push(n.path.clone());
-            }
-        }
-        if !unresolved_by_name.contains_key(&m.name) {
-            let u = store
-                .unresolved_calls_for(&m.name)
-                .map_err(|e| e.to_string())?;
-            unresolved_by_name.insert(m.name.clone(), u);
-        }
-        results.push(SymbolResult { symbol: m, hits });
-    }
-
-    let saved = store
-        .savings_for_paths(paths.iter().map(String::as_str))
-        .map_err(|e| e.to_string())?;
     if json {
         println!(
             "{}",
@@ -226,37 +221,9 @@ fn run_callers(
     Ok(())
 }
 
-#[derive(Serialize)]
-struct BlastSeed<'a> {
-    id: &'a str,
-    name: &'a str,
-    kind: &'a str,
-    path: &'a str,
-    span: &'a str,
-}
-
-#[derive(Serialize)]
-struct BlastImpacted<'a> {
-    id: &'a str,
-    name: Option<&'a str>,
-    kind: Option<&'a str>,
-    path: Option<&'a str>,
-    span: Option<&'a str>,
-    relation: &'a str,
-    depth: usize,
-}
-
-#[derive(Serialize)]
-struct BlastJson<'a> {
-    depth: usize,
-    changed: &'a [String],
-    seeds: Vec<BlastSeed<'a>>,
-    impacted: Vec<BlastImpacted<'a>>,
-}
-
 fn git_changed_files(repo: &Path) -> Result<Vec<String>, String> {
     let out = Command::new("git")
-        .args(["diff", "--name-only", "HEAD"])
+        .args(["diff", "--name-only", "-z", "HEAD"])
         .current_dir(repo)
         .output()
         .map_err(|e| format!("failed to run git diff: {e}"))?;
@@ -266,12 +233,15 @@ fn git_changed_files(repo: &Path) -> Result<Vec<String>, String> {
             repo.display()
         ));
     }
-    let files = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(normalize_path_prefix)
-        .collect();
+    let mut files = Vec::new();
+    for raw in out.stdout.split(|&b| b == 0) {
+        if raw.is_empty() {
+            continue;
+        }
+        let s =
+            std::str::from_utf8(raw).map_err(|_| "git diff returned non-UTF-8 path".to_string())?;
+        files.push(normalize_path_prefix(s));
+    }
     Ok(files)
 }
 
@@ -302,56 +272,33 @@ fn run_blast(
             .collect()
     };
 
-    let mut seeds: Vec<NodeV1> = Vec::new();
-    let mut seed_ids: Vec<String> = Vec::new();
-    for p in &changed {
-        for n in store.nodes_by_path(p).map_err(|e| e.to_string())? {
-            if n.kind == "file" {
-                seed_ids.push(n.id.clone());
-                seeds.push(n);
-            } else if n.kind != "resource" {
-                seed_ids.push(n.id);
+    let (seeds, impacted): (Vec<NodeV1>, Vec<EdgeHit>) = store
+        .with_read_snapshot(|s| {
+            let mut seeds = Vec::new();
+            let mut seed_ids = Vec::new();
+            for p in &changed {
+                for n in s.nodes_by_path(p)? {
+                    if n.kind == "file" {
+                        seed_ids.push(n.id.clone());
+                        seeds.push(n);
+                    } else if n.kind != "resource" {
+                        seed_ids.push(n.id);
+                    }
+                }
             }
-        }
-    }
-    let impacted: Vec<EdgeHit> = if seed_ids.is_empty() {
-        Vec::new()
-    } else {
-        store
-            .impact_of_many(&seed_ids, max_depth, Direction::In)
-            .map_err(|e| e.to_string())?
-    };
+            let impacted = if seed_ids.is_empty() {
+                Vec::new()
+            } else {
+                s.impact_of_many(&seed_ids, max_depth, Direction::In)?
+            };
+            Ok((seeds, impacted))
+        })
+        .map_err(|e| e.to_string())?;
 
     if format == "json" {
-        let payload = BlastJson {
-            depth: max_depth,
-            changed: &changed,
-            seeds: seeds
-                .iter()
-                .map(|s| BlastSeed {
-                    id: &s.id,
-                    name: &s.name,
-                    kind: &s.kind,
-                    path: &s.path,
-                    span: &s.span,
-                })
-                .collect(),
-            impacted: impacted
-                .iter()
-                .map(|h| BlastImpacted {
-                    id: &h.id,
-                    name: h.node.as_ref().map(|n| n.name.as_str()),
-                    kind: h.node.as_ref().map(|n| n.kind.as_str()),
-                    path: h.node.as_ref().map(|n| n.path.as_str()),
-                    span: h.node.as_ref().map(|n| n.span.as_str()),
-                    relation: &h.relation,
-                    depth: h.depth,
-                })
-                .collect(),
-        };
         println!(
             "{}",
-            serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?
+            format_blast_json(max_depth, &changed, &seeds, &impacted)?
         );
         return Ok(());
     }
@@ -410,6 +357,13 @@ fn run_ask_dense(
         ));
     };
     let mut emb = SafetensorsEmbedder::open(model, false).map_err(|e| e.to_string())?;
+    if index.dim != emb.dim() {
+        return Err(format!(
+            "ask-vectors.bin dimension ({}) does not match model dimension ({})",
+            index.dim,
+            emb.dim()
+        ));
+    }
     let qvec = emb.embed(query).map_err(|e| e.to_string())?;
     let prefix = in_prefix.map(normalize_path_prefix);
     let mut hits = dense_files(&index, &qvec, |path| match &prefix {

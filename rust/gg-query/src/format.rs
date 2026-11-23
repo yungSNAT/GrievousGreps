@@ -396,3 +396,66 @@ pub fn format_callers_json(
     };
     serde_json::to_string_pretty(&payload).unwrap_or_default()
 }
+
+#[derive(Serialize)]
+struct BlastSeed<'a> {
+    id: &'a str,
+    name: &'a str,
+    kind: &'a str,
+    path: &'a str,
+    span: &'a str,
+}
+
+#[derive(Serialize)]
+struct BlastImpacted<'a> {
+    id: &'a str,
+    name: Option<&'a str>,
+    kind: Option<&'a str>,
+    path: Option<&'a str>,
+    span: Option<&'a str>,
+    relation: &'a str,
+    depth: usize,
+}
+
+#[derive(Serialize)]
+struct BlastJson<'a> {
+    depth: usize,
+    changed: &'a [String],
+    seeds: Vec<BlastSeed<'a>>,
+    impacted: Vec<BlastImpacted<'a>>,
+}
+
+pub fn format_blast_json(
+    depth: usize,
+    changed: &[String],
+    seeds: &[NodeV1],
+    impacted: &[EdgeHit],
+) -> Result<String, String> {
+    let payload = BlastJson {
+        depth,
+        changed,
+        seeds: seeds
+            .iter()
+            .map(|s| BlastSeed {
+                id: &s.id,
+                name: &s.name,
+                kind: &s.kind,
+                path: &s.path,
+                span: &s.span,
+            })
+            .collect(),
+        impacted: impacted
+            .iter()
+            .map(|h| BlastImpacted {
+                id: &h.id,
+                name: h.node.as_ref().map(|n| n.name.as_str()),
+                kind: h.node.as_ref().map(|n| n.kind.as_str()),
+                path: h.node.as_ref().map(|n| n.path.as_str()),
+                span: h.node.as_ref().map(|n| n.span.as_str()),
+                relation: &h.relation,
+                depth: h.depth,
+            })
+            .collect(),
+    };
+    serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())
+}
