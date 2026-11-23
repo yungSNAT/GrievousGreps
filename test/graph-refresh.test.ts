@@ -495,15 +495,13 @@ test("callTool refreshes before answering — except for graft_check_freshness",
 
   const ask = await callTool(d, "graft_find_code", { query: "multiply two numbers" });
   assert.equal(ask.isError, false);
-  assert.match(ask.text, /^index: fresh
-\[graft\] refreshed the graph/);
+  assert.match(ask.text, /^index: fresh\n\[graft\] refreshed the graph/);
   assert.equal(hasSymbol(d, "src/math.ts#mul"), true);
   assert.match(ask.text, /mul/, "and the answer knows about the symbol that was never committed");
 
   const again = await callTool(d, "graft_find_code", { query: "multiply two numbers" });
   assert.ok(!again.text.includes("[graft] refreshed"), "nothing moved — no note, no rebuild");
-  assert.match(again.text, /^index: fresh
-/);
+  assert.match(again.text, /^index: fresh\n/);
 });
 
 test("a process killed while holding the lock releases it", async (t) => {
@@ -785,6 +783,13 @@ test("index: every MCP answer from a graph opens with its state; the drift repor
   assert.match(off.text, /^index: stale \(refresh is off, 1 file changed since the last build\); answers may miss those edits\n/);
   const check = await callTool(d, "graft_check_freshness", {});
   assert.doesNotMatch(check.text, /^index:/);
+  // An error is stamped only when stale: a missing symbol may be one the build has not seen yet.
+  const missing = await withRefreshDisabled(() => callTool(d, "graft_trace_calls", { symbol: "nowhere" }));
+  assert.equal(missing.isError, true);
+  assert.match(missing.text, /^index: stale \(refresh is off/);
+  const badArgs = await callTool(d, "graft_find_code", {});
+  assert.equal(badArgs.isError, true);
+  assert.doesNotMatch(badArgs.text, /index:/, "a fresh graph adds nothing to an error about the request");
 });
 
 test("index: a query's JSON carries the state on an object answer, never on a list", () => {

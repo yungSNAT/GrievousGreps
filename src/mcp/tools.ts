@@ -266,7 +266,7 @@ export async function callTool(
     }
     const fed = ws ? await callWorkspaceTool(root, dirOverride, name, args) : null;
     const res = fed ?? (await callSingleTool(root, name, args, dirOverride));
-    const notes = [stamp, note, extensionScopeNote(root, dirOverride, ws?.children)].filter(Boolean);
+    const notes = [res.isError && !stamp?.startsWith("index: stale") ? null : stamp, note, extensionScopeNote(root, dirOverride, ws?.children)].filter(Boolean);
     return notes.length ? { ...res, text: `${notes.join('\n')}\n${res.text}` } : res;
   } catch (err) {
     return { text: err instanceof Error ? err.message : String(err), isError: true };
