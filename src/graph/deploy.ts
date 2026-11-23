@@ -25,7 +25,7 @@ export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize"
 /** A patch a kustomization lists: a file, the objects an inline patch names, and its target. */
 export interface KustomizePatch {
   path?: string;
-  objects?: Array<{ kind: string; name: string; namespace?: string }>;
+  objects?: Array<{ kind: string; name: string; namespace?: string; apiVersion?: string }>;
   /** An inline patch whose YAML does not parse: what it changes is unknown. */
   invalid?: true;
   target?: { kind?: string; name?: string; namespace?: string; group?: string; version?: string; selector?: true };
