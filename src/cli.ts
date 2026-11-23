@@ -846,11 +846,11 @@ grouped(program.command("build"), GROUP.setup)
  * that keeps branches and the workspace current. Spawns no git itself. Teammates' branches come up after an edit
  * instead, once there's a function to compare (notes/edit-overlap.ts).
  */
-function afterAsk(r: AskResult, repo: string): void {
+function afterAsk(r: AskResult, repo: string, savedTokens?: number): void {
   // Every lookup is reported, not only ones that showed a learning: the tokens
   // the map saved are what the team page's running total counts. A no-op unless
   // this machine is connected and the repo is the workspace's.
-  recordLookup(r, repo);
+  recordLookup(r, repo, undefined, savedTokens);
   if (!r.notesChecked) return;
   rememberRepo(repo);
   maybeRefreshBranches(repo);
@@ -869,7 +869,7 @@ grouped(program.command("ask"), GROUP.find)
   .option("-n, --limit <n>", "max results", "8")
   .option("--source", "inline the source at each file:line hit (retriever mode: the pack IS the answer, no need to re-open files)")
   .option("--full", "with --source: inline whole definition spans instead of the default ≤8-line crux excerpts")
-  .option("--max-tokens <n>", "fit the answer to about n tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only (implies --source)")
+  .option("--max-tokens <n>", "fit the answer to about n tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only (implies --source --full, so it can cost more than no budget; below about 100 the first pointer alone may not fit)")
   .option("--in <path>", "narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf)")
   .option("--json", "output the result as JSON")
   .option("--no-graph-rank", "rank by lexical relevance only, without the graph-connectivity re-rank (ablation/eval)")
@@ -904,14 +904,14 @@ grouped(program.command("ask"), GROUP.find)
       return;
     }
     noteHit(r.hits.length > 0);
+    const fitted = maxTokens === undefined ? undefined : budgetAsk(r, maxTokens);
     // Teammates' branches on the same files, and the learnings shown, counted as a use.
-    if (TRAIL) afterAsk(r, dir);
+    if (TRAIL) afterAsk(fitted?.result ?? r, dir, fitted?.savedTokens);
     // How many notes reached the agent: the demand side of `trail note`.
     if (r.notesChecked) queryNote.notes = String(Math.min(r.notes?.length ?? 0, 2));
     // And how many of those may be stale: they name code that's gone (notes/stale.ts).
     if (r.notesChecked) queryNote.stale = String(Math.min(r.notes?.filter((h) => h.note.stale?.length).length ?? 0, 2));
-    if (maxTokens !== undefined) {
-      const fitted = budgetAsk(r, maxTokens);
+    if (fitted) {
       if (opts.json) console.log(queryJson(fitted.result));
       else {
         process.stdout.write(fitted.text);

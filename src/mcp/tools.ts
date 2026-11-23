@@ -83,7 +83,7 @@ export const TOOLS: ToolDef[] = [
         max_tokens: {
           type: 'integer',
           minimum: 1,
-          description: 'fit the answer to about this many tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only; a footer counts what was folded or left out',
+          description: 'fit the answer body to about this many tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only; a footer counts what was folded or left out. Fills up to the budget, so it can cost more than no budget; below about 100 the first pointer alone may not fit',
         },
       },
       required: ['query'],
@@ -292,8 +292,9 @@ async function callSingleTool(
         const r = engine.ask(root, query, { limit, source: true, full: args.full === true || maxTokens !== undefined, in: inArg });
         // Same event the CLI's `ask` reports: the learnings shown and the tokens saved.
         // One render serves both the answer and the saving the event reports.
-        const { text, savedTokens } = maxTokens === undefined ? formatAskWithSaved(r) : budgetAsk(r, maxTokens);
-        recordLookup(r, root, undefined, savedTokens);
+        const fitted = maxTokens === undefined ? undefined : budgetAsk(r, maxTokens);
+        const { text, savedTokens } = fitted ?? formatAskWithSaved(r);
+        recordLookup(fitted?.result ?? r, root, undefined, savedTokens);
         return { text, isError: false };
       }
       case 'graft_file_api': {

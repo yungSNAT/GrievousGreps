@@ -3,27 +3,28 @@
  * budget. Ranking is untouched. In rank order, the top hit keeps its whole
  * definition when that fits; later hits are folded (signature and call lines kept,
  * the rest elided); a hit that no longer fits folded is listed by title and
- * pointer; the rest are left out and counted. Tokens are estimated at 4
- * characters a token, as the savings line does, with a margin for the estimate.
+ * pointer; the rest are left out and counted. Tokens are estimated at 4 ASCII
+ * characters a token plus 1 for each other character, with a margin for the estimate.
  */
-import { formatAskWithSaved, type AskHit, type AskResult } from "./ask.js";
+import { formatAskWithSaved, savedForHits, type AskHit, type AskResult } from "./ask.js";
 
 export interface AskBudget {
   max_tokens: number;
-  /** Estimated tokens of the rendered answer, footer included. */
+  /** Estimated tokens of the rendered text answer, footer included (a `--json` answer is larger). */
   used_tokens: number;
   folded: number;
   pointer_only: number;
   omitted: number;
 }
 
-/** Share of the budget the estimate may fill: chars/4 runs under a real tokenizer on code. */
+/** Share of the budget the estimate may fill: ASCII chars/4 runs under a real tokenizer on code. */
 const MARGIN = 0.85;
 /** Room kept for the footer, which is written once the hits are chosen. */
 const FOOTER_TOKENS = 32;
 
-/** A call: a name followed by `(`. A line whose only such names are keywords is not one. */
-const CALL = /([A-Za-z_$][\w$]*)\s*\(/g;
+/** A call: a name followed by `(`, allowing a macro's `!` and explicit generics
+ * (`name<T>(`, `name::<T>(`). A line whose only such names are keywords is not one. */
+const CALL = /([A-Za-z_$][\w$]*)!?(?:(?:::)?<[^<>()]*>)?\s*\(/g;
 const NOT_CALLS = new Set([
   "if", "for", "while", "switch", "catch", "return", "function", "elif", "with", "match", "sizeof",
   "typeof", "await", "yield", "new", "fn", "def", "func", "foreach", "until", "unless", "when", "and", "or", "not",
@@ -34,11 +35,19 @@ function hasCall(line: string): boolean {
   return false;
 }
 
-/** Lines of the signature: up to the first line that opens the body (`{`, `:` or `=>`
- * at its end), at most 6. */
+/** Lines of the signature: up to the first line that opens the body (`{`, `:`, `=>`,
+ * `do` or `=` at its end) outside the parameter list's brackets, so destructured
+ * and inline-typed parameters stay; at most 12, else the first 6. */
 function signatureLength(lines: string[]): number {
-  const end = lines.slice(0, 6).findIndex((l) => /(\{|:|=>|\bdo|=)\s*$/.test(l.trimEnd()));
-  return end < 0 ? 1 : end + 1;
+  let depth = 0;
+  for (const [i, line] of lines.slice(0, 12).entries()) {
+    for (const ch of line) {
+      if (ch === "(" || ch === "[") depth++;
+      else if (ch === ")" || ch === "]") depth--;
+    }
+    if (depth <= 0 && /(\{|:|=>|\bdo|=)\s*$/.test(line.trimEnd())) return i + 1;
+  }
+  return Math.min(lines.length, 6);
 }
 
 /**
@@ -67,7 +76,17 @@ export function foldCode(code: string): string {
   return out.join("\n");
 }
 
-const tokens = (text: string): number => Math.ceil(text.length / 4);
+/** 4 ASCII characters a token, and a token for each other character: CJK text and
+ * emoji run at 1 or more tokens a character, so this errs high rather than low. */
+function tokens(text: string): number {
+  let ascii = 0;
+  let other = 0;
+  for (const ch of text) {
+    if (ch.charCodeAt(0) < 0x80) ascii++;
+    else other++;
+  }
+  return Math.ceil(ascii / 4) + other;
+}
 
 type Level = "whole" | "folded" | "pointer";
 
@@ -84,7 +103,7 @@ function footer(b: AskBudget): string {
     b.pointer_only && `${b.pointer_only} as pointers only`,
     b.omitted && `${b.omitted} left out`,
   ].filter(Boolean);
-  const how = b.folded || b.pointer_only ? "; rerun with full (or read the pointer) for a whole body" : "";
+  const how = b.folded || b.pointer_only || b.omitted ? "; for whole bodies, rerun with a larger max_tokens or without it, or read a pointer" : "";
   return `budget: about ${b.used_tokens} of ${b.max_tokens} tokens${parts.length ? `, ${parts.join(", ")}` : ""}${how}`;
 }
 
@@ -97,7 +116,8 @@ export function budgetAsk(r: AskResult, maxTokens: number): { result: AskResult 
   const chosen: AskHit[] = [];
   const levels: Level[] = [];
   let omitted = 0;
-  const render = (hits: AskHit[], saved = r.saved) => formatAskWithSaved({ ...r, hits, saved });
+  // The nudge for a thin answer reads what the search found, not what fits.
+  const render = (hits: AskHit[], saved = r.saved) => formatAskWithSaved({ ...r, hits, saved }, undefined, r);
   for (const [i, hit] of r.hits.entries()) {
     const folded = hit.code === undefined ? undefined : foldCode(hit.code);
     const tries: Level[] = hit.code === undefined ? ["whole"] : i === 0 ? ["whole", "folded", "pointer"] : folded === hit.code ? ["whole", "pointer"] : ["folded", "pointer"];
@@ -111,8 +131,10 @@ export function budgetAsk(r: AskResult, maxTokens: number): { result: AskResult 
     chosen.push(atLevel(hit, level, folded));
     levels.push(level);
   }
-  // The savings line compares the pack with the files it covers; a left-out hit covers none.
-  const saved = omitted ? undefined : r.saved;
+  // The savings line compares the pack with the files it replaces: those of the hits
+  // that still show their code. A pointer or a left-out hit replaces none.
+  const priced = savedForHits(r, chosen.filter((_, i) => levels[i] !== "pointer"));
+  const saved = priced !== null ? priced : omitted || levels.includes("pointer") ? undefined : r.saved;
   const out = render(chosen, saved);
   const budget: AskBudget = {
     max_tokens: maxTokens,

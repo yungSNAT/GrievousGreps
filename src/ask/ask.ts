@@ -1434,8 +1434,21 @@ export function ask(dir: string, query: string, opts: AskOptions = {}): AskResul
     // The pack is truly substitutive only in retriever mode (spans inlined), so
     // the "vs reading whole files" estimate is only honest here.
     result.saved = baselineFor(result.hits, corpus.graph);
+    const graph = corpus.graph;
+    if (graph) SAVINGS_OF.set(result, (hits) => baselineFor(hits, graph));
   }
   return result;
+}
+
+/** How to price a subset of an answer's hits against reading their files whole,
+ * kept beside the answer rather than in it so its JSON stays as it was. */
+const SAVINGS_OF = new WeakMap<AskResult, (hits: AskHit[]) => AskResult["saved"] | undefined>();
+
+/** The savings baseline of `hits`, a subset of `r`'s, or null when `r` cannot
+ * price them (a workspace answer, or one that is not in retriever mode). */
+export function savedForHits(r: AskResult, hits: AskHit[]): AskResult["saved"] | undefined | null {
+  const of = SAVINGS_OF.get(r);
+  return of ? of(hits) : null;
 }
 
 /**
@@ -1632,11 +1645,16 @@ export function formatAsk(r: AskResult, detail = savingsDetail()): string {
 }
 
 /** {@link formatAsk}, plus the tokens its pack saved (what {@link askSavedTokens} says), from the one render. */
-export function formatAskWithSaved(r: AskResult, detail = savingsDetail()): { text: string; savedTokens: number } {
+export function formatAskWithSaved(
+  r: AskResult,
+  detail = savingsDetail(),
+  /** The answer as found, when `r` shows only part of it: a thin result is judged on what the search found. */
+  found: AskResult = r,
+): { text: string; savedTokens: number } {
   const out = renderAsk(r);
   if ("text" in out) return { text: out.text, savedTokens: 0 };
   const savings = askSavingsLine(r, out.body, detail);
-  return { text: (savings ? `${savings}\n\n${out.body}` : out.body) + escalationNudge(r) + "\n", savedTokens: savedTokens(r, out.body) };
+  return { text: (savings ? `${savings}\n\n${out.body}` : out.body) + escalationNudge(found) + "\n", savedTokens: savedTokens(r, out.body) };
 }
 
 /** Tokens this lookup's pack saved against reading the files it covers whole:

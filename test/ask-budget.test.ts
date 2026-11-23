@@ -48,6 +48,19 @@ test("foldCode reads a Python signature and does not count keywords as calls", (
   assert.equal(foldCode(py), ["def load(path,", "         strict=False):", "    ⋯ 3 lines", "    return parse(path)"].join("\n"));
 });
 
+test("foldCode keeps a signature whose parameters span lines, and counts macros and generic calls", () => {
+  const button = ["export function Button({", "  label,", "  onClick,", "}: Props) {", "  const a = 1;", "  const b = 2;", "  return a + b;", "}"].join("\n");
+  assert.equal(foldCode(button), ["export function Button({", "  label,", "  onClick,", "}: Props) {", "  ⋯ 3 lines", "}"].join("\n"));
+  const rust = ["fn run() {", "    let a = 1;", "    let b = 2;", "    info!(\"{a}\");", "    let n = s.parse::<u32>();", "    let c = 3;", "    let d = 4;", "}"].join("\n");
+  assert.equal(foldCode(rust), ["fn run() {", "    ⋯ 2 lines", "    info!(\"{a}\");", "    let n = s.parse::<u32>();", "    ⋯ 2 lines", "}"].join("\n"));
+});
+
+test("budgetAsk: text that is not ASCII is counted at a token a character", () => {
+  const cjk = TS.replace("let sum = 0;", `let sum = 0; // ${"合計を計算する".repeat(20)}`);
+  const r = budgetAsk(result([hit(1, cjk), hit(2, cjk), hit(3, cjk)]), 300);
+  assert.ok(tokens(r.text) <= 300, `${tokens(r.text)} tokens\n${r.text}`);
+});
+
 test("foldCode leaves code with nothing to elide unchanged", () => {
   const code = "function f() {\n  return g();\n}";
   assert.equal(foldCode(code), code);
@@ -57,7 +70,8 @@ function hit(n: number, code?: string): AskHit {
   return { kind: "symbol", title: `fn${n}`, pointer: `src/f${n}.ts:L1-L13`, snippet: `does thing ${n}`, score: 10 - n, ...(code !== undefined && { code }) };
 }
 const result = (hits: AskHit[]): AskResult => ({ query: "q", mode: "lexical", hits });
-const tokens = (text: string): number => Math.ceil(text.length / 4);
+// What budget.ts estimates: 4 ASCII characters a token, 1 for each other character.
+const tokens = (text: string): number => Math.ceil(text.replace(/[^\x00-\x7f]/gu, "").length / 4) + [...text.replace(/[\x00-\x7f]/g, "")].length;
 
 test("budgetAsk: room for all keeps the top hit whole and folds the rest, in rank order", () => {
   const r = budgetAsk(result([hit(1, TS), hit(2, TS), hit(3, TS)]), 2000);
@@ -65,7 +79,7 @@ test("budgetAsk: room for all keeps the top hit whole and folds the rest, in ran
   assert.equal(r.result.hits[0].code, TS);
   assert.equal(r.result.hits[1].code, foldCode(TS));
   assert.deepEqual({ ...r.result.budget, used_tokens: 0 }, { max_tokens: 2000, used_tokens: 0, folded: 2, pointer_only: 0, omitted: 0 });
-  assert.match(r.text, /\nbudget: about \d+ of 2000 tokens, 2 folded; rerun with full \(or read the pointer\) for a whole body\n$/);
+  assert.match(r.text, /\nbudget: about \d+ of 2000 tokens, 2 folded; for whole bodies, rerun with a larger max_tokens or without it, or read a pointer\n$/);
   assert.ok(tokens(r.text) <= 2000);
 });
 
@@ -126,6 +140,8 @@ test("graft_find_code: max_tokens fits the answer, and without it the answer is 
   const fitted = await callTool(d, "graft_find_code", { query: "invoice total", limit: 6, max_tokens: 250 });
   assert.equal(fitted.isError, false, fitted.text);
   assert.match(fitted.text, /\nbudget: about \d+ of 250 tokens/);
+  assert.match(fitted.text, /left out/, "the budget cut the answer");
+  assert.doesNotMatch(fitted.text, /don't re-ask/, "a search that found 6 hits is not called thin");
   const answer = fitted.text.slice(fitted.text.indexOf("\n") + 1);
   assert.ok(tokens(answer) <= 250, `${tokens(answer)} tokens\n${fitted.text}`);
   const bad = await callTool(d, "graft_find_code", { query: "invoice total", max_tokens: 0 });
