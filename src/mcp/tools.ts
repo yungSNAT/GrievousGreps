@@ -8,7 +8,7 @@ import { formatAsk, formatAskWithSaved, skeleton, formatSkeleton } from '../ask/
 import { formatCheckReport } from '../context/check.js';
 import { formatGraphCheckReport } from '../graph/check.js';
 import { loadGraphCached } from '../graph/load.js';
-import { ensureFreshChildren, ensureFreshGraph, refreshNote } from '../graph/refresh.js';
+import { ensureFreshChildren, ensureFreshGraph, indexLine, refreshNote } from '../graph/refresh.js';
 import { contextDirFor } from '../context/node-file.js';
 import { resolveSymbol, edgeWalk, type Direction } from '../graph/traverse.js';
 import { callerBlocks, callersSavings, noSymbolText, unresolvedNoteFor } from '../graph/traverse-cli.js';
@@ -245,16 +245,20 @@ export async function callTool(
     // Same reason as the CLI's `noteQuery`: price this session's tokens once,
     // here, so the formatters downstream can put a dollar figure in the nudge.
     setInputRate(sessionInputRate(root));
+    // Every answer from a graph opens with its freshness, so an agent can tell an
+    // answer about the working tree from one about an older build.
+    let stamp: string | null = null;
     let note: string | null = null;
     if (!NO_REFRESH_TOOLS.has(name)) {
       const r = ws
         ? await ensureFreshChildren(root, ws.children, { contextDir: dirOverride })
         : await ensureFreshGraph(root, { contextDir: dirOverride });
+      stamp = indexLine(r.index);
       note = refreshNote(r);
     }
     const fed = ws ? await callWorkspaceTool(root, dirOverride, name, args) : null;
     const res = fed ?? (await callSingleTool(root, name, args, dirOverride));
-    const notes = [note, extensionScopeNote(root, dirOverride, ws?.children)].filter(Boolean);
+    const notes = [stamp, note, extensionScopeNote(root, dirOverride, ws?.children)].filter(Boolean);
     return notes.length ? { ...res, text: `${notes.join('\n')}\n${res.text}` } : res;
   } catch (err) {
     return { text: err instanceof Error ? err.message : String(err), isError: true };

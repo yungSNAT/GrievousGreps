@@ -20,6 +20,7 @@ import { resolveSymbol, edgeWalk, type Direction, type EdgeHit } from "./travers
 import { INFERRED_MARK, type GraphV1, type NodeV1 } from "./types.js";
 import { cmd } from "../brand.js";
 import { isTestPath } from "../util/paths.js";
+import { queryJson } from "./query-json.js";
 
 export interface CallersCliOptions {
   in?: string;
@@ -385,7 +386,7 @@ export function runCallersCommand(query: string, dir: string, opts: CallersCliOp
 
   if (opts.json) {
     const payload = { query, matches: results.map((r) => matchJson(graph, direction, r, matches.length)), saved };
-    console.log(JSON.stringify(payload, null, 2));
+    console.log(queryJson(payload));
     return;
   }
 
