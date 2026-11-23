@@ -8,6 +8,6 @@ set -u
 for attempt in 1 2 3; do
   npm ci && exit 0 # NOSONAR: locked dependencies need native grammar and prepare lifecycle scripts.
   echo "::warning::npm ci failed on attempt $attempt of 3"
-  [ "$attempt" -lt 3 ] && sleep 20
+  [[ "$attempt" -lt 3 ]] && sleep 20
 done
 exit 1
