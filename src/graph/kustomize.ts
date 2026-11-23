@@ -9,11 +9,11 @@
  * the file, never dropped. No generator value and no patch value is kept.
  */
 import { posix } from "node:path";
-import type { Document } from "yaml";
+import { isScalar, type Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import {
   KUSTOMIZATION_FILES, Skip, isObj, js, list, obj, pushTo, reasonText, resource, str, strict, under,
-  type DeployRef, type KustomizeRef, type Lines,
+  type DeployRef, type KustomizeRef, type Lines, type Obj,
 } from "./deploy.js";
 
 /** Fields that add objects or change names or selectors, which the graph does not follow: each present one is reported. */
@@ -29,21 +29,24 @@ const MAX_LINKS = 2_000_000;
 const MAX_REPORTS = 20;
 
 /**
- * Whether a file named like a kustomization is one: a single mapping whose `kind`, if any, is
- * Kustomization or Component and whose `apiVersion`, if any, is Kustomize's. Any other such file
- * (Kubernetes objects, a Flux `Kustomization`) is read as a manifest, as before.
+ * The kustomization a file named like one holds: a single non-empty document, a mapping whose
+ * `kind`, if any, is Kustomization or Component and whose `apiVersion`, if any, is Kustomize's.
+ * Null for any other such file (Kubernetes objects, a Flux `Kustomization`, nothing), which is
+ * read as a manifest candidate, as before.
  */
-export function isKustomization(docs: Document[]): boolean {
-  if (docs.length !== 1) return false;
-  const top = js(docs[0]);
-  if (!isObj(top)) return false;
+export function kustomizationIn(docs: Document[]): { d: Document; top: Obj } | null {
+  // An empty document, as a trailing `---` gives, holds nothing.
+  const full = docs.filter((x) => x.contents !== null && !(isScalar(x.contents) && x.contents.value === null));
+  if (full.length !== 1) return null;
+  const top = js(full[0]);
+  if (!isObj(top)) return null;
   const { kind, apiVersion } = top;
-  return (kind === undefined || kind === "Kustomization" || kind === "Component")
+  const ours = (kind === undefined || kind === "Kustomization" || kind === "Component")
     && (apiVersion === undefined || (typeof apiVersion === "string" && apiVersion.startsWith("kustomize.config.k8s.io/")));
+  return ours ? { d: full[0], top } : null;
 }
 
-export function kustomize(rel: string, d: Document, lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } {
-  const top = obj(js(d), "the file");
+export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } {
   const kind = top.kind === "Component" ? "Component" : "Kustomization";
   const dir = posix.dirname(rel);
   const from = `${rel}#kustomization`;
@@ -114,9 +117,9 @@ function outside(raw: string): "remote" | "host" | null {
 function missing(field: string, p: string, local: string | null, fileExists: (path: string) => boolean): string {
   const why = outside(p);
   if (local === null || why === "remote") return `${field} ${shown(p)} not followed: ${why === "remote" ? "remote" : "outside the repository"}`;
-  if (KUSTOMIZATION_FILES.some((f) => fileExists(`${local}/${f}`))) return `${field} ${shown(p)} not read: its kustomization was skipped`;
+  if (KUSTOMIZATION_FILES.some((f) => fileExists(`${local}/${f}`))) return `${field} ${shown(p)} not read: no kustomization was read from its folder`;
   if (fileExists(local)) return `${field} ${shown(p)} gave no Kubernetes objects`;
-  return `${field} ${shown(p)} not found${why === "host" ? ", or a remote base: not followed" : ""}`;
+  return `${field} ${shown(p)} not found${why !== "host" ? "" : field === "patch" ? ", or remote: not followed" : ", or a remote base: not followed"}`;
 }
 
 /** Link each kustomization to what it lists, and report what is not followed. */

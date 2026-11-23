@@ -18,7 +18,7 @@ import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
-import { isKustomization, kustomize, linkKustomize } from "./kustomize.js";
+import { kustomizationIn, kustomize, linkKustomize } from "./kustomize.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize";
 
@@ -254,7 +254,7 @@ function dockerfile(rel: string, source: string): { nodes: NodeV1[]; refs: Deplo
 
 // ── YAML: compose and Kubernetes ────────────────────────────────────────────
 
-type Obj = Record<string, unknown>;
+export type Obj = Record<string, unknown>;
 export const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
 export function obj(v: unknown, what: string): Obj {
@@ -302,7 +302,10 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes" 
     return [counter.linePos(range[0]).line, counter.linePos(Math.max(range[0], range[1] - 1)).line];
   };
   // A file named like a kustomization that is not one is read as a manifest candidate, as it was before.
-  if (format === "kustomize") return isKustomization(docs) ? kustomize(rel, docs[0], lines) : manifest ? kubernetes(rel, docs, lines) : null;
+  if (format === "kustomize") {
+    const k = kustomizationIn(docs);
+    return k ? kustomize(rel, k, lines) : manifest ? kubernetes(rel, docs, lines) : null;
+  }
   return format === "compose" ? compose(rel, docs, lines) : kubernetes(rel, docs, lines);
 }
 

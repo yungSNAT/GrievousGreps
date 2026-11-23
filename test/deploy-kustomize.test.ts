@@ -95,19 +95,27 @@ test("every edge but a kustomization's own is the one the manifests give without
   }
 });
 
-test("a file named kustomization.yaml that holds Kubernetes objects, or a Flux Kustomization, is read as a manifest", async () => {
+test("a file named kustomization.yaml that holds Kubernetes objects, a Flux Kustomization or nothing is read as a manifest; empty documents around a kustomization are ignored", async () => {
   await withBuild({
     "app/deploy.yaml": DEPLOYMENT,
     "cfg/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
     "two/kustomization.yaml": `${deployment("web").replace("image: web", "image: web, envFrom: [ { configMapRef: { name: web-config } } ]")}---\napiVersion: v1\nkind: ConfigMap\nmetadata: { name: web-config }\n`,
     "flux/kustomization.yaml": "apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata: { name: apps }\nspec: { path: ./apps }\n",
+    "empty/kustomization.yaml": "# nothing yet\n",
+    "root/kustomization.yaml": "resources: [ ../flux, ../empty, ../cfg, ../trail, ../lead ]\n",
+    "trail/kustomization.yaml": "resources: [ d.yaml ]\n---\n",
+    "trail/d.yaml": deployment("t"),
+    "lead/kustomization.yaml": "---\nresources: [ d.yaml ]\n",
+    "lead/d.yaml": deployment("l"),
   }, ({ result, graph }) => {
-    assert.deepEqual(result.skipped, []);
+    assert.deepEqual(result.skipped, ["../flux", "../empty", "../cfg"].map((p) => ({ path: "root/kustomization.yaml", reason: `resources ${p} not read: no kustomization was read from its folder` })));
     const all = refs(graph);
     assert.ok(all.includes("app/deploy.yaml#Deployment/default/api -> cfg/kustomization.yaml#ConfigMap/default/app-config (inferred)"), all.join("\n"));
     assert.ok(all.includes("two/kustomization.yaml#Deployment/default/web -> two/kustomization.yaml#ConfigMap/default/web-config"), all.join("\n"));
     assert.ok(graph.nodes.some((n) => n.id === "flux/kustomization.yaml#Kustomization/default/apps"));
-    assert.ok(!graph.nodes.some((n) => n.id.endsWith("#kustomization")));
+    assert.deepEqual(graph.nodes.filter((n) => n.id.endsWith("#kustomization")).map((n) => n.id).sort(),
+      ["lead/kustomization.yaml#kustomization", "root/kustomization.yaml#kustomization", "trail/kustomization.yaml#kustomization"]);
+    for (const k of ["trail/kustomization.yaml#kustomization -> trail/d.yaml#Deployment/default/t", "lead/kustomization.yaml#kustomization -> lead/d.yaml#Deployment/default/l"]) assert.ok(all.includes(k), all.join("\n"));
   });
 });
 
@@ -190,7 +198,7 @@ patches:
       "resources https://github.com/o/r//p?ref=v1 not followed: remote",
       "resources https://github.com/o/r//p not followed: remote",
       "resources config.d/x.yaml not found, or a remote base: not followed",
-      "resources ../bad not read: its kustomization was skipped",
+      "resources ../bad not read: no kustomization was read from its folder",
       "resources empty.yaml gave no Kubernetes objects",
       "resources deploy.yaml listed more than once: followed once",
       "components ../comp-missing not found",
