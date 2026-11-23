@@ -30,11 +30,13 @@ type Into = Pick<Mount, "parent" | "prefix" | "replaces">;
 
 const MODULE_KEY = Scopes.module("");
 const MAX_HOPS = 8;
+/** A record's own entry: an import named `toString` is not the prototype's. */
+const own = <T>(record: Record<string, T> | undefined, key: string): T | undefined => (record && Object.hasOwn(record, key) ? record[key] : undefined);
 export const isJs = (file: string) => /\.[cm]?[jt]sx?$/.test(file);
 
 /** The route nodes, and their `contains` and handler edges, that mounts across files place. */
 export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: MountImports, taken: (id: string) => boolean): { nodes: NodeV1[]; edges: RawEdge[] } {
-  const importOf = (file: string, local: string) => facts.get(file)?.requires?.[local] ?? imports.imported(file, local);
+  const importOf = (file: string, local: string) => own(facts.get(file)?.requires, local) ?? imports.imported(file, local);
   // What a name bound at the top of `file` is: a router it defines, a whole module, or what an import brings.
   const followLocal = (file: string, local: string, hops: number): Target => {
     if (hops > MAX_HOPS) return null;
@@ -53,7 +55,7 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
       const sub = followLocal(module, name, hops + 1) ?? imports.submodule(module, name);
       return typeof sub === "string" ? { module: sub } : sub;
     }
-    const common = facts.get(module)?.exports?.[name];
+    const common = own(facts.get(module)?.exports, name);
     const ex = common === undefined ? imports.exported(module, name) : { local: common };
     if (!ex) return null;
     if ("local" in ex) return followLocal(module, ex.local, hops + 1);
