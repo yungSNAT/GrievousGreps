@@ -161,7 +161,7 @@ test("no generator literal reaches the graph or its caches", async () => {
   });
 });
 
-test("a malformed kustomization is skipped with a reason", async () => {
+test("a malformed kustomization is skipped with a reason, and a file of several documents that is not one is left alone, as on main", async () => {
   await withBuild({
     "a/kustomization.yaml": "resources: not-a-list\n",
     "b/kustomization.yaml": "resources: [ d.yaml ]\n",
@@ -170,6 +170,8 @@ test("a malformed kustomization is skipped with a reason", async () => {
     "e/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\n",
     "g/kustomization.yaml": "resources: [ d.yaml ]\n---\n{}\n",
     "h/kustomization.yaml": "resources: [ d.yaml ]\n---\n''\n",
+    "i/kustomization.yaml": "- a\n---\n- b\n",
+    "j/kustomization.yaml": "name: x\n---\nname: y\n",
     "f/kustomization.yaml": "a: &a [1,1,1,1,1,1,1,1,1,1]\nb: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a,*a]\nc: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b,*b]\nd: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c,*c]\nresources: *d\n",
   }, ({ result, graph }) => {
     assert.deepEqual(result.skipped.filter((s) => s.path !== "f/kustomization.yaml"), [
@@ -190,7 +192,6 @@ test("every include or patch file not followed is reported, and a URL's credenti
     "app/kustomization.yaml": `resources:
   - deploy.yaml
   - missing.yaml
-  - ../nowhere
   - /etc/k8s
   - ../../outside
   - github.com/acme/base?ref=v1
@@ -228,7 +229,6 @@ patches:
     assert.deepEqual(reasons("app/kustomization.yaml"), [
       `patches ${APPLIED}`,
       "resources missing.yaml not found",
-      "resources ../nowhere not found",
       "resources /etc/k8s not followed: outside the repository",
       "resources ../../outside not followed: outside the repository",
       "resources github.com/acme/base?ref=v1 not followed: remote",
@@ -244,6 +244,7 @@ patches:
       "resources deploy.yaml listed more than once: followed once",
       "components ../comp-missing not found",
       "patch gone.yaml not found",
+      "patch ops.yaml gave no Kubernetes objects",
       "patch deploy.yaml listed more than once: followed once",
       "patch cfg.d/p.yaml not found, or remote: not followed",
     ]);
