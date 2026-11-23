@@ -698,15 +698,15 @@ function linkTerraform(nodes: NodeV1[], refs: DeployRef[], add: (source: string,
     const dir = posix.dirname(n.path);
     pathOf.set(n.id, n.path);
     if (n.kind === "file") pushTo(files, dir, n.id);
-    else pushTo(blocks, `${dir} ${n.name}`, n.id);
+    else pushTo(blocks, `${dir}\0${n.name}`, n.id);
   }
   if (!pathOf.size) return;
   const counted = new Set(refs.flatMap((r) => (r.to === "tfcounted" ? [r.from] : [])));
   const reports = new Map<string, number>();
   const reported = new Set<string>();
   const report = (path: string, reason: string) => {
-    if (reported.has(`${path} ${reason}`)) return;
-    reported.add(`${path} ${reason}`);
+    if (reported.has(`${path}\0${reason}`)) return;
+    reported.add(`${path}\0${reason}`);
     const n = (reports.get(path) ?? 0) + 1;
     reports.set(path, n);
     if (n <= MAX_TF_REPORTS) skipped.push({ path, reason: reasonText(reason) });
@@ -716,7 +716,7 @@ function linkTerraform(nodes: NodeV1[], refs: DeployRef[], add: (source: string,
     if (from === undefined) continue;
     if (r.to === "tfnote") report(from, r.note);
     else if (r.to === "tf") {
-      const found = blocks.get(`${r.dir} ${r.address}`) ?? [];
+      const found = blocks.get(`${r.dir}\0${r.address}`) ?? [];
       if (found.length > 1) report(from, `${r.address} is declared in more than one file of ${r.dir} (override files are not merged): references to it give no link`);
       else if (found.length === 1 && counted.has(found[0])) report(pathOf.get(found[0])!, `${r.address} has count or for_each: references to it give no link`);
       else if (found.length === 1) add(r.from, found[0]);
