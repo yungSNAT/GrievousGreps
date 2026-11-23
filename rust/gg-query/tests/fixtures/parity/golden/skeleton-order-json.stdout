@@ -1,0 +1,27 @@
+{
+  "file": "src/order.ts",
+  "entries": [
+    {
+      "name": "OrderService",
+      "kind": "class",
+      "span": "L3-L7",
+      "signature": "class OrderService"
+    },
+    {
+      "name": "processOrder",
+      "kind": "method",
+      "span": "L4-L6",
+      "signature": "processOrder(subtotal: number): number"
+    },
+    {
+      "name": "handleOrder",
+      "kind": "function",
+      "span": "L9-L12",
+      "signature": "function handleOrder(subtotal: number): number"
+    }
+  ],
+  "saved": {
+    "files": 1,
+    "baselineChars": 298
+  }
+}

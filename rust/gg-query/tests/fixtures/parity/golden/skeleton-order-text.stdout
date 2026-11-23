@@ -1,0 +1,6 @@
+[trail] tokens saved ≈ 19 (25%) at most, against reading the 1 file(s) whole
+
+trail skeleton — src/order.ts
+- L3-L7  class OrderService  class OrderService
+- L4-L6  method processOrder  processOrder(subtotal: number): number
+- L9-L12  function handleOrder  function handleOrder(subtotal: number): number

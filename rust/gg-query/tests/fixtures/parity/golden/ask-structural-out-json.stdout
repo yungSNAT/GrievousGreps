@@ -1,0 +1,16 @@
+{
+  "query": "what does handleOrder call",
+  "mode": "structural",
+  "subject": "handleOrder",
+  "hits": [
+    {
+      "kind": "callee",
+      "title": "processOrder",
+      "pointer": "src/order.ts:L4-L6",
+      "snippet": "processOrder(subtotal: number): number",
+      "relation": "calls",
+      "score": 1
+    }
+  ],
+  "note": "outgoing edges from handleOrder"
+}
