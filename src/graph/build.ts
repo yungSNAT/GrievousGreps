@@ -68,7 +68,7 @@ export interface FileTier {
   container: ContainerLang | null;
   generic: GenericLang | null;
   fellBack: Language | null;
-  /** A Dockerfile, compose file or Kubernetes manifest candidate, claimed by no grammar. */
+  /** A Dockerfile, compose file, kustomization or Kubernetes manifest candidate, claimed by no grammar. */
   deploy?: DeployFormat;
 }
 
