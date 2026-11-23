@@ -80,8 +80,12 @@ test("budgetAsk: a tight budget falls back to pointers, then leaves hits out, an
     assert.ok(b.omitted > 0, `${max}: something had to go`);
     assert.deepEqual(r.result.hits.map((h) => h.title), hits.slice(0, r.result.hits.length).map((h) => h.title), "the ranking holds");
   }
-  const pointers = budgetAsk(result(hits), 200).result;
-  assert.ok(pointers.hits.some((h) => h.code === undefined), "a hit that no longer fits folded is a pointer");
+  // Some budget between these leaves room for a later hit's pointer but not its folded body.
+  const fitted = Array.from({ length: 600 }, (_, k) => budgetAsk(result(hits), 60 + k).result);
+  assert.ok(
+    fitted.some((f) => f.hits.slice(1).some((h) => h.code === undefined) && f.budget.pointer_only > 0),
+    "a hit that no longer fits folded is a pointer",
+  );
 });
 
 test("budgetAsk: the first hit always shows, at least as its pointer", () => {
