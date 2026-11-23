@@ -14,6 +14,7 @@ import { changedFiles, refExists } from "./diff.js";
 import { fileReader } from "./evidence.js";
 import { markdownReport, mermaidDiagram, textReport } from "./render.js";
 import { cmd } from "../brand.js";
+import { queryJson } from "../graph/query-json.js";
 
 export type BlastFormat = "text" | "markdown" | "mermaid" | "json";
 
@@ -114,7 +115,7 @@ export async function runBlastCommand(dir: string, opts: BlastCliOptions): Promi
   if (opts.exportViz) await exportRadius(report, contextDir, root, opts.exportViz, opts.title);
 
   if (format === "json") {
-    console.log(JSON.stringify(report, null, 2));
+    console.log(queryJson(report));
     return;
   }
   if (format === "mermaid") {

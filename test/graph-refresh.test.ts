@@ -5,12 +5,14 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
-import { ensureFreshChildren, ensureFreshGraph, refreshNote } from "../src/graph/refresh.js";
+import { ensureFreshChildren, ensureFreshGraph, indexLine, refreshNote } from "../src/graph/refresh.js";
+import { queryJson, setQueryIndex } from "../src/graph/query-json.js";
+import { runCli } from "./helpers.js";
 import { extractCachePath } from "../src/graph/extract-cache.js";
 import { fingerprintPath, isClean, probeDrift } from "../src/graph/fingerprint.js";
 import { readGraph, wiringPath } from "../src/graph/write.js";
@@ -493,12 +495,13 @@ test("callTool refreshes before answering — except for graft_check_freshness",
 
   const ask = await callTool(d, "graft_find_code", { query: "multiply two numbers" });
   assert.equal(ask.isError, false);
-  assert.match(ask.text, /^\[graft\] refreshed the graph/);
+  assert.match(ask.text, /^index: fresh\n\[graft\] refreshed the graph/);
   assert.equal(hasSymbol(d, "src/math.ts#mul"), true);
   assert.match(ask.text, /mul/, "and the answer knows about the symbol that was never committed");
 
   const again = await callTool(d, "graft_find_code", { query: "multiply two numbers" });
-  assert.ok(!again.text.startsWith("[graft] refreshed"), "nothing moved — no note, no rebuild");
+  assert.ok(!again.text.includes("[graft] refreshed"), "nothing moved — no note, no rebuild");
+  assert.match(again.text, /^index: fresh\n/);
 });
 
 test("a process killed while holding the lock releases it", async (t) => {
@@ -673,4 +676,179 @@ test("outside a repo on trail, under --dir, or in the home folder, no map is bui
     restore();
   }
   assert.deepEqual(await runsIn(log), []);
+});
+
+// ---------------------------------------------------------------- index freshness on every answer
+
+const EDITED = `${MATH}export const X = 1;\n`;
+
+test("index: a clean tree, and one this call rebuilt, are both fresh", async () => {
+  const d = repo();
+  await buildGraph(d);
+  assert.deepEqual((await ensureFreshGraph(d)).index, { state: "fresh" });
+  writeFileSync(join(d, "src", "math.ts"), EDITED);
+  const r = await ensureFreshGraph(d);
+  assert.equal(r.refreshed, true);
+  assert.deepEqual(r.index, { state: "fresh" });
+  assert.equal(indexLine(r.index), "index: fresh");
+});
+
+test("index: no graph at all gives no state, so the query's own message stands alone", async () => {
+  const d = repo();
+  assert.equal((await ensureFreshGraph(d)).index, undefined);
+  assert.equal((await ensureFreshGraph(d, { disabled: true })).index, undefined);
+  assert.equal(indexLine(undefined), null);
+});
+
+test("index: a rebuild already in flight leaves the answer stale, with the count", async () => {
+  const d = repo();
+  await buildGraph(d);
+  writeFileSync(join(d, "src", "math.ts"), EDITED);
+  assert.equal(acquireLock(d), true);
+  const r = await ensureFreshGraph(d);
+  releaseLock(d);
+  assert.deepEqual(r.index, { state: "stale", changed: 1, reason: "a rebuild is already in flight" });
+  assert.equal(
+    indexLine(r.index),
+    "index: stale (a rebuild is already in flight, 1 file changed since the last build); answers may miss those edits",
+  );
+});
+
+test("index: a failed refresh leaves the answer stale", async () => {
+  const d = repo();
+  await buildGraph(d);
+  writeFileSync(join(d, "src", "math.ts"), EDITED);
+  const stub = refreshRunStub(d, true);
+  try {
+    const r = await ensureFreshGraph(d);
+    assert.deepEqual(r.index, { state: "stale", changed: 2, reason: "the refresh failed" }, "the edit and the stub script");
+  } finally {
+    stub.restore();
+  }
+});
+
+test("index: with refresh off, a read-only probe still says fresh or stale, and writes nothing", async () => {
+  const d = repo();
+  await buildGraph(d);
+  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "fresh" });
+  writeFileSync(join(d, "src", "math.ts"), EDITED);
+  const before = readFileSync(wiringPath(outOf(d)), "utf8");
+  const flagged = await ensureFreshGraph(d, { disabled: true });
+  const env = await withRefreshDisabled(() => ensureFreshGraph(d));
+  for (const r of [flagged, env]) {
+    assert.equal(r.refreshed, false);
+    assert.deepEqual(r.index, { state: "stale", changed: 1, reason: "refresh is off" });
+  }
+  assert.equal(readFileSync(wiringPath(outOf(d)), "utf8"), before, "the graph is untouched");
+});
+
+test("index: a failure before any graph is found gives no state, refresh on or off", async () => {
+  const d = repo();
+  const elsewhere = mkdtempSync(join(tmpdir(), "graft-refresh-link-"));
+  mkdirSync(join(d, "graft"), { recursive: true });
+  rmSync(join(d, "graft"), { recursive: true });
+  symlinkSync(elsewhere, join(d, "graft"), "junction");
+  for (const r of [await ensureFreshGraph(d), await ensureFreshGraph(d, { disabled: true })]) {
+    assert.equal(r.refreshed, false);
+    assert.equal(r.index, undefined, JSON.stringify(r));
+  }
+});
+
+test("index: when another graft built later, its prints, which describe the graph on disk, decide", async () => {
+  const d = repo();
+  await buildGraph(d);
+  const mine = fingerprintPath(outOf(d));
+  const other = join(dirname(mine), "fingerprint.0-other.json");
+  const fp = JSON.parse(readFileSync(mine, "utf8"));
+  const later = new Date(statSync(mine).mtimeMs + 5000);
+  // The other build ran on a different tree: its print of math.ts names other bytes.
+  writeFileSync(other, JSON.stringify({ ...fp, extractor: "0:0", files: { "src/math.ts": [1, 1, "other-bytes"] } }));
+  utimesSync(other, later, later);
+  assert.deepEqual(probeDrift(d, outOf(d))?.changed, ["src/math.ts"]);
+  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "stale", changed: 1, reason: "refresh is off" });
+  // Its build ran on this tree: nothing to rebuild, whichever graft asks, so 2 grafts don't rebuild each other's graph.
+  writeFileSync(other, JSON.stringify({ ...fp, extractor: "0:0" }));
+  utimesSync(other, later, later);
+  assert.ok(isClean(probeDrift(d, outOf(d))!));
+  // An older other set is ignored.
+  const earlier = new Date(statSync(mine).mtimeMs - 5000);
+  writeFileSync(other, JSON.stringify({ ...fp, extractor: "0:0", files: {} }));
+  utimesSync(other, earlier, earlier);
+  assert.ok(isClean(probeDrift(d, outOf(d))!));
+});
+
+test("index: with refresh off and no fingerprint, the graph is not vouched for", async () => {
+  const d = repo();
+  await buildGraph(d);
+  rmSync(fingerprintPath(outOf(d)));
+  const r = await ensureFreshGraph(d, { disabled: true });
+  assert.deepEqual(r.index, { state: "stale", reason: "no build fingerprint, and refresh is off" });
+});
+
+test("index: a workspace is stale when any child is, and names it", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "graft-refresh-ws-"));
+  for (const child of ["a", "b"]) {
+    mkdirSync(join(ws, child, "src"), { recursive: true });
+    writeFileSync(join(ws, child, "src", "math.ts"), MATH);
+    await buildGraph(join(ws, child));
+  }
+  assert.deepEqual((await ensureFreshChildren(ws, ["a", "b"], { disabled: true })).index, { state: "fresh" });
+  writeFileSync(join(ws, "b", "src", "math.ts"), EDITED);
+  assert.deepEqual((await ensureFreshChildren(ws, ["a", "b"], { disabled: true })).index, { state: "stale", changed: 1, reason: "refresh is off in b" });
+  const on = await ensureFreshChildren(ws, ["a", "b"]);
+  assert.equal(on.refreshed, true);
+  assert.deepEqual(on.index, { state: "fresh" });
+});
+
+test("index: every MCP answer from a graph opens with its state; the drift report does not", async () => {
+  const d = repo();
+  await buildGraph(d);
+  for (const [name, args] of [
+    ["graft_find_code", { query: "add two numbers" }],
+    ["graft_trace_calls", { symbol: "add" }],
+    ["graft_find_all", { pattern: "return" }],
+    ["graft_file_api", { file: "src/math.ts" }],
+    ["graft_repo_map", {}],
+  ] as const) {
+    const r = await callTool(d, name, args);
+    assert.match(r.text, /^index: fresh\n/, `${name}: ${r.text}`);
+  }
+  writeFileSync(join(d, "src", "math.ts"), EDITED);
+  const off = await withRefreshDisabled(() => callTool(d, "graft_find_code", { query: "add two numbers" }));
+  assert.match(off.text, /^index: stale \(refresh is off, 1 file changed since the last build\); answers may miss those edits\n/);
+  const check = await callTool(d, "graft_check_freshness", {});
+  assert.doesNotMatch(check.text, /^index:/);
+  // An error is stamped only when stale: a missing symbol may be one the build has not seen yet.
+  const missing = await withRefreshDisabled(() => callTool(d, "graft_trace_calls", { symbol: "nowhere" }));
+  assert.equal(missing.isError, true);
+  assert.match(missing.text, /^index: stale \(refresh is off/);
+  const badArgs = await callTool(d, "graft_find_code", {});
+  assert.equal(badArgs.isError, true);
+  assert.doesNotMatch(badArgs.text, /index:/, "a fresh graph adds nothing to an error about the request");
+});
+
+test("index: a query's JSON carries the state on an object answer, never on a list", () => {
+  try {
+    assert.equal(queryJson({ a: 1 }), JSON.stringify({ a: 1 }, null, 2), "no state before the refresh gate ran");
+    setQueryIndex({ state: "stale", changed: 2, reason: "refresh is off" });
+    assert.deepEqual(JSON.parse(queryJson({ a: 1 })), { a: 1, index: { state: "stale", changed: 2, reason: "refresh is off" } });
+    assert.equal(queryJson([1]), JSON.stringify([1], null, 2));
+  } finally {
+    setQueryIndex(undefined);
+  }
+});
+
+test("index: the CLI says stale on stderr and never when fresh, and --json carries the state", async () => {
+  const d = repo();
+  await buildGraph(d);
+  const clean = runCli(["callers", "add", d, "--no-refresh"]);
+  assert.equal(clean.status, 0, clean.describe());
+  assert.doesNotMatch(clean.stderr, /index:/, clean.describe());
+  const json = runCli(["callers", "add", d, "--json", "--no-refresh"]);
+  assert.deepEqual(JSON.parse(json.stdout).index, { state: "fresh" }, json.describe());
+  writeFileSync(join(d, "src", "math.ts"), EDITED);
+  const behind = runCli(["skeleton", "src/math.ts", d, "--json", "--no-refresh"]);
+  assert.equal(behind.status, 0, behind.describe());
+  assert.deepEqual(JSON.parse(behind.stdout).index, { state: "stale", changed: 1, reason: "refresh is off" });
+  assert.match(behind.stderr, /^index: stale \(refresh is off, 1 file changed since the last build\)/m, behind.describe());
 });

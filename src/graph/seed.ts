@@ -34,7 +34,7 @@
  * was *cloned* rather than worktree'd behaves exactly as it did before: "run graft
  * build first".
  */
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync, utimesSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { ASK_INDEX_FILE } from "../ask/index-file.js";
 import { VECTORS_FILE } from "../ask/vectors.js";
@@ -172,7 +172,16 @@ function copyTree(srcDir: string, outDir: string): void {
       const childRel = rel ? `${rel}/${entry.name}` : entry.name;
       if (!seedable(childRel)) continue;
       if (entry.isDirectory()) walk(childRel);
-      else if (entry.isFile()) copyFileInside(base, join(from, entry.name), join(outDir, childRel));
+      else if (entry.isFile()) {
+        const src = join(from, entry.name);
+        const dest = copyFileInside(base, src, join(outDir, childRel));
+        // `probeDrift` trusts the newest print set, so the copies keep their order.
+        if (entry.name.startsWith(`${FINGERPRINT_PREFIX}.`)) {
+          // Seconds as a number keep sub-millisecond order, which a Date would round away.
+          const { atimeMs, mtimeMs } = statSync(src);
+          utimesSync(dest, atimeMs / 1000, mtimeMs / 1000);
+        }
+      }
     }
   };
   walk("");

@@ -14,6 +14,7 @@ import type { EngineConfig } from "../ai/providers.js";
 import { formatAsk } from "../ask/ask.js";
 import { errorCode, track } from "../telemetry/index.js";
 import type { Direction } from "./traverse.js";
+import { queryJson } from "./query-json.js";
 import {
   federateAsk,
   federateCallers,
@@ -144,7 +145,7 @@ export function runWorkspaceAsk(
   opts: { limit?: number; source?: boolean; full?: boolean; in?: string; json?: boolean },
 ): void {
   const r = federateAsk(root, override, query, { limit: opts.limit, source: opts.source, full: opts.full, in: opts.in });
-  if (opts.json) console.log(JSON.stringify(r, null, 2));
+  if (opts.json) console.log(queryJson(r));
   else process.stdout.write(formatAsk(r));
 }
 
@@ -156,7 +157,7 @@ export function runWorkspaceGrep(
 ): void {
   const { result, coverage } = federateGrep(root, override, pattern, { ignoreCase: opts.ignoreCase, fixed: opts.fixed, in: opts.in });
   if (opts.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(queryJson(result));
     // stdout stays one JSON document; an unbuilt child is still reported.
     if (coverage) console.error(coverage);
     return;
@@ -176,7 +177,7 @@ export function runWorkspaceMap(
 ): void {
   if (opts.json) {
     const { json, coverage } = federateMapJson(root, override, { maxDirs: opts.maxDirs });
-    console.log(JSON.stringify(json, null, 2));
+    console.log(queryJson(json));
     // stdout stays one JSON document; an unbuilt child is still reported.
     if (coverage) console.error(coverage);
     return;
@@ -202,7 +203,7 @@ export function runWorkspaceCallers(
     process.exit(1);
   }
   if (opts.json) {
-    console.log(JSON.stringify(json, null, 2));
+    console.log(queryJson(json));
     // stdout stays one JSON document; an unbuilt child is still reported.
     if (coverage) console.error(coverage);
     return;

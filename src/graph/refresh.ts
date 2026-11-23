@@ -76,6 +76,26 @@ export interface RefreshResult {
   drift?: Drift;
   /** One-line explanation for the agent/user, when there's something worth saying. */
   note?: string;
+  /** Whether the graph the answer comes from matches the working tree. Absent when
+   * there is no graph to answer from (the query's own "no graph" message covers it). */
+  index?: IndexState;
+}
+
+/** `fresh`: the probe found nothing changed, or this call rebuilt the graph.
+ * `stale`: files changed since the last build and the graph was not rebuilt, or
+ * there is no build fingerprint to compare against, so freshness can't be vouched for. */
+export interface IndexState {
+  state: "fresh" | "stale";
+  /** Source files changed, added or removed since the last build, when known. */
+  changed?: number;
+  /** Why the graph was not rebuilt (stale only). */
+  reason?: string;
+}
+
+const FRESH: IndexState = { state: "fresh" };
+
+function stale(reason: string, drift?: Drift | null): IndexState {
+  return drift ? { state: "stale", changed: driftCount(drift), reason } : { state: "stale", reason };
 }
 
 export interface RefreshOptions {
@@ -88,6 +108,7 @@ export interface RefreshOptions {
 }
 
 const CLEAN: RefreshResult = { refreshed: false };
+const CLEAN_FRESH: RefreshResult = { refreshed: false, index: FRESH };
 
 function envFlag(name: string): boolean {
   const v = process.env[name];
@@ -276,7 +297,8 @@ async function seedUnderLock(
  * the context dir.
  */
 export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}): Promise<RefreshResult> {
-  if (opts.disabled || envDisabled()) return CLEAN;
+  if (opts.disabled || envDisabled()) return probeOnly(root, opts.contextDir);
+  let seen: Drift | null = null;
   try {
     const dir = resolve(root);
     const outDir = contextDirFor(dir, opts.contextDir);
@@ -306,7 +328,8 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
     // or by a different extractor build. Rebuild once — that lays the fingerprint
     // down, so it costs exactly one build, not one per query.
     const drift = probeDrift(dir, outDir);
-    if (drift && isClean(drift)) return seedNote ? { refreshed: false, note: seedNote } : CLEAN;
+    seen = drift;
+    if (drift && isClean(drift)) return seedNote ? { refreshed: false, note: seedNote, index: FRESH } : CLEAN_FRESH;
 
     // On the default layout this is `<root>/graft/.cache/.sync.lock`, the very file
     // the Claude Code hooks lock — so this refresh and the background sync can
@@ -318,6 +341,7 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
         refreshed: false,
         drift: drift ?? undefined,
         note: seedNote ? `${seedNote}; ${busy}` : busy,
+        index: stale(drift ? "a rebuild is already in flight" : "no build fingerprint, and a rebuild is already in flight", drift),
       };
     }
     const unhook = releaseOnSignal(lockCache);
@@ -331,7 +355,7 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
       const now = drift ? probeDrift(dir, outDir) : null;
       if (now && isClean(now)) {
         invalidateGraphCaches(outDir);
-        return seedNote ? { refreshed: false, note: seedNote } : CLEAN;
+        return seedNote ? { refreshed: false, note: seedNote, index: FRESH } : CLEAN_FRESH;
       }
       // Tier-1 only: no summarizer, so no LLM call and no network, ever. And
       // `graphOnly`: write the graph, the ask sidecar and the fingerprint, nothing
@@ -344,14 +368,49 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
       const extensions = loadGraphCached(outDir)?.meta?.extensions;
       await rebuild({ dir, contextDir: opts.contextDir, onlyDirs, extensions });
       invalidateGraphCaches(outDir);
-      return { refreshed: true, drift: drift ?? undefined, note: seedNote };
+      return { refreshed: true, drift: drift ?? undefined, note: seedNote, index: FRESH };
     } finally {
       unhook();
       releaseLockIn(lockCache);
     }
   } catch (err) {
     // Answering from a slightly stale graph beats failing the query.
-    return { refreshed: false, note: `graph refresh skipped: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      refreshed: false,
+      note: `graph refresh skipped: ${err instanceof Error ? err.message : String(err)}`,
+      ...(hasGraph(root, opts.contextDir) && { index: stale("the refresh failed", seen) }),
+    };
+  }
+}
+
+/**
+ * Refresh turned off (`--no-refresh`, `GRAFT_NO_REFRESH`): no lock, seed or
+ * rebuild, but still the read-only probe, so the answer can say whether the graph
+ * it comes from is behind the working tree.
+ */
+function probeOnly(root: string, contextDir?: string): RefreshResult {
+  try {
+    const dir = resolve(root);
+    const outDir = contextDirFor(dir, contextDir);
+    assertRealContextDir(dir, outDir);
+    if (!existsSync(wiringPath(outDir))) return CLEAN;
+    const drift = probeDrift(dir, outDir);
+    if (drift && isClean(drift)) return CLEAN_FRESH;
+    return { refreshed: false, index: stale(drift ? "refresh is off" : "no build fingerprint, and refresh is off", drift) };
+  } catch {
+    return hasGraph(root, contextDir)
+      ? { refreshed: false, index: stale("refresh is off, and the graph could not be checked") }
+      : CLEAN;
+  }
+}
+
+/** Whether a graph is there to answer from: a failure before the graph was found
+ * says nothing about one. */
+function hasGraph(root: string, contextDir?: string): boolean {
+  try {
+    return existsSync(wiringPath(contextDirFor(resolve(root), contextDir)));
+  } catch {
+    return false;
   }
 }
 
@@ -366,8 +425,12 @@ export async function ensureFreshChildren(
   children: string[],
   opts: RefreshOptions = {},
 ): Promise<RefreshResult> {
-  if (opts.disabled || envDisabled()) return CLEAN;
+  const disabled = opts.disabled || envDisabled();
   const refreshedIn: string[] = [];
+  const staleIn: string[] = [];
+  const reasons = new Set<string>();
+  let staleFiles: number | undefined;
+  let anyGraph = false;
   let files = 0;
   for (const child of children) {
     // Deliberately NOT `opts`: `contextDirFor` returns an override verbatim and
@@ -377,16 +440,36 @@ export async function ensureFreshChildren(
     // one, each child would build into that single shared dir in turn, the last
     // clobbering the rest.) A child's graph always lives in its own `<child>/graft`,
     // which is exactly how `loadWorkspaceGraphs` reads them back.
-    const r = await ensureFreshGraph(resolve(root, child), { disabled: opts.disabled });
+    const r = await ensureFreshGraph(resolve(root, child), { disabled });
+    if (r.index) anyGraph = true;
+    if (r.index?.state === "stale") {
+      staleIn.push(child);
+      reasons.add(r.index.reason ?? "not rebuilt");
+      if (r.index.changed !== undefined) staleFiles = (staleFiles ?? 0) + r.index.changed;
+    }
     if (!r.refreshed) continue;
     refreshedIn.push(child);
     files += r.drift ? driftCount(r.drift) : 0;
   }
-  if (!refreshedIn.length) return CLEAN;
+  const reason = reasons.size === 1 ? [...reasons][0] : "not rebuilt";
+  const index: IndexState | undefined = staleIn.length
+    ? { state: "stale", ...(staleFiles !== undefined && { changed: staleFiles }), reason: `${reason} in ${staleIn.join(", ")}` }
+    : anyGraph ? FRESH : undefined;
+  if (!refreshedIn.length) return { refreshed: false, ...(index && { index }) };
   return {
     refreshed: true,
     note: `refreshed ${refreshedIn.join(", ")} (${files || "?"} file${files === 1 ? "" : "s"} changed) before answering`,
+    ...(index && { index }),
   };
+}
+
+/** The answer's freshness line: `index: fresh`, or `index: stale (why, N files changed
+ * since the last build)`. Null when there is no graph to speak of. */
+export function indexLine(index: IndexState | undefined): string | null {
+  if (!index) return null;
+  if (index.state === "fresh") return "index: fresh";
+  const changed = index.changed === undefined ? "" : `, ${index.changed} file${index.changed === 1 ? "" : "s"} changed since the last build`;
+  return `index: stale (${index.reason ?? "not rebuilt"}${changed}); answers may miss those edits`;
 }
 
 /** The one-line note a CLI/MCP surface prints when a refresh actually happened.
