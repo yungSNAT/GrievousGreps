@@ -10,7 +10,7 @@ import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
 import { collectBindings, goLiteralScope, goReceiverVarOf, goTypeName, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
 import { parseDepth, type SyntaxNode } from "./depth-parser.js";
-import { extractRoutes } from "./routes.js";
+import { extractRoutes, type RouteFacts } from "./routes.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 
 export type Language = "typescript" | "tsx" | "python" | "go" | "java" | "kotlin" | "swift" | "php" | "r";
@@ -96,6 +96,15 @@ export interface PythonExports {
   all: string[] | null;
   /** Names defined under an `if` or `try`, so a run of the module may not bind them. */
   conditionalDefs: string[];
+  /**
+   * For a module with imports or a package's `__init__.py`: where module-level code binds or unbinds each name,
+   * imports included; a route mount follows a name only when it is bound once and no star import follows.
+   */
+  bindings?: Record<string, number[]>;
+  /** Where the last module-level star import is: it may rebind any name bound before it. */
+  starAt?: number;
+  /** The module can bind names no count shows (`globals`, `setattr`, `exec`, a module `__getattr__`, ...). */
+  dynamic?: true;
 }
 
 /**
@@ -111,6 +120,9 @@ export interface RawEdge {
   /** A Python file's module-level names, so resolve.ts can follow a re-export. Only on
    * the file's one export-table edge, which is not itself a graph edge. */
   pythonExports?: PythonExports;
+  /** A file's routers, mounts and unplaced routes, for route-mounts.ts to place once imports resolve. Only on the
+   * file's one route-facts edge, which is not itself a graph edge. */
+  routeFacts?: RouteFacts;
   /** calls: what a Rust call's syntax says its target is, for a call with no type path. */
   rustForm?: "free" | "method" | "macro";
   /** calls: the crate a Rust path call starts in, when not this one. resolve.ts drops
@@ -554,10 +566,11 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   const goImports = collectGoImports(goSpecs);
   const goPackage = lang === "go" ? goPackageName(root) : null;
   const rGenerics = lang === "r" ? collectRGenerics(root) : EMPTY_SET;
-  const pythonExports = lang === "python" ? collectPythonExports(root) : null;
+  const pythonImports = lang === "python" ? collectPythonExports(root) : null;
   const tsModule = lang === "typescript" || lang === "tsx" ? collectTsModule(root) : null;
   const pythonModuleAssigned = new Set<string>();
   if (lang === "python") collectPythonScopeBindings(root, pythonModuleAssigned, false);
+  const pythonExports = lang === "python" ? withPythonBindings(pythonImports, root, /(^|\/)__init__\.py$/.test(rel)) : null;
   const pythonReboundNames = new Map(
     [...pythonImportedNames]
       .filter((name) => !pythonNamedImports.has(name) && !importedModules.has(name))
@@ -622,6 +635,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   const routes = extractRoutes(root, { rel, lang, nodes, importedSymbols, goImports, mint: (base) => mintId(base, minted) });
   for (const n of routes.nodes) nodes.push(n);
   for (const e of routes.edges) rawEdges.push(e);
+  if (routes.facts) rawEdges.push({ source: rel, relation: "imports", file: rel, routeFacts: routes.facts });
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
   for (const [scope, fields] of bindings.fields) {
     const each = [...fields].flatMap(([attr, list]) => list.map((field): [string, PythonField] => [attr, field]));
@@ -1244,6 +1258,112 @@ function collectPythonExports(root: SyntaxNode): PythonExports | null {
   visit(root, false);
   if (allComputed) out.all = null;
   return out.imports.length || out.stars.length || out.all ? out : null;
+}
+
+/** Builtins that rebind a module's names only from module-level code: elsewhere `setattr(obj, ...)` binds none. */
+const PY_DYNAMIC_TOP = new Set(["locals", "vars", "setattr", "delattr"]);
+
+/**
+ * Whether `node` lets the module bind names no count shows: `sys.modules` (through any alias of `sys`, or imported
+ * from it), a call of the bare `exec` or `eval`, the bare `globals` anywhere, and in module-level code the bare
+ * `locals`, `vars`, `setattr` or `delattr`, a `__getattr__` or a `__dict__`. An attribute (`session.exec`,
+ * `obj.vars`) or a keyword argument's name is not the builtin.
+ */
+function pythonDynamic(node: SyntaxNode, top: boolean, sys: ReadonlySet<string>): boolean {
+  if (node.type === "attribute") {
+    const object = node.childForFieldName("object");
+    return object?.type === "identifier" && sys.has(object.text) && node.childForFieldName("attribute")?.text === "modules";
+  }
+  if (node.type === "import_from_statement") {
+    return node.childForFieldName("module_name")?.text === "sys"
+      && node.namedChildren.some((c) => (c.type === "aliased_import" ? c.childForFieldName("name") : c)?.text === "modules");
+  }
+  if (node.type !== "identifier") return false;
+  if (node.text === "__getattr__" || node.text === "__dict__") return top;
+  const parent = node.parent;
+  const field = (type: string, name: string) => parent?.type === type && sameSyntaxNode(parent.childForFieldName(name), node);
+  // A parameter's own name (`def helper(vars)`) is a local, not the builtin.
+  const parameter = parent?.type === "parameters" || parent?.type === "lambda_parameters" || parent?.type === "list_splat_pattern"
+    || parent?.type === "dictionary_splat_pattern" || field("default_parameter", "name") || field("typed_default_parameter", "name")
+    || (parent?.type === "typed_parameter" && !sameSyntaxNode(parent.childForFieldName("type"), node));
+  if (field("attribute", "attribute") || field("keyword_argument", "name") || parameter) return false;
+  if (node.text === "exec" || node.text === "eval") {
+    // A callee in parentheses, `(exec)(...)`, is still a direct call.
+    let at: SyntaxNode = node;
+    while (at.parent?.type === "parenthesized_expression") at = at.parent;
+    return at.parent?.type === "call" && sameSyntaxNode(at.parent.childForFieldName("function"), at);
+  }
+  return node.text === "globals" || (top && PY_DYNAMIC_TOP.has(node.text));
+}
+
+/**
+ * The exports table with {@link PythonExports.bindings}, over module-level code: every compound statement's body,
+ * `except` and `finally` included, and a `def`, `class` or `lambda` header (decorators, defaults, annotations, bases),
+ * but not its body, where only `global` binds here. Imports, assignment and `for` targets, walrus, `with ... as`,
+ * `except ... as`, `del`, `def` and `class` names, and every name in a `case` pattern count; an annotation without a
+ * value does not. A package's `__init__.py` keeps a table even without imports.
+ */
+function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPackage: boolean): PythonExports | null {
+  if (!table && !isPackage) return null;
+  const bindings: Record<string, number[]> = {};
+  let dynamic = false;
+  let starAt: number | undefined;
+  const bind = (name: string | undefined, at: number) => {
+    if (name) (Object.hasOwn(bindings, name) ? bindings[name] : (bindings[name] = [])).push(at);
+  };
+  const targets = (node: SyntaxNode | null | undefined) => {
+    const names = new Set<string>();
+    if (node) collectPythonBindingNames(node, names);
+    for (const name of names) bind(name, node!.startIndex);
+  };
+  // `sys` and every name `import sys as name` binds, anywhere in the file.
+  const sys = new Set(["sys"]);
+  const aliases = (node: SyntaxNode): void => {
+    for (const c of node.type === "import_statement" ? node.namedChildren : []) {
+      if (c.type === "aliased_import" && c.childForFieldName("name")?.text === "sys") sys.add(c.childForFieldName("alias")?.text ?? "sys");
+    }
+    for (const c of node.namedChildren) aliases(c);
+  };
+  aliases(root);
+  const walk = (node: SyntaxNode, top: boolean): void => {
+    if (pythonDynamic(node, top, sys)) dynamic = true;
+    if (node.type === "global_statement") for (const c of node.namedChildren) bind(c.text, c.startIndex);
+    const scope = node.type === "function_definition" || node.type === "class_definition" || node.type === "lambda";
+    if (top) {
+      if (scope) bind(node.childForFieldName("name")?.text, node.startIndex);
+      else if (node.type === "import_statement") {
+        for (const c of node.namedChildren) bind(c.type === "aliased_import" ? c.childForFieldName("alias")?.text : c.text.split(".")[0], c.startIndex);
+      } else if (node.type === "import_from_statement") {
+        const module = node.childForFieldName("module_name");
+        for (const c of node.namedChildren) {
+          if (c.type === "wildcard_import") starAt = c.startIndex;
+          else if (!sameSyntaxNode(c, module) && (c.type === "aliased_import" || c.type === "dotted_name")) bind((c.childForFieldName("alias") ?? c).text, c.startIndex);
+        }
+      } else if ((node.type === "assignment" && node.childForFieldName("right")) || node.type === "augmented_assignment" || node.type === "for_statement") targets(node.childForFieldName("left"));
+      else if (node.type === "named_expression") targets(node.childForFieldName("name"));
+      else if (node.type === "delete_statement" || node.type === "case_pattern") targets(node);
+      else if (node.type === "type_alias_statement") {
+        // `type X = ...` or `type X[T] = ...`: the alias is the first `type` child.
+        const head = node.namedChildren[0]?.namedChildren[0];
+        targets(head?.type === "generic_type" ? head.namedChildren[0] : head);
+      }
+      else if (node.type === "as_pattern") {
+        const last = node.namedChildren[node.namedChildren.length - 1];
+        targets(node.childForFieldName("alias") ?? last);
+      } else if (node.type === "except_clause" || node.type === "except_group_clause") {
+        // `except E as name`: the expression after `as`.
+        const as = node.children.find((c) => c.type === "as");
+        if (as) targets(node.namedChildren.find((c) => c.startIndex >= as.endIndex));
+      }
+    }
+    const body = scope ? node.childForFieldName("body") : null;
+    for (const c of node.namedChildren) walk(c, top && !sameSyntaxNode(c, body));
+  };
+  walk(root, true);
+  return {
+    ...(table ?? { imports: [], stars: [], all: null, conditionalDefs: [] }), bindings,
+    ...(starAt === undefined ? {} : { starAt }), ...(dynamic ? { dynamic: true as const } : {}),
+  };
 }
 
 /** Names a def's own imports bind, visible in its body and nested defs. */

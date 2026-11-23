@@ -2,13 +2,15 @@
  * Shared by the route tests: a graph built from fixture files, its route nodes and edges, and
  * Kubernetes fixtures with an Ingress.
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
 import { readGraph, wiringPath } from "../src/graph/write.js";
 import { contextDirFor } from "../src/context/node-file.js";
 import type { GraphV1 } from "../src/graph/types.js";
+import { checkGraphInvariants } from "../src/graph/invariants.js";
 
 
 export async function built(files: Record<string, string>) {
@@ -19,6 +21,17 @@ export async function built(files: Record<string, string>) {
   }
   const result = await buildGraph(root);
   return { root, result, graph: readGraph(wiringPath(contextDirFor(root)))! };
+}
+
+/** Builds `files`, runs `check` on the graph, asserts its invariants and removes the folder. */
+export async function withGraph(files: Record<string, string>, check: (graph: Awaited<ReturnType<typeof built>>["graph"]) => void) {
+  const { root, graph } = await built(files);
+  try {
+    check(graph);
+    assert.deepEqual(checkGraphInvariants(graph).problems, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 const byCodeUnit = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
