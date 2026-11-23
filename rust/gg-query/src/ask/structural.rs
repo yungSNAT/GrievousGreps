@@ -8,7 +8,7 @@ use std::io;
 use unicode_general_category::{GeneralCategory, get_general_category};
 
 use crate::ask::{AskHit, AskMode, AskResult};
-use crate::graph::{NodeV1, js_locale_cmp, path_under_prefix};
+use crate::graph::{NodeV1, path_under_prefix};
 use crate::store::GraphStore;
 
 pub enum StructuralOutcome {
@@ -153,35 +153,35 @@ pub fn run_structural(
 
     let ids: HashSet<String> = subjects.iter().map(|n| n.id.clone()).collect();
     let outgoing = wants_out && !wants_in;
-    let edges = store.structural_edges(&ids, outgoing)?;
-    if edges.is_empty() {
+    let (matched_any, rows) = store.structural_hits_bounded(&ids, outgoing, limit)?;
+    if !matched_any {
         return Ok(StructuralOutcome::Fallthrough(fallthrough_note_for(
             &subjects[0].name,
         )));
     }
 
-    let mut hits = Vec::with_capacity(edges.len());
-    for e in edges {
-        let node = store.node_by_id(&e.other)?;
-        let (title, pointer, snippet) = match node {
-            Some(n) => {
-                let snip = n
+    let kind = if outgoing { "callee" } else { "caller" };
+    let mut hits = Vec::with_capacity(rows.len());
+    for r in rows {
+        let (title, pointer, snippet) = match (r.name, r.path, r.span) {
+            (Some(name), Some(path), Some(span)) => {
+                let snip = r
                     .summary
                     .as_deref()
                     .and_then(|s| s.lines().next())
                     .map(|l| l.trim().to_string())
-                    .or(n.signature)
+                    .or(r.signature)
                     .unwrap_or_default();
-                (n.name, format!("{}:{}", n.path, n.span), snip)
+                (name, format!("{path}:{span}"), snip)
             }
-            None => (e.other.clone(), e.other, String::new()),
+            _ => (r.other_id.clone(), r.other_id, String::new()),
         };
         hits.push(AskHit {
-            kind: if outgoing { "callee" } else { "caller" }.to_string(),
+            kind: kind.to_string(),
             title,
             pointer,
             snippet,
-            relation: Some(e.relation),
+            relation: Some(r.relation),
             related: None,
             score: 1.0,
             code: None,
@@ -189,8 +189,6 @@ pub fn run_structural(
         });
     }
 
-    hits.sort_by(|a, b| js_locale_cmp(&a.pointer, &b.pointer));
-    hits.truncate(limit);
     let subject_name = subjects[0].name.clone();
     let note = if outgoing {
         format!("outgoing edges from {subject_name}")

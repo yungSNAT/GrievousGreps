@@ -4,7 +4,7 @@
 //! camelCase splitting, lowercase fold, non-`\p{L}\p{N}\p{M}` word boundaries,
 //! stop-word filtering, and CJK character bigrams.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -223,6 +223,58 @@ pub fn ask_index_path(out_dir: &Path) -> PathBuf {
     out_dir.join(CACHE_DIR).join(ASK_INDEX_FILE)
 }
 
+fn validate_field_bag(bag: &[(String, usize)]) -> Option<usize> {
+    let mut per_term: HashMap<&str, usize> = HashMap::new();
+    let mut total = 0_usize;
+    for (term, count) in bag {
+        let count = *count;
+        if count == 0 || i64::try_from(count).is_err() {
+            return None;
+        }
+        let entry = per_term.entry(term.as_str()).or_insert(0);
+        *entry = entry.checked_add(count)?;
+        i64::try_from(*entry).ok()?;
+        total = total.checked_add(count)?;
+    }
+    i64::try_from(total).ok()?;
+    Some(total)
+}
+
+/// Validate a parsed `ask-index.json` sidecar for unique DF terms, bounded counts,
+/// non-negative finite `avgBodyLen`, and overflow-free SQLite `i64` aggregations.
+pub fn is_valid_ask_index(idx: &AskIndex) -> bool {
+    if idx.version != 2
+        || idx.doc_count != idx.docs.len()
+        || i64::try_from(idx.doc_count).is_err()
+        || !idx.avg_body_len.is_finite()
+        || idx.avg_body_len < 0.0
+    {
+        return false;
+    }
+    let mut seen_df: HashSet<&str> = HashSet::with_capacity(idx.df.len());
+    for (term, df) in &idx.df {
+        let df = *df;
+        if df == 0
+            || df > idx.doc_count
+            || i64::try_from(df).is_err()
+            || !seen_df.insert(term.as_str())
+        {
+            return false;
+        }
+    }
+    let mut seen_docs: HashSet<&str> = HashSet::with_capacity(idx.docs.len());
+    for doc in &idx.docs {
+        if !seen_docs.insert(doc.id.as_str())
+            || validate_field_bag(&doc.name).is_none()
+            || validate_field_bag(&doc.path).is_none()
+            || validate_field_bag(&doc.body).is_none()
+        {
+            return false;
+        }
+    }
+    true
+}
+
 /// Read `<outDir>/.cache/ask-index.json`, returning `None` if absent, symlinked, or malformed.
 pub fn read_ask_index(out_dir: &Path) -> io::Result<Option<AskIndex>> {
     let path = ask_index_path(out_dir);
@@ -247,7 +299,7 @@ pub fn read_ask_index(out_dir: &Path) -> io::Result<Option<AskIndex>> {
     let Ok(idx) = serde_json::from_str::<AskIndex>(&text) else {
         return Ok(None);
     };
-    if idx.version != 2 || idx.doc_count != idx.docs.len() || !idx.avg_body_len.is_finite() {
+    if !is_valid_ask_index(&idx) {
         return Ok(None);
     }
     Ok(Some(idx))

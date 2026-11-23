@@ -406,7 +406,18 @@ impl GraphStore {
                 })?),
                 None => None,
             };
-            let seq_i64 = seq as i64;
+            let seq_i64 = i64::try_from(seq).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("wiring.json: seq value {seq} exceeds i64::MAX"),
+                )
+            })?;
+            let body_len_i64 = i64::try_from(body_lens[seq]).map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("wiring.json: body_len {} exceeds i64::MAX", body_lens[seq]),
+                )
+            })?;
             id_to_seq.insert(n.id.clone(), seq_i64);
             let crux_code = n.crux.as_ref().map(|c| c.code.as_str());
             stmt.execute(params![
@@ -426,7 +437,7 @@ impl GraphStore {
                 &n.summary,
                 &n.body_text,
                 crux_code,
-                body_lens[seq] as i64,
+                body_len_i64,
             ])
             .map_err(sql_err)?;
         }

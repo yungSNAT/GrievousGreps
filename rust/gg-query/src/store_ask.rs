@@ -7,40 +7,91 @@ use rusqlite::{Transaction, params};
 
 use crate::graph::NodeV1;
 use crate::store::sql_err;
-use crate::tokenize::{AskIndex, AskIndexDoc, counts, tokenize};
+use crate::tokenize::{AskIndex, AskIndexDoc, counts, is_valid_ask_index, tokenize};
 
-fn usable_ask_index<'a>(
-    idx: &'a Option<AskIndex>,
-    nodes: &[NodeV1],
-) -> Option<(&'a AskIndex, HashMap<&'a str, &'a AskIndexDoc>)> {
-    let idx = idx.as_ref()?;
-    if idx.docs.len() != nodes.len() {
-        return None;
-    }
-    let map: HashMap<&str, &AskIndexDoc> = idx.docs.iter().map(|d| (d.id.as_str(), d)).collect();
-    if nodes.iter().all(|n| map.contains_key(n.id.as_str())) {
-        Some((idx, map))
-    } else {
-        None
-    }
+fn to_sqlite_i64(val: usize, label: &str) -> io::Result<i64> {
+    i64::try_from(val).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("ask index: {label} value {val} exceeds i64::MAX"),
+        )
+    })
 }
 
-fn merge_bag_fields(
-    name: &[(String, usize)],
-    path: &[(String, usize)],
-    body: &[(String, usize)],
-) -> HashMap<String, (usize, usize, usize)> {
-    let mut merged: HashMap<String, (usize, usize, usize)> = HashMap::new();
-    for (t, c) in name {
-        merged.entry(t.clone()).or_default().0 += *c;
+type PostingCounts<'a> = HashMap<&'a str, (i64, i64, i64)>;
+type DocPostings<'a> = Vec<(&'a str, i64, i64, i64)>;
+
+fn checked_merge_bag_fields<'a>(doc: &'a AskIndexDoc) -> Option<(usize, PostingCounts<'a>)> {
+    let mut blen = 0_usize;
+    let mut merged: HashMap<&'a str, (i64, i64, i64)> = HashMap::new();
+    for (t, c) in &doc.name {
+        let c_i64 = i64::try_from(*c).ok().filter(|&v| v > 0)?;
+        let slot = &mut merged.entry(t.as_str()).or_default().0;
+        *slot = slot.checked_add(c_i64)?;
     }
-    for (t, c) in path {
-        merged.entry(t.clone()).or_default().1 += *c;
+    for (t, c) in &doc.path {
+        let c_i64 = i64::try_from(*c).ok().filter(|&v| v > 0)?;
+        let slot = &mut merged.entry(t.as_str()).or_default().1;
+        *slot = slot.checked_add(c_i64)?;
     }
-    for (t, c) in body {
-        merged.entry(t.clone()).or_default().2 += *c;
+    for (t, c) in &doc.body {
+        let c_i64 = i64::try_from(*c).ok().filter(|&v| v > 0)?;
+        blen = blen.checked_add(*c)?;
+        i64::try_from(blen).ok()?;
+        let slot = &mut merged.entry(t.as_str()).or_default().2;
+        *slot = slot.checked_add(c_i64)?;
     }
-    merged
+    Some((blen, merged))
+}
+
+struct PreparedSidecar<'a> {
+    body_lens: Vec<usize>,
+    postings: Vec<DocPostings<'a>>,
+    df: Vec<(&'a str, i64)>,
+    doc_count: usize,
+    avg_body_len: f64,
+}
+
+fn prepare_sidecar<'a>(
+    ask_idx: &'a Option<AskIndex>,
+    nodes: &[NodeV1],
+) -> Option<PreparedSidecar<'a>> {
+    let idx = ask_idx.as_ref()?;
+    if !is_valid_ask_index(idx) || idx.docs.len() != nodes.len() {
+        return None;
+    }
+    let by_id: HashMap<&str, &AskIndexDoc> = idx.docs.iter().map(|d| (d.id.as_str(), d)).collect();
+    if by_id.len() != nodes.len() {
+        return None;
+    }
+
+    let mut body_lens = Vec::with_capacity(nodes.len());
+    let mut postings = Vec::with_capacity(nodes.len());
+    for n in nodes {
+        let doc = by_id.get(n.id.as_str())?;
+        let (blen, merged) = checked_merge_bag_fields(doc)?;
+        body_lens.push(blen);
+        postings.push(
+            merged
+                .into_iter()
+                .map(|(tok, (ntf, ptf, btf))| (tok, ntf, ptf, btf))
+                .collect(),
+        );
+    }
+
+    let mut df_rows = Vec::with_capacity(idx.df.len());
+    for (tok, df) in &idx.df {
+        let df_i64 = i64::try_from(*df).ok()?;
+        df_rows.push((tok.as_str(), df_i64));
+    }
+
+    Some(PreparedSidecar {
+        body_lens,
+        postings,
+        df: df_rows,
+        doc_count: idx.doc_count,
+        avg_body_len: idx.avg_body_len,
+    })
 }
 
 pub(crate) fn insert_ask_index(
@@ -58,28 +109,26 @@ pub(crate) fn insert_ask_index(
         .prepare("INSERT INTO ask_df (token, df) VALUES (?1, ?2)")
         .map_err(sql_err)?;
 
-    let mut body_lens = Vec::with_capacity(nodes.len());
-    if let Some((idx, by_id)) = usable_ask_index(ask_idx, nodes) {
-        for (seq, n) in nodes.iter().enumerate() {
-            let d = by_id[n.id.as_str()];
-            let blen: usize = d.body.iter().map(|(_, c)| *c).sum();
-            body_lens.push(blen);
-            let merged = merge_bag_fields(&d.name, &d.path, &d.body);
-            for (tok, (ntf, ptf, btf)) in merged {
+    if let Some(sidecar) = prepare_sidecar(ask_idx, nodes) {
+        for (seq, doc_postings) in sidecar.postings.into_iter().enumerate() {
+            let seq_i64 = to_sqlite_i64(seq, "node_seq")?;
+            for (tok, ntf, ptf, btf) in doc_postings {
                 posting_stmt
-                    .execute(params![tok, seq as i64, ntf as i64, ptf as i64, btf as i64])
+                    .execute(params![tok, seq_i64, ntf, ptf, btf])
                     .map_err(sql_err)?;
             }
         }
-        for (tok, df) in &idx.df {
-            df_stmt.execute(params![tok, *df as i64]).map_err(sql_err)?;
+        for (tok, df_i64) in sidecar.df {
+            df_stmt.execute(params![tok, df_i64]).map_err(sql_err)?;
         }
-        return Ok((body_lens, idx.doc_count, idx.avg_body_len));
+        return Ok((sidecar.body_lens, sidecar.doc_count, sidecar.avg_body_len));
     }
 
+    let mut body_lens = Vec::with_capacity(nodes.len());
     let mut df_map: HashMap<String, usize> = HashMap::new();
     let mut total_body_len = 0_usize;
     for (seq, n) in nodes.iter().enumerate() {
+        let seq_i64 = to_sqlite_i64(seq, "node_seq")?;
         let name_c = counts(&tokenize(&n.name));
         let path_c = counts(&tokenize(&n.path));
         let body_src = format!(
@@ -89,9 +138,19 @@ pub(crate) fn insert_ask_index(
             n.body_text.as_deref().unwrap_or("")
         );
         let body_c = counts(&tokenize(&body_src));
-        let blen: usize = body_c.values().sum();
+        let blen: usize = body_c
+            .values()
+            .copied()
+            .try_fold(0_usize, usize::checked_add)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "ask index: body length overflow",
+                )
+            })?;
+        to_sqlite_i64(blen, "body_len")?;
         body_lens.push(blen);
-        total_body_len += blen;
+        total_body_len = total_body_len.saturating_add(blen);
 
         let mut doc_terms: HashSet<&str> = HashSet::new();
         let mut merged: HashMap<&str, (usize, usize, usize)> = HashMap::new();
@@ -109,7 +168,13 @@ pub(crate) fn insert_ask_index(
         }
         for (tok, (ntf, ptf, btf)) in merged {
             posting_stmt
-                .execute(params![tok, seq as i64, ntf as i64, ptf as i64, btf as i64])
+                .execute(params![
+                    tok,
+                    seq_i64,
+                    to_sqlite_i64(ntf, "name_tf")?,
+                    to_sqlite_i64(ptf, "path_tf")?,
+                    to_sqlite_i64(btf, "body_tf")?,
+                ])
                 .map_err(sql_err)?;
         }
         for tok in doc_terms {
@@ -117,7 +182,9 @@ pub(crate) fn insert_ask_index(
         }
     }
     for (tok, df) in df_map {
-        df_stmt.execute(params![tok, df as i64]).map_err(sql_err)?;
+        df_stmt
+            .execute(params![tok, to_sqlite_i64(df, "df")?])
+            .map_err(sql_err)?;
     }
     let avg_body_len = if nodes.is_empty() {
         0.0

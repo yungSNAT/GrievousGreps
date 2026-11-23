@@ -1,11 +1,12 @@
 //! SQLite query helpers for `ask` (inverted index, walk edges, scopes) and `skeleton`.
 
-use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::io;
 
 use rusqlite::{OptionalExtension, params};
 
-use crate::graph::{NodeV1, ScopeV1, canonical_root_scopes};
+use crate::graph::{NodeV1, ScopeV1, canonical_root_scopes, js_locale_cmp};
 use crate::query::{NODE_SELECT, row_to_node};
 use crate::store::{GraphStore, sql_err};
 
@@ -28,10 +29,62 @@ pub struct PostingRow {
 }
 
 #[derive(Debug, Clone)]
-pub struct StructuralEdgeRow {
-    pub other: String,
+pub struct StructuralHitRow {
+    pub other_id: String,
     pub relation: String,
+    pub name: Option<String>,
+    pub path: Option<String>,
+    pub span: Option<String>,
+    pub summary: Option<String>,
+    pub signature: Option<String>,
 }
+
+struct RankedStructuralRow {
+    pointer: String,
+    min_seq: i64,
+    row: StructuralHitRow,
+}
+
+impl PartialEq for RankedStructuralRow {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl Eq for RankedStructuralRow {}
+
+impl PartialOrd for RankedStructuralRow {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RankedStructuralRow {
+    fn cmp(&self, other: &Self) -> Ordering {
+        js_locale_cmp(&self.pointer, &other.pointer)
+            .then_with(|| self.min_seq.cmp(&other.min_seq))
+            .then_with(|| self.row.other_id.cmp(&other.row.other_id))
+            .then_with(|| self.row.relation.cmp(&other.row.relation))
+    }
+}
+
+const STRUCTURAL_OUTGOING_SQL: &str = "SELECT e.target, e.relation, MIN(e.seq) AS min_seq,
+        n.name, n.path, n.span, n.summary, n.signature
+     FROM edges e
+     LEFT JOIN nodes n ON n.id = e.target
+     WHERE e.source IN (SELECT value FROM json_each(?1))
+       AND e.relation IN ('calls', 'references', 'imports', 'implements', 'extends')
+     GROUP BY e.target, e.relation
+     ORDER BY min_seq ASC";
+
+const STRUCTURAL_INCOMING_SQL: &str = "SELECT e.source, e.relation, MIN(e.seq) AS min_seq,
+        n.name, n.path, n.span, n.summary, n.signature
+     FROM edges e
+     LEFT JOIN nodes n ON n.id = e.source
+     WHERE e.target IN (SELECT value FROM json_each(?1))
+       AND e.relation IN ('calls', 'references', 'implements', 'extends')
+     GROUP BY e.source, e.relation
+     ORDER BY min_seq ASC";
 
 impl GraphStore {
     pub fn scopes(&self) -> io::Result<Vec<ScopeV1>> {
@@ -183,46 +236,72 @@ impl GraphStore {
         Ok(out)
     }
 
-    pub fn structural_edges(
+    /// Return `(matched_any, top_rows)` via an indexed SQLite `LEFT JOIN` and a
+    /// `limit`-bounded heap (no N+1 `node_by_id` queries or unbounded hit vec).
+    pub fn structural_hits_bounded(
         &self,
         subject_ids: &HashSet<String>,
         outgoing: bool,
-    ) -> io::Result<Vec<StructuralEdgeRow>> {
-        let allowed: &[&str] = if outgoing {
-            &["calls", "references", "imports", "implements", "extends"]
+        limit: usize,
+    ) -> io::Result<(bool, Vec<StructuralHitRow>)> {
+        if subject_ids.is_empty() {
+            return Ok((false, Vec::new()));
+        }
+        let ids: Vec<&str> = subject_ids.iter().map(String::as_str).collect();
+        let ids_json = serde_json::to_string(&ids)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let sql = if outgoing {
+            STRUCTURAL_OUTGOING_SQL
         } else {
-            &["calls", "references", "implements", "extends"]
+            STRUCTURAL_INCOMING_SQL
         };
-        let mut stmt = self
-            .conn
-            .prepare("SELECT source, target, relation FROM edges ORDER BY seq ASC")
-            .map_err(sql_err)?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(sql_err)?;
-        let mut out = Vec::new();
-        let mut seen: HashSet<(String, String)> = HashSet::new();
-        for row in rows {
-            let (source, target, relation) = row.map_err(sql_err)?;
-            if !allowed.contains(&relation.as_str()) {
-                continue;
+        let mut stmt = self.conn.prepare(sql).map_err(sql_err)?;
+        let mut rows = stmt.query(params![ids_json]).map_err(sql_err)?;
+        let mut matched_any = false;
+        let mut heap: BinaryHeap<RankedStructuralRow> = BinaryHeap::with_capacity(limit.min(64));
+
+        while let Some(r) = rows.next().map_err(sql_err)? {
+            matched_any = true;
+            if limit == 0 {
+                break;
             }
-            let (anchor, other) = if outgoing {
-                (source, target)
-            } else {
-                (target, source)
+            let other_id: String = r.get(0).map_err(sql_err)?;
+            let relation: String = r.get(1).map_err(sql_err)?;
+            let min_seq: i64 = r.get(2).map_err(sql_err)?;
+            let name: Option<String> = r.get(3).map_err(sql_err)?;
+            let path: Option<String> = r.get(4).map_err(sql_err)?;
+            let span: Option<String> = r.get(5).map_err(sql_err)?;
+            let summary: Option<String> = r.get(6).map_err(sql_err)?;
+            let signature: Option<String> = r.get(7).map_err(sql_err)?;
+            let pointer = match (&path, &span) {
+                (Some(p), Some(s)) => format!("{p}:{s}"),
+                _ => other_id.clone(),
             };
-            if subject_ids.contains(&anchor) && seen.insert((other.clone(), relation.clone())) {
-                out.push(StructuralEdgeRow { other, relation });
+            let cand = RankedStructuralRow {
+                pointer,
+                min_seq,
+                row: StructuralHitRow {
+                    other_id,
+                    relation,
+                    name,
+                    path,
+                    span,
+                    summary,
+                    signature,
+                },
+            };
+            if heap.len() < limit {
+                heap.push(cand);
+            } else if let Some(worst) = heap.peek()
+                && cand < *worst
+            {
+                heap.pop();
+                heap.push(cand);
             }
         }
-        Ok(out)
+
+        let top = heap.into_sorted_vec().into_iter().map(|r| r.row).collect();
+        Ok((matched_any, top))
     }
 
     /// Resolve a file path or unique basename for `skeleton`.
