@@ -1,0 +1,26 @@
+[
+  {
+    "path": "src/math.ts",
+    "score": 0.586284701960705,
+    "start": 1,
+    "end": 9
+  },
+  {
+    "path": "src/order.ts",
+    "score": 0.47029395565183224,
+    "start": 1,
+    "end": 13
+  },
+  {
+    "path": "src/report.py",
+    "score": 0.46136011824119794,
+    "start": 1,
+    "end": 6
+  },
+  {
+    "path": "src/checkout.ts",
+    "score": 0.37521249777348115,
+    "start": 1,
+    "end": 7
+  }
+]

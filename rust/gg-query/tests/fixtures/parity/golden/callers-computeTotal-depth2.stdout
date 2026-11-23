@@ -1,0 +1,6 @@
+[trail] tokens saved ≈ 92 (69%) at most, against reading the 2 file(s) whole
+
+computeTotal · function · src/math.ts:L5-L8 · calls ←
+  src/order.ts
+    processOrder L5 [depth 1]: return computeTotal(subtotal, 0.1);
+    handleOrder L9 [depth 2]

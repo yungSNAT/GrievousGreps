@@ -1,0 +1,124 @@
+{
+  "basis": "working tree vs HEAD",
+  "depth": 2,
+  "changed": [
+    {
+      "path": "src/math.ts",
+      "status": "modified",
+      "ranges": [
+        {
+          "start": 9,
+          "end": 10
+        }
+      ],
+      "hunks": [
+        {
+          "start": 9,
+          "end": 10,
+          "lines": [
+            {
+              "n": 9,
+              "sign": "+",
+              "text": ""
+            },
+            {
+              "n": 10,
+              "sign": "+",
+              "text": "export function zeroTax(): number { return 0; }"
+            }
+          ],
+          "dropped": 0
+        }
+      ]
+    }
+  ],
+  "unindexed": [],
+  "deleted": [],
+  "seeds": [
+    {
+      "id": "src/math.ts",
+      "name": "math.ts",
+      "kind": "file",
+      "path": "src/math.ts",
+      "span": "L1-L9",
+      "wholeFile": true
+    }
+  ],
+  "impacted": [
+    {
+      "id": "src/order.ts",
+      "name": "order.ts",
+      "kind": "file",
+      "path": "src/order.ts",
+      "span": "L1-L13",
+      "relation": "imports",
+      "depth": 1
+    },
+    {
+      "id": "src/checkout.ts",
+      "name": "checkout.ts",
+      "kind": "file",
+      "path": "src/checkout.ts",
+      "span": "L1-L7",
+      "relation": "imports",
+      "depth": 2
+    }
+  ],
+  "modules": [
+    {
+      "label": "order.ts",
+      "labelSource": "symbol",
+      "key": "src/",
+      "files": [
+        "src/checkout.ts",
+        "src/order.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/order.ts",
+          "name": "order.ts",
+          "kind": "file",
+          "path": "src/order.ts",
+          "span": "L1-L13",
+          "relation": "imports",
+          "depth": 1
+        },
+        {
+          "id": "src/checkout.ts",
+          "name": "checkout.ts",
+          "kind": "file",
+          "path": "src/checkout.ts",
+          "span": "L1-L7",
+          "relation": "imports",
+          "depth": 2
+        }
+      ],
+      "from": [
+        "src/math.ts"
+      ]
+    }
+  ],
+  "testModules": [],
+  "areas": [
+    {
+      "label": "math.ts",
+      "labelSource": "symbol",
+      "key": "src/",
+      "files": [
+        "src/math.ts"
+      ],
+      "seeds": 1,
+      "tests": "na",
+      "testFiles": [],
+      "changedTestFiles": [],
+      "reached": 0,
+      "behavioural": 0,
+      "unreached": [],
+      "seedNames": [
+        "math.ts"
+      ]
+    }
+  ],
+  "unresolved": [],
+  "leftBehind": []
+}

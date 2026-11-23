@@ -17,7 +17,7 @@ import { impactOfMany, type EdgeHit } from "../graph/traverse.js";
 import type { GraphV1, NodeV1 } from "../graph/types.js";
 import { dirLabel, moduleIndex, parentDir, shortLabel, type ModuleIndex } from "./modules.js";
 import type { ChangedFile, Hunk, LineRange } from "./diff.js";
-import { wordRe } from "./evidence.js";
+import { opensQuote, syntaxOf, wordRe } from "./evidence.js";
 import type { Owner, Reviewer } from "./owners.js";
 
 const SPAN_RE = /^L(\d+)-L(\d+)$/;
@@ -506,22 +506,10 @@ function callEnd(lines: string[], n: number, at: number, last: number): number {
   return n;
 }
 
-/** Extensions whose line comments start with `#`, and those whose start with `--`. */
-const HASH_COMMENTS = new Set(["py", "pyi", "rb", "sh", "bash", "zsh", "pl", "pm", "r", "ex", "exs", "jl", "nim", "cr", "coffee", "tcl", "ps1", "php"]);
-const DASH_COMMENTS = new Set(["lua", "sql", "hs", "elm", "ada", "adb", "ads"]);
-
-/** Whether a quote opens at `text[i]`. A `'` between digits (`1'000`) does not, nor, in Rust, one that is no char literal (a lifetime). */
-function opensQuote(text: string, i: number, rust: boolean): boolean {
-  const ch = text[i];
-  if (ch === '"' || ch === "`") return true;
-  if (ch !== "'" || (/\d/.test(text[i - 1] ?? "") && /\d/.test(text[i + 1] ?? ""))) return false;
-  return !rust || /^'(?:[^'\\]|\\[^']{1,9})'/.test(text.slice(i));
-}
-
 /**
  * Lines `from` to `to` of `path` with comments blanked, indexed as `lines` is. `//`
  * and `/* *\/` comments (a block comment across lines too) except where `#` or `--`
- * starts a line comment instead ({@link HASH_COMMENTS}, {@link DASH_COMMENTS}; PHP
+ * starts a line comment instead ({@link syntaxOf}; PHP
  * has both), and `#` only after whitespace there, so `$#` stays. Markers inside
  * quotes are text, so `"a // b"; f()` keeps `f()`; quotes pair within a line, with
  * backslash escapes. Regex literals, strings over several lines and other comment
@@ -529,10 +517,7 @@ function opensQuote(text: string, i: number, rust: boolean): boolean {
  * the result is one of the line.
  */
 function codeLines(lines: string[], from: number, to: number, path: string): string[] {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  const hash = HASH_COMMENTS.has(ext);
-  const dash = DASH_COMMENTS.has(ext);
-  const slash = ext === "php" || (!hash && !dash);
+  const { hash, dash, slash, rust } = syntaxOf(path);
   const code: string[] = [];
   let block = false;
   for (let n = from; n <= to; n++) {
@@ -569,7 +554,7 @@ function codeLines(lines: string[], from: number, to: number, path: string): str
         out += " ".repeat(text.length - i);
         break;
       }
-      if (opensQuote(text, i, ext === "rs")) quote = ch;
+      if (opensQuote(text, i, rust)) quote = ch;
       out += ch;
     }
     code[n - 1] = out;
