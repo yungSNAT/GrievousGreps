@@ -355,11 +355,11 @@ function serviceGone(top: string, f: Found, env: NodeJS.ProcessEnv): boolean {
  * scan the CLI's source until `deadline` (default: WIDE_SCAN_MS from now). A check that throws or runs out of time is
  * not gone, and a scan past its deadline caches nothing.
  */
-export function wideGone(skill: ParsedSkill, checkout: string, env: NodeJS.ProcessEnv = process.env, opts: { scan: boolean; deadline?: number } = { scan: false }): WideAnchor[] {
+export function wideGone(skill: ParsedSkill, checkout: string, env: NodeJS.ProcessEnv = process.env, opts?: { scan: boolean; deadline?: number }): WideAnchor[] {
   const out: WideAnchor[] = [];
   if (!checkout) return out;
   const top = resolve(checkout);
-  const deadline = opts.deadline ?? Date.now() + WIDE_SCAN_MS;
+  const deadline = opts?.deadline ?? Date.now() + WIDE_SCAN_MS;
   const names = new Map<string, string[] | null>();
   let ci: CiFolder | undefined;
   const folder = () => (ci ??= ciFolder(top, deadline));
@@ -376,7 +376,7 @@ export function wideGone(skill: ParsedSkill, checkout: string, env: NodeJS.Proce
       else if (f.kind === 'service' && serviceGone(top, f, env)) out.push(plain(f));
       else if (f.kind === 'subcommand' && f.cli && !isSparse()) {
         const key = `${f.cli.pkgDir}\0${f.cli.prog}`;
-        if (!names.has(key)) names.set(key, cliNames(f.cli, top, env, { scan: opts.scan, deadline }));
+        if (!names.has(key)) names.set(key, cliNames(f.cli, top, env, { scan: opts?.scan ?? false, deadline }));
         if (subcommandGone(names.get(key)!, f.name)) out.push(plain(f));
       }
     } catch { /* not sure */ }

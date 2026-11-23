@@ -1,0 +1,4 @@
+[trail] tokens saved ≈ 53 (71%) at most, against reading the 1 file(s) whole
+
+handleOrder · function · src/order.ts:L9-L12 · calls →
+  src/order.ts: processOrder L4
