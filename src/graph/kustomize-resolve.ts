@@ -220,6 +220,8 @@ export function linkKustomize(ctx: Context): DeployedView {
   const deployedLabels = new Map<string, Labels[]>();
   /** Per root: the objects it builds by kind, namespace and each name a reference may use (as written, as built, or any name between). */
   const byName = new Map<KustomizeRef, Map<string, Set<string>>>();
+  /** Generated ConfigMaps and Secrets in `byName`. */
+  const made = new Set<string>();
   // An object a build reaches many ways (a diamond of includes) is recorded once per root, namespace and built name.
   const seen = new Set<string>();
   const once = (key: string) => !seen.has(key) && !!seen.add(key);
@@ -235,7 +237,6 @@ export function linkKustomize(ctx: Context): DeployedView {
     const names = new Map<string, Set<string>>();
     byName.set(root, names);
     for (const m of built) {
-      if (m.generated) continue;
       const key = `${m.kind}/${m.cur.ns}/${m.cur.name}`;
       if (!once(`n\0${m.id}\0${root.from}\0${key}`)) continue;
       const known = new Set([m.cur.name]);
@@ -244,6 +245,11 @@ export function linkKustomize(ctx: Context): DeployedView {
         const ids = names.get(`${m.kind}\0${m.cur.ns}\0${n}`);
         if (ids) ids.add(m.id);
         else names.set(`${m.kind}\0${m.cur.ns}\0${n}`, new Set([m.id]));
+      }
+      // A generated object is named here, so a reference to it finds nothing else; its links come from the generator pass.
+      if (m.generated) {
+        made.add(m.id);
+        continue;
       }
       if (once(`p\0${m.id}\0${root.from}\0${m.cur.ns}`)) pushTo(placedAt, m.id, { root, ns: m.cur.ns });
       if (once(`d\0${m.id}\0${key}`)) pushTo(deployedObjects, key, m.id);
@@ -254,8 +260,11 @@ export function linkKustomize(ctx: Context): DeployedView {
       if (m.generated) continue;
       for (const r of refsFrom.get(m.id) ?? []) {
         if (r.to !== "object") continue;
-        const n = names.get(`${r.kind}\0${m.cur.ns}\0${r.name}`)?.size ?? 0;
-        if (n > 1) report(root, `ambiguous name ${r.kind} ${r.name}, not linked: ${n} objects`);
+        const at = `${r.kind}\0${m.cur.ns}\0${r.name}`;
+        const ids = names.get(at);
+        // Each name is checked once; a tie among generated objects only is the generator pass's to report.
+        if (!ids || ids.size < 2 || !once(`a\0${root.from}\0${at}`)) continue;
+        if ([...ids].some((id) => !made.has(id))) report(root, `ambiguous name ${r.kind} ${r.name}, not linked: ${ids.size} objects`);
       }
     }
   }
@@ -386,7 +395,7 @@ export function linkKustomize(ctx: Context): DeployedView {
         // Kustomize renames a reference to an object of the same build to that object's built name; 2 or more such objects were reported.
         const same = byName.get(root)?.get(`${kind}\0${d}\0${name}`);
         if (same) {
-          if (same.size === 1) for (const id of same) out.add(id);
+          if (same.size === 1) for (const id of same) if (!made.has(id)) out.add(id);
         } else if (!deployed(from, kind, d, name, out)) return [];
       }
       return [...out];

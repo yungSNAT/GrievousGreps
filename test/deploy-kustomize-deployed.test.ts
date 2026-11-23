@@ -330,3 +330,16 @@ test("generated overlay trees: no reference or generator edge joins 2 sibling bu
     assert.deepEqual(crossing.map((e) => `${e.source} -> ${e.target}`), [], `tree ${tree}: ${JSON.stringify(files)}`);
   }
 });
+
+test("a reference a generator of its own build answers links no namesake deployed elsewhere", async () => {
+  await withBuild({
+    "prod/kustomization.yaml": "resources: [ deployment.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=b ] } ]\n",
+    "prod/deployment.yaml": DEPLOYMENT,
+    "legacy/configmap.yaml": configMap("app-config"),
+    "blue/kustomization.yaml": "resources: [ configmap.yaml ]\n",
+    "blue/configmap.yaml": configMap("app-config"),
+  }, ({ graph }) => {
+    const from = refs(graph).filter((e) => e.startsWith("prod/deployment.yaml") && e.includes("app-config"));
+    assert.deepEqual(from.map((e) => e.replace(/ \(inferred\)$/, "")), ["prod/deployment.yaml#Deployment/default/api -> prod/kustomization.yaml#configMapGenerator:app-config"]);
+  });
+});
