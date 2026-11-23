@@ -226,6 +226,44 @@ jobs:
           cargo test --locked
           cargo build --locked --release
 
+  # rust/gg-query, the staged native Rust query engine (SQLite graph store + F16 Model2Vec).
+  gg-query:
+    name: gg-query (${{ matrix.os }})
+    needs: [changes]
+    if: ${{ !cancelled() }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          persist-credentials: false
+      # rustup installs the toolchain pinned in rust/gg-query/rust-toolchain.toml.
+      - name: Install the toolchain
+        if: needs.changes.outputs.docs_only != 'true'
+        working-directory: rust/gg-query
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          workspaces: rust/gg-query
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check the crate
+        if: needs.changes.outputs.docs_only != 'true'
+        working-directory: rust/gg-query
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
+
   # The upload runs apart from the tests so the OIDC token is never available
   # while test code runs.
   codecov:

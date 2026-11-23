@@ -1,0 +1,29 @@
+{
+  "query": "computeTotal",
+  "matches": [
+    {
+      "symbol": {
+        "id": "src/math.ts#computeTotal",
+        "name": "computeTotal",
+        "kind": "function",
+        "path": "src/math.ts",
+        "span": "L5-L8"
+      },
+      "hits": [
+        {
+          "id": "src/order.ts#OrderService.processOrder",
+          "relation": "calls",
+          "depth": 1,
+          "name": "processOrder",
+          "kind": "method",
+          "path": "src/order.ts",
+          "span": "L4-L6"
+        }
+      ]
+    }
+  ],
+  "saved": {
+    "files": 2,
+    "baselineChars": 532
+  }
+}
