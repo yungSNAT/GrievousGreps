@@ -23,8 +23,8 @@ const STOP_WORDS: &[&str] = &[
     "where", "which", "why", "with",
 ];
 
-fn is_stop_word(token: &str) -> bool {
-    STOP_WORDS.binary_search(&token).is_ok()
+fn is_stop_word(term: &str) -> bool {
+    STOP_WORDS.binary_search(&term).is_ok()
 }
 
 fn is_lower_or_num(ch: char) -> bool {

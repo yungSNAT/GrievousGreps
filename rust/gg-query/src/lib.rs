@@ -7,6 +7,8 @@ pub mod format;
 pub mod graph;
 pub mod graphrank;
 pub mod query;
+pub mod query_ask;
 pub mod store;
+mod store_ask;
 pub mod tokenize;
 pub mod vectors;

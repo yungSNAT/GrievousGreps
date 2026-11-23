@@ -1,8 +1,12 @@
 //! Full native `ask` engine (structural + lexical BM25/PPR + semantic RRF hybrid)
 //! and `skeleton` view, matching `src/ask/ask.ts`.
 
+pub mod concepts;
 pub mod format;
 pub mod lexical;
+pub mod multi_scope;
+pub mod scoring;
+pub mod semantic;
 pub mod skeleton;
 pub mod structural;
 
@@ -13,13 +17,12 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::embed::SafetensorsEmbedder;
 use crate::graph::{
-    Savings, is_deploy_file, normalize_path_prefix, path_under_prefix, safe_resolve_inside,
-    scope_of, scopes_here_clause, serialize_js_f64, serialize_opt_js_f64, span_range,
+    Savings, is_deploy_file, normalize_path_prefix, safe_resolve_inside, scopes_here_clause,
+    serialize_js_f64, serialize_opt_js_f64,
 };
 use crate::store::GraphStore;
-use crate::vectors::{DenseFile, FuseHit, dense_files, fuse_by_file, read_vectors};
+use crate::vectors::FuseHit;
 
 pub use format::format_ask;
 pub use skeleton::{SkeletonEntry, SkeletonResult, format_skeleton, run_skeleton};
@@ -139,17 +142,23 @@ pub fn discover_model_dir(explicit: Option<&Path>, repo: &Path) -> Option<PathBu
         return is_valid_model_dir(d).then(|| d.to_path_buf());
     }
     let rel = Path::new("models").join("potion-code-16M-v2");
-    if let Ok(exe) = env::current_exe() {
-        for ancestor in exe.ancestors().skip(1).take(6) {
+    for base in [
+        Some(repo.to_path_buf()),
+        env::current_dir().ok(),
+        env::args_os()
+            .next()
+            .map(PathBuf::from)
+            .and_then(|p| p.parent().map(Path::to_path_buf)),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for ancestor in base.ancestors().take(6) {
             let cand = ancestor.join(&rel);
             if is_valid_model_dir(&cand) {
                 return Some(cand);
             }
         }
-    }
-    let repo_cand = repo.join(&rel);
-    if is_valid_model_dir(&repo_cand) {
-        return Some(repo_cand);
     }
     None
 }
@@ -251,168 +260,6 @@ fn hit_files(hits: &[AskHit]) -> Vec<String> {
     files.into_iter().collect()
 }
 
-fn with_semantic(
-    mut result: AskResult,
-    store: &GraphStore,
-    out_dir: &Path,
-    query: &str,
-    limit: usize,
-    in_prefix: Option<&str>,
-    model_dir: &Path,
-) -> Result<AskResult, String> {
-    let skip = |mut res: AskResult, why: String| -> AskResult {
-        let line = format!("semantic ranking skipped: {why}");
-        res.note = match res.note {
-            Some(prev) => Some(format!("{prev}\n{line}")),
-            None => Some(line),
-        };
-        res
-    };
-
-    let index = match read_vectors(out_dir) {
-        Ok(Some(idx)) => idx,
-        Ok(None) => {
-            return Ok(skip(
-                result,
-                "no vectors yet — run `trail build`".to_string(),
-            ));
-        }
-        Err(e) => return Ok(skip(result, e.to_string())),
-    };
-    let mut emb = match SafetensorsEmbedder::open(model_dir, false) {
-        Ok(e) => e,
-        Err(e) => return Ok(skip(result, format!("the model is unreadable ({e})"))),
-    };
-    let qvec = match emb.embed(query) {
-        Ok(v) => v,
-        Err(e) => return Ok(skip(result, format!("the model is unreadable ({e})"))),
-    };
-
-    let scopes = store.scopes().map_err(|e| e.to_string())?;
-    let scopes_in_range = if let Some(prefix) = in_prefix {
-        let nodes = store.all_nodes_lite().map_err(|e| e.to_string())?;
-        let distinct: HashSet<&str> = nodes
-            .iter()
-            .filter(|n| n.kind == "file" && path_under_prefix(&n.path, prefix))
-            .map(|n| scope_of(&n.path, &scopes))
-            .collect();
-        distinct.len()
-    } else {
-        scopes.len()
-    };
-
-    let mut admitted: HashSet<String> = HashSet::new();
-    if let Some(ref sc) = result.scopes {
-        for f in &sc.federated {
-            admitted.insert(f.clone());
-        }
-    }
-    for h in &result.hits {
-        if let Some(ref sc) = h.scope {
-            admitted.insert(sc.clone());
-        }
-    }
-
-    let dense = dense_files(&index, &qvec, |p| {
-        let in_r = in_prefix.is_none_or(|pref| path_under_prefix(p, pref));
-        in_r && (scopes_in_range < 2 || admitted.contains(scope_of(p, &scopes)))
-    });
-    if dense.is_empty() {
-        return Ok(result);
-    }
-
-    let scoped = result.hits.iter().any(|h| h.scope.is_some());
-    let hits = fuse_by_file(&result.hits, &dense, limit, |d| {
-        build_dense_hit(store, d, &scopes, scoped)
-    });
-
-    if result.mode != AskMode::Empty || hits.is_empty() {
-        result.hits = hits;
-        return Ok(result);
-    }
-    let cleaned_note = result.note.and_then(|n| {
-        let kept: Vec<&str> = n
-            .lines()
-            .filter(|l| !l.starts_with("no matching nodes"))
-            .collect();
-        if kept.is_empty() {
-            None
-        } else {
-            Some(kept.join("\n"))
-        }
-    });
-    result.hits = hits;
-    result.mode = AskMode::Lexical;
-    result.coverage = Some(0.0);
-    result.coverage_strong = Some(0.0);
-    result.note = cleaned_note;
-    Ok(result)
-}
-
-fn build_dense_hit(
-    store: &GraphStore,
-    d: &DenseFile,
-    scopes: &[crate::graph::ScopeV1],
-    scoped: bool,
-) -> AskHit {
-    let best = store.nodes_by_path(&d.path).ok().and_then(|nodes| {
-        let mut chosen: Option<(crate::graph::NodeV1, usize)> = None;
-        for n in nodes {
-            if n.kind == "file" {
-                continue;
-            }
-            let Some((start, end)) = span_range(&n.span) else {
-                continue;
-            };
-            if start > d.start || end < d.start {
-                continue;
-            }
-            let size = end - start;
-            if chosen.as_ref().is_none_or(|(_, best_sz)| size < *best_sz) {
-                chosen = Some((n, size));
-            }
-        }
-        chosen.map(|(n, _)| n)
-    });
-
-    let scope = scoped.then(|| scope_of(&d.path, scopes).to_string());
-    match best {
-        Some(n) => {
-            let snippet = n
-                .summary
-                .as_deref()
-                .and_then(|s| s.lines().next())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .or(n.signature)
-                .unwrap_or_default();
-            AskHit {
-                kind: "symbol".to_string(),
-                title: format!("{} · {}", n.name, n.kind),
-                pointer: format!("{}:{}", n.path, n.span),
-                snippet,
-                relation: None,
-                related: None,
-                score: d.score,
-                code: None,
-                scope,
-            }
-        }
-        None => AskHit {
-            kind: "symbol".to_string(),
-            title: format!("{} · file", d.path),
-            pointer: format!("{}:L{}-L{}", d.path, d.start, d.end),
-            snippet: String::new(),
-            relation: None,
-            related: None,
-            score: d.score,
-            code: None,
-            scope,
-        },
-    }
-}
-
 /// Answer a query from the SQLite graph store and optional semantic vectors.
 pub fn run_ask(
     repo: &Path,
@@ -492,7 +339,7 @@ pub fn run_ask(
         && result.mode != AskMode::Structural
         && let (Some(s), Some(mdir)) = (store.as_ref(), model_dir.as_deref())
     {
-        result = with_semantic(result, s, out_dir, query, opts.limit, in_ref, mdir)?;
+        result = semantic::with_semantic(result, s, out_dir, query, opts.limit, in_ref, mdir)?;
     }
 
     if result.hits.len() > opts.limit {
