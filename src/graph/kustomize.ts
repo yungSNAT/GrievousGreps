@@ -154,7 +154,7 @@ export function linkKustomize(ctx: Context): void {
   const ks = all.filter((k) => !refused.has(k.dir));
   const byDir = new Map(ks.map((k) => [k.dir, k]));
   for (const k of ks) {
-    if (k.unread.length) report(k, `fields not read: ${k.unread.join(", ")}`);
+    for (const f of k.unread) report(k, `${f} not read`);
     for (const f of k.unapplied) report(k, `${f} not applied to references, which link objects as written`);
   }
   const objectsIn = new Map<string, NodeV1[]>();

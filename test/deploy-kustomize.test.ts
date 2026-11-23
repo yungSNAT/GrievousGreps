@@ -129,14 +129,17 @@ test("a file named kustomization.yaml that holds Kubernetes objects, a Flux Kust
   });
 });
 
-test("an extensionless Kustomization that is not one stays unread, a git:: address never names a local folder, and a CR-only inline patch is not a path", () => {
+test("an extensionless Kustomization that is not one stays unread, a git:: or drive path never names a local one, a CR-only inline patch is not a path, and each unread field has its own report", () => {
   const { edges, skipped } = resolveFiles({
     "app/deploy.yaml": DEPLOYMENT,
     "cm/Kustomization": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n",
-    "g/kustomization.yaml": 'resources: [ "git::https://github.com/o/r//p", "git::github.com/o/r", "git::github.com/o/r/d.yaml", "C:/k8s/base" ]\npatchesStrategicMerge:\n  - "apiVersion: v1\\rkind: ConfigMap\\rmetadata:\\r  name: x\\rdata:\\r  k: SENTINEL7"\n  - "kind: ConfigMap\\Ldata:\\L  k: SENTINEL8"\n  - "kind: ConfigMap\\Pdata:\\P  k: SENTINEL9"\n  - "kind: ConfigMap\\Ndata:\\N  k: SENTINELA"\n',
+    "g/kustomization.yaml": 'resources: [ "git::https://github.com/o/r//p", "git::github.com/o/r", "git::github.com/o/r/d.yaml", "C:/k8s/base" ]\npatchesStrategicMerge:\n  - "apiVersion: v1\\rkind: ConfigMap\\rmetadata:\\r  name: x\\rdata:\\r  k: SENTINEL7"\n  - "kind: ConfigMap\\Ldata:\\L  k: SENTINEL8"\n  - "kind: ConfigMap\\Pdata:\\P  k: SENTINEL9"\n  - "kind: ConfigMap\\Ndata:\\N  k: SENTINELA"\n  - GIT::github.com/o/r/d.yaml\n  - C:\\k8s\\p.yaml\n',
     "g/git::https:/github.com/o/r/p/kustomization.yaml": "resources: []\n",
     "g/git::github.com/o/r/kustomization.yaml": "resources: [ d.yaml ]\n",
     "g/git::github.com/o/r/d.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: local }\n",
+    "g/GIT::github.com/o/r/d.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: upper }\n",
+    "g/C:\\k8s\\p.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: drive }\n",
+    "u/kustomization.yaml": "helmCharts: [ x ]\nhelmChartInflationGenerator: [ x ]\ngenerators: [ x ]\ntransformers: [ x ]\nreplacements: [ x ]\nvars: [ x ]\ncrds: [ x ]\nconfigurations: [ x ]\ncommonLabels: [ x ]\nlabels: [ x ]\n",
   });
   assert.deepEqual(edges.filter((e) => e.target.startsWith("cm/") || e.source === "g/kustomization.yaml#kustomization"), []);
   assert.deepEqual(skipped.filter((s) => s.path === "g/kustomization.yaml").map((s) => s.reason), [
@@ -145,7 +148,10 @@ test("an extensionless Kustomization that is not one stays unread, a git:: addre
     "resources github.com/o/r not followed: remote",
     "resources github.com/o/r/d.yaml not followed: remote",
     "resources C:/k8s/base not followed: outside the repository",
+    "patch github.com/o/r/d.yaml not followed: remote",
+    "patch C:\\k8s\\p.yaml not followed: outside the repository",
   ]);
+  assert.deepEqual(skipped.filter((s) => s.path === "u/kustomization.yaml").map((s) => s.reason), ["helmCharts not read", "helmChartInflationGenerator not read", "generators not read", "transformers not read", "replacements not read", "vars not read", "crds not read", "configurations not read", "commonLabels not read", "labels not read"]);
   assert.ok(!/SENTINEL/.test(JSON.stringify(skipped)));
 });
 
@@ -244,7 +250,7 @@ patches:
     assert.ok(!/tok3n|SEKRET/.test(JSON.stringify(result.skipped)));
     assert.deepEqual(reasons("dup/kustomization.yaml"), ["not read: Kustomize refuses a folder with more than one kustomization file"]);
     assert.deepEqual(reasons("dup/Kustomization"), ["not read: Kustomize refuses a folder with more than one kustomization file"]);
-    assert.deepEqual(reasons("helm/kustomization.yaml"), ["fields not read: helmCharts, commonLabels"]);
+    assert.deepEqual(reasons("helm/kustomization.yaml"), ["helmCharts not read", "commonLabels not read"]);
     assert.deepEqual([...reasons("loop1/kustomization.yaml"), ...reasons("loop2/kustomization.yaml")], ["cycle: loop2 includes loop1, which leads back to it"]);
     const m = reasons("many/kustomization.yaml");
     assert.equal(m.length, 21);
