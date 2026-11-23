@@ -104,8 +104,8 @@ test("Terraform: a plain path, a duplicate address, a module outside the reposit
   await withBuild({
     "live/main.tf": `module "app" {\n  source = "../mods/app"\n}\n\nmodule "far" {\n  source = "../../elsewhere"\n}\n\ndata "archive_file" "root" {\n  source_dir = "../src"\n}\n\ndata "archive_file" "out" {\n  source_dir = "\${path.module}/../../x"\n}\n`,
     "mods/app/main.tf": `data "archive_file" "child" {\n  source_dir = "src"\n}\n\nresource "x_y" "dup" {\n  a = x_z.one.id\n}\n`,
-    "mods/app/more.tf": `resource "x_z" "one" {\n  b = 1\n}\n`,
-    "mods/app/again.tf": `resource "x_z" "one" {\n  b = 2\n}\n`,
+    "mods/app/more.tf": `resource "x_z" "one" {\n  b = 1\n}\n\nresource "x_q" "unused" {\n  b = 1\n}\n`,
+    "mods/app/again.tf": `resource "x_z" "one" {\n  b = 2\n}\n\nresource "x_q" "unused" {\n  b = 2\n}\n`,
     "mods/app/src/a.py": "def a():\n    return 1\n",
     "src/b.py": "def b():\n    return 2\n",
     "broken/main.tf": `resource "x" "y" {\n  a = \n`,
@@ -122,8 +122,14 @@ test("Terraform: a plain path, a duplicate address, a module outside the reposit
     ]);
     assert.deepEqual(reportsFor(result, "mods/app/main.tf"), [
       "data.archive_file.child: a path not written from path.module is not followed",
-      "x_z.one is declared in more than one file of mods/app (override files are not merged): references to it give no link",
     ]);
+    // Reported at each declaration, whether or not anything references it.
+    for (const file of ["mods/app/again.tf", "mods/app/more.tf"]) {
+      assert.deepEqual(reportsFor(result, file), [
+        "x_q.unused is declared in more than one file of mods/app (override files are not merged): references to it give no link",
+        "x_z.one is declared in more than one file of mods/app (override files are not merged): references to it give no link",
+      ]);
+    }
     assert.ok(result.skipped.some((s) => s.path === "broken/main.tf" && /not valid HCL at line \d+/.test(s.reason)), JSON.stringify(result.skipped));
   });
 });
@@ -194,7 +200,6 @@ resource "x_r" "uses" {
   }, ({ result, graph }) => {
     assert.deepEqual(tfLinks(graph), [
       "infra/main.tf#x_r.uses -> infra/main.tf#aws_vpc.main",
-      "infra/main.tf#x_r.uses -> infra/main.tf#data.terraform_remote_state.net",
     ]);
     assert.deepEqual(reportsFor(result, "infra/main.tf"), [
       "aws_ecs_task_definition.t: an image named by an expression is not linked",
@@ -204,6 +209,7 @@ resource "x_r" "uses" {
       "aws_security_group.sg: a dynamic block is not read",
       "data.terraform_remote_state.net: another state's outputs are not followed",
       "module.git: a module source that is not a local folder is not read",
+      "x_r.uses: a reference to data.terraform_remote_state.net, another state's outputs, gives no link",
     ]);
   });
 });

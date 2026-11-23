@@ -716,15 +716,20 @@ function linkTerraform(nodes: NodeV1[], refs: DeployRef[], add: (source: string,
     if (from === undefined) continue;
     if (r.to === "tfnote") report(from, r.note);
     else if (r.to === "tf") {
+      // An address declared more than once is reported below, referenced or not.
       const found = blocks.get(`${r.dir}\0${r.address}`) ?? [];
-      if (found.length > 1) report(from, `${r.address} is declared in more than one file of ${r.dir} (override files are not merged): references to it give no link`);
-      else if (found.length === 1 && counted.has(found[0])) report(pathOf.get(found[0])!, `${r.address} has count or for_each: references to it give no link`);
+      if (found.length === 1 && counted.has(found[0])) report(pathOf.get(found[0])!, `${r.address} has count or for_each: references to it give no link`);
       else if (found.length === 1) add(r.from, found[0]);
     } else if (r.to === "tfmodule") {
       const tf = files.get(r.dir) ?? [];
       if (!tf.length) report(from, `module source ${r.dir} has no .tf files read`);
       for (const file of tf) add(r.from, file);
     } else if (r.to === "tfpath") expand(r.from, r.path);
+  }
+  for (const [key, ids] of blocks) {
+    if (ids.length < 2) continue;
+    const [dir, name] = key.split("\0");
+    for (const id of ids) report(pathOf.get(id)!, `${name} is declared in more than one file of ${dir} (override files are not merged): references to it give no link`);
   }
   for (const [path, n] of reports) if (n > MAX_TF_REPORTS) skipped.push({ path, reason: `and ${n - MAX_TF_REPORTS} more Terraform reports` });
 }

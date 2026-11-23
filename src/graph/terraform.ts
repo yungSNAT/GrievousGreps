@@ -186,7 +186,8 @@ function readBlock(block: TsNode): TerraformBlock | string | null {
       const length = bound.has(t.names[0]) ? 0 : addressLength(t.names);
       if (!length) continue;
       const to = t.names.slice(0, length).join(".");
-      if (t.names.length === length && t.indexed) notes.add(`${address}: an indexed or splat reference to ${to} gives no link`);
+      if (t.names[0] === "data" && t.names[1] === "terraform_remote_state") notes.add(`${address}: a reference to ${to}, another state's outputs, gives no link`);
+      else if (t.names.length === length && t.indexed) notes.add(`${address}: an indexed or splat reference to ${to} gives no link`);
       else if (to !== address) addresses.add(to);
     }
     if (n.type === "attribute" || n.type === "object_elem") {
