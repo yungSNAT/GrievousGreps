@@ -54,6 +54,6 @@ export function mcpInstructions(): string {
     '- graft_file_api — a file\'s whole API in ~200 tokens.',
     '- graft_repo_map — orientation in an unfamiliar repo.',
     '',
-    'The graph refreshes before each query, so results reflect uncommitted edits. Each answer opens with `index: fresh`, or `index: stale (...)` when the graph could not be brought up to date: then the answer may miss those edits.',
+    'Answers open with `index: fresh`, or `index: stale (...)` if the graph lags your edits.',
   ].join('\n'));
 }

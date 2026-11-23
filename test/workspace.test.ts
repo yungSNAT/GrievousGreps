@@ -628,7 +628,8 @@ test("workspace map --json gives each repository's own map, paths prefixed, and 
     assert.deepEqual(out.repos.map((x: { repo: string }) => x.repo), ["repoA"]);
     assert.deepEqual(out.missing, ["repoB"]);
     assert.match(r.stderr, /1 of 2 workspace repos have graphs.*repoB/);
-    const own = JSON.parse(map(join(p, "repoA")).stdout);
+    const { index, ...own } = JSON.parse(map(join(p, "repoA")).stdout);
+    assert.deepEqual(index, { state: "fresh" }, "a repository's own map says its graph is current");
     assert.ok(own.hotspots.length > 0 && own.dirs.length > 0);
     const unprefix = (s: string) => s.replace(/"path": "repoA\//g, '"path": "');
     assert.ok(!/"path": "(?!repoA\/)/.test(JSON.stringify(out.repos[0].map, null, 1)), "every path is prefixed");
