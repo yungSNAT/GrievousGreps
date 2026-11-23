@@ -575,13 +575,16 @@ export async function buildGraph(
   });
 
   const unresolvedCalls: UnresolvedCallV1[] = [];
+  const routeNodes: NodeV1[] = [];
   const edges = resolveEdges(nodes, rawEdges, {
     goModules: readGoModules(root, repoFiles),
     pythonRoots: readPythonRoots(root, repoFiles),
     ...readRustCrates(root, repoFiles, errors),
     ...readTsImports(root, repoFiles),
     unresolvedCalls,
+    routeNodes,
   });
+  for (const n of routeNodes) nodes.push(n);
   const deployment = resolveDeploy(nodes, deployRefs, (path) => existsSync(join(root, path)));
   for (const edge of deployment.edges) edges.push(edge);
   for (const file of deployment.skipped) skipped.push(file);

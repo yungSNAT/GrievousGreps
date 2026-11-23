@@ -10,7 +10,7 @@ import { basename } from "node:path";
 import { contentHash } from "../util/id.js";
 import { collectBindings, goLiteralScope, goReceiverVarOf, goTypeName, resolveRecvType, type FileBindings, type PythonField } from "./bindings.js";
 import { parseDepth, type SyntaxNode } from "./depth-parser.js";
-import { extractRoutes } from "./routes.js";
+import { extractRoutes, type RouteFacts } from "./routes.js";
 import type { Kind, NodeV1, Relation } from "./types.js";
 
 export type Language = "typescript" | "tsx" | "python" | "go" | "java" | "kotlin" | "swift" | "php" | "r";
@@ -111,6 +111,9 @@ export interface RawEdge {
   /** A Python file's module-level names, so resolve.ts can follow a re-export. Only on
    * the file's one export-table edge, which is not itself a graph edge. */
   pythonExports?: PythonExports;
+  /** A file's routers, mounts and unplaced routes, for route-mounts.ts to place once imports resolve. Only on the
+   * file's one route-facts edge, which is not itself a graph edge. */
+  routeFacts?: RouteFacts;
   /** calls: what a Rust call's syntax says its target is, for a call with no type path. */
   rustForm?: "free" | "method" | "macro";
   /** calls: the crate a Rust path call starts in, when not this one. resolve.ts drops
@@ -622,6 +625,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   const routes = extractRoutes(root, { rel, lang, nodes, importedSymbols, goImports, mint: (base) => mintId(base, minted) });
   for (const n of routes.nodes) nodes.push(n);
   for (const e of routes.edges) rawEdges.push(e);
+  if (routes.facts) rawEdges.push({ source: rel, relation: "imports", file: rel, routeFacts: routes.facts });
   if (pythonExports) rawEdges.push({ source: rel, relation: "imports", file: rel, pythonExports });
   for (const [scope, fields] of bindings.fields) {
     const each = [...fields].flatMap(([attr, list]) => list.map((field): [string, PythonField] => [attr, field]));

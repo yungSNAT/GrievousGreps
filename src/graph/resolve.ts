@@ -20,6 +20,8 @@ import { PythonModules } from "./python-roots.js";
 import type { PythonField } from "./bindings.js";
 import { genericLangOf } from "./generic.js";
 import { containerLangOf } from "./container.js";
+import { isJs, mountedRoutes } from "./route-mounts.js";
+import type { RouteFacts } from "./routes.js";
 
 const IMPORT_EXTS = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".py"];
 /** C/C++ source + header extensions, for resolving `#include` targets. */
@@ -145,6 +147,8 @@ export interface ResolveOptions {
   pythonRoots?: string[];
   /** Filled with the Python calls an import names but no edge carries. */
   unresolvedCalls?: UnresolvedCallV1[];
+  /** Filled with the route nodes a router mounted from another file gives (route-mounts.ts); without it none are made. */
+  routeNodes?: NodeV1[];
 }
 
 export function resolveEdges(
@@ -507,7 +511,34 @@ export function resolveEdges(
   );
   const pythonCtx: PythonCtx = { modules: pythonModules, perFileName, exports: pythonExports, ownerMethod, classParents, classTraits };
 
-  for (const e of rawEdges) {
+  const routeFacts = new Map<string, RouteFacts>();
+  for (const e of rawEdges) if (e.routeFacts) routeFacts.set(e.file, e.routeFacts);
+  const mounted = opts.routeNodes && routeFacts.size ? mountedRoutes(routeFacts, {
+    module: (specifier, file) => {
+      if (isJs(file)) {
+        const target = tsModuleOf(specifier, file, tsCtx);
+        return typeof target !== "string" && "module" in target ? target.module : null;
+      }
+      const module = pythonModules.resolve(specifier, toPosixPath(file));
+      return module === "external" || module === "ambiguous" ? null : module;
+    },
+    submodule: (module, name) => pythonModules.submodule(module, name),
+    imported: (file, local) => {
+      const python = (pythonExports.get(file)?.imports ?? []).filter((i) => i.local === local);
+      const bound = python.length ? python : (tsModules.get(file)?.imports ?? []).filter((i) => i.local === local);
+      return bound.length === 1 && !("conditional" in bound[0] && bound[0].conditional) ? { specifier: bound[0].specifier, name: bound[0].name } : null;
+    },
+    exported: (file, name) => {
+      const table = tsModules.get(file);
+      const forwarded = table?.reexports.find((r) => r.exported === name);
+      if (forwarded) return forwarded.name === "*" ? null : { specifier: forwarded.specifier, name: forwarded.name };
+      const listed = table?.exports.find((x) => x.exported === name);
+      return listed ? { local: listed.local } : null;
+    },
+  }, (id) => byId.has(id)) : null;
+  if (mounted) opts.routeNodes!.push(...mounted.nodes);
+
+  for (const e of mounted ? [...rawEdges, ...mounted.edges] : rawEdges) {
     if ((e.relation === "contains" || e.relation === "references") && e.targetId) {
       add(e.source, e.targetId, e.relation, "extracted");
     } else if (e.relation === "imports" && e.specifier) {
