@@ -854,12 +854,16 @@ function afterAsk(r: AskResult, repo: string, savedTokens?: number): void {
   if (!r.notesChecked) return;
   rememberRepo(repo);
   maybeRefreshBranches(repo);
-  const me = noteAuthor(repo);
-  const shown = r.notes ?? [];
-  if (shown.length) {
-    for (const h of shown) h.note.teammate = !!h.note.author && !!me && h.note.author !== me;
-  }
+  markTeammates(r, repo);
   maybeSyncInBackground(repo);
+}
+
+/** Label each learning shown that a teammate wrote; read when the answer is rendered. */
+function markTeammates(r: AskResult, repo: string): void {
+  const shown = r.notes ?? [];
+  if (!shown.length) return;
+  const me = noteAuthor(repo);
+  for (const h of shown) h.note.teammate = !!h.note.author && !!me && h.note.author !== me;
 }
 
 grouped(program.command("ask"), GROUP.find)
@@ -904,6 +908,8 @@ grouped(program.command("ask"), GROUP.find)
       return;
     }
     noteHit(r.hits.length > 0);
+    // A budgeted answer is rendered here, so its learnings are labelled first.
+    if (TRAIL && maxTokens !== undefined && r.notesChecked) markTeammates(r, dir);
     const fitted = maxTokens === undefined ? undefined : budgetAsk(r, maxTokens);
     // Teammates' branches on the same files, and the learnings shown, counted as a use.
     if (TRAIL) afterAsk(fitted?.result ?? r, dir, fitted?.savedTokens);
