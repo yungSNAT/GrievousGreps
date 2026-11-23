@@ -127,7 +127,7 @@ export function opensQuote(text: string, i: number, rust: boolean): boolean {
 }
 
 /** How a file writes comments, by its extension, as blast's `codeLines` reads them. */
-interface Syntax { slash: boolean; dash: boolean; hash: boolean; rust: boolean; go: boolean; js: boolean }
+interface Syntax { slash: boolean; dash: boolean; hash: boolean; rust: boolean; go: boolean; js: boolean; jsx: boolean }
 
 const JS_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]);
 
@@ -135,7 +135,8 @@ export function syntaxOf(path: string): Syntax {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   const hash = HASH_COMMENTS.has(ext);
   const dash = DASH_COMMENTS.has(ext);
-  return { hash, dash, slash: ext === "php" || (!hash && !dash), rust: ext === "rs", go: ext === "go", js: JS_EXTENSIONS.has(ext) };
+  const js = JS_EXTENSIONS.has(ext);
+  return { hash, dash, slash: ext === "php" || (!hash && !dash), rust: ext === "rs", go: ext === "go", js, jsx: ext === "jsx" || ext === "tsx" };
 }
 
 /** Where the string or block comment `open` closes at or after `i` (past its last character), or -1 when it runs past
@@ -159,13 +160,15 @@ function closeOf(text: string, i: number, open: string): number {
 const BEFORE_REGEX = new Set(["return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw", "yield", "await"]);
 
 /** Where a JavaScript regex literal starting at `text[i]` ends, past its flags, or -1 when the `/` divides the value
- * before it (a name, a number, a string or a closing bracket), closes a JSX tag (`</td>`, `/>`) or the line ends first. */
-function regexEnd(text: string, i: number): number {
-  if (text[i + 1] === ">") return -1;
+ * before it (a name, a number, a string or a closing bracket), closes a JSX tag (`</td>`, `{x} />`) or the line ends
+ * first. A `/>` starting a line ends a multi-line tag; elsewhere only a `.jsx` or `.tsx` file reads every `/>` as a
+ * tag's end, and other files read `/>/` as a regex. */
+function regexEnd(text: string, i: number, jsx: boolean): number {
   let k = i - 1;
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
+  if (text[i + 1] === ">" && (jsx || k < 0)) return -1;
   if (text[k] === "<") return -1;
-  if (k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
+  if (k >= 0 && /[\w$)\]}'"`]/.test(text[k])) {
     let s = k;
     while (s > 0 && /[\w$]/.test(text[s - 1])) s--;
     if (!BEFORE_REGEX.has(text.slice(s, k + 1))) return -1;
@@ -212,7 +215,7 @@ function codeOf(text: string, syntax: Syntax, open: string | null): { code: stri
     let from = i + 1;
     RUST_RAW.lastIndex = i;
     const raw = syntax.rust && /[bcr]/.test(ch) && !/\w/.test(text[i - 1] ?? "") ? RUST_RAW.exec(text) : null;
-    const regex = syntax.js && ch === "/" ? regexEnd(text, i) : -1;
+    const regex = syntax.js && ch === "/" ? regexEnd(text, i, syntax.jsx) : -1;
     // `\/*` is an escaped slash in a regex literal (`/\/*$/`), never a comment.
     if (syntax.slash && text.startsWith("/*", i) && text[i - 1] !== "\\") [open, from] = ["*/", i + 2];
     else if ((syntax.slash && text.startsWith("//", i)) || (syntax.dash && text.startsWith("--", i)) || (syntax.hash && ch === "#" && (i === 0 || /\s/.test(text[i - 1])))) break;
