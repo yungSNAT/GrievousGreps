@@ -42,7 +42,7 @@ function hasCall(line: string): boolean {
 function signatureLength(lines: string[]): number {
   let depth = 0;
   for (const [i, line] of lines.slice(0, 12).entries()) {
-    const text = line.trimEnd();
+    const text = codeOf(line).trimEnd();
     const body = text.endsWith("{") && !/[:<(,|&]\s*\{$/.test(text);
     for (const ch of body ? text.slice(0, -1) : text) {
       if (ch === "(" || ch === "[" || ch === "{") depth++;
@@ -51,6 +51,34 @@ function signatureLength(lines: string[]): number {
     if (depth <= 0 && (body || /(:|=>|\bdo|=)$/.test(text))) return i + 1;
   }
   return Math.min(lines.length, 6);
+}
+
+/** A line with its double-quoted and template strings and character literals emptied
+ * and any `//` comment dropped, so a bracket inside one is not counted. Each line is
+ * read on its own. */
+function codeOf(line: string): string {
+  let out = "";
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) {
+        quote = "";
+        out += ch;
+      }
+    } else if (ch === "/" && line[i + 1] === "/") break;
+    else if (ch === "'") {
+      // Only a character literal: a lone quote is a Rust lifetime or an apostrophe.
+      const lit = /^'(?:\\.|[^\\'])'/.exec(line.slice(i));
+      out += lit ? "''" : ch;
+      if (lit) i += lit[0].length - 1;
+    } else {
+      if (ch === '"' || ch === "`") quote = ch;
+      out += ch;
+    }
+  }
+  return out;
 }
 
 /**

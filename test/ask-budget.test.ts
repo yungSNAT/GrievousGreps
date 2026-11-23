@@ -63,6 +63,13 @@ test("foldCode keeps an object return type, and a call with nested generics", ()
   );
 });
 
+test("foldCode does not count a bracket inside a string or comment, and reads a Rust where clause", () => {
+  const ts = ["function f(", '  a = "{",', "  b: number, // {", "  c: number,", "  d: number,", "  e: number,", "  g: number,", "): number {", "  const x = 1;", "  const y = 2;", "  return x;", "}"];
+  assert.equal(foldCode(ts.join("\n")), [...ts.slice(0, 8), "  ⋯ 3 lines", "}"].join("\n"));
+  const rust = ["fn f<T>(x: T) -> T", "where", "    T: Clone,", "{", "    let a = 1;", "    let b = 2;", "    x.clone()", "}"];
+  assert.equal(foldCode(rust.join("\n")), [...rust.slice(0, 4), "    ⋯ 2 lines", "    x.clone()", "}"].join("\n"));
+});
+
 test("budgetAsk: text that is not ASCII is counted at a token a character", () => {
   const cjk = TS.replace("let sum = 0;", `let sum = 0; // ${"合計を計算する".repeat(20)}`);
   const r = budgetAsk(result([hit(1, cjk), hit(2, cjk), hit(3, cjk)]), 300);
