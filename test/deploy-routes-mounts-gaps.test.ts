@@ -274,6 +274,12 @@ const MODULE_FORMS: Record<string, string> = {
   okstar: "from .extra import *\nfrom .impl import bp\n",
   okset: "from .impl import bp\ndef update(o, d):\n    for k, v in d.items():\n        setattr(o, k, v)\n    return vars(o)\n",
   okannot: "from .impl import bp\nbp: object\n",
+  typealias: "from .impl import bp\ntype bp = int\n",
+  sysalias: "import sys as s\nfrom .impl import bp\ns.modules[__name__].bp = make()\n",
+  fromsys: "from sys import modules as m\nfrom .impl import bp\nm[__name__].bp = make()\n",
+  // Still routes: a method or attribute that shares a builtin's name is not the builtin.
+  okmethods: "from .impl import bp\nrows = session.exec(query)\nmodel.eval()\nobj.globals()\nlimit = cfg.vars\nflag = re.compile(p).eval\ny = obj.locals\nsetup(vars=1)\n",
+  okfromsys: "from sys import argv\nfrom .impl import bp\n",
 };
 // The mounting file's own imports, `{p}` its package.
 const MAIN_FORMS: Record<string, string> = {
@@ -304,13 +310,14 @@ const COMMONJS_FORMS: Record<string, string> = {
   destructure: "exports.r = r;\n({ exports } = other);",
   arrowthis: "exports.r = r;\nconst set = () => { this.r = x; };",
   evalwrite: "exports.r = r;\neval(\"module.exports = { r: x }\");",
-  indirecteval: "exports.r = r;\n(0, eval)(\"exports.r = x\");",
   construct: "exports.r = r;\nFunction(\"return this\")().r = x;",
   cache: "exports.r = r;\nrequire.cache[__filename].exports = { r: x };",
   arguments: "exports.r = r;\narguments[0].r = x;",
   // Still routes: a read that changes nothing, and a function's own arguments.
   okmain: "module.exports = { r };\nif (require.main === module) start();",
   okargs: "module.exports = { r };\nfunction first() { return arguments[0]; }",
+  // An indirect eval and a Function body run in global scope, where the module's exports are out of reach.
+  okindirect: "module.exports = { r };\n(0, eval)(\"exports.r = x\");\nconst isFn = (f) => f instanceof Function;",
 };
 
 test("an unmodelled binding form gives no route: a package's name, a rebound import, CommonJS exports", async () => {
@@ -340,8 +347,10 @@ test("an unmodelled binding form gives no route: a package's name, a rebound imp
   }
   await withGraph(files, (graph) => {
     assert.deepEqual(routeIds(graph), [
-      "cj_ok/m.js#route:GET /ok/w", "cj_okargs/m.js#route:GET /okargs/w", "cj_okmain/m.js#route:GET /okmain/w",
-      "md_ok/impl.py#route:GET /ok/z", "md_okannot/impl.py#route:GET /okannot/z", "md_okset/impl.py#route:GET /okset/z",
+      "cj_ok/m.js#route:GET /ok/w", "cj_okargs/m.js#route:GET /okargs/w", "cj_okindirect/m.js#route:GET /okindirect/w",
+      "cj_okmain/m.js#route:GET /okmain/w",
+      "md_ok/impl.py#route:GET /ok/z", "md_okannot/impl.py#route:GET /okannot/z", "md_okfromsys/impl.py#route:GET /okfromsys/z",
+      "md_okmethods/impl.py#route:GET /okmethods/z", "md_okset/impl.py#route:GET /okset/z",
       "md_okstar/impl.py#route:GET /okstar/z", "ms_okstar/impl.py#route:GET /okstar/z", "pk_ok/users.py#route:GET /ok/u",
     ]);
   });

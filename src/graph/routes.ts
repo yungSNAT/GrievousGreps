@@ -447,7 +447,7 @@ function isModuleExports(n: SyntaxNode | null | undefined): boolean {
  * (`MODULE_EXPORTS`) and every name, `module.exports = { a, b: c }` names its properties, and `exports.a = x` or
  * `module.exports.a = x` sets one name; `exports.a` after a replacement writes to an object no longer exported. These
  * writes, as top-level statements, are all that is modelled: any other reference to `module` or `exports`, or a
- * top-level `this` or `arguments`, `eval`, `Function` or `require.cache`, leaves the exports opaque. `require.main === module` is a read that changes nothing.
+ * top-level `this` or `arguments`, a call of `eval` or `Function`, or `require.cache`, leaves the exports opaque. `require.main === module` is a read that changes nothing.
  */
 function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
   let out: Record<string, string> | undefined;
@@ -457,9 +457,11 @@ function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
   for (const n of descendants(root)) {
     const named = n.type === "identifier" || n.type === "shorthand_property_identifier" || n.type === "shorthand_property_identifier_pattern";
     if (named && (n.text === "module" || n.text === "exports")) refs.push(n.startIndex);
-    // Ways to reach the exports no write shows: eval, the Function constructor, the require cache, and the module
-    // wrapper's `arguments` or `this` at the top level. None is ever modelled.
-    if (n.type === "identifier" && (n.text === "eval" || n.text === "Function")) refs.push(n.startIndex);
+    // Ways to reach the exports no write shows: a direct `eval(...)`, `Function(...)` or `new Function(...)`, the
+    // require cache, and the module wrapper's `arguments` or `this` at the top level. None is ever modelled.
+    const callee = n.parent?.childForFieldName(n.parent.type === "new_expression" ? "constructor" : "function");
+    const called = (n.parent?.type === "call_expression" || n.parent?.type === "new_expression") && callee?.startIndex === n.startIndex && callee.endIndex === n.endIndex;
+    if (n.type === "identifier" && called && (n.text === "eval" || n.text === "Function")) refs.push(n.startIndex);
     if (n.type === "member_expression" && n.text.replace(/\s+/g, "") === "require.cache") refs.push(n.startIndex);
     if (n.type === "this" || (n.type === "identifier" && n.text === "arguments")) {
       let p = n.parent;

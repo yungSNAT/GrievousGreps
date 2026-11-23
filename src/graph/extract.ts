@@ -1260,10 +1260,32 @@ function collectPythonExports(root: SyntaxNode): PythonExports | null {
   return out.imports.length || out.stars.length || out.all ? out : null;
 }
 
-/** Names that let code anywhere in a module bind its names at run time; `sys.modules` too. */
-const PY_DYNAMIC = new Set(["globals", "exec", "eval"]);
-/** Names that do so only in module-level code: elsewhere `setattr(obj, ...)` or `vars(o)` binds no module name. */
-const PY_DYNAMIC_TOP = new Set(["locals", "vars", "setattr", "delattr", "__getattr__", "__dict__"]);
+/** Builtins that rebind a module's names only from module-level code: elsewhere `setattr(obj, ...)` binds none. */
+const PY_DYNAMIC_TOP = new Set(["locals", "vars", "setattr", "delattr"]);
+
+/**
+ * Whether `node` lets the module bind names no count shows: `sys.modules` (through any alias of `sys`, or imported
+ * from it), a call of the bare `exec` or `eval`, the bare `globals` anywhere, and in module-level code the bare
+ * `locals`, `vars`, `setattr` or `delattr`, a `__getattr__` or a `__dict__`. An attribute (`session.exec`,
+ * `obj.vars`) or a keyword argument's name is not the builtin.
+ */
+function pythonDynamic(node: SyntaxNode, top: boolean, sys: ReadonlySet<string>): boolean {
+  if (node.type === "attribute") {
+    const object = node.childForFieldName("object");
+    return object?.type === "identifier" && sys.has(object.text) && node.childForFieldName("attribute")?.text === "modules";
+  }
+  if (node.type === "import_from_statement") {
+    return node.childForFieldName("module_name")?.text === "sys"
+      && node.namedChildren.some((c) => (c.type === "aliased_import" ? c.childForFieldName("name") : c)?.text === "modules");
+  }
+  if (node.type !== "identifier") return false;
+  if (node.text === "__getattr__" || node.text === "__dict__") return top;
+  const parent = node.parent;
+  const field = (type: string, name: string) => parent?.type === type && sameSyntaxNode(parent.childForFieldName(name), node);
+  if (field("attribute", "attribute") || field("keyword_argument", "name")) return false;
+  if (node.text === "exec" || node.text === "eval") return field("call", "function");
+  return node.text === "globals" || (top && PY_DYNAMIC_TOP.has(node.text));
+}
 
 /**
  * The exports table with {@link PythonExports.bindings}, over module-level code: every compound statement's body,
@@ -1285,9 +1307,17 @@ function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPac
     if (node) collectPythonBindingNames(node, names);
     for (const name of names) bind(name, node!.startIndex);
   };
+  // `sys` and every name `import sys as name` binds, anywhere in the file.
+  const sys = new Set(["sys"]);
+  const aliases = (node: SyntaxNode): void => {
+    for (const c of node.type === "import_statement" ? node.namedChildren : []) {
+      if (c.type === "aliased_import" && c.childForFieldName("name")?.text === "sys") sys.add(c.childForFieldName("alias")?.text ?? "sys");
+    }
+    for (const c of node.namedChildren) aliases(c);
+  };
+  aliases(root);
   const walk = (node: SyntaxNode, top: boolean): void => {
-    if (node.type === "identifier" && (PY_DYNAMIC.has(node.text) || (top && PY_DYNAMIC_TOP.has(node.text)))) dynamic = true;
-    if (node.type === "attribute" && node.text.replace(/\s+/g, "") === "sys.modules") dynamic = true;
+    if (pythonDynamic(node, top, sys)) dynamic = true;
     if (node.type === "global_statement") for (const c of node.namedChildren) bind(c.text, c.startIndex);
     const scope = node.type === "function_definition" || node.type === "class_definition" || node.type === "lambda";
     if (top) {
@@ -1296,7 +1326,6 @@ function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPac
         for (const c of node.namedChildren) bind(c.type === "aliased_import" ? c.childForFieldName("alias")?.text : c.text.split(".")[0], c.startIndex);
       } else if (node.type === "import_from_statement") {
         const module = node.childForFieldName("module_name");
-        if (module?.text === "sys") dynamic = true;
         for (const c of node.namedChildren) {
           if (c.type === "wildcard_import") starAt = c.startIndex;
           else if (!sameSyntaxNode(c, module) && (c.type === "aliased_import" || c.type === "dotted_name")) bind((c.childForFieldName("alias") ?? c).text, c.startIndex);
@@ -1304,6 +1333,11 @@ function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPac
       } else if ((node.type === "assignment" && node.childForFieldName("right")) || node.type === "augmented_assignment" || node.type === "for_statement") targets(node.childForFieldName("left"));
       else if (node.type === "named_expression") targets(node.childForFieldName("name"));
       else if (node.type === "delete_statement" || node.type === "case_pattern") targets(node);
+      else if (node.type === "type_alias_statement") {
+        // `type X = ...` or `type X[T] = ...`: the alias is the first `type` child.
+        const head = node.namedChildren[0]?.namedChildren[0];
+        targets(head?.type === "generic_type" ? head.namedChildren[0] : head);
+      }
       else if (node.type === "as_pattern") {
         const last = node.namedChildren[node.namedChildren.length - 1];
         targets(node.childForFieldName("alias") ?? last);
