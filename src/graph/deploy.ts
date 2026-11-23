@@ -18,7 +18,7 @@ import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
-import { kustomize, linkKustomize } from "./kustomize.js";
+import { kustomize, linkKustomize, type DeployedView } from "./kustomize.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize";
 
@@ -26,7 +26,9 @@ export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize"
 export interface KustomizePatch {
   path?: string;
   objects?: Array<{ kind: string; name: string; namespace?: string }>;
-  target?: { kind?: string; name?: string; namespace?: string; selector?: true };
+  /** An inline patch whose YAML does not parse: what it changes is unknown. */
+  invalid?: true;
+  target?: { kind?: string; name?: string; namespace?: string; group?: string; version?: string; selector?: true };
 }
 
 /** What a kustomization lists and transforms; resolved once every file is read. */
@@ -41,7 +43,7 @@ export interface KustomizeRef {
   suffix: string;
   namespace?: string;
   images: Array<{ name: string; newName: string }>;
-  generators: Array<{ kind: "ConfigMap" | "Secret"; name: string; id: string }>;
+  generators: Array<{ kind: "ConfigMap" | "Secret"; name: string; id: string; namespace?: string }>;
   /** Fields present that add objects or change names or selectors, which the graph does not follow. */
   unread: string[];
 }
@@ -62,6 +64,8 @@ export type DeployRef =
   | { from: string; to: "labels"; ns: string; labels: Record<string, string> }
   /** An image a workload runs (`built: false`) or a compose service builds (`built: true`). */
   | { from: string; to: "image"; image: string; built: boolean }
+  /** A Kubernetes object's apiVersion, which a Kustomize patch target may select by. */
+  | { from: string; to: "api"; apiVersion: string }
   /** An Ingress rule path and its backend Service, for the routes that Service's images ship. */
   | { from: string; to: "route"; ns: string; service: string; path: string; type: string }
   | KustomizeRef;
@@ -77,7 +81,7 @@ const COMPOSE = /^(docker-)?compose(\.[^/]+)?\.ya?ml$/;
 const DOCKERFILE = /^(dockerfile([._-].+)?|.+\.dockerfile|containerfile)$/;
 const MAX_FILE_CANDIDATES = 50_000;
 /** The names Kustomize reads a kustomization from, in its order. */
-const KUSTOMIZATION_FILES = ["kustomization.yaml", "kustomization.yml", "Kustomization"];
+export const KUSTOMIZATION_FILES = ["kustomization.yaml", "kustomization.yml", "Kustomization"];
 
 /** The deployment format a path's name says, or null. Every other YAML file is a manifest candidate. */
 export function deployFormatOf(path: string): DeployFormat | null {
@@ -421,6 +425,7 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
     if (seen.has(key)) throw new Skip(`duplicate ${kind} ${ns}/${name}`);
     seen.add(key);
     const from = `${rel}#${key}`;
+    refs.push({ from, to: "api", apiVersion: m.apiVersion as string });
     const named: string[] = [kind, name, ns];
     const spec = obj(m.spec, `${what}: spec`);
     if (WORKLOADS.has(kind)) {
@@ -589,7 +594,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
     else if (r.to === "image" && r.built) pushTo(built, imageRepo(r.image), r.from);
   }
   // Before the object and selector links: Kustomize's names and namespaces add keys to both.
-  linkKustomize({ nodes, refs, fileExists, objects, labels, built, add, skipped });
+  const view = linkKustomize({ nodes, refs, fileExists, objects, labels, built, add, skipped });
   for (const r of refs) {
     if (r.to === "id") add(r.from, r.id);
     else if (r.to === "copy") {
@@ -617,10 +622,10 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
       const stage = target ? stages.find((s) => s.name.toLowerCase() === target) : stages.at(-1);
       if (stage) add(r.from, stage.id);
     } else if (r.to === "mount") expand(pathsById.get(r.from)!, r.from, r.path);
-    else if (r.to === "object") addObjectLinks(r.from, objects.get(`${r.kind}/${r.ns}/${r.name}`) ?? []);
+    else if (r.to === "object") addObjectLinks(r.from, view.objects(r.from, r.kind, r.ns, r.name));
     else if (r.to === "selector") {
       const match = Object.entries(r.match);
-      addObjectLinks(r.from, (labels.get(r.ns) ?? []).filter((l) => match.every(([k, v]) => l.labels[k] === v)).map((l) => l.from));
+      addObjectLinks(r.from, view.labels(r.from, r.ns).filter((l) => match.every(([k, v]) => l.labels[k] === v)).map((l) => l.from));
     } else if (r.to === "image" && !r.built) {
       for (const b of built.get(imageRepo(r.image)) ?? []) add(r.from, b, "inferred");
     }
@@ -628,7 +633,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
   for (const expansion of expansions.values()) {
     for (const edge of expansion.edges.values()) out.push(edge);
   }
-  linkRoutes(nodes, refs, out, objects, add);
+  linkRoutes(nodes, refs, out, view, add);
   return { edges: out, skipped };
 }
 
@@ -641,7 +646,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
  * cluster does not run) or a ConfigMap is not followed. Always inferred: a route's path is
  * read from code.
  */
-function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects: Map<string, string[]>,
+function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], view: DeployedView,
   add: (source: string, target: string, confidence: EdgeV1["confidence"]) => void): void {
   const routesIn = new Map<string, NodeV1[]>();
   for (const n of nodes) if (n.kind === "resource" && n.origin === "ast") pushTo(routesIn, n.path, n);
@@ -690,7 +695,7 @@ function linkRoutes(nodes: NodeV1[], refs: DeployRef[], edges: EdgeV1[], objects
   };
   for (const r of refs) {
     if (r.to !== "route") continue;
-    for (const service of objects.get(`Service/${r.ns}/${r.service}`) ?? []) {
+    for (const service of view.objects(r.from, "Service", r.ns, r.service)) {
       for (const file of shippedBy(service)) {
         for (const route of routesIn.get(file)!) {
           // A route's signature is `route <framework> <name>`.

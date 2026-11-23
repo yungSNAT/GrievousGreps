@@ -14,12 +14,13 @@ import { parseAllDocuments, type Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import { compileGlob, globMatches } from "./deploy-glob.js";
 import {
-  Skip, imageRepo, isObj, js, list, obj, pushTo, reasonText, resource, str, strict, under,
+  KUSTOMIZATION_FILES, Skip, imageRepo, isObj, js, list, obj, pushTo, reasonText, resource, str, strict, under,
   type DeployRef, type KustomizePatch, type KustomizeRef, type Lines,
 } from "./deploy.js";
 
-/** Objects every kustomization's build may list in total, and match steps for patches, generators and images. */
+/** Objects every kustomization's build may list in total, the characters of their built names, and match steps for patches, generators and images. */
 const MAX_MEMBERS = 200_000;
+const MAX_NAME_CHARS = 20_000_000;
 const MAX_STEPS = 2_000_000;
 /** Reports kept for one kustomization file before a count of the rest. */
 const MAX_REPORTS = 20;
@@ -29,21 +30,21 @@ const UNREAD = ["helmCharts", "helmChartInflationGenerator", "generators", "tran
 
 const GENERATORS = [["configMapGenerator", "ConfigMap"], ["secretGenerator", "Secret"]] as const;
 
-/** The kinds and names an inline patch's documents give; a JSON 6902 patch or bad YAML gives none. */
-function patchObjects(text: string): NonNullable<KustomizePatch["objects"]> {
-  const out: NonNullable<KustomizePatch["objects"]> = [];
+/** The kinds and names an inline patch's documents give (a JSON 6902 patch gives none), or `invalid` when its YAML does not parse. */
+function inlinePatch(text: string): Pick<KustomizePatch, "objects" | "invalid"> {
+  const objects: NonNullable<KustomizePatch["objects"]> = [];
   try {
     for (const d of parseAllDocuments(text, { uniqueKeys: false, logLevel: "error" })) {
-      if (d.errors.length) continue;
+      if (d.errors.length) return { invalid: true };
       const v = d.toJS();
       const meta = isObj(v) ? v.metadata : undefined;
       if (!(isObj(v) && typeof v.kind === "string" && isObj(meta) && typeof meta.name === "string")) continue;
-      out.push({ kind: v.kind, name: meta.name, ...(typeof meta.namespace === "string" ? { namespace: meta.namespace } : {}) });
+      objects.push({ kind: v.kind, name: meta.name, ...(typeof meta.namespace === "string" ? { namespace: meta.namespace } : {}) });
     }
   } catch {
-    // too many aliases: no names
+    return { invalid: true }; // too many aliases
   }
-  return out;
+  return { objects };
 }
 
 export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } {
@@ -60,9 +61,10 @@ export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes:
     if (t === undefined || t === null) return undefined;
     const o = obj(t, what);
     const out: NonNullable<KustomizePatch["target"]> = {};
-    for (const key of ["kind", "name", "namespace"] as const) {
+    // An empty field selects anything, as one left out does.
+    for (const key of ["kind", "name", "namespace", "group", "version"] as const) {
       const v = str(o[key], `${what}.${key}`);
-      if (v !== undefined) out[key] = v;
+      if (v) out[key] = v;
     }
     if (o.labelSelector != null || o.annotationSelector != null) out.selector = true;
     return out;
@@ -74,13 +76,13 @@ export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes:
       const path = str(o.path, `${field} path`);
       if (o.patch !== undefined && o.patch !== null && typeof o.patch !== "string") throw new Skip(`${field} patch is not a string`);
       const t = target(o.target, `${field} target`);
-      patches.push({ ...(path ? { path } : {}), ...(typeof o.patch === "string" ? { objects: patchObjects(o.patch) } : {}), ...(t ? { target: t } : {}) });
+      patches.push({ ...(path ? { path } : {}), ...(typeof o.patch === "string" ? inlinePatch(o.patch) : {}), ...(t ? { target: t } : {}) });
     }
   }
   for (const p of list(top.patchesStrategicMerge, "patchesStrategicMerge")) {
     if (typeof p !== "string") throw new Skip("patchesStrategicMerge entry is not a string");
     // An entry is a file path, or the patch itself written inline.
-    patches.push(/[\n{]/.test(p) ? { objects: patchObjects(p) } : { path: p });
+    patches.push(/[\n{]/.test(p) ? inlinePatch(p) : { path: p });
   }
   const images = list(top.images, "images").flatMap((x) => {
     const o = obj(x, "images entry");
@@ -91,13 +93,17 @@ export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes:
   const nodes: NodeV1[] = [];
   const refs: DeployRef[] = [];
   const generators: KustomizeRef["generators"] = [];
+  const generated = new Set<string>();
   for (const [field, genKind] of GENERATORS) {
     list(top[field], field).forEach((x, i) => {
-      // Only the name: literals, env files and file contents are never read.
-      const name = strict(obj(x, `${field} entry`).name, `${field} name`);
+      // Only the name and namespace: literals, env files and file contents are never read.
+      const o = obj(x, `${field} entry`);
+      const name = strict(o.name, `${field} name`);
+      const namespace = str(o.namespace, `${field} namespace`);
       const id = `${rel}#${field}:${name}`;
-      if (generators.some((g) => g.id === id)) return;
-      generators.push({ kind: genKind, name, id });
+      if (generated.has(id)) return;
+      generated.add(id);
+      generators.push({ kind: genKind, name, id, ...(namespace ? { namespace } : {}) });
       nodes.push(resource(rel, `${field}:${name}`, name, lines(d, d.getIn([field, i], true)), `${genKind} ${name} (generated)`, [name]));
       refs.push({ from, to: "id", id });
     });
@@ -114,26 +120,48 @@ export function kustomize(rel: string, docs: Document[], lines: Lines): { nodes:
 
 // ── Resolution ──────────────────────────────────────────────────────────────
 
-/** An object a kustomization builds, with the transforms from it down to the object's file. */
+/** A namespace and name a built object has had, and the one it had before (the last is the object as written). */
+interface Id {
+  ns: string;
+  name: string;
+  prev?: Id;
+}
+
+/** An object a kustomization builds: its namespace and name after this kustomization's transforms, and those before them. */
 interface Member {
   id: string;
   kind: string;
-  ns: string;
-  name: string;
-  prefix: string;
-  suffix: string;
-  namespace?: string;
+  apiVersion: string;
+  cur: { ns: string; name: string };
+  before: Id;
+  /** Ids in `before`. */
+  depth: number;
+  /** A generator's ConfigMap or Secret: in patches and generator links only. */
+  generated: boolean;
 }
+
+type Labels = Extract<DeployRef, { to: "labels" }>;
 
 interface Context {
   nodes: NodeV1[];
   refs: DeployRef[];
   fileExists: (path: string) => boolean;
   objects: Map<string, string[]>;
-  labels: Map<string, Array<Extract<DeployRef, { to: "labels" }>>>;
+  labels: Map<string, Labels[]>;
   built: Map<string, string[]>;
   add: (source: string, target: string, confidence?: EdgeV1["confidence"]) => void;
   skipped: { path: string; reason: string }[];
+}
+
+/**
+ * The objects a reference or selector may name: those deployed in a namespace the referring
+ * object is deployed in. An object a kustomization builds is deployed where each
+ * kustomization that builds it puts it, under the name it gives; any other object is
+ * deployed as written. So two objects meet only where both are deployed.
+ */
+export interface DeployedView {
+  objects(from: string, kind: string, ns: string, name: string): string[];
+  labels(from: string, ns: string): Labels[];
 }
 
 const OBJECT_ID = /^([A-Za-z]+)\/([^/]+)\/(.+)$/;
@@ -165,9 +193,24 @@ function namePattern(pattern: string | undefined): ((name: string) => boolean) |
   return glob ? (name) => !name.includes("/") && globMatches(glob, name) : null;
 }
 
-export function linkKustomize(ctx: Context): void {
+/** Whether Kustomize's `images` entry `name` selects `image`: the same name, then at most a digest and a tag. */
+function imageMatches(image: string, name: string): boolean {
+  return image.startsWith(name) && /^(@sha256)?(:[A-Za-z0-9_.{}-]*)?$/.test(image.slice(name.length));
+}
+
+/** Whether any id a member had before this kustomization's transforms passes `test`. */
+function anyId(m: Member, test: (id: Id) => boolean): boolean {
+  for (let id: Id | undefined = m.before; id; id = id.prev) if (test(id)) return true;
+  return false;
+}
+
+export function linkKustomize(ctx: Context): DeployedView {
+  const asWritten: DeployedView = {
+    objects: (_from, kind, ns, name) => ctx.objects.get(`${kind}/${ns}/${name}`) ?? [],
+    labels: (_from, ns) => ctx.labels.get(ns) ?? [],
+  };
   const all = ctx.refs.filter((r): r is KustomizeRef => r.to === "kustomize").sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
-  if (!all.length) return;
+  if (!all.length) return asWritten;
   const fileOf = (k: KustomizeRef) => k.from.slice(0, -"#kustomization".length);
   const reports = new Map<KustomizeRef, number>();
   const report = (k: KustomizeRef, reason: string) => {
@@ -175,12 +218,17 @@ export function linkKustomize(ctx: Context): void {
     reports.set(k, n);
     if (n <= MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: reasonText(reason) });
   };
-  // Kustomize refuses a folder holding more than one kustomization file.
+  // Kustomize refuses a folder holding more than one kustomization file, read or not.
   const perDir = new Map<string, KustomizeRef[]>();
   for (const k of all) pushTo(perDir, k.dir, k);
-  const ks = all.filter((k) => perDir.get(k.dir)!.length === 1);
-  const refused = new Set(all.filter((k) => perDir.get(k.dir)!.length > 1).map((k) => k.dir));
-  for (const k of all) if (perDir.get(k.dir)!.length > 1) report(k, "not read: Kustomize refuses a folder with more than one kustomization file");
+  const refused = new Set<string>();
+  for (const [dir, here] of perDir) {
+    const read = new Set(here.map(fileOf));
+    const present = KUSTOMIZATION_FILES.map((f) => (dir === "." ? f : `${dir}/${f}`)).filter((f) => read.has(f) || ctx.fileExists(f));
+    if (here.length > 1 || present.length > 1) refused.add(dir);
+  }
+  for (const k of all) if (refused.has(k.dir)) report(k, "not read: Kustomize refuses a folder with more than one kustomization file");
+  const ks = all.filter((k) => !refused.has(k.dir));
   const byDir = new Map(ks.map((k) => [k.dir, k]));
   for (const k of ks) if (k.unread.length) report(k, `fields not read: ${k.unread.join(", ")}`);
   const objectsIn = new Map<string, NodeV1[]>();
@@ -198,16 +246,21 @@ export function linkKustomize(ctx: Context): void {
     else report(k, `${field} ${shown(p)} not found`);
     return null;
   };
-  // A file used only as a patch is not an object of the cluster: drop it from the object and selector lookups.
+  // A file used only as a patch is not an object of the cluster: drop it from the object and selector lookups, in one pass.
   const listed = new Set<string>();
   for (const k of ks) for (const e of k.entries) listed.add(under(k.dir, e.path) ?? "");
+  const dropped = new Set<string>();
   for (const k of ks) {
     for (const p of k.patches) {
       const local = p.path === undefined ? null : under(k.dir, p.path);
       if (local === null || listed.has(local)) continue;
       listed.add(local);
-      for (const n of objectsIn.get(local) ?? []) unlist(n, ctx);
+      for (const n of objectsIn.get(local) ?? []) dropped.add(n.id);
     }
+  }
+  if (dropped.size) {
+    for (const [key, ids] of ctx.objects) if (ids.some((id) => dropped.has(id))) ctx.objects.set(key, ids.filter((id) => !dropped.has(id)));
+    for (const [ns, ls] of ctx.labels) if (ls.some((l) => dropped.has(l.from))) ctx.labels.set(ns, ls.filter((l) => !dropped.has(l.from)));
   }
   const kids = new Map<KustomizeRef, KustomizeRef[]>();
   const files = new Map<KustomizeRef, NodeV1[]>();
@@ -230,7 +283,13 @@ export function linkKustomize(ctx: Context): void {
     kids.set(k, own);
     files.set(k, objs);
   }
-  const members = buildMembers(ks, kids, files, report);
+  const apiVersions = new Map<string, string>();
+  const refsFrom = new Map<string, DeployRef[]>();
+  for (const r of ctx.refs) {
+    if (r.to === "api") apiVersions.set(r.from, r.apiVersion);
+    else if (r.to === "object" || r.to === "image" || r.to === "labels") pushTo(refsFrom, r.from, r);
+  }
+  const members = buildMembers(ks, kids, files, apiVersions, report);
   let steps = 0;
   const step = (k: KustomizeRef, n: number) => {
     steps += n;
@@ -238,72 +297,149 @@ export function linkKustomize(ctx: Context): void {
     if (steps > MAX_STEPS) ctx.skipped.push({ path: fileOf(k), reason: `name, patch, generator and image links omitted from here on after ${MAX_STEPS} match steps` });
     return steps <= MAX_STEPS;
   };
-  const refsFrom = new Map<string, DeployRef[]>();
-  for (const r of ctx.refs) if (r.to === "object" || r.to === "image" || r.to === "labels") pushTo(refsFrom, r.from, r);
-  const aliased = new Set<string>();
+  // Where each built object is deployed, and what is deployed in each namespace.
+  const deployedNs = new Map<string, Set<string>>();
+  const deployedObjects = new Map<string, string[]>();
+  const deployedLabels = new Map<string, Labels[]>();
+  const placed = new Set<string>();
+  /**
+   * The kustomizations whose objects a component's patches and images change: through
+   * components that list components, the first that are not; with the steps taken.
+   */
+  const scopes = (k: KustomizeRef): [KustomizeRef[], number] => {
+    if (!k.component || !parents.has(k)) return [[k], 1];
+    const out = new Set<KustomizeRef>();
+    const seen = new Set<KustomizeRef>([k]);
+    const todo = [...parents.get(k)!];
+    let n = 0;
+    while (todo.length) {
+      const p = todo.pop()!;
+      n++;
+      if (seen.has(p)) continue;
+      seen.add(p);
+      if (!p.component || !parents.has(p)) out.add(p);
+      else for (const q of parents.get(p)!) todo.push(q);
+    }
+    return [[...out], n];
+  };
   linking: for (const k of ks) {
     const built = members.get(k) ?? [];
-    aliases(built, refsFrom, aliased, ctx);
-    if (!step(k, built.length * (k.generators.length + k.images.length + 1))) break;
+    let refCount = 0;
+    let genIds = 0;
     for (const m of built) {
+      if (m.generated) genIds += m.depth + 1;
+      else refCount += refsFrom.get(m.id)?.length ?? 0;
+    }
+    if (!step(k, built.length + refCount + genIds + 1)) break;
+    // A component is never deployed alone: its objects are deployed through the kustomizations that list it.
+    for (const m of k.component ? [] : built) {
+      if (m.generated) continue;
+      const key = `${m.kind}/${m.cur.ns}/${m.cur.name}`;
+      if (placed.has(`${m.id}\0${key}`)) continue;
+      placed.add(`${m.id}\0${key}`);
+      pushTo(deployedObjects, key, m.id);
+      const where = deployedNs.get(m.id) ?? new Set<string>();
+      deployedNs.set(m.id, where);
+      where.add(m.cur.ns);
+      for (const r of refsFrom.get(m.id) ?? []) if (r.to === "labels") pushTo(deployedLabels, m.cur.ns, { ...r, ns: m.cur.ns });
+    }
+    // A workload links to the generated ConfigMaps and Secrets it names in the namespace it is built into.
+    const generated = new Map<string, string[]>();
+    for (const g of built) {
+      if (!g.generated) continue;
+      pushTo(generated, `${g.kind}\0${g.cur.ns}\0${g.cur.name}`, g.id);
+      for (let id: Id | undefined = g.before; id; id = id.prev) pushTo(generated, `${g.kind}\0${g.cur.ns}\0${id.name}`, g.id);
+    }
+    for (const m of built) {
+      if (m.generated) continue;
       for (const r of refsFrom.get(m.id) ?? []) {
-        if (r.to === "object") {
-          for (const g of k.generators) if (g.kind === r.kind && g.name === r.name) ctx.add(m.id, g.id);
-        } else if (r.to === "image" && !r.built) {
-          for (const i of k.images) {
-            if (imageRepo(r.image) !== imageRepo(i.name)) continue;
-            for (const b of ctx.built.get(imageRepo(i.newName)) ?? []) ctx.add(m.id, b, "inferred");
+        if (r.to === "object") for (const g of generated.get(`${r.kind}\0${m.cur.ns}\0${r.name}`) ?? []) ctx.add(m.id, g);
+      }
+    }
+    // A component's patches and images change the objects of each kustomization that lists it.
+    const [into, walked] = scopes(k);
+    if (!step(k, walked)) break;
+    for (const scope of into) {
+      const objs = members.get(scope) ?? [];
+      if (k.images.length) {
+        let imageRefs = 0;
+        for (const m of objs) if (!m.generated) imageRefs += refsFrom.get(m.id)?.length ?? 0;
+        if (!step(k, imageRefs * k.images.length)) break linking;
+        for (const m of objs) {
+          if (m.generated) continue;
+          for (const r of refsFrom.get(m.id) ?? []) {
+            if (r.to !== "image" || r.built) continue;
+            for (const i of k.images) {
+              if (!imageMatches(r.image, i.name)) continue;
+              for (const b of ctx.built.get(imageRepo(i.newName)) ?? []) ctx.add(m.id, b, "inferred");
+            }
           }
         }
       }
-    }
-    // A component's patches change the objects of each kustomization that lists it.
-    const scopes = k.component && parents.has(k) ? parents.get(k)! : [k];
-    for (const scope of scopes) {
       for (const p of k.patches) {
-        if (!patch(k, scope, p, members.get(scope) ?? [], { objectsIn, report, step, ctx })) break linking;
+        if (!patch(k, p, objs, { objectsIn, report, step, ctx })) break linking;
       }
     }
   }
   for (const [k, n] of reports) if (n > MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: `and ${n - MAX_REPORTS} more reports` });
+  // An object is deployed as built where a kustomization builds it, else as written.
+  return {
+    objects(from, kind, ns, name) {
+      return [...(deployedNs.get(from) ?? [ns])].flatMap((d) => [
+        ...(deployedObjects.get(`${kind}/${d}/${name}`) ?? []),
+        ...(ctx.objects.get(`${kind}/${d}/${name}`) ?? []).filter((id) => !deployedNs.has(id)),
+      ]);
+    },
+    labels(from, ns) {
+      return [...(deployedNs.get(from) ?? [ns])].flatMap((d) => [
+        ...(deployedLabels.get(d) ?? []),
+        ...(ctx.labels.get(d) ?? []).filter((l) => !deployedNs.has(l.from)),
+      ]);
+    },
+  };
 }
 
-/** Remove a patch file's object from the object and selector lookups. */
-function unlist(n: NodeV1, ctx: Context): void {
-  const local = n.id.slice(n.path.length + 1);
-  const ids = ctx.objects.get(local);
-  if (ids) ctx.objects.set(local, ids.filter((id) => id !== n.id));
-  const ns = OBJECT_ID.exec(local)![2];
-  const labels = ctx.labels.get(ns);
-  if (labels) ctx.labels.set(ns, labels.filter((l) => l.from !== n.id));
-}
-
-/** Each kustomization's objects, children first; a cycle or the size bound is reported. */
+/** Each kustomization's objects, children first; a cycle or a size bound is reported. */
 function buildMembers(ks: KustomizeRef[], kids: Map<KustomizeRef, KustomizeRef[]>, files: Map<KustomizeRef, NodeV1[]>,
-  report: (k: KustomizeRef, reason: string) => void): Map<KustomizeRef, Member[]> {
+  apiVersions: Map<string, string>, report: (k: KustomizeRef, reason: string) => void): Map<KustomizeRef, Member[]> {
   const members = new Map<KustomizeRef, Member[]>();
   const open = new Set<KustomizeRef>();
+  /** Includes that close a cycle, left out of the build. */
+  const cut = new Map<KustomizeRef, Set<KustomizeRef>>();
   let total = 0;
+  let chars = 0;
   const finish = (k: KustomizeRef) => {
     const out: Member[] = [];
+    let full = "";
     const push = (m: Member) => {
-      if (++total > MAX_MEMBERS) return false;
-      out.push(m);
-      return true;
+      if (++total > MAX_MEMBERS) full = `${MAX_MEMBERS} built objects`;
+      else if ((chars += m.cur.name.length) > MAX_NAME_CHARS) full = `${MAX_NAME_CHARS} characters of built names`;
+      else out.push(m);
+      return !full;
     };
-    let full = false;
+    const cur = (id: { ns: string; name: string }) => ({ ns: k.namespace ?? id.ns, name: `${k.prefix}${id.name}${k.suffix}` });
     for (const n of files.get(k) ?? []) {
       const [, kind, ns, name] = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
-      if ((full = !push({ id: n.id, kind, ns, name, prefix: k.prefix, suffix: k.suffix, ...(k.namespace ? { namespace: k.namespace } : {}) }))) break;
+      const before = { ns, name };
+      if (!push({ id: n.id, kind, apiVersion: apiVersions.get(n.id) ?? "", cur: cur(before), before, depth: 1, generated: false })) break;
     }
+    for (const g of full ? [] : k.generators) {
+      const before = { ns: g.namespace ?? "default", name: g.name };
+      if (!push({ id: g.id, kind: g.kind, apiVersion: "v1", cur: cur(before), before, depth: 1, generated: true })) break;
+    }
+    const left = cut.get(k);
     for (const kid of full ? [] : kids.get(k) ?? []) {
+      if (left?.has(kid)) continue;
       for (const m of members.get(kid) ?? []) {
-        const namespace = k.namespace ?? m.namespace;
-        if ((full = !push({ ...m, prefix: k.prefix + m.prefix, suffix: m.suffix + k.suffix, ...(namespace ? { namespace } : {}) }))) break;
+        // The kid's result is the newest id this kustomization's patches see; it adds one only when the kid changed it.
+        const same = m.cur.ns === m.before.ns && m.cur.name === m.before.name;
+        const before = same ? m.before : { ...m.cur, prev: m.before };
+        const changed = (k.namespace !== undefined && k.namespace !== m.cur.ns) || k.prefix !== "" || k.suffix !== "";
+        if (!push({ ...m, cur: changed ? cur(m.cur) : m.cur, before, depth: same ? m.depth : m.depth + 1 })) break;
       }
       if (full) break;
     }
-    if (full) report(k, `name, patch and generator links omitted after ${MAX_MEMBERS} built objects`);
+    if (full) report(k, `name, patch and generator links omitted after ${full}`);
     members.set(k, out);
   };
   // Depth first without recursion, so a long chain of kustomizations cannot exhaust the stack.
@@ -318,7 +454,8 @@ function buildMembers(ks: KustomizeRef[], kids: Map<KustomizeRef, KustomizeRef[]
         const kid = list[top.i++];
         if (open.has(kid)) {
           report(top.k, `cycle: ${top.k.dir} includes ${kid.dir}, which leads back to it`);
-          list.splice(--top.i, 1);
+          const c = cut.get(top.k) ?? new Set<KustomizeRef>();
+          cut.set(top.k, c.add(kid));
         } else if (!members.has(kid)) {
           open.add(kid);
           stack.push({ k: kid, i: 0 });
@@ -333,18 +470,6 @@ function buildMembers(ks: KustomizeRef[], kids: Map<KustomizeRef, KustomizeRef[]
   return members;
 }
 
-/** Deployed names and namespaces as further keys for object and selector links. */
-function aliases(built: Member[], refsFrom: Map<string, DeployRef[]>, aliased: Set<string>, ctx: Context): void {
-  const once = (key: string) => !aliased.has(key) && Boolean(aliased.add(key));
-  for (const m of built) {
-    const ns = m.namespace ?? m.ns;
-    const key = `${m.kind}/${ns}/${m.prefix}${m.name}${m.suffix}`;
-    if (key !== `${m.kind}/${m.ns}/${m.name}` && once(`${key}\0${m.id}`)) pushTo(ctx.objects, key, m.id);
-    if (ns === m.ns || !once(`labels\0${ns}\0${m.id}`)) continue;
-    for (const r of refsFrom.get(m.id) ?? []) if (r.to === "labels") pushTo(ctx.labels, ns, { ...r, ns });
-  }
-}
-
 interface PatchContext {
   objectsIn: Map<string, NodeV1[]>;
   report: (k: KustomizeRef, reason: string) => void;
@@ -352,15 +477,27 @@ interface PatchContext {
   ctx: Context;
 }
 
+/** Each patch target's field matchers, compiled once however many kustomizations list its component. */
+const matchers = new WeakMap<object, Array<((name: string) => boolean) | null>>();
+
+const groupOf = (apiVersion: string) => (apiVersion.includes("/") ? apiVersion.slice(0, apiVersion.lastIndexOf("/")) : "");
+const versionOf = (apiVersion: string) => apiVersion.slice(apiVersion.lastIndexOf("/") + 1);
+
 /**
- * Link a kustomization to the objects one patch changes, and the patch's objects to them:
- * with a target, every patch object to every object the target selects (Kustomize ignores
- * the patch's own name then); without one, each patch object to the objects of its kind,
- * name and namespace. False once the step bound is reached.
+ * Link a kustomization to the objects one patch changes, and the patch's objects to them.
+ * A patch sees each object by the namespaces and names it had before the transforms of the
+ * kustomization whose objects it changes. With a target, every patch object links to every object the target selects
+ * (Kustomize ignores the patch's own name then); without one, each patch object links to
+ * the objects of its kind, name and namespace (`default` when it gives none). False once the
+ * step bound is reached.
  */
-function patch(k: KustomizeRef, scope: KustomizeRef, p: KustomizePatch, built: Member[], pc: PatchContext): boolean {
+function patch(k: KustomizeRef, p: KustomizePatch, built: Member[], pc: PatchContext): boolean {
   const { objectsIn, report, step, ctx } = pc;
   const label = `patch ${p.path ? shown(p.path) : "inline"}`;
+  if (p.invalid) {
+    report(k, `${label} is not valid YAML: not followed`);
+    return true;
+  }
   let own: NodeV1[] = [];
   if (p.path) {
     const local = under(k.dir, p.path);
@@ -376,56 +513,49 @@ function patch(k: KustomizeRef, scope: KustomizeRef, p: KustomizePatch, built: M
     }
   }
   for (const n of own) ctx.add(k.from, n.id);
-  /** The names a patch may use for a member: as written, as the kustomizations below this one leave it, and as deployed. */
-  const names = (m: Member) => {
-    const deployed = `${m.prefix}${m.name}${m.suffix}`;
-    const below = deployed.startsWith(scope.prefix) && deployed.endsWith(scope.suffix)
-      ? deployed.slice(scope.prefix.length, deployed.length - scope.suffix.length) : deployed;
-    return [m.name, below, deployed];
-  };
+  const ownIds = new Set(own.map((n) => n.id));
   const link = (from: string[], matches: Member[]) => {
     for (const m of matches) {
-      if (from.includes(m.id)) continue;
+      if (ownIds.has(m.id)) continue;
       ctx.add(k.from, m.id);
       for (const id of from) ctx.add(id, m.id);
     }
   };
+  const ids = built.reduce((n, m) => n + m.depth, 0);
   if (p.target) {
-    // Every target field is a regular expression in Kustomize; `group` and `version` are not compared (a superset).
+    // Every target field is a regular expression in Kustomize, matched whole.
     const t = p.target;
-    const [kind, name, namespace] = [namePattern(t.kind), namePattern(t.name), namePattern(t.namespace)];
-    if (t.selector || !kind || !name || !namespace) {
+    let compiled = matchers.get(t);
+    if (!compiled) matchers.set(t, (compiled = [t.kind, t.name, t.namespace, t.group, t.version].map(namePattern)));
+    const [kind, name, namespace, group, version] = compiled;
+    if (t.selector || !kind || !name || !namespace || !group || !version) {
       report(k, `${label} target ${t.selector ? "selects by label or annotation" : "uses a regular expression"}: not followed`);
       return true;
     }
-    if (!step(k, built.length * 3)) return false;
-    const matches = built.filter((m) => kind(m.kind) && names(m).some(name) && [m.ns, m.namespace ?? m.ns].some(namespace));
-    const ownIds = new Set(own.map((n) => n.id));
+    if (!step(k, built.length + ids + 1)) return false;
+    const matches = built.filter((m) => kind(m.kind) && group(groupOf(m.apiVersion)) && version(versionOf(m.apiVersion))
+      && anyId(m, (id) => name(id.name) && namespace(id.ns)));
     if (!matches.some((m) => !ownIds.has(m.id))) report(k, `${label} matched no object this kustomization builds`);
-    if (!step(k, own.length * matches.length)) return false;
+    if (!step(k, own.length * matches.length + 1)) return false;
     link(own.map((n) => n.id), matches);
     return true;
   }
   const wanted = [
     ...own.map((n) => {
       const [, kind, ns, name] = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
-      return { id: n.id as string | undefined, kind, name, namespace: ns as string | undefined };
+      return { id: n.id as string | undefined, kind, name, ns };
     }),
-    ...(p.objects ?? []).map((o) => ({ id: undefined, ...o })),
+    ...(p.objects ?? []).map((o) => ({ id: undefined, kind: o.kind, name: o.name, ns: o.namespace ?? "default" })),
   ];
   if (!wanted.length) {
     report(k, `${label} names no object and has no target`);
     return true;
   }
-  if (!step(k, built.length * wanted.length * 3)) return false;
-  let matched = false;
+  if (!step(k, wanted.length * (built.length + ids + 1))) return false;
   for (const w of wanted) {
-    // An object written without a namespace is keyed `default`: it then matches any namespace.
-    const anyNs = w.namespace === undefined || w.namespace === "default";
-    const matches = built.filter((m) => w.kind === m.kind && names(m).includes(w.name) && (anyNs || [m.ns, m.namespace].includes(w.namespace)));
-    matched ||= matches.some((m) => m.id !== w.id);
+    const matches = built.filter((m) => w.kind === m.kind && anyId(m, (id) => id.name === w.name && id.ns === w.ns));
+    if (!matches.some((m) => !ownIds.has(m.id))) report(k, `${label} ${w.kind} ${w.name} matched no object this kustomization builds`);
     link(w.id ? [w.id] : [], matches);
   }
-  if (!matched) report(k, `${label} matched no object this kustomization builds`);
   return true;
 }
