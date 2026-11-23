@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -754,12 +754,39 @@ test("index: a failure before any graph is found gives no state, refresh on or o
   }
 });
 
+test("index: prints of a graph another build replaced do not vouch for the new one", async () => {
+  const d = repo();
+  await buildGraph(d);
+  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "fresh" });
+  // Another graft (another extractor stamp) rewrites the shared wiring.json; this one's prints still match the tree.
+  const wiring = wiringPath(outOf(d));
+  writeFileSync(wiring, `${readFileSync(wiring, "utf8")} `);
+  assert.equal(probeDrift(d, outOf(d)), null);
+  const off = await ensureFreshGraph(d, { disabled: true });
+  assert.deepEqual(off.index, { state: "stale", reason: "no build record for this graph, and refresh is off" });
+  const on = await ensureFreshGraph(d);
+  assert.equal(on.refreshed, true, "refresh on rebuilds it");
+  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "fresh" });
+});
+
+test("index: a file whose recorded mtime is within the build's racy window is checked by its bytes", async () => {
+  const d = repo();
+  await buildGraph(d);
+  // Same size, same mtime, different bytes: only a byte check can see it.
+  const file = join(d, "src", "math.ts");
+  const { mtime } = statSync(file);
+  writeFileSync(file, MATH.replace("a + b", "b + a"));
+  utimesSync(file, mtime, mtime);
+  const drift = probeDrift(d, outOf(d));
+  assert.deepEqual(drift?.changed, ["src/math.ts"], "the build ran in this process, so its stats are racy");
+});
+
 test("index: with refresh off and no fingerprint, the graph is not vouched for", async () => {
   const d = repo();
   await buildGraph(d);
   rmSync(fingerprintPath(outOf(d)));
   const r = await ensureFreshGraph(d, { disabled: true });
-  assert.deepEqual(r.index, { state: "stale", reason: "no build fingerprint, and refresh is off" });
+  assert.deepEqual(r.index, { state: "stale", reason: "no build record for this graph, and refresh is off" });
 });
 
 test("index: a workspace is stale when any child is, and names it", async () => {
@@ -771,7 +798,7 @@ test("index: a workspace is stale when any child is, and names it", async () => 
   }
   assert.deepEqual((await ensureFreshChildren(ws, ["a", "b"], { disabled: true })).index, { state: "fresh" });
   writeFileSync(join(ws, "b", "src", "math.ts"), EDITED);
-  assert.deepEqual((await ensureFreshChildren(ws, ["a", "b"], { disabled: true })).index, { state: "stale", reason: "not rebuilt in b" });
+  assert.deepEqual((await ensureFreshChildren(ws, ["a", "b"], { disabled: true })).index, { state: "stale", changed: 1, reason: "refresh is off in b" });
   const on = await ensureFreshChildren(ws, ["a", "b"]);
   assert.equal(on.refreshed, true);
   assert.deepEqual(on.index, { state: "fresh" });
@@ -815,7 +842,7 @@ test("index: a query's JSON carries the state on an object answer, never on a li
   }
 });
 
-test("index: the CLI says stale on stderr, fresh only in --json, and plain answers stay as they were", async () => {
+test("index: the CLI says stale on stderr and never when fresh, and --json carries the state", async () => {
   const d = repo();
   await buildGraph(d);
   const clean = runCli(["callers", "add", d, "--no-refresh"]);

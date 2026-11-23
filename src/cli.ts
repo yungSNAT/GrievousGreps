@@ -291,7 +291,7 @@ async function refreshBefore(dir: string, opts: { refresh?: boolean }): Promise<
 
 /** Attached to every query command: `--no-refresh` answers from the graph exactly
  * as it is on disk, no rebuild. */
-const NO_REFRESH_FLAG = ["--no-refresh", "skip the freshness check: answer from the graph as-is"] as const;
+const NO_REFRESH_FLAG = ["--no-refresh", "no rebuild: answer from the graph as-is (a read-only check still reports a stale graph)"] as const;
 
 const VIZ_TABS = ["context", "code", "outline"] as const;
 type VizTab = (typeof VIZ_TABS)[number];

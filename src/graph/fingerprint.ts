@@ -18,16 +18,19 @@
  * degrade safely: no fingerprint → "unknown, rebuild"; no parse cache → the
  * rebuild is just cold.
  */
+import { readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { CACHE_DIR } from "../context/node-file.js";
 import { contentHash } from "../util/id.js";
 import { readSourceFile } from "../util/source.js";
 import { readJson, writeJsonAtomic } from "../util/state.js";
 import { extractorStamp, pruneSidecars, type ExtractEntry } from "./extract-cache.js";
 import { listSourceStats } from "./source-files.js";
+import { wiringPath } from "./write.js";
 
 export const FINGERPRINT_PREFIX = "fingerprint";
-const FINGERPRINT_VERSION = 1;
+const FINGERPRINT_VERSION = 2;
 
 /** The identity this graft's prints are filed under. Unlike the extract memo, a
  * missing extractor identity is *not* disqualifying here: freshness is a claim about
@@ -56,7 +59,29 @@ export interface Fingerprint {
   onlyDirs?: string[];
   /** Normalized source extension selection (`--extensions`); absent = all supported. */
   extensions?: string[];
+  /** `[size, mtimeMs]` of the `wiring.json` this build wrote. Every extractor stamp
+   * shares that one file, so another graft's build can replace the graph whilst
+   * these prints still match the tree; a different file means the prints describe
+   * a graph that is no longer there. */
+  graph: [number, number];
+  /** A recorded mtime at or after this may share its clock tick with the build's
+   * read of the file, so a same-size edit in that tick would keep the stat: such a
+   * file is confirmed by its bytes. The building process's start, less 2 s. */
+  racyFrom: number;
 }
+
+/** `[size, mtimeMs]` of the graph on disk, or null when there is none. */
+function graphIdentity(outDir: string): [number, number] | null {
+  try {
+    const s = statSync(wiringPath(outDir));
+    return [s.size, s.mtimeMs];
+  } catch {
+    return null;
+  }
+}
+
+const sameIdentity = (a: [number, number] | null | undefined, b: [number, number] | null | undefined): boolean =>
+  !!a && !!b && a[0] === b[0] && a[1] === b[1];
 
 /** What moved since the last build. Empty in all three arrays = nothing to do. */
 export interface Drift {
@@ -95,7 +120,10 @@ export function writeFingerprint(
   const files: Record<string, Print> = {};
   for (const [rel, e] of Object.entries(entries)) files[rel] = [e.size, e.mtimeMs, e.hash];
   try {
-    const record: Fingerprint = { version: FINGERPRINT_VERSION, extractor: stamp(), files };
+    const graph = graphIdentity(outDir);
+    if (!graph) return false;
+    const racyFrom = Math.floor(performance.timeOrigin) - 2000;
+    const record: Fingerprint = { version: FINGERPRINT_VERSION, extractor: stamp(), files, graph, racyFrom };
     if (onlyDirs && onlyDirs.length > 0) record.onlyDirs = onlyDirs;
     if (extensions && extensions.length > 0) record.extensions = extensions;
     writeJsonAtomic(fingerprintPath(outDir), record, true, undefined, dirname(outDir));
@@ -129,10 +157,44 @@ export function alwaysHash(): boolean {
 export function statUnchanged(
   rec: { size: number; mtimeMs: number; hash: string },
   f: { size: number; mtimeMs: number },
+  racyFrom = Number.POSITIVE_INFINITY,
 ): boolean {
   if (alwaysHash()) return false;
   if (!rec.hash) return false;
+  if (rec.mtimeMs >= racyFrom) return false;
   return rec.size === f.size && rec.mtimeMs === f.mtimeMs;
+}
+
+/**
+ * A seeded worktree's `wiring.json` is a copy, so its stat differs from the one the
+ * copied prints name. Point each print set that named the source graph at the copy;
+ * one that named some other graph keeps naming it, and stays untrusted.
+ */
+export function restampGraphCopy(outDir: string, source: [number, number] | null): void {
+  const copy = graphIdentity(outDir);
+  if (!copy || !source) return;
+  try {
+    const cacheDir = join(outDir, CACHE_DIR);
+    for (const name of readdirSync(cacheDir)) {
+      if (!name.startsWith(`${FINGERPRINT_PREFIX}.`) || !name.endsWith(".json")) continue;
+      const path = join(cacheDir, name);
+      const f = readJson<Fingerprint>(path, dirname(outDir));
+      if (!f || !sameIdentity(f.graph, source)) continue;
+      writeJsonAtomic(path, { ...f, graph: copy }, true, undefined, dirname(outDir));
+    }
+  } catch {
+    /* best-effort: an unstamped copy costs one rebuild */
+  }
+}
+
+/** The identity of the graph at `path`, for {@link restampGraphCopy}. */
+export function graphIdentityAt(path: string): [number, number] | null {
+  try {
+    const s = statSync(path);
+    return [s.size, s.mtimeMs];
+  } catch {
+    return null;
+  }
 }
 
 export function isClean(d: Drift): boolean {
@@ -154,6 +216,8 @@ export function driftCount(d: Drift): number {
 export function probeDrift(root: string, outDir: string): Drift | null {
   const fp = readFingerprint(outDir);
   if (!fp) return null;
+  // Prints of another graph than the one on disk say nothing about it.
+  if (!sameIdentity(fp.graph, graphIdentity(outDir))) return null;
 
   const drift: Drift = { changed: [], added: [], removed: [] };
   const seen = new Set<string>();
@@ -167,7 +231,7 @@ export function probeDrift(root: string, outDir: string): Drift | null {
       continue;
     }
     const [size, mtimeMs, hash] = print;
-    if (statUnchanged({ size, mtimeMs, hash }, f)) continue;
+    if (statUnchanged({ size, mtimeMs, hash }, f, fp.racyFrom)) continue;
     // Suspect: confirm by bytes, so a touch (or a checkout that restores the
     // same content) doesn't cost a rebuild. An entry with an empty hash lands
     // here every time by design — that's a file the last build couldn't read, and
