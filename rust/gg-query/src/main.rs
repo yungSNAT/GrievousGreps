@@ -1,8 +1,12 @@
+#![forbid(unsafe_code)]
+
 use std::collections::HashMap;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use clap::{Parser, Subcommand};
+use gg_query::ask::{AskOptions, format_ask, format_skeleton, run_ask, run_skeleton};
 use gg_query::embed::SafetensorsEmbedder;
 use gg_query::format::{SymbolResult, format_blast_json, format_callers_json, format_callers_text};
 use gg_query::graph::{
@@ -15,7 +19,7 @@ use gg_query::vectors::{dense_files, read_vectors};
 #[derive(Parser)]
 #[command(
     name = "gg-query",
-    about = "Native Rust query engine for GrievousGreps (SQLite graph + F16 Model2Vec)"
+    about = "Native Rust query engine for GrievousGreps (SQLite graph + hybrid ask + F16 Model2Vec)"
 )]
 struct Cli {
     /// Context directory override (default: <repo>/.trail/cache or <repo>/graft)
@@ -65,6 +69,37 @@ enum Cmd {
         depth: Option<String>,
         #[arg(long, default_value = "text")]
         format: String,
+    },
+    /// Query the graph: structural, lexical BM25+PPR, and F16 Model2Vec hybrid RRF
+    Ask {
+        /// Plain-words query (`-` reads from stdin)
+        query: String,
+        #[arg(default_value = ".")]
+        repo: PathBuf,
+        #[arg(short = 'n', long, default_value_t = 8)]
+        limit: usize,
+        #[arg(long)]
+        source: bool,
+        #[arg(long)]
+        full: bool,
+        #[arg(long = "in")]
+        in_prefix: Option<String>,
+        #[arg(long)]
+        json: bool,
+        #[arg(long = "no-graph-rank")]
+        no_graph_rank: bool,
+        #[arg(long)]
+        model: Option<PathBuf>,
+        #[arg(long = "no-semantic")]
+        no_semantic: bool,
+    },
+    /// Signatures-only API view of one indexed file
+    Skeleton {
+        file: String,
+        #[arg(default_value = ".")]
+        repo: PathBuf,
+        #[arg(long)]
+        json: bool,
     },
     /// Embed text using the shipped F16 Model2Vec safetensors model
     Embed {
@@ -322,6 +357,71 @@ fn run_blast(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+fn run_ask_cmd(
+    raw_query: &str,
+    repo: &Path,
+    override_dir: Option<&Path>,
+    limit: usize,
+    source: bool,
+    full: bool,
+    in_prefix: Option<&str>,
+    json: bool,
+    no_graph_rank: bool,
+    model: Option<&Path>,
+    no_semantic: bool,
+) -> Result<(), String> {
+    let query = if raw_query == "-" {
+        let mut buf = String::new();
+        io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("failed to read query from stdin: {e}"))?;
+        buf.trim().to_string()
+    } else {
+        raw_query.to_string()
+    };
+    let ctx = context_dir_for(repo, override_dir);
+    let opts = AskOptions {
+        limit,
+        source,
+        full,
+        graph_rank: !no_graph_rank,
+        in_prefix,
+        model_dir: model,
+        semantic: !no_semantic,
+    };
+    let result = run_ask(repo, &ctx, &query, &opts)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+        );
+    } else {
+        print!("{}", format_ask(&result));
+    }
+    Ok(())
+}
+
+fn run_skeleton_cmd(
+    file: &str,
+    repo: &Path,
+    override_dir: Option<&Path>,
+    json: bool,
+) -> Result<(), String> {
+    let ctx = context_dir_for(repo, override_dir);
+    let store = GraphStore::open_or_sync(&ctx).map_err(|e| e.to_string())?;
+    let result = run_skeleton(store.as_ref(), file).map_err(|e| e.to_string())?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result).map_err(|e| e.to_string())?
+        );
+    } else {
+        print!("{}", format_skeleton(&result));
+    }
+    Ok(())
+}
+
 fn run_embed(text: &str, model: &Path, whole: bool, json: bool) -> Result<(), String> {
     let mut emb = SafetensorsEmbedder::open(model, whole).map_err(|e| e.to_string())?;
     let vec = emb.embed(text).map_err(|e| e.to_string())?;
@@ -417,6 +517,33 @@ fn main() -> ExitCode {
             depth.as_deref(),
             &format,
         ),
+        Cmd::Ask {
+            query,
+            repo,
+            limit,
+            source,
+            full,
+            in_prefix,
+            json,
+            no_graph_rank,
+            model,
+            no_semantic,
+        } => run_ask_cmd(
+            &query,
+            &repo,
+            cli.dir.as_deref(),
+            limit,
+            source,
+            full,
+            in_prefix.as_deref(),
+            json,
+            no_graph_rank,
+            model.as_deref(),
+            no_semantic,
+        ),
+        Cmd::Skeleton { file, repo, json } => {
+            run_skeleton_cmd(&file, &repo, cli.dir.as_deref(), json)
+        }
         Cmd::Embed {
             text,
             model,

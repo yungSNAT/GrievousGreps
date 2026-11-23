@@ -1,12 +1,14 @@
-//! Graph data types, symbol resolution helpers and savings calculations.
+//! Graph data types, symbol resolution helpers, scopes and savings calculations.
 //!
-//! Mirrors `src/graph/types.ts`, `src/graph/traverse.ts` and
-//! `src/context/savings.ts`.
+//! Mirrors `src/graph/types.ts`, `src/graph/traverse.ts`, `src/graph/scopes.ts`
+//! and `src/context/savings.ts`.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 
 pub const WALK_RELATIONS: &[&str] = &["calls", "references", "imports", "implements", "extends"];
 pub const INFERRED_MARK: &str = " [inferred]";
@@ -55,12 +57,30 @@ pub fn parse_depth(raw: Option<&str>, default_depth: usize) -> Result<usize, Str
     Ok(parsed.floor() as usize)
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScopeV1 {
+    pub prefix: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub markers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NodeCrux {
+    pub code: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GraphMeta {
     #[serde(rename = "nodeCount", default)]
     pub node_count: usize,
     #[serde(rename = "edgeCount", default)]
     pub edge_count: usize,
+    #[serde(default)]
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub scopes: Option<Vec<ScopeV1>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -82,6 +102,12 @@ pub struct NodeV1 {
     pub body_hash: String,
     #[serde(default)]
     pub chars: Option<u64>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub body_text: Option<String>,
+    #[serde(default)]
+    pub crux: Option<NodeCrux>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -135,6 +161,49 @@ pub struct Quote {
 
 pub fn is_walk_relation(rel: &str) -> bool {
     WALK_RELATIONS.contains(&rel)
+}
+
+pub fn canonical_root_scopes() -> Vec<ScopeV1> {
+    vec![ScopeV1 {
+        prefix: String::new(),
+        label: String::new(),
+        markers: Vec::new(),
+    }]
+}
+
+pub fn scopes_of_meta(meta: &GraphMeta) -> Vec<ScopeV1> {
+    match &meta.scopes {
+        Some(s) if !s.is_empty() => s.clone(),
+        _ => canonical_root_scopes(),
+    }
+}
+
+pub fn scope_of<'a>(path: &str, scopes: &'a [ScopeV1]) -> &'a str {
+    for s in scopes {
+        if s.prefix.is_empty() {
+            continue;
+        }
+        if path_under_prefix(path, &s.prefix) {
+            return &s.prefix;
+        }
+    }
+    ""
+}
+
+pub fn scope_label(prefix: &str) -> String {
+    if prefix.is_empty() {
+        "(root)".to_string()
+    } else {
+        format!("{prefix}/")
+    }
+}
+
+pub fn scopes_here_clause(scopes: &[ScopeV1]) -> String {
+    if scopes.len() <= 1 {
+        return String::new();
+    }
+    let labels: Vec<String> = scopes.iter().map(|s| scope_label(&s.prefix)).collect();
+    format!(" — scopes here: {}", labels.join(" · "))
 }
 
 /// Strip mint-time disambiguation ordinals (`~2`, `~3`, ...) at segment ends.
@@ -230,6 +299,44 @@ pub fn is_test_path(path: &str) -> bool {
     base == "conftest.py" || (base.starts_with("test_") && base.ends_with(".py"))
 }
 
+/// Mirrors `src/graph/deploy.ts::deployFormatOf` truthiness check.
+pub fn is_deploy_file(path: &str) -> bool {
+    let normalized = path.replace('\\', "/");
+    let base = normalized
+        .rsplit('/')
+        .next()
+        .unwrap_or(&normalized)
+        .to_ascii_lowercase();
+    if base.ends_with(".dockerignore") {
+        return false;
+    }
+    if base == "containerfile"
+        || base == "dockerfile"
+        || (base.starts_with("dockerfile")
+            && matches!(base.as_bytes().get(10), Some(b'.' | b'_' | b'-'))
+            && base.len() > 11)
+        || (base.ends_with(".dockerfile") && base.len() > ".dockerfile".len())
+    {
+        return true;
+    }
+    base.ends_with(".yaml") || base.ends_with(".yml")
+}
+
+/// Resolve `rel` strictly inside `root`, refusing traversal and symlink escapes.
+pub fn safe_resolve_inside(root: &Path, rel: &str) -> Option<PathBuf> {
+    let canon_root = fs::canonicalize(root).ok()?;
+    let joined = root.join(rel);
+    let meta = fs::symlink_metadata(&joined).ok()?;
+    if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+        return None;
+    }
+    let canon = fs::canonicalize(&joined).ok()?;
+    if !canon.starts_with(&canon_root) {
+        return None;
+    }
+    Some(canon)
+}
+
 pub fn span_range(span: &str) -> Option<(usize, usize)> {
     let rest = span.strip_prefix('L')?;
     if let Some((a, b)) = rest.split_once("-L") {
@@ -279,7 +386,7 @@ pub fn reference_line(
         .entry(path.to_string())
         .or_insert_with(|| {
             let full = root.join(path);
-            std::fs::read_to_string(full)
+            fs::read_to_string(full)
                 .ok()
                 .map(|s| s.lines().map(String::from).collect())
         })
@@ -334,4 +441,47 @@ pub fn with_savings(body: &str, saved: Option<&Savings>) -> String {
         group_digits(delta),
         s.files
     )
+}
+
+/// Deterministic approximation of JavaScript's `localeCompare` (case-insensitive primary,
+/// lowercase before uppercase on equal letters, byte tiebreak).
+pub fn js_locale_cmp(a: &str, b: &str) -> Ordering {
+    let al = a.to_lowercase();
+    let bl = b.to_lowercase();
+    match al.cmp(&bl) {
+        Ordering::Equal => {
+            for (ca, cb) in a.chars().zip(b.chars()) {
+                if ca != cb {
+                    let a_upper = ca.is_uppercase();
+                    let b_upper = cb.is_uppercase();
+                    if a_upper != b_upper {
+                        return a_upper.cmp(&b_upper);
+                    }
+                    return ca.cmp(&cb);
+                }
+            }
+            a.cmp(b)
+        }
+        other => other,
+    }
+}
+
+/// Serialize `f64` matching JavaScript `JSON.stringify` (exact integers print without `.0`).
+pub fn serialize_js_f64<S: Serializer>(val: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+    const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
+    if val.is_finite() && val.fract() == 0.0 && (-MAX_SAFE..=MAX_SAFE).contains(val) {
+        serializer.serialize_i64(*val as i64)
+    } else {
+        serializer.serialize_f64(*val)
+    }
+}
+
+pub fn serialize_opt_js_f64<S: Serializer>(
+    val: &Option<f64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    match val {
+        Some(v) => serialize_js_f64(v, serializer),
+        None => serializer.serialize_none(),
+    }
 }

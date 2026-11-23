@@ -1,0 +1,5 @@
+trail ask — "who calls computeTotal"  (structural)
+
+callers / references of computeTotal
+
+- processOrder  src/order.ts:L4-L6  (calls) — processOrder(subtotal: number): number

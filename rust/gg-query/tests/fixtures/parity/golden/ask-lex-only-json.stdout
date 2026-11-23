@@ -1,0 +1,64 @@
+{
+  "query": "calculate order tax total",
+  "mode": "lexical",
+  "hits": [
+    {
+      "kind": "symbol",
+      "title": "OrderService · class",
+      "pointer": "src/order.ts:L3-L7",
+      "snippet": "class OrderService",
+      "score": 1
+    },
+    {
+      "kind": "symbol",
+      "title": "computeTotal · function",
+      "pointer": "src/math.ts:L5-L8",
+      "snippet": "function computeTotal(subtotal: number, rate: number): number",
+      "score": 0.893150069910017
+    },
+    {
+      "kind": "symbol",
+      "title": "render_invoice · function",
+      "pointer": "src/report.py:L4-L5",
+      "snippet": "def render_invoice(subtotal: float, tax: float) -> str",
+      "score": 0.2532444104607736
+    },
+    {
+      "kind": "symbol",
+      "title": "checkout.ts · file",
+      "pointer": "src/checkout.ts",
+      "snippet": "",
+      "score": 0.2114892932576012
+    },
+    {
+      "kind": "symbol",
+      "title": "processOrder · method",
+      "pointer": "src/order.ts:L4-L6",
+      "snippet": "processOrder(subtotal: number): number",
+      "score": 0.9819933946652174
+    },
+    {
+      "kind": "symbol",
+      "title": "computeTax · function",
+      "pointer": "src/math.ts:L1-L3",
+      "snippet": "function computeTax(amount: number, rate: number): number",
+      "score": 0.7625881980870068
+    },
+    {
+      "kind": "symbol",
+      "title": "runCheckout · function",
+      "pointer": "src/checkout.ts:L3-L6",
+      "snippet": "function runCheckout(items: number[]): number",
+      "score": 0.10866071774406083
+    },
+    {
+      "kind": "symbol",
+      "title": "order.ts · file",
+      "pointer": "src/order.ts",
+      "snippet": "",
+      "score": 0.8542407377942625
+    }
+  ],
+  "coverage": 0.3599719754052953,
+  "coverageStrong": 0.1617431067669829
+}

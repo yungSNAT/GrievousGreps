@@ -332,3 +332,138 @@ fn concurrent_open_or_sync_succeeds_without_sqlite_busy() {
         h.join().expect("thread join");
     }
 }
+
+#[test]
+fn parity_ask_hybrid_json_and_text() {
+    let (tmp, before) = setup_repo();
+    let model = repo_root().join("models").join("potion-code-16M-v2");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["ask", "calculate order tax total", "--json", "--model"])
+        .arg(&model)
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-json.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["ask", "calculate order tax total", "--model"])
+        .arg(&model)
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-text.stdout"))
+        .stderr_eq("");
+
+    assert_only_sqlite_written(&before, tmp.path());
+}
+
+#[test]
+fn parity_ask_lex_source_and_in_prefix() {
+    let (tmp, before) = setup_repo();
+    let model = repo_root().join("models").join("potion-code-16M-v2");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args([
+            "ask",
+            "calculate order tax total",
+            "--no-graph-rank",
+            "--no-semantic",
+            "--json",
+        ])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-lex-only-json.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["ask", "calculate order tax total", "--source", "--model"])
+        .arg(&model)
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-source.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args([
+            "ask",
+            "calculate order tax total",
+            "--in",
+            "src/math.ts",
+            "--json",
+            "--model",
+        ])
+        .arg(&model)
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-in-math-json.stdout"))
+        .stderr_eq("");
+
+    assert_only_sqlite_written(&before, tmp.path());
+}
+
+#[test]
+fn parity_ask_structural_in_and_out() {
+    let (tmp, before) = setup_repo();
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["ask", "who calls computeTotal", "--json"])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-structural-json.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["ask", "who calls computeTotal"])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-structural-text.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["ask", "what does handleOrder call", "--json"])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("ask-structural-out-json.stdout"))
+        .stderr_eq("");
+
+    assert_only_sqlite_written(&before, tmp.path());
+}
+
+#[test]
+fn parity_skeleton_text_json_and_missing() {
+    let (tmp, before) = setup_repo();
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["skeleton", "src/order.ts"])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("skeleton-order-text.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["skeleton", "order.ts", "--json"])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("skeleton-order-json.stdout"))
+        .stderr_eq("");
+
+    Command::new(cargo_bin!("gg-query"))
+        .args(["skeleton", "missing.ts"])
+        .arg(tmp.path())
+        .assert()
+        .success()
+        .stdout_eq(golden("skeleton-missing-text.stdout"))
+        .stderr_eq("");
+
+    assert_only_sqlite_written(&before, tmp.path());
+}

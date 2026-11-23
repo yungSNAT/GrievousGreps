@@ -1,0 +1,31 @@
+trail ask — "calculate order tax total"  (lexical)
+
+1. processOrder · method  [symbol]
+   src/order.ts:L4-L6
+   processOrder(subtotal: number): number
+
+2. computeTotal · function  [symbol]
+   src/math.ts:L5-L8
+   function computeTotal(subtotal: number, rate: number): number
+
+3. checkout.ts · file  [symbol]
+   src/checkout.ts
+
+4. render_invoice · function  [symbol]
+   src/report.py:L4-L5
+   def render_invoice(subtotal: float, tax: float) -> str
+
+5. handleOrder · function  [symbol]
+   src/order.ts:L9-L12
+   function handleOrder(subtotal: number): number
+
+6. computeTax · function  [symbol]
+   src/math.ts:L1-L3
+   function computeTax(amount: number, rate: number): number
+
+7. runCheckout · function  [symbol]
+   src/checkout.ts:L3-L6
+   function runCheckout(items: number[]): number
+
+8. order.ts · file  [symbol]
+   src/order.ts
