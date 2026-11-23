@@ -177,8 +177,9 @@ function copyTree(srcDir: string, outDir: string): void {
         const dest = copyFileInside(base, src, join(outDir, childRel));
         // `probeDrift` trusts the newest print set, so the copies keep their order.
         if (entry.name.startsWith(`${FINGERPRINT_PREFIX}.`)) {
-          const { atime, mtime } = statSync(src);
-          utimesSync(dest, atime, mtime);
+          // Seconds as a number keep sub-millisecond order, which a Date would round away.
+          const { atimeMs, mtimeMs } = statSync(src);
+          utimesSync(dest, atimeMs / 1000, mtimeMs / 1000);
         }
       }
     }
