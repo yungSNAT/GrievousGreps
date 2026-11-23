@@ -19,8 +19,10 @@ export interface MountImports {
   module(specifier: string, file: string): string | null;
   /** A Python package's submodule `name`. */
   submodule(module: string, name: string): string | null;
-  /** Whether a Python module binds `name` itself: a definition, an import or a star import that may. */
+  /** Whether a Python module may bind `name` itself: any binding of it, a star import, or a dynamic binding. */
   binds(module: string, name: string): boolean;
+  /** Whether a Python module's code binds `name` exactly once and binds no name dynamically. */
+  once(module: string, name: string): boolean;
   /** The one import binding `local` at the top of `file`. */
   imported(file: string, local: string): Import | null;
   /** What an ES module exports as `name`: one of its own names, or another module's. */
@@ -41,7 +43,8 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
   const importOf = (file: string, local: string) => own(facts.get(file)?.requires, local) ?? imports.imported(file, local);
   // What a name bound at the top of `file` is: a router it defines, a whole module, or what an import brings.
   const followLocal = (file: string, local: string, hops: number): Target => {
-    if (hops > MAX_HOPS) return null;
+    // A Python name bound more than once, or in a module that can bind names dynamically, is not followed.
+    if (hops > MAX_HOPS || (!isJs(file) && !imports.once(file, local))) return null;
     const key = Scopes.module(local);
     if (facts.get(file)?.objects[key]) return { file, key };
     const imp = importOf(file, local);

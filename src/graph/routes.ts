@@ -432,50 +432,77 @@ function requireOf(n: SyntaxNode | null, scopes: Scopes): string | null {
   return loader ? literal(args[0]) : null;
 }
 
+/** Where `this` is no longer the module's: a function (not an arrow) or a class. */
+const THIS_SCOPES = new Set(["function_declaration", "function_expression", "function", "generator_function", "generator_function_declaration", "method_definition", "class_body"]);
+
+/** `module.exports`, written plainly. */
+function isModuleExports(n: SyntaxNode | null | undefined): boolean {
+  const object = n?.type === "member_expression" ? n.childForFieldName("object") : null;
+  return object?.type === "identifier" && object.text === "module" && n!.childForFieldName("property")?.text === "exports"
+    && !n!.children.some((c) => c.type === "optional_chain");
+}
+
 /**
  * CommonJS exports as Node sets them, by the local name each holds: `module.exports = x` replaces the whole value
  * (`MODULE_EXPORTS`) and every name, `module.exports = { a, b: c }` names its properties, and `exports.a = x` or
- * `module.exports.a = x` sets one name; `exports.a` after a replacement writes to an object no longer exported. Any other
- * use of `module.exports` or `exports` (a write that is not a top-level statement, a spread, computed or quoted key,
- * a method or accessor, `Object.assign`, `defineProperty`, a subscript, a read) makes the exports opaque.
+ * `module.exports.a = x` sets one name; `exports.a` after a replacement writes to an object no longer exported. These
+ * writes, as top-level statements, are all that is modelled: any other reference to `module` or `exports`, or a
+ * top-level `this`, leaves the exports opaque. `require.main === module` is a read that changes nothing.
  */
 function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
   let out: Record<string, string> | undefined;
   let replaced = false;
-  // The end of the target of the write being read: `module.exports` and `exports` inside it are that write's.
-  let inTarget = -1;
+  const refs: number[] = [];
+  const modelled: Array<[number, number]> = [];
   for (const n of descendants(root)) {
-    const left = n.type === "assignment_expression" ? n.childForFieldName("left") : null;
-    const target = left?.type === "member_expression" ? left.text.replace(/\s+/g, "") : "";
-    const named = /^(module\.)?exports\.([A-Za-z_$][\w$]*)$/.exec(target);
-    if (target !== "module.exports" && !named) {
-      const use = (n.type === "member_expression" && n.text.replace(/\s+/g, "") === "module.exports") || (n.type === "identifier" && n.text === "exports");
-      if (use && n.startIndex >= inTarget) return { opaque: true };
-      continue;
+    const named = n.type === "identifier" || n.type === "shorthand_property_identifier" || n.type === "shorthand_property_identifier_pattern";
+    if (named && (n.text === "module" || n.text === "exports")) refs.push(n.startIndex);
+    if (n.type === "this") {
+      let p = n.parent;
+      while (p && !THIS_SCOPES.has(p.type)) p = p.parent;
+      if (!p) refs.push(n.startIndex);
     }
-    if (n.parent?.type !== "expression_statement" || n.parent.parent?.type !== "program") return { opaque: true };
-    inTarget = left!.endIndex;
+    if (n.type === "binary_expression" && ["===", "!=="].includes(n.childForFieldName("operator")?.type ?? "")) {
+      const [a, b] = [n.childForFieldName("left"), n.childForFieldName("right")];
+      const main = (x: SyntaxNode | null, y: SyntaxNode | null) => x?.text.replace(/\s+/g, "") === "require.main" && y?.type === "identifier" && y.text === "module";
+      if (main(a, b) || main(b, a)) modelled.push([n.startIndex, n.endIndex]);
+    }
+    if (n.type !== "assignment_expression" || n.parent?.type !== "expression_statement" || n.parent.parent?.type !== "program") continue;
+    const left = n.childForFieldName("left")!;
+    const object = left.type === "member_expression" ? left.childForFieldName("object") : null;
+    const property = left.type === "member_expression" ? left.childForFieldName("property") : null;
+    const whole = isModuleExports(left);
+    const one = !whole && property?.type === "property_identifier" && !left.children.some((c) => c.type === "optional_chain")
+      && (isModuleExports(object) || (object?.type === "identifier" && object.text === "exports"));
+    if (!whole && !one) continue;
     const right = n.childForFieldName("right");
     const value = right?.type === "identifier" ? right.text : undefined;
-    if (named) {
-      if (!named[1] && replaced) continue;
+    if (one) {
+      modelled.push([left.startIndex, left.endIndex]);
+      if (object!.type === "identifier" && replaced) continue;
       out ??= {};
-      if (value) out[named[2]] = value;
-      else delete out[named[2]];
+      if (value) out[property!.text] = value;
+      else delete out[property!.text];
       continue;
     }
-    replaced = true;
-    out = {};
-    if (value) out[MODULE_EXPORTS] = value;
+    let plain = true;
+    const props: Record<string, string> = {};
     for (const p of right?.type === "object" ? right.namedChildren : []) {
       const key = p.type === "pair" ? p.childForFieldName("key") : null;
       const v = p.type === "pair" ? p.childForFieldName("value") : null;
-      if (p.type === "shorthand_property_identifier") out[p.text] = p.text;
-      else if (key?.type === "property_identifier" && v?.type === "identifier") out[key.text] = v.text;
-      else if (key?.type === "property_identifier") delete out[key.text];
-      else if (p.type !== "comment") return { opaque: true };
+      if (p.type === "shorthand_property_identifier") props[p.text] = p.text;
+      else if (key?.type === "property_identifier" && v?.type === "identifier") props[key.text] = v.text;
+      else if (key?.type === "property_identifier") delete props[key.text];
+      else if (p.type !== "comment") plain = false;
     }
+    // A spread, computed or quoted key, method or accessor: the write is not modelled, so its target stays a reference.
+    if (!plain) continue;
+    modelled.push([left.startIndex, left.endIndex]);
+    replaced = true;
+    out = props;
+    if (value) out[MODULE_EXPORTS] = value;
   }
+  if (refs.some((at) => !modelled.some(([from, to]) => at >= from && at < to))) return { opaque: true };
   return out ? { exports: out } : {};
 }
 

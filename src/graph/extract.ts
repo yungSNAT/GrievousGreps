@@ -97,11 +97,12 @@ export interface PythonExports {
   /** Names defined under an `if` or `try`, so a run of the module may not bind them. */
   conditionalDefs: string[];
   /**
-   * Names bound at module level other than by an import (assignment, `for`, `with`, walrus, `match`, `def`, `class`,
-   * a function's `global`), for a module with imports or a package's `__init__.py`: an import of such a name, or a
-   * package's submodule of it, is not followed.
+   * For a module with imports or a package's `__init__.py`: how many times module-level code binds or unbinds each
+   * name, imports included; a route mount follows a name only when this is 1.
    */
-  assigned?: string[];
+  bindings?: Record<string, number>;
+  /** The module can bind names no count shows (`globals`, `setattr`, `exec`, a module `__getattr__`, ...). */
+  dynamic?: true;
 }
 
 /**
@@ -567,7 +568,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   const tsModule = lang === "typescript" || lang === "tsx" ? collectTsModule(root) : null;
   const pythonModuleAssigned = new Set<string>();
   if (lang === "python") collectPythonScopeBindings(root, pythonModuleAssigned, false);
-  const pythonExports = lang === "python" ? withPythonAssigned(pythonImports, pythonModuleAssigned, root, /(^|\/)__init__\.py$/.test(rel)) : null;
+  const pythonExports = lang === "python" ? withPythonBindings(pythonImports, root, /(^|\/)__init__\.py$/.test(rel)) : null;
   const pythonReboundNames = new Map(
     [...pythonImportedNames]
       .filter((name) => !pythonNamedImports.has(name) && !importedModules.has(name))
@@ -1257,16 +1258,56 @@ function collectPythonExports(root: SyntaxNode): PythonExports | null {
   return out.imports.length || out.stars.length || out.all ? out : null;
 }
 
-/** The exports table with {@link PythonExports.assigned}; a package's `__init__.py` keeps one even without imports. */
-function withPythonAssigned(table: PythonExports | null, assigned: ReadonlySet<string>, root: SyntaxNode, isPackage: boolean): PythonExports | null {
-  const names = new Set(assigned);
-  const globals = (n: SyntaxNode): void => {
-    if (n.type === "global_statement") for (const c of n.namedChildren) names.add(c.text);
-    for (const c of n.namedChildren) globals(c);
+/** Names that let a module bind any name at run time. */
+const PY_DYNAMIC = new Set(["globals", "locals", "vars", "setattr", "delattr", "exec", "eval", "__getattr__", "__dict__"]);
+
+/**
+ * The exports table with {@link PythonExports.bindings}, counted over module-level code: every compound statement's
+ * body, `except` and `finally` included, but not a `def`, `class` or `lambda` body, where only `global` binds here.
+ * Imports, assignment and `for` targets, walrus, `with ... as`, `except ... as`, `del`, `def` and `class` names, and
+ * every name in a `case` pattern count. A package's `__init__.py` keeps a table even without imports.
+ */
+function withPythonBindings(table: PythonExports | null, root: SyntaxNode, isPackage: boolean): PythonExports | null {
+  if (!table && !isPackage) return null;
+  const bindings: Record<string, number> = {};
+  let dynamic = false;
+  const bind = (name: string | undefined) => {
+    if (name) bindings[name] = (Object.hasOwn(bindings, name) ? bindings[name] : 0) + 1;
   };
-  globals(root);
-  if (!names.size || (!table && !isPackage)) return table;
-  return { ...(table ?? { imports: [], stars: [], all: null, conditionalDefs: [] }), assigned: [...names] };
+  const targets = (node: SyntaxNode | null | undefined) => {
+    const names = new Set<string>();
+    if (node) collectPythonBindingNames(node, names);
+    for (const name of names) bind(name);
+  };
+  const walk = (node: SyntaxNode, top: boolean): void => {
+    if (node.type === "identifier" && PY_DYNAMIC.has(node.text)) dynamic = true;
+    if (node.type === "global_statement") for (const c of node.namedChildren) bind(c.text);
+    const body = node.type === "function_definition" || node.type === "class_definition" || node.type === "lambda";
+    if (top) {
+      if (body) bind(node.childForFieldName("name")?.text);
+      else if (node.type === "import_statement") {
+        for (const c of node.namedChildren) bind(c.type === "aliased_import" ? c.childForFieldName("alias")?.text : c.text.split(".")[0]);
+      } else if (node.type === "import_from_statement") {
+        const module = node.childForFieldName("module_name");
+        for (const c of node.namedChildren) {
+          if (!sameSyntaxNode(c, module) && (c.type === "aliased_import" || c.type === "dotted_name")) bind((c.childForFieldName("alias") ?? c).text);
+        }
+      } else if (node.type === "assignment" || node.type === "augmented_assignment" || node.type === "for_statement") targets(node.childForFieldName("left"));
+      else if (node.type === "named_expression") targets(node.childForFieldName("name"));
+      else if (node.type === "delete_statement" || node.type === "case_pattern") targets(node);
+      else if (node.type === "as_pattern") {
+        const last = node.namedChildren[node.namedChildren.length - 1];
+        targets(node.childForFieldName("alias") ?? last);
+      } else if (node.type === "except_clause" || node.type === "except_group_clause") {
+        // `except E as name`: the expression after `as`.
+        const as = node.children.find((c) => c.type === "as");
+        if (as) targets(node.namedChildren.find((c) => c.startIndex >= as.endIndex));
+      }
+    }
+    for (const c of node.namedChildren) walk(c, top && !body);
+  };
+  walk(root, true);
+  return { ...(table ?? { imports: [], stars: [], all: null, conditionalDefs: [] }), bindings, ...(dynamic ? { dynamic: true as const } : {}) };
 }
 
 /** Names a def's own imports bind, visible in its body and nested defs. */

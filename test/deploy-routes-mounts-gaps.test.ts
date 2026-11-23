@@ -242,12 +242,25 @@ const PACKAGE_FORMS: Record<string, string> = {
   star: "from .extra import *\n",
   def: "def users():\n    return 1\n",
   class: "class users:\n    pass\n",
+  getattr: "def __getattr__(name):\n    return make(name)\n",
+  globals: "globals()[\"users\"] = make()\n",
+  // Not listed by any review: the rule, not a list, denies them.
+  locals: "locals()[\"users\"] = make()\n",
+  finally: "try:\n    pass\nfinally:\n    users = None\n",
 };
 const MODULE_FORMS: Record<string, string> = {
   ok: "from .impl import bp\n",
   rebound: "from .impl import bp\nbp = wrap(bp)\n",
   loop: "from .impl import bp\nfor bp in [bp]:\n    pass\n",
   def: "from .impl import bp\ndef bp():\n    return 1\n",
+  del: "from .impl import bp\ndel bp\n",
+  exceptas: "from .impl import bp\ntry:\n    setup()\nexcept Exception as bp:\n    pass\n",
+  except: "from .impl import bp\ntry:\n    setup()\nexcept Exception:\n    bp = None\n",
+  globals: "from .impl import bp\nglobals()[\"bp\"] = make()\n",
+  // Not listed by any review.
+  setattr: "import sys\nfrom .impl import bp\nsetattr(sys.modules[__name__], \"bp\", make())\n",
+  exceptgroup: "from .impl import bp\ntry:\n    setup()\nexcept* Exception as bp:\n    pass\n",
+  importas: "from .impl import bp\nimport os.path as bp\n",
 };
 // Each form writes CommonJS exports in a way readCommonExports does not model: the module's exports are opaque.
 const COMMONJS_FORMS: Record<string, string> = {
@@ -263,6 +276,17 @@ const COMMONJS_FORMS: Record<string, string> = {
   quotedname: "exports.r = r;\nexports[\"r\"] = x;",
   chained: "module.exports = exports = { r };",
   read: "exports.r = r;\nlog(module.exports);",
+  bracket: "module.exports = { r };\nmodule[\"exports\"] = { r: x };",
+  alias: "module.exports = { r };\nconst m = module;\nm.exports = { r: x };",
+  this: "exports.r = r;\nthis.r = x;",
+  argument: "module.exports = { r };\nsetup(module);",
+  shorthand: "exports.r = r;\nsetup({ exports });",
+  // Not listed by any review.
+  optional: "module.exports = { r };\nmodule?.exports.r;",
+  destructure: "exports.r = r;\n({ exports } = other);",
+  arrowthis: "exports.r = r;\nconst set = () => { this.r = x; };",
+  // A read that changes nothing: still a route.
+  okmain: "module.exports = { r };\nif (require.main === module) start();",
 };
 
 test("an unmodelled binding form gives no route: a package's name, a rebound import, CommonJS exports", async () => {
@@ -284,7 +308,7 @@ test("an unmodelled binding form gives no route: a package's name, a rebound imp
     files[`cj_${form}/server.js`] = `const express = require("express");\nconst { r } = require("./m");\nconst app = express();\napp.use("/${form}", r);\n`;
   }
   await withGraph(files, (graph) => {
-    assert.deepEqual(routeIds(graph), ["cj_ok/m.js#route:GET /ok/w", "md_ok/impl.py#route:GET /ok/z", "pk_ok/users.py#route:GET /ok/u"]);
+    assert.deepEqual(routeIds(graph), ["cj_ok/m.js#route:GET /ok/w", "cj_okmain/m.js#route:GET /okmain/w", "md_ok/impl.py#route:GET /ok/z", "pk_ok/users.py#route:GET /ok/u"]);
   });
 });
 
