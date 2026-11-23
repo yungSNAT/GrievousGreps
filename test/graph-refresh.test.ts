@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -740,6 +740,18 @@ test("index: with refresh off, a read-only probe still says fresh or stale, and 
     assert.deepEqual(r.index, { state: "stale", changed: 1, reason: "refresh is off" });
   }
   assert.equal(readFileSync(wiringPath(outOf(d)), "utf8"), before, "the graph is untouched");
+});
+
+test("index: a failure before any graph is found gives no state, refresh on or off", async () => {
+  const d = repo();
+  const elsewhere = mkdtempSync(join(tmpdir(), "graft-refresh-link-"));
+  mkdirSync(join(d, "graft"), { recursive: true });
+  rmSync(join(d, "graft"), { recursive: true });
+  symlinkSync(elsewhere, join(d, "graft"), "junction");
+  for (const r of [await ensureFreshGraph(d), await ensureFreshGraph(d, { disabled: true })]) {
+    assert.equal(r.refreshed, false);
+    assert.equal(r.index, undefined, JSON.stringify(r));
+  }
 });
 
 test("index: with refresh off and no fingerprint, the graph is not vouched for", async () => {

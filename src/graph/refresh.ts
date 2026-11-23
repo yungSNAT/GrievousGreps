@@ -376,7 +376,7 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
     return {
       refreshed: false,
       note: `graph refresh skipped: ${err instanceof Error ? err.message : String(err)}`,
-      index: stale("the refresh failed"),
+      ...(hasGraph(root, opts.contextDir) && { index: stale("the refresh failed") }),
     };
   }
 }
@@ -396,7 +396,19 @@ function probeOnly(root: string, contextDir?: string): RefreshResult {
     if (drift && isClean(drift)) return CLEAN_FRESH;
     return { refreshed: false, index: stale(drift ? "refresh is off" : "no build fingerprint, and refresh is off", drift) };
   } catch {
-    return { refreshed: false, index: stale("refresh is off, and the graph could not be checked") };
+    return hasGraph(root, contextDir)
+      ? { refreshed: false, index: stale("refresh is off, and the graph could not be checked") }
+      : CLEAN;
+  }
+}
+
+/** Whether a graph is there to answer from: a failure before the graph was found
+ * says nothing about one. */
+function hasGraph(root: string, contextDir?: string): boolean {
+  try {
+    return existsSync(wiringPath(contextDirFor(resolve(root), contextDir)));
+  } catch {
+    return false;
   }
 }
 

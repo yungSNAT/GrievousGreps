@@ -102,6 +102,15 @@ function blastJson(args: string[]): {
   }
 }
 
+test("blast --format json says whether the graph is current", () => {
+  const d = builtRepo();
+  writeFileSync(join(d, "src", "math.ts"), MATH_EDITED);
+  const behind = blastJson([d, "--no-refresh"]) as unknown as { index: unknown };
+  assert.deepEqual(behind.index, { state: "stale", changed: 1, reason: "refresh is off" });
+  const current = blastJson([d]) as unknown as { index: unknown };
+  assert.deepEqual(current.index, { state: "fresh" });
+});
+
 test("blast: an edit inside one function reports that function's dependents, not the file's", () => {
   const d = builtRepo();
   writeFileSync(join(d, "src", "math.ts"), MATH_EDITED);
