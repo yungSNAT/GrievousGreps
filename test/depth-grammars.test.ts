@@ -98,6 +98,7 @@ test("the build vendors every bundled grammar the code loads, and installs need 
     assert.ok(existsSync(join(bundle, row.wasm, `tree-sitter-${row.wasm}.wasm`)), `${row.name}'s grammar`);
     for (const tags of ("bundledTags" in row ? row.bundledTags ?? [] : [])) assert.ok(existsSync(join(bundle, tags, "tags.scm")), `${tags}'s tags`);
   }
+  assert.ok(existsSync(join(bundle, "terraform", "tree-sitter-terraform.wasm")), "the deploy graph's Terraform grammar");
   assert.ok(existsSync(join(bundle, "tree-sitter-wasm.LICENSE")));
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   assert.equal(manifest.dependencies["tree-sitter-wasm"], undefined, "a dev dependency, like the depth grammars");
