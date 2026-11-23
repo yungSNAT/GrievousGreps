@@ -132,12 +132,16 @@ test("a malformed kustomization is skipped with a reason", async () => {
     "b/d.yaml": deployment("api"),
     "c/kustomization.yaml": "? [ x, y ]\n: z\nresources: [ 1 ]\n",
     "e/kustomization.yaml": "apiVersion: v1\nkind: ConfigMap\n",
+    "g/kustomization.yaml": "resources: [ d.yaml ]\n---\n{}\n",
+    "h/kustomization.yaml": "resources: [ d.yaml ]\n---\n''\n",
     "f/kustomization.yaml": "a: &a [1,1,1,1,1,1,1,1,1,1]\nb: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a,*a]\nc: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b,*b]\nd: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c,*c]\nresources: *d\n",
   }, ({ result, graph }) => {
     assert.deepEqual(result.skipped.filter((s) => s.path !== "f/kustomization.yaml"), [
       { path: "a/kustomization.yaml", reason: "resources is not a list" },
       { path: "c/kustomization.yaml", reason: "resources entry is not a string" },
       { path: "e/kustomization.yaml", reason: "ConfigMap at line 1 has no metadata.name" },
+      { path: "g/kustomization.yaml", reason: "a kustomization is one YAML document" },
+      { path: "h/kustomization.yaml", reason: "a kustomization is one YAML document" },
     ]);
     assert.match(result.skipped.find((s) => s.path === "f/kustomization.yaml")!.reason, /^not valid YAML/);
     assert.deepEqual(refs(graph), ["b/kustomization.yaml#kustomization -> b/d.yaml#Deployment/default/api"]);
@@ -170,6 +174,7 @@ patches:
   - path: ops.yaml
     target: { labelSelector: "a=b" }
   - path: deploy.yaml
+  - path: cfg.d/p.yaml
 `,
     "bad/kustomization.yaml": "resources: not-a-list\n",
     "app/deploy.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: web }\nspec: { template: { spec: { containers: [] } } }\n",
@@ -204,6 +209,7 @@ patches:
       "components ../comp-missing not found",
       "patch gone.yaml not found",
       "patch deploy.yaml listed more than once: followed once",
+      "patch cfg.d/p.yaml not found, or remote: not followed",
     ]);
     assert.ok(!/tok3n|SEKRET/.test(JSON.stringify(result.skipped)));
     assert.deepEqual(reasons("dup/kustomization.yaml"), ["not read: Kustomize refuses a folder with more than one kustomization file"]);
