@@ -96,7 +96,11 @@ export interface PythonExports {
   all: string[] | null;
   /** Names defined under an `if` or `try`, so a run of the module may not bind them. */
   conditionalDefs: string[];
-  /** A package's `__init__.py`: names it assigns at module level, which `from pkg import name` gets before a submodule. */
+  /**
+   * Names bound at module level other than by an import (assignment, `for`, `with`, walrus, `match`, `def`, `class`,
+   * a function's `global`), for a module with imports or a package's `__init__.py`: an import of such a name, or a
+   * package's submodule of it, is not followed.
+   */
   assigned?: string[];
 }
 
@@ -559,10 +563,11 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
   const goImports = collectGoImports(goSpecs);
   const goPackage = lang === "go" ? goPackageName(root) : null;
   const rGenerics = lang === "r" ? collectRGenerics(root) : EMPTY_SET;
-  const pythonExports = lang === "python" ? collectPythonExports(root, /(^|\/)__init__\.py$/.test(rel)) : null;
+  const pythonImports = lang === "python" ? collectPythonExports(root) : null;
   const tsModule = lang === "typescript" || lang === "tsx" ? collectTsModule(root) : null;
   const pythonModuleAssigned = new Set<string>();
   if (lang === "python") collectPythonScopeBindings(root, pythonModuleAssigned, false);
+  const pythonExports = lang === "python" ? withPythonAssigned(pythonImports, pythonModuleAssigned, root, /(^|\/)__init__\.py$/.test(rel)) : null;
   const pythonReboundNames = new Map(
     [...pythonImportedNames]
       .filter((name) => !pythonNamedImports.has(name) && !importedModules.has(name))
@@ -1192,7 +1197,7 @@ function collectPythonImportedModules(
 /** The module-level import bindings and `__all__` of a Python file. Imports under `try`
  * or `if` count: `try: from .a import f` is how packages re-export optional parts, and
  * a reader of the module sees `f` either way. Null when the file binds nothing. */
-function collectPythonExports(root: SyntaxNode, isPackage: boolean): PythonExports | null {
+function collectPythonExports(root: SyntaxNode): PythonExports | null {
   const out: PythonExports = { imports: [], stars: [], all: null, conditionalDefs: [] };
   let allComputed = false;
   const stringsOf = (list: SyntaxNode): string[] | null => {
@@ -1236,7 +1241,6 @@ function collectPythonExports(root: SyntaxNode, isPackage: boolean): PythonExpor
       return;
     }
     const left = type === "assignment" || type === "augmented_assignment" ? node.childForFieldName("left") : null;
-    if (isPackage && type === "assignment" && left?.type === "identifier") (out.assigned ??= []).push(left.text);
     if (left?.text === "__all__") {
       const right = node.childForFieldName("right");
       const literal = type === "assignment" && (right?.type === "list" || right?.type === "tuple") ? stringsOf(right) : null;
@@ -1250,7 +1254,19 @@ function collectPythonExports(root: SyntaxNode, isPackage: boolean): PythonExpor
   };
   visit(root, false);
   if (allComputed) out.all = null;
-  return out.imports.length || out.stars.length || out.all || out.assigned ? out : null;
+  return out.imports.length || out.stars.length || out.all ? out : null;
+}
+
+/** The exports table with {@link PythonExports.assigned}; a package's `__init__.py` keeps one even without imports. */
+function withPythonAssigned(table: PythonExports | null, assigned: ReadonlySet<string>, root: SyntaxNode, isPackage: boolean): PythonExports | null {
+  const names = new Set(assigned);
+  const globals = (n: SyntaxNode): void => {
+    if (n.type === "global_statement") for (const c of n.namedChildren) names.add(c.text);
+    for (const c of n.namedChildren) globals(c);
+  };
+  globals(root);
+  if (!names.size || (!table && !isPackage)) return table;
+  return { ...(table ?? { imports: [], stars: [], all: null, conditionalDefs: [] }), assigned: [...names] };
 }
 
 /** Names a def's own imports bind, visible in its body and nested defs. */

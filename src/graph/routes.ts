@@ -110,6 +110,7 @@ export interface RouteFacts {
 }
 
 const MAX_PREFIXES = 8;
+const MAX_VISITS = 1000;
 
 // ── Syntax ──────────────────────────────────────────────────────────────────
 
@@ -434,18 +435,26 @@ function requireOf(n: SyntaxNode | null, scopes: Scopes): string | null {
 /**
  * CommonJS exports as Node sets them, by the local name each holds: `module.exports = x` replaces the whole value
  * (`MODULE_EXPORTS`) and every name, `module.exports = { a, b: c }` names its properties, and `exports.a = x` or
- * `module.exports.a = x` sets one name; `exports.a` after a replacement writes to an object no longer exported. A write
- * that is not a top-level statement may not run, so the exports are then opaque.
+ * `module.exports.a = x` sets one name; `exports.a` after a replacement writes to an object no longer exported. Any other
+ * use of `module.exports` or `exports` (a write that is not a top-level statement, a spread, computed or quoted key,
+ * a method or accessor, `Object.assign`, `defineProperty`, a subscript, a read) makes the exports opaque.
  */
 function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
   let out: Record<string, string> | undefined;
   let replaced = false;
+  // The end of the target of the write being read: `module.exports` and `exports` inside it are that write's.
+  let inTarget = -1;
   for (const n of descendants(root)) {
     const left = n.type === "assignment_expression" ? n.childForFieldName("left") : null;
     const target = left?.type === "member_expression" ? left.text.replace(/\s+/g, "") : "";
     const named = /^(module\.)?exports\.([A-Za-z_$][\w$]*)$/.exec(target);
-    if (target !== "module.exports" && !named) continue;
+    if (target !== "module.exports" && !named) {
+      const use = (n.type === "member_expression" && n.text.replace(/\s+/g, "") === "module.exports") || (n.type === "identifier" && n.text === "exports");
+      if (use && n.startIndex >= inTarget) return { opaque: true };
+      continue;
+    }
     if (n.parent?.type !== "expression_statement" || n.parent.parent?.type !== "program") return { opaque: true };
+    inTarget = left!.endIndex;
     const right = n.childForFieldName("right");
     const value = right?.type === "identifier" ? right.text : undefined;
     if (named) {
@@ -459,9 +468,12 @@ function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
     out = {};
     if (value) out[MODULE_EXPORTS] = value;
     for (const p of right?.type === "object" ? right.namedChildren : []) {
-      if (p.type === "shorthand_property_identifier") out[p.text] = p.text;
+      const key = p.type === "pair" ? p.childForFieldName("key") : null;
       const v = p.type === "pair" ? p.childForFieldName("value") : null;
-      if (p.type === "pair" && p.childForFieldName("key")?.type === "property_identifier" && v?.type === "identifier") out[p.childForFieldName("key")!.text] = v.text;
+      if (p.type === "shorthand_property_identifier") out[p.text] = p.text;
+      else if (key?.type === "property_identifier" && v?.type === "identifier") out[key.text] = v.text;
+      else if (key?.type === "property_identifier") delete out[key.text];
+      else if (p.type !== "comment") return { opaque: true };
     }
   }
   return out ? { exports: out } : {};
@@ -533,18 +545,28 @@ export interface MountGraph {
   into(key: string): ReadonlyArray<Pick<Mount, "parent" | "prefix" | "replaces">>;
 }
 
-/** Every full prefix `name` is served under, or none when any step is unknown. */
-export function prefixesOf(g: MountGraph, name: string, depth = 0): Seg[][] {
-  const o = g.object(name);
-  if (!o || o.count !== 1 || o.mounted || depth > MAX_PREFIXES) return [];
-  const into = g.into(name);
-  if (!into.length) return o.app ? [o.own] : [];
-  const out: Seg[][] = [];
-  for (const m of into) {
-    if (!m.prefix || m.parent === null) return [];
-    for (const p of prefixesOf(g, m.parent, depth + 1)) out.push([...p, ...(m.replaces ? m.prefix : [...m.prefix, ...o.own])]);
-  }
-  return out.slice(0, MAX_PREFIXES);
+/**
+ * Every full prefix `name` is served under, or none when any step is unknown. Mounts that fan in at every level
+ * multiply the paths to walk, so past {@link MAX_VISITS} objects the answer is none.
+ */
+export function prefixesOf(g: MountGraph, name: string): Seg[][] {
+  let visits = 0;
+  const walk = (at: string, depth: number): Seg[][] | null => {
+    if (++visits > MAX_VISITS) return null;
+    const o = g.object(at);
+    if (!o || o.count !== 1 || o.mounted || depth > MAX_PREFIXES) return [];
+    const into = g.into(at);
+    if (!into.length) return o.app ? [o.own] : [];
+    const out: Seg[][] = [];
+    for (const m of into) {
+      if (!m.prefix || m.parent === null) return [];
+      const above = walk(m.parent, depth + 1);
+      if (above === null) return null;
+      for (const p of above) out.push([...p, ...(m.replaces ? m.prefix : [...m.prefix, ...o.own])]);
+    }
+    return out.slice(0, MAX_PREFIXES);
+  };
+  return walk(name, 0) ?? [];
 }
 
 /** A route's name under one prefix, or null when the prefix ends in the rest of the path. */

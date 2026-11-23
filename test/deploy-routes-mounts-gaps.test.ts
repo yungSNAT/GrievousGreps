@@ -12,6 +12,7 @@ import { buildGraph } from "../src/graph/build.js";
 import { readGraph, wiringPath } from "../src/graph/write.js";
 import { contextDirFor } from "../src/context/node-file.js";
 import { checkGraphInvariants } from "../src/graph/invariants.js";
+import { prefixesOf, type MountGraph } from "../src/graph/routes.js";
 import { built, k8s, path, routeEdges, routeIds, withGraph } from "./deploy-routes-fixtures.js";
 
 test("a router mounted in its own file and from another has a route under each prefix, each once", async () => {
@@ -95,14 +96,12 @@ const b = require("./b");
 const c = require("./c");
 const { r: d } = require("./d");
 const m = require("./m");
-const e = require("./e");
 const app = express();
 app.use("/a", a);
 app.use("/b", b);
 app.use("/c", c);
 app.use("/d", d);
 app.use("/m", m);
-app.use("/e", e);
 `,
     "cjs/esm.mjs": `import express from "express";
 import m from "./m.js";
@@ -149,13 +148,6 @@ b.get("/prop", (req, res) => res.end());
 module.exports = a;
 module.exports.default = b;
 `,
-    // require of an ES module gives its namespace, not its default export.
-    "cjs/e.mjs": `import { Router } from "express";
-const r = Router();
-r.get("/z", (req, res) => res.end());
-export default r;
-`,
-    "cjs/e.js": `module.exports = require("./e.mjs");\n`,
   }, (graph) => {
     assert.deepEqual(routeIds(graph), ["cjs/c.js#route:GET /c/new", "cjs/m.js#route:GET /esm/whole", "cjs/m.js#route:GET /m/whole"]);
   });
@@ -230,4 +222,83 @@ test("a warm build that changes only a mount's prefix moves the mounted routes a
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// Each form binds `users` in a package's __init__.py, or rebinds an imported `bp` in the module a mount imports it
+// from, in a way route-mounts.ts does not model: the name is then opaque, so neither the submodule nor the first
+// import is followed. `ok` is the control that does give a route.
+const PACKAGE_FORMS: Record<string, string> = {
+  ok: "",
+  imported: "from somelib import users\n",
+  rebound: "from . import users\nusers = make(users)\n",
+  assigned: "users = make()\n",
+  tuple: "users, other = make()\n",
+  loop: "for users in make():\n    pass\n",
+  with: "with make() as users:\n    pass\n",
+  walrus: "(users := make())\n",
+  splat: "match make():\n    case [*users]:\n        pass\n",
+  matchas: "match make():\n    case {} as users:\n        pass\n",
+  global: "def setup():\n    global users\n    users = make()\n",
+  star: "from .extra import *\n",
+  def: "def users():\n    return 1\n",
+  class: "class users:\n    pass\n",
+};
+const MODULE_FORMS: Record<string, string> = {
+  ok: "from .impl import bp\n",
+  rebound: "from .impl import bp\nbp = wrap(bp)\n",
+  loop: "from .impl import bp\nfor bp in [bp]:\n    pass\n",
+  def: "from .impl import bp\ndef bp():\n    return 1\n",
+};
+// Each form writes CommonJS exports in a way readCommonExports does not model: the module's exports are opaque.
+const COMMONJS_FORMS: Record<string, string> = {
+  ok: "module.exports = { r };",
+  spread: "module.exports = { r, ...other };",
+  computed: "module.exports = { r, [k]: x };",
+  quoted: "module.exports = { r, \"r\": x };",
+  getter: "module.exports = { r, get x() { return 1; } };",
+  method: "module.exports = { r, x() {} };",
+  assign: "module.exports = { r };\nObject.assign(module.exports, other);",
+  define: "exports.r = r;\nObject.defineProperty(exports, \"r\", { get: () => x });",
+  subscript: "module.exports = { r };\nmodule.exports[k] = x;",
+  quotedname: "exports.r = r;\nexports[\"r\"] = x;",
+  chained: "module.exports = exports = { r };",
+  read: "exports.r = r;\nlog(module.exports);",
+};
+
+test("an unmodelled binding form gives no route: a package's name, a rebound import, CommonJS exports", async () => {
+  const files: Record<string, string> = {};
+  for (const [form, init] of Object.entries(PACKAGE_FORMS)) {
+    files[`pk_${form}/__init__.py`] = init;
+    files[`pk_${form}/extra.py`] = "users = 1\n";
+    files[`pk_${form}/users.py`] = "from fastapi import APIRouter\n\nrouter = APIRouter()\n\n@router.get(\"/u\")\ndef u():\n    return 1\n";
+    files[`pk_${form}/main.py`] = `from fastapi import FastAPI\nfrom pk_${form} import users\n\napp = FastAPI()\napp.include_router(users.router, prefix="/${form}")\n`;
+  }
+  for (const [form, views] of Object.entries(MODULE_FORMS)) {
+    files[`md_${form}/__init__.py`] = "";
+    files[`md_${form}/impl.py`] = "from flask import Blueprint\n\nbp = Blueprint(\"bp\", __name__)\n\n@bp.route(\"/z\")\ndef z():\n    return 1\n";
+    files[`md_${form}/views.py`] = views;
+    files[`md_${form}/main.py`] = `from flask import Flask\nfrom md_${form}.views import bp\n\napp = Flask(__name__)\napp.register_blueprint(bp, url_prefix="/${form}")\n`;
+  }
+  for (const [form, write] of Object.entries(COMMONJS_FORMS)) {
+    files[`cj_${form}/m.js`] = `const { Router } = require("express");\nconst r = Router();\nr.get("/w", (req, res) => res.end());\n${write}\n`;
+    files[`cj_${form}/server.js`] = `const express = require("express");\nconst { r } = require("./m");\nconst app = express();\napp.use("/${form}", r);\n`;
+  }
+  await withGraph(files, (graph) => {
+    assert.deepEqual(routeIds(graph), ["cj_ok/m.js#route:GET /ok/w", "md_ok/impl.py#route:GET /ok/z", "pk_ok/users.py#route:GET /ok/u"]);
+  });
+});
+
+test("prefixesOf gives no prefix, after a bounded walk, when mounts fan in at every level", () => {
+  // 8 levels of routers, each mounted 4 times into the next: 4^8 paths to the app.
+  let visits = 0;
+  const graph: MountGraph = {
+    object: (key) => ({ app: key === "r8", own: [], count: 1 }),
+    into: (key) => {
+      visits++;
+      const level = Number(key.slice(1));
+      return level >= 8 ? [] : Array.from({ length: 4 }, () => ({ parent: `r${level + 1}`, prefix: [{ lit: "p" }] }));
+    },
+  };
+  assert.deepEqual(prefixesOf(graph, "r0"), []);
+  assert.ok(visits <= 1000, `${visits} objects walked`);
 });

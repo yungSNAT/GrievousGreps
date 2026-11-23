@@ -525,10 +525,11 @@ export function resolveEdges(
     submodule: (module, name) => pythonModules.submodule(module, name),
     binds: (module, name) => {
       const table = pythonExports.get(module);
-      return Boolean(table?.stars.length) || (table?.imports ?? []).some((i) => i.local === name) || Boolean(table?.assigned?.includes(name))
-        || (perFileName.get(module)?.get(name) ?? []).some((n) => n.id.replace(/~\d+$/, "") === `${module}#${name}`);
+      return Boolean(table?.stars.length) || (table?.imports ?? []).some((i) => i.local === name) || Boolean(table?.assigned?.includes(name));
     },
     imported: (file, local) => {
+      // An import is followed only when it is the name's one binding in the module.
+      if (pythonExports.get(file)?.assigned?.includes(local)) return null;
       const python = (pythonExports.get(file)?.imports ?? []).filter((i) => i.local === local);
       const bound = python.length ? python : (tsModules.get(file)?.imports ?? []).filter((i) => i.local === local);
       return bound.length === 1 && !("conditional" in bound[0] && bound[0].conditional) ? { specifier: bound[0].specifier, name: bound[0].name } : null;

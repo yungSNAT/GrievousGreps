@@ -50,11 +50,6 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
     if (!isJs(file) && imp.name === "") return { module };
     return followExport(module, imp.name, hops + 1);
   };
-  // A package's submodule: what `from pkg import name` gives when the package binds no `name`, or asks itself for it.
-  const submodule = (module: string, name: string): Target => {
-    const sub = imports.submodule(module, name);
-    return sub ? { module: sub } : null;
-  };
   const asking = new Set<string>();
   // What `module` gives an import of `name`. A CommonJS module's default import, and a bare `require`, is its whole
   // `module.exports`; `require` of an ES module gives its namespace, never a router.
@@ -62,10 +57,13 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
     if (hops > MAX_HOPS) return null;
     if (!isJs(module)) {
       const at = `${module}\0${name}`;
-      if (asking.has(at)) return submodule(module, name);
+      // A package's submodule: what `from pkg import name` gives when the package binds no `name`, or asks itself for it.
+      const sub = imports.submodule(module, name);
+      const submodule = sub ? { module: sub } : null;
+      if (asking.has(at)) return submodule;
       asking.add(at);
       try {
-        return followLocal(module, name, hops + 1) ?? (imports.binds(module, name) ? null : submodule(module, name));
+        return followLocal(module, name, hops + 1) ?? (imports.binds(module, name) ? null : submodule);
       } finally {
         asking.delete(at);
       }
