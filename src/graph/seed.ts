@@ -41,7 +41,7 @@ import { VECTORS_FILE } from "../ask/vectors.js";
 import { CACHE_DIR, assertRealContextDir, contextDirFor } from "../context/node-file.js";
 import { copyFileInside, ensureDirInside, resolveInside } from "../util/safe-fs.js";
 import { EXTRACT_CACHE_PREFIX } from "./extract-cache.js";
-import { FINGERPRINT_PREFIX, graphIdentityAt, restampGraphCopy } from "./fingerprint.js";
+import { FINGERPRINT_PREFIX } from "./fingerprint.js";
 import { GRAPH_DIR, wiringPath } from "./write.js";
 
 /** The one line a linked worktree's `.git` file carries. */
@@ -211,10 +211,8 @@ export function seedGraph(root: string, opts: { contextDir?: string } = {}): See
     assertRealContextDir(main, srcDir);
     const srcGraph = resolveInside(main, wiringPath(srcDir)); // a symlinked source graph is refused
     if (!existsSync(srcGraph)) return NOT_SEEDED; // parent never built either
-    const source = graphIdentityAt(srcGraph);
     copyTree(srcDir, outDir);
     installGraph(srcGraph, outDir);
-    restampGraphCopy(outDir, source);
     return { seeded: true, from: main };
   } catch {
     return NOT_SEEDED;

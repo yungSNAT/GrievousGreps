@@ -341,7 +341,7 @@ export async function ensureFreshGraph(root: string, opts: RefreshOptions = {}):
         refreshed: false,
         drift: drift ?? undefined,
         note: seedNote ? `${seedNote}; ${busy}` : busy,
-        index: stale(drift ? "a rebuild is already in flight" : "no build record for this graph, and a rebuild is already in flight", drift),
+        index: stale(drift ? "a rebuild is already in flight" : "no build fingerprint, and a rebuild is already in flight", drift),
       };
     }
     const unhook = releaseOnSignal(lockCache);
@@ -396,7 +396,7 @@ function probeOnly(root: string, contextDir?: string): RefreshResult {
     if (!existsSync(wiringPath(outDir))) return CLEAN;
     const drift = probeDrift(dir, outDir);
     if (drift && isClean(drift)) return CLEAN_FRESH;
-    return { refreshed: false, index: stale(drift ? "refresh is off" : "no build record for this graph, and refresh is off", drift) };
+    return { refreshed: false, index: stale(drift ? "refresh is off" : "no build fingerprint, and refresh is off", drift) };
   } catch {
     return hasGraph(root, contextDir)
       ? { refreshed: false, index: stale("refresh is off, and the graph could not be checked") }

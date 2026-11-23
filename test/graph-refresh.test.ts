@@ -721,7 +721,7 @@ test("index: a failed refresh leaves the answer stale", async () => {
   const stub = refreshRunStub(d, true);
   try {
     const r = await ensureFreshGraph(d);
-    assert.deepEqual(r.index, { state: "stale", reason: "the refresh failed" });
+    assert.deepEqual(r.index, { state: "stale", changed: 2, reason: "the refresh failed" }, "the edit and the stub script");
   } finally {
     stub.restore();
   }
@@ -754,31 +754,27 @@ test("index: a failure before any graph is found gives no state, refresh on or o
   }
 });
 
-test("index: prints of a graph another build replaced do not vouch for the new one", async () => {
+test("index: when another graft built later, its prints, which describe the graph on disk, decide", async () => {
   const d = repo();
   await buildGraph(d);
-  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "fresh" });
-  // Another graft (another extractor stamp) rewrites the shared wiring.json; this one's prints still match the tree.
-  const wiring = wiringPath(outOf(d));
-  writeFileSync(wiring, `${readFileSync(wiring, "utf8")} `);
-  assert.equal(probeDrift(d, outOf(d)), null);
-  const off = await ensureFreshGraph(d, { disabled: true });
-  assert.deepEqual(off.index, { state: "stale", reason: "no build record for this graph, and refresh is off" });
-  const on = await ensureFreshGraph(d);
-  assert.equal(on.refreshed, true, "refresh on rebuilds it");
-  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "fresh" });
-});
-
-test("index: a file whose recorded mtime is within the build's racy window is checked by its bytes", async () => {
-  const d = repo();
-  await buildGraph(d);
-  // Same size, same mtime, different bytes: only a byte check can see it.
-  const file = join(d, "src", "math.ts");
-  const { mtime } = statSync(file);
-  writeFileSync(file, MATH.replace("a + b", "b + a"));
-  utimesSync(file, mtime, mtime);
-  const drift = probeDrift(d, outOf(d));
-  assert.deepEqual(drift?.changed, ["src/math.ts"], "the build ran in this process, so its stats are racy");
+  const mine = fingerprintPath(outOf(d));
+  const other = join(dirname(mine), "fingerprint.0-other.json");
+  const fp = JSON.parse(readFileSync(mine, "utf8"));
+  const later = new Date(statSync(mine).mtimeMs + 5000);
+  // The other build ran on a different tree: its print of math.ts names other bytes.
+  writeFileSync(other, JSON.stringify({ ...fp, extractor: "0:0", files: { "src/math.ts": [1, 1, "other-bytes"] } }));
+  utimesSync(other, later, later);
+  assert.deepEqual(probeDrift(d, outOf(d))?.changed, ["src/math.ts"]);
+  assert.deepEqual((await ensureFreshGraph(d, { disabled: true })).index, { state: "stale", changed: 1, reason: "refresh is off" });
+  // Its build ran on this tree: nothing to rebuild, whichever graft asks, so 2 grafts don't rebuild each other's graph.
+  writeFileSync(other, JSON.stringify({ ...fp, extractor: "0:0" }));
+  utimesSync(other, later, later);
+  assert.ok(isClean(probeDrift(d, outOf(d))!));
+  // An older other set is ignored.
+  const earlier = new Date(statSync(mine).mtimeMs - 5000);
+  writeFileSync(other, JSON.stringify({ ...fp, extractor: "0:0", files: {} }));
+  utimesSync(other, earlier, earlier);
+  assert.ok(isClean(probeDrift(d, outOf(d))!));
 });
 
 test("index: with refresh off and no fingerprint, the graph is not vouched for", async () => {
@@ -786,7 +782,7 @@ test("index: with refresh off and no fingerprint, the graph is not vouched for",
   await buildGraph(d);
   rmSync(fingerprintPath(outOf(d)));
   const r = await ensureFreshGraph(d, { disabled: true });
-  assert.deepEqual(r.index, { state: "stale", reason: "no build record for this graph, and refresh is off" });
+  assert.deepEqual(r.index, { state: "stale", reason: "no build fingerprint, and refresh is off" });
 });
 
 test("index: a workspace is stale when any child is, and names it", async () => {
