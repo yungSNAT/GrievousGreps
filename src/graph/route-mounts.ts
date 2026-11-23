@@ -10,7 +10,7 @@
 import type { RawEdge } from "./extract.js";
 import type { Seg } from "./route-paths.js";
 import { Scopes } from "./route-scopes.js";
-import { MODULE_EXPORTS, prefixesOf, routeEdges, routeName, routeNode, type Import, type Mount, type MountGraph, type RouteFacts } from "./routes.js";
+import { MODULE_EXPORTS, PROPERTY, prefixesOf, routeEdges, routeName, routeNode, type Import, type Mount, type MountGraph, type RouteFacts } from "./routes.js";
 import type { NodeV1 } from "./types.js";
 
 /** How imports resolve, from the resolver's own module maps. */
@@ -74,10 +74,11 @@ export function mountedRoutes(facts: ReadonlyMap<string, RouteFacts>, imports: M
     const f = facts.get(module);
     if (f?.opaque) return null;
     if (f?.exports) {
-      const local = own(f.exports, name === "default" ? MODULE_EXPORTS : name);
+      // An ES default import is the whole value; `require(...).default` is the property.
+      const local = own(f.exports, name.startsWith(PROPERTY) ? name.slice(PROPERTY.length) : name === "default" ? MODULE_EXPORTS : name);
       return local === undefined ? null : followLocal(module, local, hops + 1);
     }
-    const ex = name === MODULE_EXPORTS ? null : imports.exported(module, name);
+    const ex = name === MODULE_EXPORTS ? null : imports.exported(module, name.startsWith(PROPERTY) ? name.slice(PROPERTY.length) : name);
     if (!ex) return null;
     if ("local" in ex) return followLocal(module, ex.local, hops + 1);
     const next = imports.module(ex.specifier, module);

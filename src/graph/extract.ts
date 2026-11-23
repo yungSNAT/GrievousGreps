@@ -1282,8 +1282,17 @@ function pythonDynamic(node: SyntaxNode, top: boolean, sys: ReadonlySet<string>)
   if (node.text === "__getattr__" || node.text === "__dict__") return top;
   const parent = node.parent;
   const field = (type: string, name: string) => parent?.type === type && sameSyntaxNode(parent.childForFieldName(name), node);
-  if (field("attribute", "attribute") || field("keyword_argument", "name")) return false;
-  if (node.text === "exec" || node.text === "eval") return field("call", "function");
+  // A parameter's own name (`def helper(vars)`) is a local, not the builtin.
+  const parameter = parent?.type === "parameters" || parent?.type === "lambda_parameters" || parent?.type === "list_splat_pattern"
+    || parent?.type === "dictionary_splat_pattern" || field("default_parameter", "name") || field("typed_default_parameter", "name")
+    || (parent?.type === "typed_parameter" && !sameSyntaxNode(parent.childForFieldName("type"), node));
+  if (field("attribute", "attribute") || field("keyword_argument", "name") || parameter) return false;
+  if (node.text === "exec" || node.text === "eval") {
+    // A callee in parentheses, `(exec)(...)`, is still a direct call.
+    let at: SyntaxNode = node;
+    while (at.parent?.type === "parenthesized_expression") at = at.parent;
+    return at.parent?.type === "call" && sameSyntaxNode(at.parent.childForFieldName("function"), at);
+  }
   return node.text === "globals" || (top && PY_DYNAMIC_TOP.has(node.text));
 }
 

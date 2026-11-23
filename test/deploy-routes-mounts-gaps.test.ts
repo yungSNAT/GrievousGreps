@@ -46,6 +46,35 @@ third.include_router(r, prefix="/remote")
   });
 });
 
+test("two registrations of one path keep their own routes and handlers when mounted from 2 files", async () => {
+  await withGraph({
+    "twice/api.py": `from fastapi import FastAPI, APIRouter
+
+r = APIRouter()
+
+@r.get("/x")
+def first():
+    return 1
+
+@r.get("/x")
+def second():
+    return 2
+
+app = FastAPI()
+app.include_router(r, prefix="/local")
+`,
+    "twice/other.py": `from fastapi import FastAPI
+from twice.api import r
+
+other = FastAPI()
+other.include_router(r, prefix="/remote")
+`,
+  }, (graph) => {
+    const handlers = routeEdges(graph).map((e) => e.replace(/#route:GET (\/\w+)\/x(~\d+)? -> twice\/api\.py#/, " $1 "));
+    assert.deepEqual(handlers, ["twice/api.py /local first", "twice/api.py /local second", "twice/api.py /remote first", "twice/api.py /remote second"]);
+  });
+});
+
 test("Python: a package's own binding of a name wins over its submodule; a namespace package's submodule is found", async () => {
   await withGraph({
     "s1/__init__.py": "",
@@ -96,12 +125,14 @@ const b = require("./b");
 const c = require("./c");
 const { r: d } = require("./d");
 const m = require("./m");
+const { default: dp } = require("./m");
 const app = express();
 app.use("/a", a);
 app.use("/b", b);
 app.use("/c", c);
 app.use("/d", d);
 app.use("/m", m);
+app.use("/dp", dp);
 `,
     "cjs/esm.mjs": `import express from "express";
 import m from "./m.js";
@@ -139,7 +170,7 @@ r.get("/y", (req, res) => res.end());
 module.exports = {};
 exports.r = r;
 `,
-    // require and a default import give module.exports itself, not its default property.
+    // require and a default import give module.exports itself; destructuring default gives the property.
     "cjs/m.js": `const { Router } = require("express");
 const a = Router();
 a.get("/whole", (req, res) => res.end());
@@ -149,7 +180,7 @@ module.exports = a;
 module.exports.default = b;
 `,
   }, (graph) => {
-    assert.deepEqual(routeIds(graph), ["cjs/c.js#route:GET /c/new", "cjs/m.js#route:GET /esm/whole", "cjs/m.js#route:GET /m/whole"]);
+    assert.deepEqual(routeIds(graph), ["cjs/c.js#route:GET /c/new", "cjs/m.js#route:GET /dp/prop", "cjs/m.js#route:GET /esm/whole", "cjs/m.js#route:GET /m/whole"]);
   });
 });
 
@@ -280,6 +311,8 @@ const MODULE_FORMS: Record<string, string> = {
   // Still routes: a method or attribute that shares a builtin's name is not the builtin.
   okmethods: "from .impl import bp\nrows = session.exec(query)\nmodel.eval()\nobj.globals()\nlimit = cfg.vars\nflag = re.compile(p).eval\ny = obj.locals\nsetup(vars=1)\n",
   okfromsys: "from sys import argv\nfrom .impl import bp\n",
+  okparam: "from .impl import bp\ndef helper(vars):\n    return vars\n",
+  parenexec: "from .impl import bp\n(exec)(\"bp = make()\")\n",
 };
 // The mounting file's own imports, `{p}` its package.
 const MAIN_FORMS: Record<string, string> = {
@@ -317,6 +350,7 @@ const COMMONJS_FORMS: Record<string, string> = {
   okmain: "module.exports = { r };\nif (require.main === module) start();",
   okargs: "module.exports = { r };\nfunction first() { return arguments[0]; }",
   // An indirect eval and a Function body run in global scope, where the module's exports are out of reach.
+  pareneval: "exports.r = r;\n(eval)(\"exports.r = x\");",
   okindirect: "module.exports = { r };\n(0, eval)(\"exports.r = x\");\nconst isFn = (f) => f instanceof Function;",
 };
 
@@ -350,7 +384,7 @@ test("an unmodelled binding form gives no route: a package's name, a rebound imp
       "cj_ok/m.js#route:GET /ok/w", "cj_okargs/m.js#route:GET /okargs/w", "cj_okindirect/m.js#route:GET /okindirect/w",
       "cj_okmain/m.js#route:GET /okmain/w",
       "md_ok/impl.py#route:GET /ok/z", "md_okannot/impl.py#route:GET /okannot/z", "md_okfromsys/impl.py#route:GET /okfromsys/z",
-      "md_okmethods/impl.py#route:GET /okmethods/z", "md_okset/impl.py#route:GET /okset/z",
+      "md_okmethods/impl.py#route:GET /okmethods/z", "md_okparam/impl.py#route:GET /okparam/z", "md_okset/impl.py#route:GET /okset/z",
       "md_okstar/impl.py#route:GET /okstar/z", "ms_okstar/impl.py#route:GET /okstar/z", "pk_ok/users.py#route:GET /ok/u",
     ]);
   });

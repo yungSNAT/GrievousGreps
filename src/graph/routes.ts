@@ -75,6 +75,8 @@ interface Read {
 
 /** The import name of a whole CommonJS module (`require("./x")`) and the export key of what `module.exports` holds. */
 export const MODULE_EXPORTS = "module.exports";
+/** The import name of one property of what `require` returns: `const { a } = require("./x")` is `module.exports.a`. */
+export const PROPERTY = "module.exports.";
 
 /** An import: `name` is `default` for a whole CommonJS module or a default export, and empty for a whole Python module. */
 export interface Import {
@@ -418,10 +420,10 @@ function readRequire(n: SyntaxNode, scopes: Scopes, out: Record<string, Import>)
   };
   if (name.type === "identifier") bind(name.text, MODULE_EXPORTS);
   for (const p of name.type === "object_pattern" ? name.namedChildren : []) {
-    if (p.type === "shorthand_property_identifier_pattern") bind(p.text, p.text);
+    if (p.type === "shorthand_property_identifier_pattern") bind(p.text, PROPERTY + p.text);
     const key = p.type === "pair_pattern" ? p.childForFieldName("key") : null;
     const v = p.type === "pair_pattern" ? p.childForFieldName("value") : null;
-    if (key?.type === "property_identifier" && v?.type === "identifier") bind(v.text, key.text);
+    if (key?.type === "property_identifier" && v?.type === "identifier") bind(v.text, PROPERTY + key.text);
   }
 }
 
@@ -459,8 +461,11 @@ function readCommonExports(root: SyntaxNode): Pick<Read, "exports" | "opaque"> {
     if (named && (n.text === "module" || n.text === "exports")) refs.push(n.startIndex);
     // Ways to reach the exports no write shows: a direct `eval(...)`, `Function(...)` or `new Function(...)`, the
     // require cache, and the module wrapper's `arguments` or `this` at the top level. None is ever modelled.
-    const callee = n.parent?.childForFieldName(n.parent.type === "new_expression" ? "constructor" : "function");
-    const called = (n.parent?.type === "call_expression" || n.parent?.type === "new_expression") && callee?.startIndex === n.startIndex && callee.endIndex === n.endIndex;
+    // A callee in parentheses, `(eval)(...)`, is still a direct call; `(0, eval)(...)` is not.
+    let at = n;
+    while (at.parent?.type === "parenthesized_expression") at = at.parent;
+    const callee = at.parent?.childForFieldName(at.parent.type === "new_expression" ? "constructor" : "function");
+    const called = (at.parent?.type === "call_expression" || at.parent?.type === "new_expression") && callee?.startIndex === at.startIndex && callee.endIndex === at.endIndex;
     if (n.type === "identifier" && called && (n.text === "eval" || n.text === "Function")) refs.push(n.startIndex);
     if (n.type === "member_expression" && n.text.replace(/\s+/g, "") === "require.cache") refs.push(n.startIndex);
     if (n.type === "this" || (n.type === "identifier" && n.text === "arguments")) {
