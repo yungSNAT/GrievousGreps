@@ -122,7 +122,7 @@ test("Terraform: a plain path, a duplicate address, a module outside the reposit
     ]);
     assert.deepEqual(reportsFor(result, "mods/app/main.tf"), [
       "data.archive_file.child: a path not written from path.module is not followed",
-      "x_z.one is declared in more than one file of mods/app: references to it give no link",
+      "x_z.one is declared in more than one file of mods/app (override files are not merged): references to it give no link",
     ]);
     assert.ok(result.skipped.some((s) => s.path === "broken/main.tf" && /not valid HCL at line \d+/.test(s.reason)), JSON.stringify(result.skipped));
   });
