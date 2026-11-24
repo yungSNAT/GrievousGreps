@@ -80,7 +80,7 @@ export const TOOLS: ToolDef[] = [
           type: 'string',
           description: 'narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf); from a folder of several repositories, begin with the repository folder',
         },
-        max_tokens: {
+        max_tokens: { // nosemgrep -- the name of the tool's token budget argument, not a credential
           type: 'integer',
           minimum: 1,
           description: 'fit the answer body to about this many tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only; a footer counts what was folded or left out. Fills up to the budget, so it can cost more than no budget; below about 100 the first pointer alone may not fit',

@@ -9,9 +9,9 @@
 import { formatAskWithSaved, savedForHits, type AskHit, type AskResult } from "./ask.js";
 
 export interface AskBudget {
-  max_tokens: number;
+  max_tokens: number; // nosemgrep -- a token count in the budget report, not a credential
   /** Estimated tokens of the rendered text answer, footer included (a `--json` answer is larger). */
-  used_tokens: number;
+  used_tokens: number; // nosemgrep -- a token count in the budget report, not a credential
   folded: number;
   pointer_only: number;
   omitted: number;
@@ -173,8 +173,8 @@ export function budgetAsk(r: AskResult, maxTokens: number): { result: AskResult 
   const saved = priced !== null ? priced : omitted || levels.includes("pointer") ? undefined : r.saved;
   const out = render(chosen, saved);
   const budget: AskBudget = {
-    max_tokens: maxTokens,
-    used_tokens: 0,
+    max_tokens: maxTokens, // nosemgrep -- a token count in the budget report, not a credential
+    used_tokens: 0, // nosemgrep -- a token count in the budget report, not a credential
     folded: levels.filter((l, i) => l === "folded" && chosen[i].code !== r.hits[i].code).length,
     pointer_only: levels.filter((l) => l === "pointer").length,
     omitted,
