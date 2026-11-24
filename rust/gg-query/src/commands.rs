@@ -135,7 +135,7 @@ pub fn run_callers(args: &CallersCmdArgs<'_>) -> Result<(), String> {
             let mut unresolved_by_name: HashMap<String, Vec<UnresolvedCall>> = HashMap::new();
             let mut paths: Vec<String> = Vec::new();
             for m in matches {
-                let hits = s.edge_walk(&m, dir, max_depth)?;
+                let hits = s.edge_walk_with_provenance(&m, dir, max_depth, args.provenance)?;
                 paths.push(m.path.clone());
                 for h in &hits {
                     if let Some(ref n) = h.node {
@@ -447,13 +447,22 @@ pub fn run_crate_source(args: &CrateSourceArgs<'_>, json: bool) -> Result<(), St
     } else {
         print!("{}", format_crate_source_text(&report));
     }
-    if report
-        .matches
-        .iter()
-        .all(|m| m.status != ResolutionStatus::Found)
+    let any_hard_err = report.matches.iter().any(|m| {
+        matches!(
+            m.status,
+            ResolutionStatus::Ambiguous
+                | ResolutionStatus::Unresolved
+                | ResolutionStatus::BudgetExhausted
+        )
+    });
+    if any_hard_err
+        || report
+            .matches
+            .iter()
+            .all(|m| m.status != ResolutionStatus::Found)
     {
         return Err(format!(
-            "crate \"{}\" is locked in Cargo.lock but not cached locally under {}",
+            "crate \"{}\" could not be verified locally under {}",
             report.query, report.cargo_home
         ));
     }

@@ -181,6 +181,9 @@ async function callWorkspaceTool(
       return { text: maxTokens === undefined ? formatAsk(r) : budgetAsk(r, maxTokens).text, isError: false };
     }
     case 'graft_trace_calls': {
+      if (args.provenance === true) {
+        return { text: 'graft_trace_calls: provenance is not supported on a workspace parent; run it inside a child repository', isError: true };
+      }
       const symbol = String(args.symbol ?? args.file ?? '');
       if (!symbol) return { text: 'graft_trace_calls requires a symbol', isError: true };
       const direction = traceDirection(args.direction);
@@ -204,6 +207,9 @@ async function callWorkspaceTool(
       return { text: coverage ? `${text}\n${coverage}` : text, isError: false };
     }
     case 'graft_repo_map': {
+      if (args.mode === 'hubs' || (args.mode !== undefined && args.mode !== 'map')) {
+        return { text: 'graft_repo_map: mode "hubs" is not supported on a workspace parent; run it inside a child repository', isError: true };
+      }
       const maxDirs = typeof args.max_dirs === 'number' && Number.isFinite(args.max_dirs) && args.max_dirs > 0 ? args.max_dirs : undefined;
       return { text: federateMap(root, dirOverride, { maxDirs }), isError: false };
     }
@@ -337,7 +343,7 @@ async function callSingleTool(
           return { text: unresolved ? `${unresolved.trim()}\n${noSymbolText(w, symbol) ?? unknownSymbolText(symbol)}` : unknownSymbolText(symbol), isError: true };
         }
         const depth = traceDepth(args.depth);
-        const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(w, m, direction, depth) }));
+        const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(w, m, direction, depth, { provenance: args.provenance === true }) }));
         if (args.provenance === true) {
           const text = formatProvenanceText({
             direction,

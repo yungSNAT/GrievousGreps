@@ -202,7 +202,7 @@ export function impactOf(graph: GraphV1, symbol: NodeV1, maxDepth = 2): EdgeHit[
  * count: a node reached by an inferred edge at depth 1 and by definite edges only
  * at depth 3 stays at depth 1, marked, since that is the hop the hit describes.
  */
-export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, direction: Direction = "in"): EdgeHit[] {
+export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, direction: Direction = "in", opts: { provenance?: boolean } = {}): EdgeHit[] {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
   // Adjacency keyed for the walk direction, restricted to walk relations:
@@ -229,15 +229,22 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
   // A deployment resource names files, not symbols (a stage copies `src/`): for an
   // incoming walk, its edge to a file also reaches each symbol defined in that file, so a
   // changed function reaches the image that ships it. Virtual: no edge is stored.
-  const visitedDeployPaths = new Map<string, { depth: number; rank: number }>();
+  const preferStronger = opts.provenance === true;
+  const visitedDeployPaths = new Map<string, { depth: number; rank: number; inferred: boolean }>();
   const deploymentNeighbours = (id: string, depth: number, rank: number): Neighbour[] => {
     const node = byId.get(id);
     if (!node || node.kind === "resource") return [];
     const links = deployByPath.get(node.path);
     if (!links) return [];
+    const inferred = rank === 0;
     const previous = visitedDeployPaths.get(node.path);
-    if (previous && (previous.depth < depth || rank <= previous.rank)) return [];
-    visitedDeployPaths.set(node.path, { depth, rank });
+    if (previous) {
+      const keepPrev = preferStronger
+        ? previous.depth < depth || rank <= previous.rank
+        : previous.depth < depth || !previous.inferred || inferred;
+      if (keepPrev) return [];
+    }
+    visitedDeployPaths.set(node.path, { depth, rank, inferred });
     return node.kind === "file" ? [] : links;
   };
   function* neighbours(id: string, depth: number, rank: number): Iterable<Neighbour> {
@@ -272,8 +279,14 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
         const pathConf = useParent ? parentConf : edgeConf;
         const weakestHop = useParent ? parent?.weakestHop : hop;
         const prev = reached.get(other);
-        const prevRank = prev ? confidenceRank(prev.confidence ?? (prev.inferred ? "inferred" : "extracted")) : -1;
-        if (prev && (prev.depth < depth || confidenceRank(pathConf) <= prevRank)) continue;
+        if (prev) {
+          const prevRank = confidenceRank(prev.confidence ?? (prev.inferred ? "inferred" : "extracted"));
+          const pathInferred = pathConf === "inferred";
+          const keepPrev = preferStronger
+            ? prev.depth < depth || confidenceRank(pathConf) <= prevRank
+            : prev.depth < depth || !prev.inferred || pathInferred;
+          if (keepPrev) continue;
+        }
         if (!prev) next.push(other);
         reached.set(other, {
           node: byId.get(other) ?? null,
@@ -307,8 +320,8 @@ function symbolsInFile(graph: GraphV1, fileNode: NodeV1): NodeV1[] {
  * see this module's header and `impactOfMany`'s doc for why. Symbol-kind
  * queries keep using plain `impactOf`; this is only for file-kind matches.
  */
-export function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth = 2, direction: Direction = "in"): EdgeHit[] {
-  return impactOfMany(graph, [fileNode, ...symbolsInFile(graph, fileNode)], maxDepth, direction);
+export function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth = 2, direction: Direction = "in", opts: { provenance?: boolean } = {}): EdgeHit[] {
+  return impactOfMany(graph, [fileNode, ...symbolsInFile(graph, fileNode)], maxDepth, direction, opts);
 }
 
 /**
@@ -324,8 +337,8 @@ export function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth = 2, dir
  * for a `kind: 'file'` seed aggregates over the symbols the file defines (see
  * {@link impactOfMany}) so file-level dependents aren't silently dropped.
  */
-export function edgeWalk(graph: GraphV1, node: NodeV1, direction: Direction, depth: number): EdgeHit[] {
+export function edgeWalk(graph: GraphV1, node: NodeV1, direction: Direction, depth: number, opts: { provenance?: boolean } = {}): EdgeHit[] {
   if (depth <= 1) return direction === "in" ? callersOf(graph, node) : calleesOf(graph, node);
-  if (node.kind === "file") return impactOfFile(graph, node, depth, direction);
-  return impactOfMany(graph, [node], depth, direction);
+  if (node.kind === "file") return impactOfFile(graph, node, depth, direction, opts);
+  return impactOfMany(graph, [node], depth, direction, opts);
 }

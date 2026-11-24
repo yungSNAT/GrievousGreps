@@ -17,7 +17,7 @@ import { languageLabelOf, languageOf } from "./extract.js";
 import { genericLangOf } from "./generic.js";
 import { listSourceFiles, normalizeExtensions, supportedExtensions } from "./source-files.js";
 
-export type SkipReason = "unsupported" | "excluded_by_extensions" | "excluded_by_only_dirs";
+export type SkipReason = "unsupported" | "excluded_by_extensions" | "excluded_by_only_dirs" | "unindexed_supported";
 
 export interface DetectedLanguage {
   language: string;
@@ -40,6 +40,8 @@ export interface PolyglotAudit {
 export interface PolyglotAuditOptions {
   extensions?: readonly string[];
   onlyDirs?: ReadonlySet<string>;
+  /** Explicit indexed file paths from an existing graph, used by `init --no-build`. */
+  indexedFiles?: readonly string[];
 }
 
 /**
@@ -173,6 +175,8 @@ export function auditPolyglotFiles(
         reason = "excluded_by_only_dirs";
       } else if (selectedSet && !selectedSet.has(ext)) {
         reason = "excluded_by_extensions";
+      } else {
+        reason = "unindexed_supported";
       }
       language = supportedLanguageLabel(absFile);
     } else if (Object.prototype.hasOwnProperty.call(KNOWN_SOURCE_EXTENSIONS, ext)) {
@@ -217,7 +221,7 @@ export function auditPolyglotRepo(
     followSubmodules: readFollowSubmodules(absRoot),
     followNestedRepos: readFollowNestedRepos(absRoot),
   });
-  const indexed = listSourceFiles(absRoot, outDir, repoFiles, opts.onlyDirs, opts.extensions);
+  const indexed = opts.indexedFiles ?? listSourceFiles(absRoot, outDir, repoFiles, opts.onlyDirs, opts.extensions);
   return auditPolyglotFiles(absRoot, outDir, repoFiles, indexed, opts);
 }
 
@@ -229,6 +233,8 @@ function reasonText(reason: SkipReason): string {
       return "outside --only";
     case "unsupported":
       return "no parser";
+    case "unindexed_supported":
+      return "not in graph";
   }
 }
 

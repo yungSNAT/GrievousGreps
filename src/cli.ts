@@ -1998,13 +1998,25 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
         graphLine = `· skipped the graph build: run ${cmd("graft build")}`;
       }
       if (!children.length) {
-        const initAudit = auditPolyglotRepo(repo, program.opts<GlobalOpts>().dir);
-        const initAuditLines = formatPolyglotAuditLines(initAudit);
-        if (initAuditLines.detectedLine && graphLine) {
-          graphLine = `${graphLine} · ${initAuditLines.detectedLine}`;
-        }
-        if (initAuditLines.warningLine && !res.messages.some((m) => m.includes("unindexed source extensions:"))) {
-          console.error(initAuditLines.warningLine);
+        if (res.built) {
+          if (res.graph?.languages?.length && graphLine) {
+            graphLine = `${graphLine} · languages: ${res.graph.languages.join(", ")}`;
+          }
+        } else {
+          const existingFiles = existing
+            ? existing.nodes.filter((n) => n.kind === "file").map((n) => join(repo, n.path))
+            : undefined;
+          const initAudit = auditPolyglotRepo(repo, program.opts<GlobalOpts>().dir, {
+            ...(existingFiles ? { indexedFiles: existingFiles } : {}),
+            ...(existing?.meta.extensions ? { extensions: existing.meta.extensions } : {}),
+          });
+          const initAuditLines = formatPolyglotAuditLines(initAudit);
+          if (initAuditLines.detectedLine && graphLine) {
+            graphLine = `${graphLine} · ${initAuditLines.detectedLine}`;
+          }
+          if (initAuditLines.warningLine) {
+            console.error(initAuditLines.warningLine);
+          }
         }
       }
     }

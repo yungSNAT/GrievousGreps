@@ -10,7 +10,7 @@ import type { GraphV1, NodeV1 } from "./types.js";
 import { WALK_RELATIONS } from "./relations.js";
 import { assertPrefixIndexed, pathUnderPrefix } from "./scopes.js";
 import { normalizePathPrefix } from "../util/paths.js";
-import { personalizedPageRankPrepared, preparePageRankTopology } from "../ask/graphrank.js";
+import { personalizedPageRankPrepared, type PageRankTopology } from "../ask/graphrank.js";
 import { savingsFor, withSavings, type Savings } from "../context/savings.js";
 import { parseConfidence, provenanceOf } from "./provenance.js";
 
@@ -122,6 +122,12 @@ export function computeHubs(graph: GraphV1, opts: HubsOptions = {}): HubsReport 
   };
 
   let walkEdges = 0;
+  const adjacency = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    const arr = adjacency.get(a);
+    if (arr) arr.push(b);
+    else adjacency.set(a, [b]);
+  };
   for (const edge of graph.edges) {
     if (!WALK_RELATIONS.has(edge.relation)) continue;
     const hasSrc = symbolIds.has(edge.source);
@@ -140,11 +146,13 @@ export function computeHubs(graph: GraphV1, opts: HubsOptions = {}): HubsReport 
       else rec.extracted++;
     }
     if (hasSrc && hasDst && edge.source !== edge.target) {
+      link(edge.source, edge.target);
+      link(edge.target, edge.source);
       walkEdges++;
     }
   }
 
-  const topo = preparePageRankTopology(graph, (id) => symbolIds.has(id));
+  const topo: PageRankTopology = { ids: symbolIds, adjacency };
   const seeds = new Map<string, number>();
   for (const [id, c] of counts) {
     if (c.inDeg + c.outDeg > 0) seeds.set(id, 1);

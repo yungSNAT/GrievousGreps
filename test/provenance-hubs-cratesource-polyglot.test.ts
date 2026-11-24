@@ -153,6 +153,9 @@ test("crate-source: resolves exact registry, git and path crates and fails close
 
   const gitDir = join(cargoHome, "git/checkouts/cool-123/abcdef1");
   mkdirSync(join(gitDir, "src"), { recursive: true });
+  mkdirSync(join(gitDir, ".git"), { recursive: true });
+  writeFileSync(join(gitDir, ".git/HEAD"), "abcdef1234567890abcdef1234567890abcdef12\n");
+  writeFileSync(join(gitDir, ".git/config"), '[remote "origin"]\n\turl = https://example.com/cool\n');
   writeFileSync(join(gitDir, "Cargo.toml"), '[package]\nname = "cool-git"\nversion = "0.2.0"\n');
 
   writeFileSync(
@@ -276,6 +279,9 @@ test("review regressions: strict hub limit, sibling graft-prefix audit, crafted 
   mkdirSync(ws, { recursive: true });
   const gitDir = join(ch, "git/checkouts/upper-1/abcdef1");
   mkdirSync(join(gitDir, "src"), { recursive: true });
+  mkdirSync(join(gitDir, ".git"), { recursive: true });
+  writeFileSync(join(gitDir, ".git/HEAD"), "abcdef1234567890abcdef1234567890abcdef12\n");
+  writeFileSync(join(gitDir, ".git/config"), '[remote "origin"]\n\turl = https://example.com/upper\n');
   writeFileSync(join(gitDir, "Cargo.toml"), '[package]\nname = "upper-git"\nversion = "0.1.0"\n');
   mkdirSync(join(ch, "registry/src/index-a"), { recursive: true });
   mkdirSync(join(ch, "registry/src/other-index/evil-1.0.0"), { recursive: true });

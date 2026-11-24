@@ -211,7 +211,19 @@ impl GraphStore {
         direction: Direction,
         max_depth: usize,
     ) -> io::Result<Vec<EdgeHit>> {
-        self.with_read_snapshot(|s| s.edge_walk_inner(symbol, direction, max_depth))
+        self.edge_walk_with_provenance(symbol, direction, max_depth, false)
+    }
+
+    pub fn edge_walk_with_provenance(
+        &self,
+        symbol: &NodeV1,
+        direction: Direction,
+        max_depth: usize,
+        prefer_stronger_confidence: bool,
+    ) -> io::Result<Vec<EdgeHit>> {
+        self.with_read_snapshot(|s| {
+            s.edge_walk_inner(symbol, direction, max_depth, prefer_stronger_confidence)
+        })
     }
 
     fn edge_walk_inner(
@@ -219,6 +231,7 @@ impl GraphStore {
         symbol: &NodeV1,
         direction: Direction,
         max_depth: usize,
+        prefer_stronger_confidence: bool,
     ) -> io::Result<Vec<EdgeHit>> {
         if max_depth <= 1 {
             let mut hits = Vec::new();
@@ -256,7 +269,7 @@ impl GraphStore {
                 }
             }
         }
-        self.impact_of_many_inner(&seeds, max_depth, direction)
+        self.impact_of_many_inner(&seeds, max_depth, direction, prefer_stronger_confidence)
     }
 
     pub fn impact_of_many(
@@ -265,7 +278,7 @@ impl GraphStore {
         max_depth: usize,
         direction: Direction,
     ) -> io::Result<Vec<EdgeHit>> {
-        self.with_read_snapshot(|s| s.impact_of_many_inner(seeds, max_depth, direction))
+        self.with_read_snapshot(|s| s.impact_of_many_inner(seeds, max_depth, direction, false))
     }
 
     fn impact_of_many_inner(
@@ -273,6 +286,7 @@ impl GraphStore {
         seeds: &[String],
         max_depth: usize,
         direction: Direction,
+        prefer_stronger_confidence: bool,
     ) -> io::Result<Vec<EdgeHit>> {
         let seed_set: HashSet<String> = seeds.iter().cloned().collect();
         let mut order: Vec<String> = Vec::new();
@@ -314,10 +328,16 @@ impl GraphStore {
                         }
                         _ => (edge_conf, Some(hop)),
                     };
-                    if let Some(prev) = reached.get(&other)
-                        && (prev.depth < depth || path_conf.rank() <= prev.confidence.rank())
-                    {
-                        continue;
+                    let path_inferred = path_conf == Confidence::Inferred;
+                    if let Some(prev) = reached.get(&other) {
+                        let keep_prev = if prefer_stronger_confidence {
+                            prev.depth < depth || path_conf.rank() <= prev.confidence.rank()
+                        } else {
+                            prev.depth < depth || !prev.inferred || path_inferred
+                        };
+                        if keep_prev {
+                            continue;
+                        }
                     }
                     let is_new = !reached.contains_key(&other);
                     if is_new {

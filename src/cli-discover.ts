@@ -94,9 +94,12 @@ export function registerDiscoverCommands(hooks: DiscoverCliHooks): void {
           } else {
             process.stdout.write(formatCrateSourceText(report));
           }
-          if (report.matches.every((m) => m.status !== "found")) {
+          const anyHardErr = report.matches.some(
+            (m) => m.status === "ambiguous" || m.status === "unresolved" || m.status === "budget_exhausted",
+          );
+          if (anyHardErr || report.matches.every((m) => m.status !== "found")) {
             console.error(
-              `✗ crate "${report.query}" is locked in Cargo.lock but not cached locally under ${report.cargoHome}`,
+              `✗ crate "${report.query}" could not be verified locally under ${report.cargoHome}`,
             );
             process.exit(1);
           }

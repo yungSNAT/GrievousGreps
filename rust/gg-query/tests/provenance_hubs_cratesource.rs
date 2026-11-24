@@ -197,9 +197,20 @@ fn setup_crate_source_fixture(base: &Path) -> (std::path::PathBuf, std::path::Pa
     )
     .unwrap();
 
-    // Populate git checkout
+    // Populate git checkout with verifiable full commit SHA and origin URL
     let git_dir = cargo_home.join("git/checkouts/cool-repo-9999/abcdef1");
     fs::create_dir_all(git_dir.join("src")).unwrap();
+    fs::create_dir_all(git_dir.join(".git")).unwrap();
+    fs::write(
+        git_dir.join(".git/HEAD"),
+        "abcdef1234567890abcdef1234567890abcdef12\n",
+    )
+    .unwrap();
+    fs::write(
+        git_dir.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://example.com/cool-repo\n",
+    )
+    .unwrap();
     fs::write(
         git_dir.join("Cargo.toml"),
         "[package]\nname = \"cool-git\"\nversion = \"0.2.0\"\n",
@@ -351,6 +362,17 @@ fn crate_source_rejects_crafted_lockfile_version_and_matches_uppercase_git_rev()
     // Lowercase git checkout directory matched by uppercase hex rev in Cargo.lock
     let git_dir = cargo_home.join("git/checkouts/upper-repo-1/abcdef1");
     fs::create_dir_all(git_dir.join("src")).unwrap();
+    fs::create_dir_all(git_dir.join(".git")).unwrap();
+    fs::write(
+        git_dir.join(".git/HEAD"),
+        "abcdef1234567890abcdef1234567890abcdef12\n",
+    )
+    .unwrap();
+    fs::write(
+        git_dir.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://example.com/upper-repo\n",
+    )
+    .unwrap();
     fs::write(
         git_dir.join("Cargo.toml"),
         "[package]\nname = \"upper-git\"\nversion = \"0.1.0\"\n",

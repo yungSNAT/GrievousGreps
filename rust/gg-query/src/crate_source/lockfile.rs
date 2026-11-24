@@ -1,11 +1,18 @@
-//! Bounded, fail-closed `Cargo.lock` and `Cargo.toml` readers for `crate-source`.
+//! Bounded, handle-based `Cargo.lock` and `Cargo.toml` readers for `crate-source`.
+//!
+//! Assumes a stable repository/cache tree during a single CLI invocation; all
+//! file reads open a regular-file handle and cap bytes via `Read::take(limit + 1)`.
 
-use std::fs;
+use std::collections::HashSet;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub(super) const MAX_LOCKFILE_BYTES: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 pub(super) const MAX_LOCKFILES: usize = 16;
 pub(super) const MAX_SCAN_DEPTH: usize = 2;
+pub(super) const MAX_SCAN_ENTRIES: usize = 512;
 
 pub(super) const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -24,10 +31,39 @@ pub(super) struct LockPackage {
     pub source: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct ManifestIdentity {
+    pub name: String,
+    pub version: Option<String>,
+    pub workspace_version: bool,
+}
+
 pub(super) fn contained_canonical(candidate: &Path, boundary: &Path) -> Option<PathBuf> {
     let canon_bound = fs::canonicalize(boundary).ok()?;
     let canon_cand = fs::canonicalize(candidate).ok()?;
     canon_cand.starts_with(&canon_bound).then_some(canon_cand)
+}
+
+/// Open a regular file by handle and read at most `max_bytes` UTF-8 bytes.
+pub(super) fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> Result<String, String> {
+    let file = File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let meta = file
+        .metadata()
+        .map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
+    if !meta.is_file() {
+        return Err(format!("{} is not a regular file", path.display()));
+    }
+    let mut buf = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if (buf.len() as u64) > max_bytes {
+        return Err(format!(
+            "{} exceeds {max_bytes} byte safety cap",
+            path.display()
+        ));
+    }
+    String::from_utf8(buf).map_err(|e| format!("{} is not valid UTF-8: {e}", path.display()))
 }
 
 pub(super) fn discover_lockfiles(
@@ -61,9 +97,24 @@ pub(super) fn discover_lockfiles(
     }
 
     let mut found = Vec::new();
-    scan_lockfiles(repo_canon, repo_canon, 0, &mut found);
+    let mut visited = 0_usize;
+    let mut exhausted = false;
+    scan_lockfiles(
+        repo_canon,
+        repo_canon,
+        0,
+        &mut found,
+        &mut visited,
+        &mut exhausted,
+    );
     found.sort();
     if found.is_empty() {
+        if exhausted {
+            return Err(format!(
+                "lockfile scan budget exceeded under {}",
+                repo_canon.display()
+            ));
+        }
         return Err(format!(
             "no Cargo.lock found under {}",
             repo_canon.display()
@@ -72,7 +123,14 @@ pub(super) fn discover_lockfiles(
     Ok(found)
 }
 
-fn scan_lockfiles(repo_canon: &Path, dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+fn scan_lockfiles(
+    repo_canon: &Path,
+    dir: &Path,
+    depth: usize,
+    out: &mut Vec<PathBuf>,
+    visited: &mut usize,
+    exhausted: &mut bool,
+) {
     if depth > MAX_SCAN_DEPTH || out.len() >= MAX_LOCKFILES {
         return;
     }
@@ -81,6 +139,11 @@ fn scan_lockfiles(repo_canon: &Path, dir: &Path, depth: usize, out: &mut Vec<Pat
     };
     let mut subdirs = Vec::new();
     for entry in entries.flatten() {
+        *visited += 1;
+        if *visited > MAX_SCAN_ENTRIES {
+            *exhausted = true;
+            return;
+        }
         let Ok(ft) = entry.file_type() else {
             continue;
         };
@@ -103,167 +166,288 @@ fn scan_lockfiles(repo_canon: &Path, dir: &Path, depth: usize, out: &mut Vec<Pat
     }
     subdirs.sort();
     for sub in subdirs {
-        scan_lockfiles(repo_canon, &sub, depth + 1, out);
+        scan_lockfiles(repo_canon, &sub, depth + 1, out, visited, exhausted);
+        if *exhausted || out.len() >= MAX_LOCKFILES {
+            return;
+        }
     }
 }
 
-fn unquote_toml_string(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.len() < 2 {
-        return None;
+/// Strip `# comment` outside quoted strings on a single TOML line.
+pub(super) fn strip_toml_comment(line: &str) -> &str {
+    let mut in_double = false;
+    let mut in_single = false;
+    let mut escape = false;
+    for (idx, ch) in line.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_double => escape = true,
+            '"' if !in_single => in_double = !in_double,
+            '\'' if !in_double => in_single = !in_single,
+            '#' if !in_double && !in_single => return line[..idx].trim(),
+            _ => {}
+        }
     }
-    if trimmed.starts_with('\'') && trimmed.ends_with('\'') {
-        return Some(trimmed[1..trimmed.len() - 1].to_string());
+    line.trim()
+}
+
+fn parse_unicode_escape(chars: &mut std::str::Chars<'_>, digits: usize) -> Result<char, String> {
+    let mut hex = String::with_capacity(digits);
+    for _ in 0..digits {
+        let Some(c) = chars.next() else {
+            return Err("truncated unicode escape in TOML string".to_string());
+        };
+        if !c.is_ascii_hexdigit() {
+            return Err(format!("invalid unicode escape digit '{c}' in TOML string"));
+        }
+        hex.push(c);
+    }
+    let code = u32::from_str_radix(&hex, 16)
+        .map_err(|_| "invalid unicode scalar in TOML string".to_string())?;
+    char::from_u32(code).ok_or_else(|| "invalid unicode scalar in TOML string".to_string())
+}
+
+/// Strict single-line TOML string parser matching `smol-toml` rules:
+/// rejects unknown escapes, unterminated strings and trailing non-comment text.
+pub(super) fn parse_toml_string_strict(raw: &str) -> Result<String, String> {
+    let trimmed = strip_toml_comment(raw).trim();
+    if let Some(rest) = trimmed.strip_prefix('\'') {
+        let Some(end) = rest.find('\'') else {
+            return Err("unterminated literal string in TOML".to_string());
+        };
+        if !rest[end + 1..].trim().is_empty() {
+            return Err("unexpected trailing tokens after TOML string".to_string());
+        }
+        return Ok(rest[..end].to_string());
     }
     if !trimmed.starts_with('"') {
-        return None;
+        return Err(format!("expected TOML string value, got \"{trimmed}\""));
     }
     let mut out = String::new();
     let mut chars = trimmed[1..].chars();
+    let mut closed = false;
     while let Some(c) = chars.next() {
         match c {
-            '"' => return Some(out),
-            '\\' => match chars.next()? {
-                '\\' => out.push('\\'),
-                '"' => out.push('"'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                other => out.push(other),
+            '"' => {
+                closed = true;
+                break;
+            }
+            '\\' => match chars.next() {
+                Some('\\') => out.push('\\'),
+                Some('"') => out.push('"'),
+                Some('b') => out.push('\u{0008}'),
+                Some('f') => out.push('\u{000C}'),
+                Some('n') => out.push('\n'),
+                Some('r') => out.push('\r'),
+                Some('t') => out.push('\t'),
+                Some('u') => out.push(parse_unicode_escape(&mut chars, 4)?),
+                Some('U') => out.push(parse_unicode_escape(&mut chars, 8)?),
+                Some(other) => return Err(format!("unknown TOML escape sequence '\\{other}'")),
+                None => return Err("unterminated escape in TOML string".to_string()),
             },
             other => out.push(other),
         }
     }
-    None
+    if !closed {
+        return Err("unterminated basic string in TOML".to_string());
+    }
+    if !chars.as_str().trim().is_empty() {
+        return Err("unexpected trailing tokens after TOML string".to_string());
+    }
+    Ok(out)
+}
+
+fn flush_pkg(
+    packages: &mut Vec<LockPackage>,
+    name: &mut Option<String>,
+    ver: &mut Option<String>,
+    src: &mut Option<String>,
+    seen_keys: &mut HashSet<String>,
+) {
+    if let (Some(n), Some(v)) = (name.take(), ver.take()) {
+        packages.push(LockPackage {
+            name: n,
+            version: v,
+            source: src.take(),
+        });
+    } else {
+        *name = None;
+        *ver = None;
+        *src = None;
+    }
+    seen_keys.clear();
 }
 
 pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> {
-    let meta = fs::metadata(path).map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
-    if meta.len() > MAX_LOCKFILE_BYTES {
-        return Err(format!(
-            "Cargo.lock {} exceeds {MAX_LOCKFILE_BYTES} byte safety cap",
-            path.display()
-        ));
-    }
-    let text =
-        fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let text = read_bounded_regular_file(path, MAX_LOCKFILE_BYTES)?;
     let mut packages = Vec::new();
     let mut in_pkg = false;
     let mut cur_name: Option<String> = None;
     let mut cur_ver: Option<String> = None;
     let mut cur_src: Option<String> = None;
-
-    let flush = |pkgs: &mut Vec<LockPackage>,
-                 name: &mut Option<String>,
-                 ver: &mut Option<String>,
-                 src: &mut Option<String>| {
-        if let (Some(n), Some(v)) = (name.take(), ver.take()) {
-            pkgs.push(LockPackage {
-                name: n,
-                version: v,
-                source: src.take(),
-            });
-        } else {
-            *name = None;
-            *ver = None;
-            *src = None;
-        }
-    };
+    let mut seen_keys: HashSet<String> = HashSet::new();
 
     for raw_line in text.lines() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let stripped = strip_toml_comment(raw_line);
+        if stripped.is_empty() {
             continue;
         }
-        if line == "[[package]]" {
-            flush(&mut packages, &mut cur_name, &mut cur_ver, &mut cur_src);
+        if stripped == "[[package]]" {
+            flush_pkg(
+                &mut packages,
+                &mut cur_name,
+                &mut cur_ver,
+                &mut cur_src,
+                &mut seen_keys,
+            );
             in_pkg = true;
             continue;
         }
-        if line.starts_with('[') {
-            flush(&mut packages, &mut cur_name, &mut cur_ver, &mut cur_src);
+        if stripped.starts_with('[') {
+            flush_pkg(
+                &mut packages,
+                &mut cur_name,
+                &mut cur_ver,
+                &mut cur_src,
+                &mut seen_keys,
+            );
             in_pkg = false;
             continue;
         }
         if !in_pkg {
             continue;
         }
-        if let Some((key, val)) = line.split_once('=') {
-            match key.trim() {
-                "name" => cur_name = unquote_toml_string(val),
-                "version" => cur_ver = unquote_toml_string(val),
-                "source" => cur_src = unquote_toml_string(val),
+        if let Some((raw_key, raw_val)) = stripped.split_once('=') {
+            let key = raw_key.trim();
+            if !seen_keys.insert(key.to_string()) {
+                return Err(format!(
+                    "duplicate key \"{key}\" in [[package]] table in {}",
+                    path.display()
+                ));
+            }
+            match key {
+                "name" => cur_name = Some(parse_toml_string_strict(raw_val)?),
+                "version" => cur_ver = Some(parse_toml_string_strict(raw_val)?),
+                "source" => cur_src = Some(parse_toml_string_strict(raw_val)?),
                 _ => {}
             }
         }
     }
-    flush(&mut packages, &mut cur_name, &mut cur_ver, &mut cur_src);
+    flush_pkg(
+        &mut packages,
+        &mut cur_name,
+        &mut cur_ver,
+        &mut cur_src,
+        &mut seen_keys,
+    );
     Ok(packages)
 }
 
-fn manifest_package_name(manifest: &Path) -> Option<String> {
-    let text = fs::read_to_string(manifest).ok()?;
-    let mut in_pkg = false;
+fn is_workspace_version_inline(raw_val: &str) -> bool {
+    let s = strip_toml_comment(raw_val).trim();
+    if !(s.starts_with('{') && s.ends_with('}')) {
+        return false;
+    }
+    let inner = &s[1..s.len() - 1];
+    inner.split(',').any(|part| {
+        part.split_once('=')
+            .is_some_and(|(k, v)| k.trim() == "workspace" && v.trim() == "true")
+    })
+}
+
+/// Parse `[package]` `name` and `version` (including `version.workspace = true`)
+/// from a bounded regular `Cargo.toml` file.
+pub(super) fn read_manifest_identity(manifest: &Path) -> Result<Option<ManifestIdentity>, String> {
+    let text = read_bounded_regular_file(manifest, MAX_MANIFEST_BYTES)?;
+    let mut section = String::new();
+    let mut name: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut workspace_version = false;
+
     for raw_line in text.lines() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let stripped = strip_toml_comment(raw_line);
+        if stripped.is_empty() {
             continue;
         }
-        if line.starts_with('[') {
-            in_pkg = line == "[package]";
+        if stripped.starts_with('[') && stripped.ends_with(']') {
+            section = stripped[1..stripped.len() - 1].trim().to_string();
             continue;
         }
-        if in_pkg
-            && let Some((k, v)) = line.split_once('=')
-            && k.trim() == "name"
+        let Some((raw_k, raw_v)) = stripped.split_once('=') else {
+            continue;
+        };
+        let k = raw_k.trim();
+        let v = raw_v.trim();
+        if section == "package" {
+            if k == "name" {
+                name = parse_toml_string_strict(v).ok();
+            } else if k == "version" {
+                if is_workspace_version_inline(v) {
+                    workspace_version = true;
+                } else {
+                    version = parse_toml_string_strict(v).ok();
+                }
+            } else if k == "version.workspace" && v == "true" {
+                workspace_version = true;
+            }
+        } else if section == "package.version" && k == "workspace" && v == "true" {
+            workspace_version = true;
+        }
+    }
+
+    Ok(name.map(|n| ManifestIdentity {
+        name: n,
+        version,
+        workspace_version,
+    }))
+}
+
+/// Resolve `[workspace.package] version = "..."` by walking up from `crate_dir`
+/// without escaping `boundary`.
+pub(super) fn resolve_workspace_version(crate_dir: &Path, boundary: &Path) -> Option<String> {
+    let canon_bound = fs::canonicalize(boundary).ok()?;
+    let mut cur = fs::canonicalize(crate_dir).ok()?;
+    for _ in 0..8 {
+        if !cur.starts_with(&canon_bound) {
+            break;
+        }
+        let manifest = cur.join("Cargo.toml");
+        if let Some(canon_m) = contained_canonical(&manifest, &canon_bound)
+            && let Ok(text) = read_bounded_regular_file(&canon_m, MAX_MANIFEST_BYTES)
+            && let Some(ver) = extract_workspace_package_version(&text)
         {
-            return unquote_toml_string(v);
+            return Some(ver);
         }
+        if cur == canon_bound {
+            break;
+        }
+        let Some(parent) = cur.parent() else {
+            break;
+        };
+        cur = parent.to_path_buf();
     }
     None
 }
 
-pub(super) fn find_crate_dir_under(
-    root: &Path,
-    boundary: &Path,
-    crate_name: &str,
-    max_depth: usize,
-) -> Option<PathBuf> {
-    let mut queue: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
-    let mut visited = 0_usize;
-    while let Some((dir, depth)) = queue.pop() {
-        visited += 1;
-        if visited > 256 {
-            break;
-        }
-        let Some(canon_dir) = contained_canonical(&dir, boundary) else {
+fn extract_workspace_package_version(text: &str) -> Option<String> {
+    let mut in_ws_pkg = false;
+    for raw_line in text.lines() {
+        let stripped = strip_toml_comment(raw_line);
+        if stripped.is_empty() {
             continue;
-        };
-        let manifest = canon_dir.join("Cargo.toml");
-        if let Some(canon_manifest) = contained_canonical(&manifest, boundary)
-            && canon_manifest.is_file()
-            && manifest_package_name(&canon_manifest).as_deref() == Some(crate_name)
+        }
+        if stripped.starts_with('[') && stripped.ends_with(']') {
+            in_ws_pkg = stripped[1..stripped.len() - 1].trim() == "workspace.package";
+            continue;
+        }
+        if in_ws_pkg
+            && let Some((k, v)) = stripped.split_once('=')
+            && k.trim() == "version"
         {
-            return Some(canon_dir);
-        }
-        if depth >= max_depth {
-            continue;
-        }
-        let Ok(entries) = fs::read_dir(&canon_dir) else {
-            continue;
-        };
-        let mut children: Vec<PathBuf> = entries
-            .flatten()
-            .filter(|e| {
-                e.file_type()
-                    .is_ok_and(|ft| ft.is_dir() && !ft.is_symlink())
-                    && !SKIP_DIRS.contains(&e.file_name().to_string_lossy().as_ref())
-            })
-            .map(|e| e.path())
-            .collect();
-        children.sort();
-        for c in children.into_iter().rev() {
-            queue.push((c, depth + 1));
+            return parse_toml_string_strict(v).ok();
         }
     }
     None

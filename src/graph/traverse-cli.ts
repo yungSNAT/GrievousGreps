@@ -384,14 +384,14 @@ export function runCallersCommand(query: string, dir: string, opts: CallersCliOp
   const depth = resolveDepth(opts.depth);
   const showDepth = depth > 1;
 
-  const results = matches.map((symbol) => ({ symbol, hits: edgeWalk(graph, symbol, direction, depth) }));
+  const results = matches.map((symbol) => ({ symbol, hits: edgeWalk(graph, symbol, direction, depth, { provenance: opts.provenance }) }));
   const saved = callersSavings(graph, results);
 
   if (opts.provenance) {
     if (opts.json) {
       const payload = {
         query,
-        matches: results.map((r) => provenanceMatchJson(r, unresolvedNoteFor(graph, direction, r.symbol.name))),
+        matches: results.map((r) => provenanceMatchJson(r, direction === "in" ? (graph.unresolvedCalls ?? []).filter((c) => c.name === r.symbol.name) : undefined)),
         saved,
       };
       console.log(queryJson(payload));

@@ -5,7 +5,7 @@
  * links from heuristic/inferred links and rates multi-hop paths by their weakest
  * hop.
  */
-import type { Confidence, NodeV1, Relation } from "./types.js";
+import type { Confidence, NodeV1, Relation, UnresolvedCallV1 } from "./types.js";
 import { withSavings, type Savings } from "../context/savings.js";
 import { isTestPath } from "../util/paths.js";
 
@@ -55,7 +55,7 @@ export interface ProvenanceMatchJson {
   symbol: { id: string; name: string; kind: string; path: string; span: string };
   provenanceSummary: ProvenanceSummary;
   hits: ProvenanceHitJson[];
-  unresolved?: string;
+  unresolvedCalls?: UnresolvedCallV1[];
 }
 
 const CONFIDENCE_RANK: Record<Confidence, number> = {
@@ -171,7 +171,7 @@ export function formatProvenanceText(opts: ProvenanceTextOptions): string {
 
 export function provenanceMatchJson(
   r: { symbol: NodeV1; hits: ProvenanceHitView[] },
-  unresolved?: string | null,
+  unresolvedCalls?: UnresolvedCallV1[],
 ): ProvenanceMatchJson {
   const hits: ProvenanceHitJson[] = r.hits.map((h) => {
     const conf = effectiveConfidence(h);
@@ -203,6 +203,6 @@ export function provenanceMatchJson(
     provenanceSummary: summariseProvenance(r.hits),
     hits,
   };
-  if (unresolved) out.unresolved = unresolved.trim();
+  if (unresolvedCalls && unresolvedCalls.length > 0) out.unresolvedCalls = unresolvedCalls;
   return out;
 }

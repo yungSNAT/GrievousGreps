@@ -1,28 +1,35 @@
 /**
  * `Cargo.lock`-anchored resolved-dependency source lookup (`crate-source`).
  *
- * Mirrors `rust/gg-query/src/crate_source.rs`: read-only, fail-closed, bounded
- * resolution from a workspace's `Cargo.lock` to the exact local Cargo registry,
- * git checkout or path source directory.
+ * Mirrors `rust/gg-query/src/crate_source/mod.rs`: read-only, fail-closed,
+ * bounded resolution from a workspace's `Cargo.lock` to the exact local Cargo
+ * registry, git checkout or path source directory.
  */
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import {
+  containedRealpath,
+  MAX_LOCKFILE_BYTES,
+  MAX_SCAN_ENTRIES,
+  readBoundedRegularFile,
+  resolveGit,
+  resolvePathCrate,
+  resolveRegistry,
+  SKIP_DIRS,
+  type ResolveOutcome,
+} from "./crate-source-verify.js";
 
-const MAX_LOCKFILE_BYTES = 16 * 1024 * 1024;
 const MAX_LOCKFILES = 16;
 const MAX_SCAN_DEPTH = 2;
-const MAX_REGISTRY_DIRS = 64;
-const MAX_GIT_CHECKOUTS = 128;
 const MAX_RESULTS = 16;
 
-const SKIP_DIRS = new Set([".git", "target", "node_modules", ".trail", "graft", "dist", "vendor"]);
 const CRATE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const VERSION_RE = /^[A-Za-z0-9.+-]{1,128}$/;
 
 export type CrateSourceKind = "registry" | "git" | "path";
-export type ResolutionStatus = "found" | "not_cached";
+export type ResolutionStatus = "found" | "not_cached" | "ambiguous" | "unresolved" | "budget_exhausted";
 
 export interface CrateSourceMatch {
   name: string;
@@ -83,18 +90,6 @@ function resolveCargoHome(overrideDir?: string): string {
   return join(homedir(), ".cargo");
 }
 
-function containedRealpath(candidate: string, boundary: string): string | null {
-  try {
-    const canonBound = realpathSync(boundary);
-    const canonCand = realpathSync(candidate);
-    if (canonCand === canonBound) return canonCand;
-    const prefix = canonBound.endsWith(sep) ? canonBound : `${canonBound}${sep}`;
-    return canonCand.startsWith(prefix) ? canonCand : null;
-  } catch {
-    return null;
-  }
-}
-
 function discoverLockfiles(repoCanon: string, explicit?: string): string[] {
   if (explicit) {
     const joined = isAbsolute(explicit) ? explicit : join(repoCanon, explicit);
@@ -110,16 +105,26 @@ function discoverLockfiles(repoCanon: string, explicit?: string): string[] {
     return [rootCanon];
   }
   const found: string[] = [];
-  scanLockfiles(repoCanon, repoCanon, 0, found);
+  const state = { visited: 0, exhausted: false };
+  scanLockfiles(repoCanon, repoCanon, 0, found, state);
   found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (found.length === 0) {
+    if (state.exhausted) {
+      throw new Error(`lockfile scan budget exceeded under ${repoCanon}`);
+    }
     throw new Error(`no Cargo.lock found under ${repoCanon}`);
   }
   return found;
 }
 
-function scanLockfiles(repoCanon: string, dir: string, depth: number, out: string[]): void {
-  if (depth > MAX_SCAN_DEPTH || out.length >= MAX_LOCKFILES) return;
+function scanLockfiles(
+  repoCanon: string,
+  dir: string,
+  depth: number,
+  out: string[],
+  state: { visited: number; exhausted: boolean },
+): void {
+  if (depth > MAX_SCAN_DEPTH || out.length >= MAX_LOCKFILES || state.exhausted) return;
   let entries;
   try {
     entries = readdirSync(dir, { withFileTypes: true });
@@ -128,6 +133,11 @@ function scanLockfiles(repoCanon: string, dir: string, depth: number, out: strin
   }
   const subdirs: string[] = [];
   for (const entry of entries) {
+    state.visited++;
+    if (state.visited > MAX_SCAN_ENTRIES) {
+      state.exhausted = true;
+      return;
+    }
     if (entry.isSymbolicLink()) continue;
     const full = join(dir, entry.name);
     if (entry.isFile() && entry.name === "Cargo.lock") {
@@ -141,15 +151,14 @@ function scanLockfiles(repoCanon: string, dir: string, depth: number, out: strin
     }
   }
   subdirs.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  for (const sub of subdirs) scanLockfiles(repoCanon, sub, depth + 1, out);
+  for (const sub of subdirs) {
+    scanLockfiles(repoCanon, sub, depth + 1, out, state);
+    if (state.exhausted || out.length >= MAX_LOCKFILES) return;
+  }
 }
 
 function parseCargoLock(lockPath: string): LockPackage[] {
-  const st = statSync(lockPath);
-  if (st.size > MAX_LOCKFILE_BYTES) {
-    throw new Error(`Cargo.lock ${lockPath} exceeds ${MAX_LOCKFILE_BYTES} byte safety cap`);
-  }
-  const raw = readFileSync(lockPath, "utf8");
+  const raw = readBoundedRegularFile(lockPath, MAX_LOCKFILE_BYTES);
   const parsed = parseToml(raw) as { package?: unknown };
   if (!Array.isArray(parsed.package)) return [];
   const pkgs: LockPackage[] = [];
@@ -157,6 +166,9 @@ function parseCargoLock(lockPath: string): LockPackage[] {
     if (!item || typeof item !== "object") continue;
     const rec = item as Record<string, unknown>;
     if (typeof rec.name !== "string" || typeof rec.version !== "string") continue;
+    if (rec.source !== undefined && typeof rec.source !== "string") {
+      throw new Error(`invalid non-string source field for crate "${rec.name}" in ${lockPath}`);
+    }
     pkgs.push({
       name: rec.name,
       version: rec.version,
@@ -164,104 +176,6 @@ function parseCargoLock(lockPath: string): LockPackage[] {
     });
   }
   return pkgs;
-}
-
-function manifestPackageName(manifestPath: string): string | null {
-  try {
-    const parsed = parseToml(readFileSync(manifestPath, "utf8")) as { package?: { name?: unknown } };
-    return typeof parsed.package?.name === "string" ? parsed.package.name : null;
-  } catch {
-    return null;
-  }
-}
-
-function findCrateDirUnder(rootDir: string, boundary: string, crateName: string, maxDepth: number): string | null {
-  const stack: { dir: string; depth: number }[] = [{ dir: rootDir, depth: 0 }];
-  let visited = 0;
-  while (stack.length > 0 && visited < 256) {
-    const cur = stack.pop()!;
-    visited++;
-    const canonDir = containedRealpath(cur.dir, boundary);
-    if (!canonDir) continue;
-    const manifest = join(canonDir, "Cargo.toml");
-    const canonManifest = containedRealpath(manifest, boundary);
-    if (canonManifest && statSync(canonManifest).isFile() && manifestPackageName(canonManifest) === crateName) {
-      return canonDir;
-    }
-    if (cur.depth >= maxDepth) continue;
-    let entries;
-    try {
-      entries = readdirSync(canonDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    const children = entries
-      .filter((e) => e.isDirectory() && !e.isSymbolicLink() && !SKIP_DIRS.has(e.name))
-      .map((e) => join(canonDir, e.name))
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    for (let i = children.length - 1; i >= 0; i--) {
-      stack.push({ dir: children[i], depth: cur.depth + 1 });
-    }
-  }
-  return null;
-}
-
-function resolveRegistryDir(cargoHome: string, name: string, version: string): string | null {
-  const regSrc = join(cargoHome, "registry", "src");
-  let entries;
-  try {
-    entries = readdirSync(regSrc, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  const indexDirs = entries
-    .filter((e) => e.isDirectory() && !e.isSymbolicLink())
-    .map((e) => join(regSrc, e.name))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    .slice(0, MAX_REGISTRY_DIRS);
-  const folderName = `${name}-${version}`;
-  for (const idxDir of indexDirs) {
-    const candidate = join(idxDir, folderName);
-    if (existsSync(join(candidate, "Cargo.toml"))) {
-      const canon = containedRealpath(candidate, idxDir);
-      if (canon && statSync(canon).isDirectory()) return canon;
-    }
-  }
-  return null;
-}
-
-function resolveGitDir(cargoHome: string, source: string, name: string): string | null {
-  const hashIdx = source.lastIndexOf("#");
-  if (hashIdx === -1) return null;
-  const rev = source.slice(hashIdx + 1);
-  if (rev.length < 7 || !/^[0-9a-fA-F]+$/.test(rev)) return null;
-  const shortRev = rev.slice(0, 7).toLowerCase();
-  const gitRoot = join(cargoHome, "git", "checkouts");
-  let entries;
-  try {
-    entries = readdirSync(gitRoot, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-  const repoDirs = entries
-    .filter((e) => e.isDirectory() && !e.isSymbolicLink())
-    .map((e) => join(gitRoot, e.name))
-    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    .slice(0, MAX_GIT_CHECKOUTS);
-  for (const repoDir of repoDirs) {
-    const revDir = join(repoDir, shortRev);
-    try {
-      const st = lstatSync(revDir);
-      if (st.isSymbolicLink() || !st.isDirectory()) continue;
-    } catch {
-      continue;
-    }
-    const canonRev = containedRealpath(revDir, gitRoot);
-    if (!canonRev) continue;
-    const found = findCrateDirUnder(canonRev, gitRoot, name, 2);
-    if (found) return found;
-  }
-  return null;
 }
 
 function buildMatchEntry(
@@ -273,45 +187,50 @@ function buildMatchEntry(
 ): CrateSourceMatch {
   validateCrateName(pkg.name);
   validateVersion(pkg.version);
-  let kind: CrateSourceKind = "path";
-  let foundDir: string | null = null;
-  if (pkg.source?.startsWith("registry+")) {
+  let kind: CrateSourceKind;
+  let outcome: ResolveOutcome;
+
+  if (pkg.source === undefined) {
+    kind = "path";
+    outcome = resolvePathCrate(lockfileDir, repoCanon, pkg.name, pkg.version);
+  } else if (pkg.source.startsWith("registry+")) {
     kind = "registry";
-    foundDir = resolveRegistryDir(cargoHome, pkg.name, pkg.version);
-  } else if (pkg.source?.startsWith("git+")) {
+    outcome = resolveRegistry(cargoHome, pkg.source, pkg.name, pkg.version);
+  } else if (pkg.source.startsWith("git+")) {
     kind = "git";
-    foundDir = resolveGitDir(cargoHome, pkg.source, pkg.name);
+    outcome = resolveGit(cargoHome, pkg.source, pkg.name, pkg.version);
   } else {
-    foundDir = findCrateDirUnder(lockfileDir, repoCanon, pkg.name, 3);
+    throw new Error(`unsupported source scheme "${pkg.source}" for crate "${pkg.name}" in Cargo.lock`);
   }
 
-  if (foundDir) {
-    const manifestPath = join(foundDir, "Cargo.toml");
-    const srcDir = join(foundDir, "src");
-    return {
-      name: pkg.name,
-      version: pkg.version,
-      kind,
-      status: "found",
-      lockfile: lockfileRel,
-      ...(pkg.source ? { source: pkg.source } : {}),
-      path: foundDir,
-      ...(existsSync(manifestPath) ? { manifestPath } : {}),
-      ...(existsSync(srcDir) && statSync(srcDir).isDirectory() ? { srcDir } : {}),
-    };
-  }
-  return {
+  const base = {
     name: pkg.name,
     version: pkg.version,
     kind,
-    status: "not_cached",
     lockfile: lockfileRel,
     ...(pkg.source ? { source: pkg.source } : {}),
-    hint:
-      kind === "path"
-        ? "workspace/path crate directory not found under repository root"
-        : `locked version ${pkg.version} is not unpacked in ${cargoHome}; run \`cargo fetch\` to populate it`,
   };
+
+  if (outcome.status === "found") {
+    return {
+      ...base,
+      status: "found",
+      path: outcome.verified.dir,
+      manifestPath: outcome.verified.manifestPath,
+      ...(outcome.verified.srcDir ? { srcDir: outcome.verified.srcDir } : {}),
+    };
+  }
+  if (outcome.status === "not_cached") {
+    return {
+      ...base,
+      status: "not_cached",
+      hint:
+        kind === "path"
+          ? `workspace/path crate ${pkg.name} ${pkg.version} not found under repository root`
+          : `locked version ${pkg.version} is not unpacked in ${cargoHome}; run \`cargo fetch\` to populate it`,
+    };
+  }
+  return { ...base, status: outcome.status, hint: outcome.hint };
 }
 
 export function resolveCrateSource(opts: CrateSourceOptions): CrateSourceReport {

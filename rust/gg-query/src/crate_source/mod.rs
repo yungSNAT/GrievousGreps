@@ -5,6 +5,7 @@
 //! workspace path source directory so agents never read wrong or stale versions.
 
 mod lockfile;
+mod verify;
 
 use std::collections::BTreeSet;
 use std::env;
@@ -13,12 +14,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use lockfile::{
-    LockPackage, contained_canonical, discover_lockfiles, find_crate_dir_under, parse_cargo_lock,
-};
+use lockfile::{LockPackage, discover_lockfiles, parse_cargo_lock};
+use verify::{ResolveOutcome, resolve_git, resolve_path_crate, resolve_registry};
 
-const MAX_REGISTRY_DIRS: usize = 64;
-const MAX_GIT_CHECKOUTS: usize = 128;
 const MAX_RESULTS: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -34,6 +32,9 @@ pub enum CrateSourceKind {
 pub enum ResolutionStatus {
     Found,
     NotCached,
+    Ambiguous,
+    Unresolved,
+    BudgetExhausted,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -111,14 +112,22 @@ fn canonical_crate_key(name: &str) -> String {
     name.replace('-', "_")
 }
 
+fn normalise_absolute(path: PathBuf) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        return Ok(path);
+    }
+    let cwd = env::current_dir().map_err(|e| format!("cannot read current directory: {e}"))?;
+    Ok(cwd.join(path))
+}
+
 fn resolve_cargo_home(override_dir: Option<&Path>) -> Result<PathBuf, String> {
     if let Some(d) = override_dir {
-        return Ok(d.to_path_buf());
+        return normalise_absolute(d.to_path_buf());
     }
     if let Ok(env_home) = env::var("CARGO_HOME")
         && !env_home.trim().is_empty()
     {
-        return Ok(PathBuf::from(env_home));
+        return normalise_absolute(PathBuf::from(env_home));
     }
     let home = env::var("HOME")
         .or_else(|_| env::var("USERPROFILE"))
@@ -128,105 +137,48 @@ fn resolve_cargo_home(override_dir: Option<&Path>) -> Result<PathBuf, String> {
     Ok(PathBuf::from(home).join(".cargo"))
 }
 
-fn resolve_registry_dir(cargo_home: &Path, name: &str, version: &str) -> Option<PathBuf> {
-    let reg_src = cargo_home.join("registry").join("src");
-    let entries = fs::read_dir(&reg_src).ok()?;
-    let mut dirs: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| {
-            e.file_type()
-                .is_ok_and(|ft| ft.is_dir() && !ft.is_symlink())
-        })
-        .map(|e| e.path())
-        .collect();
-    dirs.sort();
-    let folder_name = format!("{name}-{version}");
-    for idx_dir in dirs.into_iter().take(MAX_REGISTRY_DIRS) {
-        let candidate = idx_dir.join(&folder_name);
-        if candidate.is_dir()
-            && candidate.join("Cargo.toml").is_file()
-            && let Some(canon) = contained_canonical(&candidate, &idx_dir)
-        {
-            return Some(canon);
-        }
-    }
-    None
-}
-
-fn resolve_git_dir(cargo_home: &Path, source: &str, name: &str) -> Option<PathBuf> {
-    let rev = source.rsplit_once('#').map(|(_, r)| r)?;
-    if rev.len() < 7 || !rev.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let short_rev = rev[..7].to_ascii_lowercase();
-    let git_root = cargo_home.join("git").join("checkouts");
-    let entries = fs::read_dir(&git_root).ok()?;
-    let mut repo_dirs: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| {
-            e.file_type()
-                .is_ok_and(|ft| ft.is_dir() && !ft.is_symlink())
-        })
-        .map(|e| e.path())
-        .collect();
-    repo_dirs.sort();
-    for repo_dir in repo_dirs.into_iter().take(MAX_GIT_CHECKOUTS) {
-        let rev_dir = repo_dir.join(&short_rev);
-        if fs::symlink_metadata(&rev_dir)
-            .is_ok_and(|m| m.file_type().is_dir() && !m.file_type().is_symlink())
-            && let Some(canon_rev) = contained_canonical(&rev_dir, &git_root)
-            && let Some(found) = find_crate_dir_under(&canon_rev, &git_root, name, 2)
-        {
-            return Some(found);
-        }
-    }
-    None
-}
-
 fn build_match_entry(
     pkg: &LockPackage,
     lockfile_rel: &str,
     lockfile_dir: &Path,
     repo_canon: &Path,
     cargo_home: &Path,
-) -> CrateSourceMatch {
-    let (kind, found_dir) = match pkg.source.as_deref() {
+) -> Result<CrateSourceMatch, String> {
+    let (kind, outcome) = match pkg.source.as_deref() {
         Some(src) if src.starts_with("registry+") => (
             CrateSourceKind::Registry,
-            resolve_registry_dir(cargo_home, &pkg.name, &pkg.version),
+            resolve_registry(cargo_home, src, &pkg.name, &pkg.version),
         ),
         Some(src) if src.starts_with("git+") => (
             CrateSourceKind::Git,
-            resolve_git_dir(cargo_home, src, &pkg.name),
+            resolve_git(cargo_home, src, &pkg.name, &pkg.version),
         ),
-        _ => (
+        Some(other) => {
+            return Err(format!(
+                "unsupported source scheme \"{other}\" for crate \"{}\" in Cargo.lock",
+                pkg.name
+            ));
+        }
+        None => (
             CrateSourceKind::Path,
-            find_crate_dir_under(lockfile_dir, repo_canon, &pkg.name, 3),
+            resolve_path_crate(lockfile_dir, repo_canon, &pkg.name, &pkg.version),
         ),
     };
 
-    match found_dir {
-        Some(dir) => {
-            let manifest_path = dir.join("Cargo.toml");
-            let src_dir = dir.join("src");
-            CrateSourceMatch {
-                name: pkg.name.clone(),
-                version: pkg.version.clone(),
-                kind,
-                status: ResolutionStatus::Found,
-                lockfile: lockfile_rel.to_string(),
-                source: pkg.source.clone(),
-                path: Some(dir.to_string_lossy().into_owned()),
-                manifest_path: manifest_path
-                    .is_file()
-                    .then(|| manifest_path.to_string_lossy().into_owned()),
-                src_dir: src_dir
-                    .is_dir()
-                    .then(|| src_dir.to_string_lossy().into_owned()),
-                hint: None,
-            }
-        }
-        None => CrateSourceMatch {
+    Ok(match outcome {
+        ResolveOutcome::Found(v) => CrateSourceMatch {
+            name: pkg.name.clone(),
+            version: pkg.version.clone(),
+            kind,
+            status: ResolutionStatus::Found,
+            lockfile: lockfile_rel.to_string(),
+            source: pkg.source.clone(),
+            path: Some(v.dir.to_string_lossy().into_owned()),
+            manifest_path: Some(v.manifest_path.to_string_lossy().into_owned()),
+            src_dir: v.src_dir.map(|p| p.to_string_lossy().into_owned()),
+            hint: None,
+        },
+        ResolveOutcome::NotCached => CrateSourceMatch {
             name: pkg.name.clone(),
             version: pkg.version.clone(),
             kind: kind.clone(),
@@ -237,9 +189,10 @@ fn build_match_entry(
             manifest_path: None,
             src_dir: None,
             hint: Some(match kind {
-                CrateSourceKind::Path => {
-                    "workspace/path crate directory not found under repository root".to_string()
-                }
+                CrateSourceKind::Path => format!(
+                    "workspace/path crate {} {} not found under repository root",
+                    pkg.name, pkg.version
+                ),
                 CrateSourceKind::Registry | CrateSourceKind::Git => format!(
                     "locked version {} is not unpacked in {}; run `cargo fetch` to populate it",
                     pkg.version,
@@ -247,7 +200,43 @@ fn build_match_entry(
                 ),
             }),
         },
-    }
+        ResolveOutcome::Ambiguous(msg) => CrateSourceMatch {
+            name: pkg.name.clone(),
+            version: pkg.version.clone(),
+            kind,
+            status: ResolutionStatus::Ambiguous,
+            lockfile: lockfile_rel.to_string(),
+            source: pkg.source.clone(),
+            path: None,
+            manifest_path: None,
+            src_dir: None,
+            hint: Some(msg),
+        },
+        ResolveOutcome::Unresolved(msg) => CrateSourceMatch {
+            name: pkg.name.clone(),
+            version: pkg.version.clone(),
+            kind,
+            status: ResolutionStatus::Unresolved,
+            lockfile: lockfile_rel.to_string(),
+            source: pkg.source.clone(),
+            path: None,
+            manifest_path: None,
+            src_dir: None,
+            hint: Some(msg),
+        },
+        ResolveOutcome::BudgetExhausted(msg) => CrateSourceMatch {
+            name: pkg.name.clone(),
+            version: pkg.version.clone(),
+            kind,
+            status: ResolutionStatus::BudgetExhausted,
+            lockfile: lockfile_rel.to_string(),
+            source: pkg.source.clone(),
+            path: None,
+            manifest_path: None,
+            src_dir: None,
+            hint: Some(msg),
+        },
+    })
 }
 
 /// Resolve a crate's locked source location(s) from `Cargo.lock`.
@@ -329,7 +318,7 @@ pub fn resolve_crate_source(args: &CrateSourceArgs<'_>) -> Result<CrateSourceRep
             lf_dir,
             &repo_canon,
             &cargo_home,
-        ));
+        )?);
     }
 
     Ok(CrateSourceReport {
