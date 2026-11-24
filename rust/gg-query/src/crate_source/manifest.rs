@@ -1,4 +1,4 @@
-//! Non-blocking bounded regular-file reading and multiline-string-aware
+//! Non-blocking bounded regular-file reading and strict TOML-validated
 //! `Cargo.toml` manifest identity parsing.
 //!
 //! Assumes a stable repository/cache tree during a single CLI invocation; checks
@@ -10,7 +10,9 @@ use std::fs::{self, File};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 
-use super::lockfile::{contained_canonical, parse_toml_string_strict, strip_toml_comment};
+use super::lockfile::contained_canonical;
+use super::toml_scalars::HeaderKind;
+use super::toml_syntax::{TomlValue, parse_toml_document};
 
 pub(super) const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 
@@ -74,254 +76,50 @@ pub(super) fn read_bounded_regular_file(
         .map_err(|e| ReadFileError::Other(format!("{} is not valid UTF-8: {e}", path.display())))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MultilineDelim {
-    Basic,
-    Literal,
-}
-
-#[derive(Default)]
-struct TomlScanState {
-    multiline: Option<MultilineDelim>,
-    delims: Vec<u8>,
-}
-
-struct LineScan {
-    started_in_multiline: bool,
-    started_nested: bool,
-}
-
-enum TopLevelLine<'a> {
-    Section(&'a str),
-    KeyValue(&'a str, &'a str),
-}
-
-fn scan_multiline_quote_run(
-    bytes: &[u8],
-    i: usize,
-    quote: u8,
-    multiline: &mut Option<MultilineDelim>,
-) -> Result<usize, ReadFileError> {
-    let mut run = 0;
-    while i + run < bytes.len() && bytes[i + run] == quote {
-        run += 1;
-    }
-    if run >= 6 {
-        return Err(ReadFileError::Other(
-            "invalid run of 6 or more quotes in multiline string".to_string(),
-        ));
-    }
-    if run >= 3 {
-        *multiline = None;
-    }
-    Ok(run)
-}
-
-/// Scan a single line updating multiline string state (`"""` or `'''`) and
-/// balanced unquoted `[`/`]` and `{`/`}` delimiters.
-fn advance_toml_state(line: &str, st: &mut TomlScanState) -> Result<LineScan, ReadFileError> {
-    let started_in_multiline = st.multiline.is_some();
-    let started_nested = !st.delims.is_empty();
-    let bytes = line.as_bytes();
-    let mut i = 0_usize;
-    let mut in_single_line: Option<u8> = None;
-
-    while i < bytes.len() {
-        if let Some(delim) = st.multiline {
-            match delim {
-                MultilineDelim::Basic => {
-                    if bytes[i] == b'\\' {
-                        i = (i + 2).min(bytes.len());
-                        continue;
-                    }
-                    if bytes[i] == b'"' {
-                        i += scan_multiline_quote_run(bytes, i, b'"', &mut st.multiline)?;
-                        continue;
-                    }
-                    i += 1;
-                }
-                MultilineDelim::Literal => {
-                    if bytes[i] == b'\'' {
-                        i += scan_multiline_quote_run(bytes, i, b'\'', &mut st.multiline)?;
-                        continue;
-                    }
-                    i += 1;
-                }
-            }
-            continue;
-        }
-
-        if let Some(q) = in_single_line {
-            if q == b'"' && bytes[i] == b'\\' {
-                i = (i + 2).min(bytes.len());
-                continue;
-            }
-            if bytes[i] == q {
-                in_single_line = None;
-            }
-            i += 1;
-            continue;
-        }
-
-        if bytes[i] == b'#' {
-            break;
-        }
-        if bytes[i..].starts_with(b"\"\"\"") {
-            st.multiline = Some(MultilineDelim::Basic);
-            i += 3;
-            continue;
-        }
-        if bytes[i..].starts_with(b"'''") {
-            st.multiline = Some(MultilineDelim::Literal);
-            i += 3;
-            continue;
-        }
-        if bytes[i] == b'"' || bytes[i] == b'\'' {
-            in_single_line = Some(bytes[i]);
-        } else if bytes[i] == b'[' || bytes[i] == b'{' {
-            if st.delims.len() >= 256 {
-                return Err(ReadFileError::Other(
-                    "excessive delimiter nesting in Cargo.toml".to_string(),
-                ));
-            }
-            st.delims.push(bytes[i]);
-        } else if bytes[i] == b']' {
-            if st.delims.pop() != Some(b'[') {
-                return Err(ReadFileError::Other(
-                    "unexpected ']' in Cargo.toml".to_string(),
-                ));
-            }
-        } else if bytes[i] == b'}' && st.delims.pop() != Some(b'{') {
-            return Err(ReadFileError::Other(
-                "unexpected '}' in Cargo.toml".to_string(),
-            ));
-        }
-        i += 1;
-    }
-
-    if in_single_line.is_some() {
-        return Err(ReadFileError::Other(
-            "unterminated single-line string in Cargo.toml".to_string(),
-        ));
-    }
-
-    Ok(LineScan {
-        started_in_multiline,
-        started_nested,
-    })
-}
-
-fn classify_top_level_line<'a>(
-    stripped: &'a str,
-    st: &TomlScanState,
-) -> Result<TopLevelLine<'a>, ReadFileError> {
-    if stripped.starts_with('[') {
-        if !stripped.ends_with(']') || !st.delims.is_empty() || st.multiline.is_some() {
-            return Err(ReadFileError::Other(
-                "malformed section header in Cargo.toml".to_string(),
-            ));
-        }
-        let inner = stripped
-            .strip_prefix("[[")
-            .and_then(|s| s.strip_suffix("]]"))
-            .unwrap_or(&stripped[1..stripped.len() - 1])
-            .trim();
-        if inner.is_empty() {
-            return Err(ReadFileError::Other(
-                "empty section header in Cargo.toml".to_string(),
-            ));
-        }
-        return Ok(TopLevelLine::Section(inner));
-    }
-    let Some((raw_k, raw_v)) = stripped.split_once('=') else {
-        return Err(ReadFileError::Other(
-            "malformed TOML line in Cargo.toml".to_string(),
-        ));
-    };
-    let k = raw_k.trim();
-    let v = raw_v.trim();
-    if k.is_empty() || v.is_empty() {
-        return Err(ReadFileError::Other(
-            "incomplete key-value assignment in Cargo.toml".to_string(),
-        ));
-    }
-    Ok(TopLevelLine::KeyValue(k, v))
-}
-
-fn finish_toml_state(st: &TomlScanState, label: &str) -> Result<(), ReadFileError> {
-    if st.multiline.is_some() {
-        return Err(ReadFileError::Other(format!(
-            "unterminated multiline string in {label}"
-        )));
-    }
-    if !st.delims.is_empty() {
-        return Err(ReadFileError::Other(format!(
-            "unterminated array or inline table in {label}"
-        )));
-    }
-    Ok(())
-}
-
-fn is_workspace_version_inline(raw_val: &str) -> bool {
-    let s = strip_toml_comment(raw_val).trim();
-    if !(s.starts_with('{') && s.ends_with('}')) {
-        return false;
-    }
-    let inner = &s[1..s.len() - 1];
-    inner.split(',').any(|part| {
-        part.split_once('=')
-            .is_some_and(|(k, v)| k.trim() == "workspace" && v.trim() == "true")
-    })
+fn is_inline_workspace_true(pairs: &[(Vec<String>, TomlValue)]) -> bool {
+    pairs
+        .iter()
+        .any(|(k, v)| k.len() == 1 && k[0] == "workspace" && matches!(v, TomlValue::Bool(true)))
 }
 
 /// Parse `[package]` `name` and `version` (including `version.workspace = true`),
-/// skipping content inside multiline TOML strings and failing closed on
-/// malformed TOML syntax or files exceeding `MAX_MANIFEST_BYTES`.
+/// validating the full TOML document fail-closed and rejecting array-of-tables
+/// headers (`[[package]]`) as package identity.
 pub(super) fn read_manifest_identity(
     manifest: &Path,
 ) -> Result<Option<ManifestIdentity>, ReadFileError> {
     let text = read_bounded_regular_file(manifest, MAX_MANIFEST_BYTES)?;
-    let mut section = String::new();
+    let entries = parse_toml_document(&text)?;
     let mut name: Option<String> = None;
     let mut version: Option<String> = None;
     let mut workspace_version = false;
-    let mut st = TomlScanState::default();
 
-    for raw_line in text.lines() {
-        let scan = advance_toml_state(raw_line, &mut st)?;
-        if scan.started_in_multiline || scan.started_nested {
+    for entry in entries {
+        if entry.header_kind != HeaderKind::Table {
             continue;
         }
-        let stripped = strip_toml_comment(raw_line);
-        if stripped.is_empty() {
-            continue;
-        }
-        match classify_top_level_line(stripped, &st)? {
-            TopLevelLine::Section(sec) => section = sec.to_string(),
-            TopLevelLine::KeyValue(k, v) => {
-                if st.multiline.is_some() {
-                    continue;
+        let path: Vec<&str> = entry.full_path.iter().map(String::as_str).collect();
+        match path.as_slice() {
+            ["package", "name"] => {
+                if let TomlValue::Str(s) = entry.value {
+                    name = Some(s);
                 }
-                if section == "package" {
-                    if k == "name" {
-                        name = parse_toml_string_strict(v).ok();
-                    } else if k == "version" {
-                        if is_workspace_version_inline(v) {
-                            workspace_version = true;
-                        } else {
-                            version = parse_toml_string_strict(v).ok();
-                        }
-                    } else if k == "version.workspace" && v == "true" {
-                        workspace_version = true;
-                    }
-                } else if section == "package.version" && k == "workspace" && v == "true" {
+            }
+            ["package", "version"] => match entry.value {
+                TomlValue::Str(s) => version = Some(s),
+                TomlValue::InlineTable(pairs) if is_inline_workspace_true(&pairs) => {
+                    workspace_version = true;
+                }
+                _ => {}
+            },
+            ["package", "version", "workspace"] => {
+                if matches!(entry.value, TomlValue::Bool(true)) {
                     workspace_version = true;
                 }
             }
+            _ => {}
         }
     }
-
-    finish_toml_state(&st, &manifest.display().to_string())?;
 
     Ok(name.map(|n| ManifestIdentity {
         name: n,
@@ -331,35 +129,24 @@ pub(super) fn read_manifest_identity(
 }
 
 fn extract_workspace_package_version(text: &str) -> Result<Option<String>, ReadFileError> {
-    let mut in_ws_pkg = false;
+    let entries = parse_toml_document(text)?;
     let mut found: Option<String> = None;
-    let mut st = TomlScanState::default();
-
-    for raw_line in text.lines() {
-        let scan = advance_toml_state(raw_line, &mut st)?;
-        if scan.started_in_multiline || scan.started_nested {
+    for entry in entries {
+        if entry.header_kind != HeaderKind::Table {
             continue;
         }
-        let stripped = strip_toml_comment(raw_line);
-        if stripped.is_empty() {
-            continue;
-        }
-        match classify_top_level_line(stripped, &st)? {
-            TopLevelLine::Section(sec) => in_ws_pkg = sec == "workspace.package",
-            TopLevelLine::KeyValue(k, v) => {
-                if st.multiline.is_some() {
-                    continue;
-                }
-                if in_ws_pkg && k == "version" {
-                    found = Some(parse_toml_string_strict(v).map_err(|e| {
-                        ReadFileError::Other(format!("invalid workspace.package.version: {e}"))
-                    })?);
+        let path: Vec<&str> = entry.full_path.iter().map(String::as_str).collect();
+        if path.as_slice() == ["workspace", "package", "version"] {
+            match entry.value {
+                TomlValue::Str(s) => found = Some(s),
+                _ => {
+                    return Err(ReadFileError::Other(
+                        "invalid non-string workspace.package.version".to_string(),
+                    ));
                 }
             }
         }
     }
-
-    finish_toml_state(&st, "workspace Cargo.toml")?;
     Ok(found)
 }
 

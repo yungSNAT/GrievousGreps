@@ -187,6 +187,17 @@ fn nearer_unparseable_workspace_manifest_blocks_farther_workspace_version() {
     assert_eq!(json3["matches"][0]["status"], "unresolved");
     assert!(json3["matches"][0].get("path").is_none());
 
+    // Also reject balanced malformed array syntax (missing comma between elements)
+    fs::write(
+        repo.join("sub/Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/ws-member\" \"other\"]\n",
+    )
+    .unwrap();
+    let (ok_comma, json_comma) = run_crate_source_json("ws-member", &repo, &ch);
+    assert!(!ok_comma);
+    assert_eq!(json_comma["matches"][0]["status"], "unresolved");
+    assert!(json_comma["matches"][0].get("path").is_none());
+
     // Also reject a dangling symlink at nearer sub/Cargo.toml (never walk past to farther ancestor)
     #[cfg(unix)]
     {
