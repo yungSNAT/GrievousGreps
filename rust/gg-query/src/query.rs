@@ -9,6 +9,7 @@ use crate::graph::{
     Direction, EdgeHit, NodeCrux, NodeV1, Savings, UnresolvedCall, is_walk_relation,
     looks_like_filename, normalize_path_prefix, path_under_prefix, symbol_matches_node,
 };
+use crate::provenance::{Confidence, WeakestHop};
 use crate::store::{GraphStore, sql_err};
 
 pub(crate) const NODE_SELECT: &str = "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars, summary, body_text, crux_code FROM nodes";
@@ -176,7 +177,7 @@ impl GraphStore {
         &self,
         id: &str,
         direction: Direction,
-    ) -> io::Result<Vec<(String, String, bool)>> {
+    ) -> io::Result<Vec<(String, String, Confidence)>> {
         let sql = match direction {
             Direction::In => {
                 "SELECT source, relation, confidence FROM edges WHERE target = ?1 ORDER BY seq ASC"
@@ -198,7 +199,7 @@ impl GraphStore {
         for row in rows {
             let (other, relation, confidence) = row.map_err(sql_err)?;
             if is_walk_relation(&relation) {
-                out.push((other, relation, confidence == "inferred"));
+                out.push((other, relation, Confidence::parse(&confidence)));
             }
         }
         Ok(out)
@@ -210,7 +211,19 @@ impl GraphStore {
         direction: Direction,
         max_depth: usize,
     ) -> io::Result<Vec<EdgeHit>> {
-        self.with_read_snapshot(|s| s.edge_walk_inner(symbol, direction, max_depth))
+        self.edge_walk_with_provenance(symbol, direction, max_depth, false)
+    }
+
+    pub fn edge_walk_with_provenance(
+        &self,
+        symbol: &NodeV1,
+        direction: Direction,
+        max_depth: usize,
+        prefer_stronger_confidence: bool,
+    ) -> io::Result<Vec<EdgeHit>> {
+        self.with_read_snapshot(|s| {
+            s.edge_walk_inner(symbol, direction, max_depth, prefer_stronger_confidence)
+        })
     }
 
     fn edge_walk_inner(
@@ -218,17 +231,31 @@ impl GraphStore {
         symbol: &NodeV1,
         direction: Direction,
         max_depth: usize,
+        prefer_stronger_confidence: bool,
     ) -> io::Result<Vec<EdgeHit>> {
         if max_depth <= 1 {
             let mut hits = Vec::new();
-            for (other, relation, inferred) in self.direct_neighbours(&symbol.id, direction)? {
+            for (other, relation, confidence) in self.direct_neighbours(&symbol.id, direction)? {
                 let node = self.node_by_id(&other)?;
+                let (from, to) = match direction {
+                    Direction::In => (other.clone(), symbol.id.clone()),
+                    Direction::Out => (symbol.id.clone(), other.clone()),
+                };
                 hits.push(EdgeHit {
                     node,
                     id: other,
-                    relation,
+                    relation: relation.clone(),
                     depth: 1,
-                    inferred,
+                    inferred: confidence == Confidence::Inferred,
+                    confidence,
+                    weakest_hop: Some(WeakestHop {
+                        from,
+                        to,
+                        relation,
+                        confidence,
+                        provenance: confidence.provenance(),
+                        depth: 1,
+                    }),
                 });
             }
             return Ok(hits);
@@ -242,7 +269,7 @@ impl GraphStore {
                 }
             }
         }
-        self.impact_of_many_inner(&seeds, max_depth, direction)
+        self.impact_of_many_inner(&seeds, max_depth, direction, prefer_stronger_confidence)
     }
 
     pub fn impact_of_many(
@@ -251,7 +278,7 @@ impl GraphStore {
         max_depth: usize,
         direction: Direction,
     ) -> io::Result<Vec<EdgeHit>> {
-        self.with_read_snapshot(|s| s.impact_of_many_inner(seeds, max_depth, direction))
+        self.with_read_snapshot(|s| s.impact_of_many_inner(seeds, max_depth, direction, false))
     }
 
     fn impact_of_many_inner(
@@ -259,6 +286,7 @@ impl GraphStore {
         seeds: &[String],
         max_depth: usize,
         direction: Direction,
+        prefer_stronger_confidence: bool,
     ) -> io::Result<Vec<EdgeHit>> {
         let seed_set: HashSet<String> = seeds.iter().cloned().collect();
         let mut order: Vec<String> = Vec::new();
@@ -275,16 +303,41 @@ impl GraphStore {
         while depth <= max_depth && !frontier.is_empty() {
             let mut next = Vec::new();
             for current in &frontier {
-                let path_inferred = reached.get(current).is_some_and(|h| h.inferred);
-                for (other, relation, inferred) in self.direct_neighbours(current, direction)? {
+                let parent_state = reached
+                    .get(current)
+                    .map(|h| (h.confidence, h.weakest_hop.clone()));
+                for (other, relation, edge_conf) in self.direct_neighbours(current, direction)? {
                     if seed_set.contains(&other) {
                         continue;
                     }
-                    let uncertain = path_inferred || inferred;
-                    if let Some(prev) = reached.get(&other)
-                        && (prev.depth < depth || !prev.inferred || uncertain)
-                    {
-                        continue;
+                    let (from, to) = match direction {
+                        Direction::In => (other.clone(), current.clone()),
+                        Direction::Out => (current.clone(), other.clone()),
+                    };
+                    let hop = WeakestHop {
+                        from,
+                        to,
+                        relation: relation.clone(),
+                        confidence: edge_conf,
+                        provenance: edge_conf.provenance(),
+                        depth,
+                    };
+                    let (path_conf, weakest_hop) = match &parent_state {
+                        Some((p_conf, p_hop)) if edge_conf.rank() >= p_conf.rank() => {
+                            (*p_conf, p_hop.clone())
+                        }
+                        _ => (edge_conf, Some(hop)),
+                    };
+                    let path_inferred = path_conf == Confidence::Inferred;
+                    if let Some(prev) = reached.get(&other) {
+                        let keep_prev = if prefer_stronger_confidence {
+                            prev.depth < depth || path_conf.rank() <= prev.confidence.rank()
+                        } else {
+                            prev.depth < depth || !prev.inferred || path_inferred
+                        };
+                        if keep_prev {
+                            continue;
+                        }
                     }
                     let is_new = !reached.contains_key(&other);
                     if is_new {
@@ -299,7 +352,9 @@ impl GraphStore {
                             id: other,
                             relation,
                             depth,
-                            inferred: uncertain,
+                            inferred: path_conf == Confidence::Inferred,
+                            confidence: path_conf,
+                            weakest_hop,
                         },
                     );
                 }

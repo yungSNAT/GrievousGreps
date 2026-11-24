@@ -12,7 +12,8 @@
  * `loadGraphCached`), which keeps this module trivially unit-testable against
  * hand-built fixture graphs.
  */
-import type { EdgeV1, GraphV1, NodeV1, Relation } from "./types.js";
+import type { Confidence, EdgeV1, GraphV1, NodeV1, Relation } from "./types.js";
+import { confidenceRank, parseConfidence, provenanceOf, type WeakestHop } from "./provenance.js";
 import { WALK_RELATIONS } from "./relations.js";
 import { assertPrefixIndexed, pathUnderPrefix } from "./scopes.js";
 import { normalizePathPrefix } from "../util/paths.js";
@@ -121,6 +122,30 @@ export interface EdgeHit {
   depth: number;
   /** The path to this hit crosses an edge that is a reading of the code, not a fact the code states. */
   inferred?: true;
+  /** Weakest edge confidence along the reported path (strongest to weakest: lsp_resolved > lsp_dispatch > extracted > inferred). */
+  confidence?: Confidence;
+  /** The hop that set the weakest-confidence ceiling on the reported path. */
+  weakestHop?: WeakestHop;
+}
+
+function directHit(
+  byId: Map<string, NodeV1>,
+  other: string,
+  from: string,
+  to: string,
+  relation: Relation,
+  rawConfidence: string | undefined,
+): EdgeHit {
+  const confidence = parseConfidence(rawConfidence);
+  return {
+    node: byId.get(other) ?? null,
+    id: other,
+    relation,
+    depth: 1,
+    ...(confidence === "inferred" ? { inferred: true as const } : {}),
+    confidence,
+    weakestHop: { from, to, relation, confidence, provenance: provenanceOf(confidence), depth: 1 },
+  };
 }
 
 /** Depth-1: nodes with a walk-relation edge whose target is `symbol`. */
@@ -129,7 +154,7 @@ export function callersOf(graph: GraphV1, symbol: NodeV1): EdgeHit[] {
   const hits: EdgeHit[] = [];
   for (const e of graph.edges as EdgeV1[]) {
     if (!WALK_RELATIONS.has(e.relation) || e.target !== symbol.id) continue;
-    hits.push({ node: byId.get(e.source) ?? null, id: e.source, relation: e.relation, depth: 1, ...(e.confidence === "inferred" ? { inferred: true as const } : {}) });
+    hits.push(directHit(byId, e.source, e.source, symbol.id, e.relation, e.confidence));
   }
   return hits;
 }
@@ -140,7 +165,7 @@ export function calleesOf(graph: GraphV1, symbol: NodeV1): EdgeHit[] {
   const hits: EdgeHit[] = [];
   for (const e of graph.edges as EdgeV1[]) {
     if (!WALK_RELATIONS.has(e.relation) || e.source !== symbol.id) continue;
-    hits.push({ node: byId.get(e.target) ?? null, id: e.target, relation: e.relation, depth: 1, ...(e.confidence === "inferred" ? { inferred: true as const } : {}) });
+    hits.push(directHit(byId, e.target, symbol.id, e.target, e.relation, e.confidence));
   }
   return hits;
 }
@@ -177,20 +202,20 @@ export function impactOf(graph: GraphV1, symbol: NodeV1, maxDepth = 2): EdgeHit[
  * count: a node reached by an inferred edge at depth 1 and by definite edges only
  * at depth 3 stays at depth 1, marked, since that is the hop the hit describes.
  */
-export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, direction: Direction = "in"): EdgeHit[] {
+export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, direction: Direction = "in", opts: { provenance?: boolean } = {}): EdgeHit[] {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
   // Adjacency keyed for the walk direction, restricted to walk relations:
   //   'in'  → key = edge.target, neighbour = edge.source (who points AT key)
   //   'out' → key = edge.source, neighbour = edge.target (what key points TO)
-  type Neighbour = { other: string; relation: Relation; inferred: boolean };
+  type Neighbour = { other: string; relation: Relation; confidence: Confidence };
   const adj = new Map<string, Neighbour[]>();
   const deployByPath = new Map<string, Neighbour[]>();
   for (const e of graph.edges as EdgeV1[]) {
     if (!WALK_RELATIONS.has(e.relation)) continue;
     const key = direction === "in" ? e.target : e.source;
     const other = direction === "in" ? e.source : e.target;
-    const entry = { other, relation: e.relation, inferred: e.confidence === "inferred" };
+    const entry: Neighbour = { other, relation: e.relation, confidence: parseConfidence(e.confidence) };
     const arr = adj.get(key);
     if (arr) arr.push(entry);
     else adj.set(key, [entry]);
@@ -204,20 +229,27 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
   // A deployment resource names files, not symbols (a stage copies `src/`): for an
   // incoming walk, its edge to a file also reaches each symbol defined in that file, so a
   // changed function reaches the image that ships it. Virtual: no edge is stored.
-  const visitedDeployPaths = new Map<string, { depth: number; inferred: boolean }>();
-  const deploymentNeighbours = (id: string, depth: number, inferred: boolean): Neighbour[] => {
+  const preferStronger = opts.provenance === true;
+  const visitedDeployPaths = new Map<string, { depth: number; rank: number; inferred: boolean }>();
+  const deploymentNeighbours = (id: string, depth: number, rank: number): Neighbour[] => {
     const node = byId.get(id);
     if (!node || node.kind === "resource") return [];
     const links = deployByPath.get(node.path);
     if (!links) return [];
+    const inferred = rank === 0;
     const previous = visitedDeployPaths.get(node.path);
-    if (previous && (previous.depth < depth || !previous.inferred || inferred)) return [];
-    visitedDeployPaths.set(node.path, { depth, inferred });
+    if (previous) {
+      const keepPrev = preferStronger
+        ? previous.depth < depth || rank <= previous.rank
+        : previous.depth < depth || !previous.inferred || inferred;
+      if (keepPrev) return [];
+    }
+    visitedDeployPaths.set(node.path, { depth, rank, inferred });
     return node.kind === "file" ? [] : links;
   };
-  function* neighbours(id: string, depth: number, inferred: boolean): Iterable<Neighbour> {
+  function* neighbours(id: string, depth: number, rank: number): Iterable<Neighbour> {
     yield* adj.get(id) ?? [];
-    if (deployByPath.size) yield* deploymentNeighbours(id, depth, inferred);
+    if (deployByPath.size) yield* deploymentNeighbours(id, depth, rank);
   }
 
   const seedIds = new Set<string>(seeds.map((s) => s.id));
@@ -228,14 +260,43 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
   for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth++) {
     const next: string[] = [];
     for (const current of frontier) {
-      const pathInferred = reached.get(current)?.inferred === true;
-      for (const { other, relation, inferred } of neighbours(current, depth, pathInferred)) {
+      const parent = reached.get(current);
+      const parentConf = parent?.confidence;
+      const parentRank = parentConf ? confidenceRank(parentConf) : Number.POSITIVE_INFINITY;
+      for (const { other, relation, confidence: edgeConf } of neighbours(current, depth, parentRank)) {
         if (seedIds.has(other)) continue;
-        const uncertain = pathInferred || inferred;
+        const from = direction === "in" ? other : current;
+        const to = direction === "in" ? current : other;
+        const hop: WeakestHop = {
+          from,
+          to,
+          relation,
+          confidence: edgeConf,
+          provenance: provenanceOf(edgeConf),
+          depth,
+        };
+        const useParent = parentConf !== undefined && confidenceRank(edgeConf) >= confidenceRank(parentConf);
+        const pathConf = useParent ? parentConf : edgeConf;
+        const weakestHop = useParent ? parent?.weakestHop : hop;
         const prev = reached.get(other);
-        if (prev && (prev.depth < depth || !prev.inferred || uncertain)) continue;
+        if (prev) {
+          const prevRank = confidenceRank(prev.confidence ?? (prev.inferred ? "inferred" : "extracted"));
+          const pathInferred = pathConf === "inferred";
+          const keepPrev = preferStronger
+            ? prev.depth < depth || confidenceRank(pathConf) <= prevRank
+            : prev.depth < depth || !prev.inferred || pathInferred;
+          if (keepPrev) continue;
+        }
         if (!prev) next.push(other);
-        reached.set(other, { node: byId.get(other) ?? null, id: other, relation, depth, ...(uncertain ? { inferred: true as const } : {}) });
+        reached.set(other, {
+          node: byId.get(other) ?? null,
+          id: other,
+          relation,
+          depth,
+          ...(pathConf === "inferred" ? { inferred: true as const } : {}),
+          confidence: pathConf,
+          ...(weakestHop ? { weakestHop } : {}),
+        });
       }
     }
     frontier = next;
@@ -259,8 +320,8 @@ function symbolsInFile(graph: GraphV1, fileNode: NodeV1): NodeV1[] {
  * see this module's header and `impactOfMany`'s doc for why. Symbol-kind
  * queries keep using plain `impactOf`; this is only for file-kind matches.
  */
-export function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth = 2, direction: Direction = "in"): EdgeHit[] {
-  return impactOfMany(graph, [fileNode, ...symbolsInFile(graph, fileNode)], maxDepth, direction);
+export function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth = 2, direction: Direction = "in", opts: { provenance?: boolean } = {}): EdgeHit[] {
+  return impactOfMany(graph, [fileNode, ...symbolsInFile(graph, fileNode)], maxDepth, direction, opts);
 }
 
 /**
@@ -276,8 +337,8 @@ export function impactOfFile(graph: GraphV1, fileNode: NodeV1, maxDepth = 2, dir
  * for a `kind: 'file'` seed aggregates over the symbols the file defines (see
  * {@link impactOfMany}) so file-level dependents aren't silently dropped.
  */
-export function edgeWalk(graph: GraphV1, node: NodeV1, direction: Direction, depth: number): EdgeHit[] {
+export function edgeWalk(graph: GraphV1, node: NodeV1, direction: Direction, depth: number, opts: { provenance?: boolean } = {}): EdgeHit[] {
   if (depth <= 1) return direction === "in" ? callersOf(graph, node) : calleesOf(graph, node);
-  if (node.kind === "file") return impactOfFile(graph, node, depth, direction);
-  return impactOfMany(graph, [node], depth, direction);
+  if (node.kind === "file") return impactOfFile(graph, node, depth, direction, opts);
+  return impactOfMany(graph, [node], depth, direction, opts);
 }

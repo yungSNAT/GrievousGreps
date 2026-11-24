@@ -7,7 +7,7 @@
  * {@link listSourceFiles} so its existing importers are unaffected.
  */
 import { statSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { relPosix } from "../util/paths.js";
 import { readFollowNestedRepos, readFollowSubmodules, readIncludeDirs } from "../util/state.js";
@@ -78,6 +78,12 @@ export function listSourceFiles(
   extensions?: readonly string[],
 ): string[] {
   const selected = normalizeExtensions(extensions);
+  const absOut = resolve(outDir);
+  const absOutPrefix = absOut.endsWith(sep) ? absOut : `${absOut}${sep}`;
+  const outsideOutDir = (f: string) => {
+    const absF = resolve(f);
+    return absF !== absOut && !absF.startsWith(absOutPrefix);
+  };
   // A file is a source file if a depth-tier grammar (languageOf), a breadth-tier
   // grammar (genericLangOf) or a container (containerLangOf) claims its extension, or,
   // with no `-e` selection, if its name makes it a deployment file (deployFormatOf).
@@ -85,7 +91,7 @@ export function listSourceFiles(
   return filterByOnlyDirs(
     repoFiles.filter(
       (f) =>
-        !f.startsWith(outDir) &&
+        outsideOutDir(f) &&
         (!selected || selected.includes(extname(f).toLowerCase())) &&
         (languageOf(f) !== null || genericLangOf(f) !== null || containerLangOf(f) !== null || (!selected && deployFormatOf(f) !== null)),
     ),
