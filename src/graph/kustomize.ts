@@ -46,6 +46,17 @@ export function kustomizationIn(docs: Document[]): { d: Document; top: Obj } | n
   return ours ? { d: full[0], top } : null;
 }
 
+/** Fields only a kustomization has. */
+const FIELDS = new Set(["resources", "bases", "components", ...UNREAD, ...UNAPPLIED]);
+
+/** Whether a document reads as a kustomization: it names Kustomize's kind or apiVersion, or holds a Kustomize field. */
+export function readsAsKustomization(docs: Document[]): boolean {
+  return docs.some((x) => {
+    const k = kustomizationIn([x]);
+    return k !== null && (k.top.kind !== undefined || k.top.apiVersion !== undefined || Object.keys(k.top).some((f) => FIELDS.has(f)));
+  });
+}
+
 export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } {
   const kind = top.kind === "Component" ? "Component" : "Kustomization";
   const dir = posix.dirname(rel);
@@ -204,10 +215,9 @@ export function linkKustomize(ctx: Context): void {
     for (const p of k.patches) {
       const local = local_(k.dir, p);
       const objs = local === null ? undefined : objectsIn.get(local);
-      if (!objs) {
-        // A patch file with no objects, such as a JSON 6902 op list, has nothing to link.
-        if (local === null || !ctx.fileExists(local)) report(k, missing("patch", p, local, ctx.fileExists));
-      } else if (seen.has(objs)) report(k, `patch ${shown(p)} listed more than once: followed once`);
+      // A patch file with no objects, such as a JSON 6902 op list, has nothing to link.
+      if (!objs) report(k, missing("patch", p, local, ctx.fileExists));
+      else if (seen.has(objs)) report(k, `patch ${shown(p)} listed more than once: followed once`);
       else {
         seen.add(objs);
         if (!link(k, objs.map((n) => n.id))) break linking;
