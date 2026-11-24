@@ -13,7 +13,7 @@
  * files are read and linked in `kustomize.ts`, Terraform files read in `terraform.ts`.
  */
 import { posix } from "node:path";
-import { LineCounter, parseAllDocuments, type Document } from "yaml";
+import { LineCounter, isScalar, parseAllDocuments, type Document } from "yaml";
 import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
@@ -33,6 +33,17 @@ export interface KustomizeRef {
   patches: string[];
   /** Its generated ConfigMaps' and Secrets' node ids. */
   generators: string[];
+  /** Each generator entry that makes a new object, with its namespace as written. */
+  generated: Array<{ id: string; kind: string; name: string; ns: string | null }>;
+  /** Generator node ids that appear more than once (e.g. across namespaces), never linked from workloads. */
+  repeated: string[];
+  /** Local repo-relative paths from generator `files:` entries, when generator inputs are leaf-eligible. */
+  generatorFiles: string[];
+  /** False when top-level fields/version/kind or generator inputs disqualify leaf linking. */
+  leafEligible: boolean;
+  /** Its `namespace`, which Kustomize gives every object it builds. */
+  namespace: string | null;
+  component: boolean;
   /** Fields present that add objects or change names or selectors, which the graph does not follow. */
   unread: string[];
   /** Fields present whose names and namespaces are not applied to the references of the objects it builds. */
@@ -67,6 +78,8 @@ export type DeployRef =
   | { from: string; to: "tfcounted" }
   /** What a Terraform block names that is not followed, for `trail build` to report. */
   | { from: string; to: "tfnote"; note: string }
+  /** A manifest file that holds unrepresented docs (`List`, empty namespace, non-manifest doc) or Kustomize build annotations. */
+  | { from: string; to: "leafIneligibleFile" }
   | KustomizeRef;
 
 export interface DeployExtract {
@@ -454,13 +467,20 @@ function podTemplate(kind: string, spec: Obj, meta: Obj, what: string): { pod: O
 const isManifest = (m: unknown): m is Obj & { kind: string } => isObj(m) && typeof m.apiVersion === "string" && typeof m.kind === "string";
 
 function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV1[]; refs: DeployRef[] } | null {
-  const manifests = docs.map((d) => [d, js(d)] as const).filter(([, m]) => isManifest(m));
+  let leafIncomplete = false;
+  const manifests: Array<[Document, Obj & { kind: string }]> = [];
+  for (const d of docs) {
+    if (d.contents === null || (isScalar(d.contents) && d.contents.value === null)) continue;
+    const raw = js(d);
+    if (isManifest(raw)) manifests.push([d, raw]);
+    else leafIncomplete = true;
+  }
   if (!manifests.length) return null; // a workflow or settings file, not a manifest
   const nodes: NodeV1[] = [];
   const refs: DeployRef[] = [];
   const seen = new Set<string>();
   for (const [d, raw] of manifests) {
-    const m = raw as Obj & { kind: string };
+    const m = raw;
     const meta = obj(m.metadata, `${m.kind}: metadata`);
     const name = str(meta.name, `${m.kind}: metadata.name`);
     if (!name) throw new Skip(`${m.kind} at line ${lines(d, d.contents)[0]} has no metadata.name`);
@@ -470,7 +490,15 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
     const key = `${kind}/${ns}/${name}`;
     if (seen.has(key)) throw new Skip(`duplicate ${kind} ${ns}/${name}`);
     seen.add(key);
+    if (kind === "List" || kind.endsWith("List") || Array.isArray(m.items) || !ns || !/^[A-Za-z]+\/[^/]+\/.+$/.test(key)) {
+      leafIncomplete = true;
+    }
     const from = `${rel}#${key}`;
+    const notes = meta.annotations;
+    if (notes !== undefined && notes !== null && (!isObj(notes)
+      || Object.keys(notes).some((k) => k.startsWith("internal.config.kubernetes.io/") || k.startsWith("config.kubernetes.io/")))) {
+      leafIncomplete = true;
+    }
     const named: string[] = [kind, name, ns];
     const spec = obj(m.spec, `${what}: spec`);
     if (WORKLOADS.has(kind)) {
@@ -550,6 +578,7 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
     }
     nodes.push(resource(rel, key, name, lines(d, d.contents), `${kind} ${name} (namespace ${ns})`, named));
   }
+  if (leafIncomplete) refs.push({ from: rel, to: "leafIneligibleFile" });
   return { nodes, refs };
 }
 
@@ -571,7 +600,8 @@ export function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
 }
 
 /** Resolve deployment references, bounding source-file expansions per deployment file. */
-export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (path: string) => boolean): {
+export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (path: string) => boolean,
+  isLeafFile?: (dir: string, local: string) => boolean): {
   edges: EdgeV1[];
   skipped: { path: string; reason: string }[];
 } {
@@ -638,7 +668,7 @@ export function resolveDeploy(nodes: NodeV1[], refs: DeployRef[], fileExists: (p
     if (r.to === "labels") pushTo(labels, r.ns, r);
     else if (r.to === "image" && r.built) pushTo(built, imageRepo(r.image), r.from);
   }
-  linkKustomize({ nodes, refs, fileExists, add, skipped });
+  linkKustomize({ nodes, refs, fileExists, isLeafFile, add, skipped });
   linkTerraform(nodes, refs, add, (from, path) => expand(pathsById.get(from)!, from, path), skipped);
   for (const r of refs) {
     if (r.to === "id") add(r.from, r.id);

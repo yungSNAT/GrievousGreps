@@ -13,8 +13,8 @@
  * whole node set, so an incremental build's output is byte-identical to a cold
  * one — the invariant `test/graph-incremental.test.ts` pins down.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join, posix, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { assertRealContextDir, contextDirFor, ensureGitignored, ensureSearchable } from "../context/node-file.js";
 import { extractFile, languageLabelOf, languageOf, type Language, type RawEdge } from "./extract.js";
@@ -591,7 +591,33 @@ export async function buildGraph(
     routeNodes,
   });
   for (const n of routeNodes) nodes.push(n);
-  const deployment = resolveDeploy(nodes, deployRefs, (path) => existsSync(join(root, path)));
+  const realDirCache = new Map<string, string | null>();
+  const realDir = (dir: string) => {
+    let r = realDirCache.get(dir);
+    if (r === undefined) {
+      try {
+        r = realpathSync(join(root, dir));
+      } catch {
+        r = null;
+      }
+      realDirCache.set(dir, r);
+    }
+    return r;
+  };
+  const isLeafFile = (dir: string, local: string) => {
+    if (local.includes("\0")) return false;
+    const base = realDir(dir);
+    if (!base) return false;
+    try {
+      const target = realpathSync(join(root, local));
+      if (!statSync(target).isFile()) return false;
+      const rel = relative(base, target);
+      return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+    } catch {
+      return false;
+    }
+  };
+  const deployment = resolveDeploy(nodes, deployRefs, (path) => existsSync(join(root, path)), isLeafFile);
   for (const edge of deployment.edges) edges.push(edge);
   for (const file of deployment.skipped) skipped.push(file);
   for (const call of unresolvedCalls) {
