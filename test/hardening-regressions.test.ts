@@ -324,3 +324,82 @@ test("registry full-URL verification, git origin preservation across fallback, o
     assert.equal(resolveCrateSource({ crateName: "fifo-pkg", repo: fifoRepo, cargoHome: ch }).matches[0].status, "not_cached");
   }
 });
+
+test("strict registry URL syntax, case-sensitive .git suffix and nearer malformed workspace Cargo.toml", () => {
+  const base = mkdtempSync(join(tmpdir(), "gg-hardening-url-ws-"));
+  const repo = join(base, "repo");
+  const chPresent = join(base, "cargo-present");
+  const chAbsent = join(base, "cargo-absent");
+  mkdirSync(repo, { recursive: true });
+
+  // Malformed registry authorities with matching .git/config entries
+  for (const [dirTag, pkgName, badUrl] of [
+    ["bad-empty-host-1", "emptyhost", "https://:443/index"],
+    ["bad-space-host-1", "spacehost", "https://bad host/index"],
+  ]) {
+    const srcDir = join(chPresent, "registry/src", dirTag, `${pkgName}-1.0.0`);
+    mkdirSync(srcDir, { recursive: true });
+    writeFileSync(join(srcDir, "Cargo.toml"), `[package]\nname = "${pkgName}"\nversion = "1.0.0"\n`);
+    const idxGit = join(chPresent, "registry/index", dirTag, ".git");
+    mkdirSync(idxGit, { recursive: true });
+    writeFileSync(join(idxGit, "config"), `[remote "origin"]\n\turl = ${badUrl}\n`);
+  }
+
+  // Case-sensitive .git vs .GIT suffix check
+  const caseSrc = join(chPresent, "registry/src/reg.example.com-case/casepkg-1.0.0");
+  mkdirSync(caseSrc, { recursive: true });
+  writeFileSync(join(caseSrc, "Cargo.toml"), '[package]\nname = "casepkg"\nversion = "1.0.0"\n');
+  const caseGit = join(chPresent, "registry/index/reg.example.com-case/.git");
+  mkdirSync(caseGit, { recursive: true });
+  writeFileSync(join(caseGit, "config"), '[remote "origin"]\n\turl = https://reg.example.com/team-a/index.GIT\n');
+
+  // Nearer malformed workspace Cargo.toml under a valid farther workspace Cargo.toml
+  const memberDir = join(repo, "sub/crates/ws-member");
+  mkdirSync(memberDir, { recursive: true });
+  writeFileSync(
+    join(repo, "Cargo.toml"),
+    '[workspace]\nmembers = ["sub/crates/ws-member"]\n[workspace.package]\nversion = "2.3.4"\n',
+  );
+  writeFileSync(join(repo, "sub/Cargo.toml"), '[workspace]\ndescription = """\nunterminated\n');
+  writeFileSync(join(memberDir, "Cargo.toml"), '[package]\nname = "ws-member"\nversion.workspace = true\n');
+
+  writeFileSync(
+    join(repo, "Cargo.lock"),
+    [
+      "version = 4",
+      "[[package]]",
+      'name = "emptyhost"',
+      'version = "1.0.0"',
+      'source = "registry+https://:443/index"',
+      "[[package]]",
+      'name = "spacehost"',
+      'version = "1.0.0"',
+      'source = "registry+https://bad host/index"',
+      "[[package]]",
+      'name = "casepkg"',
+      'version = "1.0.0"',
+      'source = "registry+https://reg.example.com/team-a/index"',
+      "[[package]]",
+      'name = "ws-member"',
+      'version = "2.3.4"',
+    ].join("\n"),
+  );
+
+  for (const ch of [chPresent, chAbsent]) {
+    for (const name of ["emptyhost", "spacehost"]) {
+      const m = resolveCrateSource({ crateName: name, repo, cargoHome: ch }).matches[0];
+      assert.equal(m.status, "unresolved");
+      assert.equal(m.path, undefined);
+    }
+  }
+
+  // Uppercase .GIT is rejected; lowercase .git matches
+  assert.equal(resolveCrateSource({ crateName: "casepkg", repo, cargoHome: chPresent }).matches[0].status, "not_cached");
+  writeFileSync(join(caseGit, "config"), '[remote "origin"]\n\turl = https://reg.example.com/team-a/index.git\n');
+  assert.equal(resolveCrateSource({ crateName: "casepkg", repo, cargoHome: chPresent }).matches[0].status, "found");
+
+  // Nearer malformed workspace Cargo.toml fails closed as unresolved (never matches farther ancestor)
+  const ws = resolveCrateSource({ crateName: "ws-member", repo, cargoHome: chPresent }).matches[0];
+  assert.equal(ws.status, "unresolved");
+  assert.equal(ws.path, undefined);
+});

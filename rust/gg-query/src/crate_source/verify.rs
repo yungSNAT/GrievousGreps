@@ -25,12 +25,14 @@ pub(super) enum ResolveOutcome {
 
 pub(super) enum SearchResult {
     Matches(Vec<VerifiedDir>),
+    Unresolved(String),
     BudgetExhausted(String),
 }
 
 enum VerifyResult {
     Matched(VerifiedDir),
     NotMatched,
+    Unresolved(String),
     BudgetExhausted(String),
 }
 
@@ -65,7 +67,8 @@ fn verify_manifest_identity(
         Some(v) => v,
         None if ident.workspace_version => match resolve_workspace_version(&canon_dir, boundary) {
             Ok(Some(v)) => v,
-            Ok(None) | Err(ReadFileError::Other(_)) => return VerifyResult::NotMatched,
+            Ok(None) => return VerifyResult::NotMatched,
+            Err(ReadFileError::Other(m)) => return VerifyResult::Unresolved(m),
             Err(ReadFileError::BudgetExhausted(m)) => return VerifyResult::BudgetExhausted(m),
         },
         None => return VerifyResult::NotMatched,
@@ -82,26 +85,104 @@ fn verify_manifest_identity(
     })
 }
 
-fn normalise_registry_url(raw: &str) -> Option<String> {
-    let no_sparse = raw.strip_prefix("sparse+").unwrap_or(raw);
-    let (scheme, rest) = no_sparse.split_once("://")?;
-    let scheme_low = scheme.to_ascii_lowercase();
-    if scheme_low != "https" && scheme_low != "http" {
+fn is_valid_url_host(host: &str) -> bool {
+    if host.is_empty() {
+        return false;
+    }
+    if host.starts_with('[') && host.ends_with(']') {
+        let inner = &host[1..host.len() - 1];
+        return !inner.is_empty()
+            && inner.contains(':')
+            && inner
+                .bytes()
+                .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+    }
+    if host.starts_with('.') || host.ends_with('.') || host.contains("..") {
+        return false;
+    }
+    host.split('.').all(|label| {
+        !label.is_empty()
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    })
+}
+
+fn parse_registry_authority(authority: &str, default_port: u16) -> Option<String> {
+    if authority.is_empty()
+        || authority
+            .bytes()
+            .any(|b| b <= 0x20 || b == 0x7f || matches!(b, b'@' | b'?' | b'#' | b'\\'))
+    {
         return None;
     }
+    let (host, port_str) = if authority.starts_with('[') {
+        let close = authority.find(']')?;
+        let host = &authority[..=close];
+        let rest = &authority[close + 1..];
+        if rest.is_empty() {
+            (host, None)
+        } else {
+            let p = rest.strip_prefix(':')?;
+            (host, Some(p))
+        }
+    } else {
+        if authority.contains('[') || authority.contains(']') {
+            return None;
+        }
+        match authority.split_once(':') {
+            Some((h, p)) => (h, Some(p)),
+            None => (authority, None),
+        }
+    };
+    if !is_valid_url_host(host) {
+        return None;
+    }
+    let port = match port_str {
+        Some(p) => {
+            if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            let n: u16 = p.parse().ok()?;
+            if n == 0 {
+                return None;
+            }
+            Some(n)
+        }
+        None => None,
+    };
+    let host_low = host.to_ascii_lowercase();
+    Some(match port {
+        Some(p) if p != default_port => format!("{host_low}:{p}"),
+        _ => host_low,
+    })
+}
+
+fn normalise_registry_url(raw: &str) -> Option<String> {
+    let no_sparse = raw.strip_prefix("sparse+").unwrap_or(raw);
+    if no_sparse
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || matches!(c, '?' | '#' | '\\'))
+    {
+        return None;
+    }
+    let (scheme, rest) = no_sparse.split_once("://")?;
+    let scheme_low = scheme.to_ascii_lowercase();
+    let default_port = match scheme_low.as_str() {
+        "https" => 443,
+        "http" => 80,
+        _ => return None,
+    };
     let (authority, path_raw) = match rest.find('/') {
         Some(idx) => (&rest[..idx], &rest[idx..]),
         None => (rest, ""),
     };
-    if authority.is_empty() {
-        return None;
-    }
+    let norm_authority = parse_registry_authority(authority, default_port)?;
     let path_clean = path_raw.trim_end_matches('/');
     let path_no_git = path_clean.strip_suffix(".git").unwrap_or(path_clean);
-    Some(format!(
-        "{scheme_low}://{}{path_no_git}",
-        authority.to_ascii_lowercase()
-    ))
+    Some(format!("{scheme_low}://{norm_authority}{path_no_git}"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,7 +219,9 @@ fn verify_registry_index_identity(
     };
     match extract_git_origin_url(&canon_git, &canon_git) {
         Ok(Some(origin)) => {
-            let norm_origin = normalise_registry_url(&origin).unwrap_or(origin);
+            let Some(norm_origin) = normalise_registry_url(&origin) else {
+                return Ok(RegistryIdentity::Unverifiable);
+            };
             if norm_origin == norm_locked_url {
                 Ok(RegistryIdentity::Verified)
             } else {
@@ -201,6 +284,7 @@ pub(super) fn resolve_registry(
         let verified = match verify_manifest_identity(&candidate, &idx_dir, name, version) {
             VerifyResult::Matched(v) => v,
             VerifyResult::NotMatched => continue,
+            VerifyResult::Unresolved(msg) => return ResolveOutcome::Unresolved(msg),
             VerifyResult::BudgetExhausted(m) => return ResolveOutcome::BudgetExhausted(m),
         };
         match verify_registry_index_identity(cargo_home, &dir_name, locked_url, &norm_locked) {
@@ -235,6 +319,7 @@ pub(super) fn resolve_path_crate(
 ) -> ResolveOutcome {
     let hits = match find_verified_crates_under(lockfile_dir, repo_canon, name, version, 3) {
         SearchResult::Matches(m) => m,
+        SearchResult::Unresolved(msg) => return ResolveOutcome::Unresolved(msg),
         SearchResult::BudgetExhausted(msg) => return ResolveOutcome::BudgetExhausted(msg),
     };
     if hits.len() == 1 {
@@ -270,6 +355,7 @@ pub(super) fn find_verified_crates_under(
                 }
             }
             VerifyResult::NotMatched => {}
+            VerifyResult::Unresolved(msg) => return SearchResult::Unresolved(msg),
             VerifyResult::BudgetExhausted(msg) => return SearchResult::BudgetExhausted(msg),
         }
         if depth >= max_depth {

@@ -34,6 +34,13 @@ export class BudgetExhaustedError extends Error {
   }
 }
 
+export class WorkspaceManifestParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkspaceManifestParseError";
+  }
+}
+
 export interface VerifiedDir {
   dir: string;
   manifestPath: string;
@@ -152,21 +159,31 @@ function resolveWorkspaceVersion(crateDir: string, boundary: string): string | n
     if (cur !== canonBound && !cur.startsWith(boundPrefix)) break;
     const manifest = containedRealpath(join(cur, "Cargo.toml"), canonBound);
     if (manifest) {
-      let raw: string | null = null;
+      let raw: string;
       try {
         raw = readBoundedRegularFile(manifest, MAX_MANIFEST_BYTES);
       } catch (err) {
         if (err instanceof BudgetExhaustedError) throw err;
+        throw new WorkspaceManifestParseError(
+          `cannot read workspace manifest ${manifest}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-      if (raw !== null) {
-        try {
-          const parsed = parseToml(raw) as { workspace?: { package?: { version?: unknown } } };
-          if (typeof parsed.workspace?.package?.version === "string") {
-            return parsed.workspace.package.version;
-          }
-        } catch {
-          /* continue walking up */
-        }
+      let parsed: { workspace?: { package?: { version?: unknown } } };
+      try {
+        parsed = parseToml(raw) as { workspace?: { package?: { version?: unknown } } };
+      } catch (err) {
+        throw new WorkspaceManifestParseError(
+          `malformed workspace manifest ${manifest}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      const wsVer = parsed.workspace?.package?.version;
+      if (typeof wsVer === "string") {
+        return wsVer;
+      }
+      if (wsVer !== undefined) {
+        throw new WorkspaceManifestParseError(
+          `invalid non-string workspace.package.version in ${manifest}`,
+        );
       }
     }
     if (cur === canonBound) break;

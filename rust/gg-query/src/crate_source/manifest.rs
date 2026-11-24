@@ -81,9 +81,14 @@ enum MultilineDelim {
 }
 
 /// Scan a single line updating multiline string state (`"""` or `'''`).
-/// Returns `true` if the line started inside a multiline string (and must not
-/// be interpreted as a TOML header or key-value pair).
-fn advance_multiline_state(line: &str, state: &mut Option<MultilineDelim>) -> bool {
+/// Returns `Ok(true)` if the line started inside a multiline string (and must
+/// not be interpreted as a TOML header or key-value pair), or `Err` on illegal
+/// 6+ consecutive unescaped quotes in a multiline string or unterminated
+/// single-line strings.
+fn advance_multiline_state(
+    line: &str,
+    state: &mut Option<MultilineDelim>,
+) -> Result<bool, ReadFileError> {
     let started_inside = state.is_some();
     let bytes = line.as_bytes();
     let mut i = 0_usize;
@@ -97,30 +102,42 @@ fn advance_multiline_state(line: &str, state: &mut Option<MultilineDelim>) -> bo
                         i = (i + 2).min(bytes.len());
                         continue;
                     }
-                    if bytes[i..].starts_with(b"\"\"\"") {
+                    if bytes[i] == b'"' {
                         let mut run = 0;
                         while i + run < bytes.len() && bytes[i + run] == b'"' {
                             run += 1;
                         }
-                        if run <= 5 {
-                            *state = None;
-                            i += run;
-                            continue;
+                        if run >= 6 {
+                            return Err(ReadFileError::Other(
+                                "invalid run of 6 or more quotes in multiline basic string"
+                                    .to_string(),
+                            ));
                         }
+                        if run >= 3 {
+                            *state = None;
+                        }
+                        i += run;
+                        continue;
                     }
                     i += 1;
                 }
                 MultilineDelim::Literal => {
-                    if bytes[i..].starts_with(b"'''") {
+                    if bytes[i] == b'\'' {
                         let mut run = 0;
                         while i + run < bytes.len() && bytes[i + run] == b'\'' {
                             run += 1;
                         }
-                        if run <= 5 {
-                            *state = None;
-                            i += run;
-                            continue;
+                        if run >= 6 {
+                            return Err(ReadFileError::Other(
+                                "invalid run of 6 or more quotes in multiline literal string"
+                                    .to_string(),
+                            ));
                         }
+                        if run >= 3 {
+                            *state = None;
+                        }
+                        i += run;
+                        continue;
                     }
                     i += 1;
                 }
@@ -159,7 +176,13 @@ fn advance_multiline_state(line: &str, state: &mut Option<MultilineDelim>) -> bo
         i += 1;
     }
 
-    started_inside
+    if in_single_line.is_some() {
+        return Err(ReadFileError::Other(
+            "unterminated single-line string in Cargo.toml".to_string(),
+        ));
+    }
+
+    Ok(started_inside)
 }
 
 fn is_workspace_version_inline(raw_val: &str) -> bool {
@@ -188,7 +211,7 @@ pub(super) fn read_manifest_identity(
     let mut ml_state: Option<MultilineDelim> = None;
 
     for raw_line in text.lines() {
-        let was_in_ml = advance_multiline_state(raw_line, &mut ml_state);
+        let was_in_ml = advance_multiline_state(raw_line, &mut ml_state)?;
         if was_in_ml {
             continue;
         }
@@ -245,7 +268,7 @@ fn extract_workspace_package_version(text: &str) -> Result<Option<String>, ReadF
     let mut ml_state: Option<MultilineDelim> = None;
 
     for raw_line in text.lines() {
-        let was_in_ml = advance_multiline_state(raw_line, &mut ml_state);
+        let was_in_ml = advance_multiline_state(raw_line, &mut ml_state)?;
         if was_in_ml {
             continue;
         }
@@ -264,7 +287,9 @@ fn extract_workspace_package_version(text: &str) -> Result<Option<String>, ReadF
             && let Some((k, v)) = stripped.split_once('=')
             && k.trim() == "version"
         {
-            found = parse_toml_string_strict(v).ok();
+            found = Some(parse_toml_string_strict(v).map_err(|e| {
+                ReadFileError::Other(format!("invalid workspace.package.version: {e}"))
+            })?);
         }
     }
 
@@ -277,7 +302,8 @@ fn extract_workspace_package_version(text: &str) -> Result<Option<String>, ReadF
 }
 
 /// Resolve `[workspace.package] version = "..."` by walking up from `crate_dir`
-/// without escaping `boundary`, propagating `BudgetExhausted` cleanly.
+/// without escaping `boundary`, failing closed on unparseable nearer manifests
+/// and propagating `BudgetExhausted` cleanly.
 pub(super) fn resolve_workspace_version(
     crate_dir: &Path,
     boundary: &Path,
@@ -294,14 +320,9 @@ pub(super) fn resolve_workspace_version(
         }
         let manifest = cur.join("Cargo.toml");
         if let Some(canon_m) = contained_canonical(&manifest, &canon_bound) {
-            match read_bounded_regular_file(&canon_m, MAX_MANIFEST_BYTES) {
-                Ok(text) => {
-                    if let Ok(Some(ver)) = extract_workspace_package_version(&text) {
-                        return Ok(Some(ver));
-                    }
-                }
-                Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
-                Err(ReadFileError::Other(_)) => {}
+            let text = read_bounded_regular_file(&canon_m, MAX_MANIFEST_BYTES)?;
+            if let Some(ver) = extract_workspace_package_version(&text)? {
+                return Ok(Some(ver));
             }
         }
         if cur == canon_bound {

@@ -42,24 +42,35 @@ pub(super) fn extract_git_origin_url(
     Ok(None)
 }
 
-fn resolve_git_dir_pointer(rev_dir: &Path, cargo_home: &Path) -> Option<(PathBuf, PathBuf)> {
+fn resolve_git_dir_pointer(
+    rev_dir: &Path,
+    cargo_home: &Path,
+) -> Result<Option<(PathBuf, PathBuf)>, ReadFileError> {
     let dot_git = rev_dir.join(".git");
-    if let Some(canon) = contained_canonical(&dot_git, rev_dir)
-        && canon.is_dir()
-    {
-        return Some((canon, rev_dir.to_path_buf()));
+    let Some(canon) = contained_canonical(&dot_git, rev_dir) else {
+        return Ok(None);
+    };
+    if canon.is_dir() {
+        return Ok(Some((canon, rev_dir.to_path_buf())));
     }
-    let canon_file = contained_canonical(&dot_git, rev_dir)?;
-    let text = read_bounded_regular_file(&canon_file, 4096).ok()?;
-    let target = text.trim().strip_prefix("gitdir:")?.trim();
+    let text = match read_bounded_regular_file(&canon, 4096) {
+        Ok(t) => t,
+        Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+        Err(ReadFileError::Other(_)) => return Ok(None),
+    };
+    let Some(target) = text.trim().strip_prefix("gitdir:").map(str::trim) else {
+        return Ok(None);
+    };
     let joined = if Path::new(target).is_absolute() {
         PathBuf::from(target)
     } else {
         rev_dir.join(target)
     };
     let git_root = cargo_home.join("git");
-    let canon_target = contained_canonical(&joined, &git_root)?;
-    canon_target.is_dir().then_some((canon_target, git_root))
+    let Some(canon_target) = contained_canonical(&joined, &git_root) else {
+        return Ok(None);
+    };
+    Ok(canon_target.is_dir().then_some((canon_target, git_root)))
 }
 
 fn read_verified_git_sha(
@@ -67,30 +78,42 @@ fn read_verified_git_sha(
     cargo_home: &Path,
 ) -> Result<Option<(String, Option<String>)>, ReadFileError> {
     let mut discovered_origin: Option<String> = None;
-    if let Some((git_dir, boundary)) = resolve_git_dir_pointer(rev_dir, cargo_home) {
+    if let Some((git_dir, boundary)) = resolve_git_dir_pointer(rev_dir, cargo_home)? {
         discovered_origin = match extract_git_origin_url(&git_dir, &boundary) {
             Ok(Some(url)) => Some(normalise_git_url(&url)),
             Ok(None) | Err(ReadFileError::Other(_)) => None,
             Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
         };
         let head = git_dir.join("HEAD");
-        if let Some(canon_head) = contained_canonical(&head, &boundary)
-            && let Ok(text) = read_bounded_regular_file(&canon_head, 4096)
-        {
-            let trimmed = text.trim();
-            if trimmed.len() == 40 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Ok(Some((trimmed.to_ascii_lowercase(), discovered_origin)));
-            }
-            if let Some(ref_name) = trimmed.strip_prefix("ref:") {
-                let ref_path = git_dir.join(ref_name.trim());
-                if let Some(canon_ref) = contained_canonical(&ref_path, &boundary)
-                    && let Ok(ref_text) = read_bounded_regular_file(&canon_ref, 4096)
-                {
-                    let sha = ref_text.trim();
-                    if sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-                        return Ok(Some((sha.to_ascii_lowercase(), discovered_origin)));
+        if let Some(canon_head) = contained_canonical(&head, &boundary) {
+            match read_bounded_regular_file(&canon_head, 4096) {
+                Ok(text) => {
+                    let trimmed = text.trim();
+                    if trimmed.len() == 40 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+                        return Ok(Some((trimmed.to_ascii_lowercase(), discovered_origin)));
+                    }
+                    if let Some(ref_name) = trimmed.strip_prefix("ref:") {
+                        let ref_path = git_dir.join(ref_name.trim());
+                        if let Some(canon_ref) = contained_canonical(&ref_path, &boundary) {
+                            match read_bounded_regular_file(&canon_ref, 4096) {
+                                Ok(ref_text) => {
+                                    let sha = ref_text.trim();
+                                    if sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit())
+                                    {
+                                        return Ok(Some((
+                                            sha.to_ascii_lowercase(),
+                                            discovered_origin,
+                                        )));
+                                    }
+                                }
+                                Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+                                Err(ReadFileError::Other(_)) => {}
+                            }
+                        }
                     }
                 }
+                Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+                Err(ReadFileError::Other(_)) => {}
             }
         }
     }
@@ -196,6 +219,7 @@ pub(super) fn resolve_git(
             match find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2) {
                 SearchResult::Matches(found) if !found.is_empty() => unverified_candidate = true,
                 SearchResult::Matches(_) => {}
+                SearchResult::Unresolved(_) => unverified_candidate = true,
                 SearchResult::BudgetExhausted(m) => return ResolveOutcome::BudgetExhausted(m),
             }
             continue;
@@ -220,6 +244,7 @@ pub(super) fn resolve_git(
         }
         match find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2) {
             SearchResult::Matches(mut found) => verified_hits.append(&mut found),
+            SearchResult::Unresolved(m) => return ResolveOutcome::Unresolved(m),
             SearchResult::BudgetExhausted(m) => return ResolveOutcome::BudgetExhausted(m),
         }
     }

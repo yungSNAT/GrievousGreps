@@ -14,6 +14,7 @@ import {
   readDirIncremental,
   SKIP_DIRS,
   verifyManifestIdentity,
+  WorkspaceManifestParseError,
   type VerifiedDir,
 } from "./crate-source-fs.js";
 
@@ -36,19 +37,56 @@ export type ResolveOutcome =
   | { status: "unresolved"; hint: string }
   | { status: "budget_exhausted"; hint: string };
 
+function parseRegistryAuthorityPort(rawAuth: string): boolean {
+  let portColon = -1;
+  if (rawAuth.startsWith("[")) {
+    const close = rawAuth.indexOf("]");
+    if (close === -1) return false;
+    const tail = rawAuth.slice(close + 1);
+    if (tail !== "") {
+      if (!tail.startsWith(":")) return false;
+      portColon = close + 1;
+    }
+  } else {
+    if (rawAuth.includes("[") || rawAuth.includes("]")) return false;
+    portColon = rawAuth.indexOf(":");
+  }
+  if (portColon === -1) return true;
+  const hostPart = rawAuth.slice(0, portColon);
+  const portPart = rawAuth.slice(portColon + 1);
+  if (!hostPart || !/^\d+$/.test(portPart)) return false;
+  const portNum = Number(portPart);
+  return Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535;
+}
+
 function normaliseRegistryUrl(raw: string): string | null {
   const noSparse = raw.startsWith("sparse+") ? raw.slice("sparse+".length) : raw;
+  if (/[\s\u0000-\u001f\u007f?#\\]/.test(noSparse)) return null;
   const schemeIdx = noSparse.indexOf("://");
   if (schemeIdx === -1) return null;
   const scheme = noSparse.slice(0, schemeIdx).toLowerCase();
   if (scheme !== "https" && scheme !== "http") return null;
   const rest = noSparse.slice(schemeIdx + 3);
   const slashIdx = rest.indexOf("/");
-  const authority = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
-  const pathRaw = slashIdx === -1 ? "" : rest.slice(slashIdx);
-  if (!authority) return null;
-  const pathClean = pathRaw.replace(/\/+$/, "").replace(/\.git$/i, "");
-  return `${scheme}://${authority.toLowerCase()}${pathClean}`;
+  const rawAuth = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+  if (!rawAuth || rawAuth.includes("@") || !parseRegistryAuthorityPort(rawAuth)) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(noSparse);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== `${scheme}:` || !parsed.hostname || parsed.username || parsed.password) {
+    return null;
+  }
+  if (
+    !parsed.hostname.startsWith("[") &&
+    (parsed.hostname.startsWith(".") || parsed.hostname.endsWith(".") || parsed.hostname.includes(".."))
+  ) {
+    return null;
+  }
+  const pathClean = parsed.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
+  return `${scheme}://${parsed.host.toLowerCase()}${pathClean}`;
 }
 
 type RegistryIdentity = "verified" | "mismatch" | "unverifiable";
@@ -69,7 +107,8 @@ function verifyRegistryIndexIdentity(
   if (!canonGit) return "unverifiable";
   const origin = extractGitOriginUrl(canonGit, canonGit);
   if (!origin) return "unverifiable";
-  const normOrigin = normaliseRegistryUrl(origin) ?? origin;
+  const normOrigin = normaliseRegistryUrl(origin);
+  if (!normOrigin) return "unverifiable";
   return normOrigin === normLockedUrl ? "verified" : "mismatch";
 }
 
@@ -121,6 +160,9 @@ export function resolveRegistry(
     if (err instanceof BudgetExhaustedError) {
       return { status: "budget_exhausted", hint: err.message };
     }
+    if (err instanceof WorkspaceManifestParseError) {
+      return { status: "unresolved", hint: err.message };
+    }
     throw err;
   }
 
@@ -140,7 +182,7 @@ export function resolveRegistry(
 function normaliseGitUrl(url: string): string {
   const base = url.split("?")[0] ?? url;
   const trimmed = base.trim().replace(/\/+$/, "");
-  return trimmed.replace(/\.git$/i, "").toLowerCase();
+  return trimmed.replace(/\.git$/, "").toLowerCase();
 }
 
 function extractGitOriginUrl(gitDir: string, boundary: string): string | null {
@@ -300,6 +342,9 @@ export function resolveGit(cargoHome: string, source: string, name: string, vers
     if (err instanceof BudgetExhaustedError) {
       return { status: "budget_exhausted", hint: err.message };
     }
+    if (err instanceof WorkspaceManifestParseError) {
+      return { status: "unresolved", hint: err.message };
+    }
     throw err;
   }
 
@@ -335,6 +380,9 @@ export function resolvePathCrate(
   } catch (err) {
     if (err instanceof BudgetExhaustedError) {
       return { status: "budget_exhausted", hint: err.message };
+    }
+    if (err instanceof WorkspaceManifestParseError) {
+      return { status: "unresolved", hint: err.message };
     }
     throw err;
   }
