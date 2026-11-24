@@ -16,16 +16,23 @@ export interface BuiltGraph {
   nodes: number;
   edges: number;
   files: number;
+  languages?: string[];
 }
 
 const n = (s: string | undefined) => Number((s ?? "0").replace(/,/g, "")) || 0;
 
 /** The totals out of `graft build`'s stdout, or null when it printed none. */
 export function parseBuildSummary(stdout: string): BuiltGraph | null {
-  const wiring = /✓ wiring: ([\d,]+) nodes.*?, ([\d,]+) edges/.exec(stdout);
+  const wiring = /✓ wiring: ([\d,]+) nodes.*?, ([\d,]+) edges(?:[^\n]*?\[([^\]]*)\])?/.exec(stdout);
   if (!wiring) return null;
   const parsed = /parsed: [\d,]+ of ([\d,]+) files/.exec(stdout);
-  return { nodes: n(wiring[1]), edges: n(wiring[2]), files: n(parsed?.[1]) };
+  const rawLangs = (wiring[3] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return {
+    nodes: n(wiring[1]),
+    edges: n(wiring[2]),
+    files: n(parsed?.[1]),
+    ...(rawLangs.length > 0 ? { languages: rawLangs } : {}),
+  };
 }
 
 /** The last `parsing N/M` in a chunk of the child's stderr. */

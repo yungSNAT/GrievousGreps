@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::provenance::{Confidence, WeakestHop};
+
 pub const WALK_RELATIONS: &[&str] = &["calls", "references", "imports", "implements", "extends"];
 pub const INFERRED_MARK: &str = " [inferred]";
 
@@ -145,6 +147,8 @@ pub struct EdgeHit {
     pub relation: String,
     pub depth: usize,
     pub inferred: bool,
+    pub confidence: Confidence,
+    pub weakest_hop: Option<WeakestHop>,
 }
 
 #[derive(Debug, Clone, Serialize)]

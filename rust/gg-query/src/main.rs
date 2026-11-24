@@ -8,8 +8,9 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use commands::{
     AskCmdArgs, AskDenseCmdArgs, CallersCmdArgs, run_ask_cmd, run_ask_dense, run_blast,
-    run_callers, run_embed, run_skeleton_cmd, run_status, run_sync,
+    run_callers, run_crate_source, run_embed, run_hubs, run_skeleton_cmd, run_status, run_sync,
 };
+use gg_query::crate_source::CrateSourceArgs;
 
 #[derive(Parser)]
 #[command(
@@ -50,6 +51,33 @@ enum Cmd {
         depth: Option<String>,
         #[arg(long = "in")]
         in_prefix: Option<String>,
+        #[arg(long)]
+        json: bool,
+        #[arg(long)]
+        provenance: bool,
+    },
+    /// Surface top hub symbols by PageRank and edge connectivity
+    Hubs {
+        #[arg(default_value = ".")]
+        repo: PathBuf,
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+        #[arg(long = "in")]
+        in_prefix: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Resolve a Cargo.lock dependency to its exact local source path
+    CrateSource {
+        crate_name: String,
+        #[arg(default_value = ".")]
+        repo: PathBuf,
+        #[arg(long)]
+        version: Option<String>,
+        #[arg(long = "cargo-home")]
+        cargo_home: Option<PathBuf>,
+        #[arg(long)]
+        lockfile: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -122,10 +150,8 @@ enum Cmd {
     },
 }
 
-fn main() -> ExitCode {
-    let cli = Cli::parse();
-    let dir = cli.dir.as_deref();
-    let res = match cli.command {
+fn dispatch(command: Cmd, dir: Option<&std::path::Path>) -> Result<(), String> {
+    match command {
         Cmd::Sync { repo } => run_sync(&repo, dir),
         Cmd::Status { repo, json } => run_status(&repo, dir, json),
         Cmd::Callers {
@@ -135,6 +161,7 @@ fn main() -> ExitCode {
             depth,
             in_prefix,
             json,
+            provenance,
         } => run_callers(&CallersCmdArgs {
             symbol: &symbol,
             repo: &repo,
@@ -143,7 +170,31 @@ fn main() -> ExitCode {
             depth: depth.as_deref(),
             in_prefix: in_prefix.as_deref(),
             json,
+            provenance,
         }),
+        Cmd::Hubs {
+            repo,
+            limit,
+            in_prefix,
+            json,
+        } => run_hubs(&repo, dir, limit, in_prefix.as_deref(), json),
+        Cmd::CrateSource {
+            crate_name,
+            repo,
+            version,
+            cargo_home,
+            lockfile,
+            json,
+        } => run_crate_source(
+            &CrateSourceArgs {
+                crate_name: &crate_name,
+                repo: &repo,
+                version: version.as_deref(),
+                cargo_home: cargo_home.as_deref(),
+                lockfile: lockfile.as_deref(),
+            },
+            json,
+        ),
         Cmd::Blast {
             repo,
             changed,
@@ -197,8 +248,12 @@ fn main() -> ExitCode {
             in_prefix: in_prefix.as_deref(),
             json,
         }),
-    };
-    match res {
+    }
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    match dispatch(cli.command, cli.dir.as_deref()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(msg) => {
             eprintln!("✗ {msg}");

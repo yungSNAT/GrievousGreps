@@ -35,6 +35,7 @@ import {
 import { writeFingerprint } from "./fingerprint.js";
 import { seedGraph, type SeedResult } from "./seed.js";
 import { filterByOnlyDirs, listSourceStats, normalizeExtensions } from "./source-files.js";
+import { auditPolyglotFiles, type PolyglotAudit } from "./polyglot-audit.js";
 import { readPythonRoots } from "./python-roots.js";
 import { isTable, readCargoTargets } from "./cargo-targets.js";
 import { parse as parseToml } from "smol-toml";
@@ -215,6 +216,8 @@ export interface GraphBuildResult {
   errors: string[];
   /** Deployment files not read, each with its reason (`deploy.ts`): never errors, never guessed. */
   skipped: { path: string; reason: string }[];
+  /** Polyglot auto-detection audit: detected languages and present source extensions left unindexed. */
+  polyglotAudit: PolyglotAudit;
 }
 
 /** Every Go module in the repo: each `go.mod`'s declared `module` path and the repo
@@ -729,5 +732,12 @@ export async function buildGraph(
     structuralErrors: errors.length - meaning.errors.length,
     errors,
     skipped,
+    polyglotAudit: auditPolyglotFiles(
+      root,
+      outDir,
+      walked,
+      files.map((f) => f.abs),
+      { extensions, onlyDirs },
+    ),
   };
 }

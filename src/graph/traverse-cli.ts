@@ -21,6 +21,7 @@ import { INFERRED_MARK, type GraphV1, type NodeV1 } from "./types.js";
 import { cmd } from "../brand.js";
 import { isTestPath } from "../util/paths.js";
 import { queryJson } from "./query-json.js";
+import { formatProvenanceText, provenanceMatchJson } from "./provenance.js";
 
 export interface CallersCliOptions {
   in?: string;
@@ -31,6 +32,8 @@ export interface CallersCliOptions {
   depth?: string;
   /** the top-level `--dir` override, so this command respects it like every other. */
   globalDir?: string;
+  /** include explicit EXTRACTED/INFERRED provenance and weakest-hop confidence ratings. */
+  provenance?: boolean;
 }
 
 const ARROW: Record<Direction, "←" | "→"> = { in: "←", out: "→" };
@@ -381,8 +384,32 @@ export function runCallersCommand(query: string, dir: string, opts: CallersCliOp
   const depth = resolveDepth(opts.depth);
   const showDepth = depth > 1;
 
-  const results = matches.map((symbol) => ({ symbol, hits: edgeWalk(graph, symbol, direction, depth) }));
+  const results = matches.map((symbol) => ({ symbol, hits: edgeWalk(graph, symbol, direction, depth, { provenance: opts.provenance }) }));
   const saved = callersSavings(graph, results);
+
+  if (opts.provenance) {
+    if (opts.json) {
+      const payload = {
+        query,
+        matches: results.map((r) => provenanceMatchJson(r, direction === "in" ? (graph.unresolvedCalls ?? []).filter((c) => c.name === r.symbol.name) : undefined)),
+        saved,
+      };
+      console.log(queryJson(payload));
+      return;
+    }
+    const read = fileReader(root);
+    process.stdout.write(
+      formatProvenanceText({
+        direction,
+        showDepth,
+        results,
+        quote: (h, name) => quoteFor(h as EdgeHit, name, read),
+        unresolvedNote: (name) => unresolvedNoteFor(graph, direction, name),
+        saved,
+      }),
+    );
+    return;
+  }
 
   if (opts.json) {
     const payload = { query, matches: results.map((r) => matchJson(graph, direction, r, matches.length)), saved };
