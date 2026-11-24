@@ -53,9 +53,9 @@ function signatureLength(lines: string[]): number {
   return Math.min(lines.length, 6);
 }
 
-/** A line with its double-quoted and template strings and character literals emptied
- * and any `//` comment dropped, so a bracket inside one is not counted. Each line is
- * read on its own. */
+/** A line with its double-quoted and template strings, character literals and
+ * regular expression literals emptied and any `//` comment dropped, so a bracket or
+ * quote inside one is not counted. Each line is read on its own. */
 function codeOf(line: string): string {
   let out = "";
   let quote = "";
@@ -68,7 +68,12 @@ function codeOf(line: string): string {
         out += ch;
       }
     } else if (ch === "/" && line[i + 1] === "/") break;
-    else if (ch === "'") {
+    else if (ch === "/" && /(^|[=(,:!&|?])\s*$/.test(out)) {
+      // A regular expression literal, where an operand starts: its quotes and brackets are not code.
+      const re = /^\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\[])+\//.exec(line.slice(i));
+      out += re ? "/re/" : ch;
+      if (re) i += re[0].length - 1;
+    } else if (ch === "'") {
       // Only a character literal: a lone quote is a Rust lifetime or an apostrophe.
       const lit = /^'(?:\\.|[^\\'])'/.exec(line.slice(i));
       out += lit ? "''" : ch;

@@ -66,6 +66,8 @@ test("foldCode keeps an object return type, and a call with nested generics", ()
 test("foldCode does not count a bracket inside a string or comment, and reads a Rust where clause", () => {
   const ts = ["function f(", '  a = "{",', "  b: number, // {", "  c: number,", "  d: number,", "  e: number,", "  g: number,", "): number {", "  const x = 1;", "  const y = 2;", "  return x;", "}"];
   assert.equal(foldCode(ts.join("\n")), [...ts.slice(0, 8), "  ⋯ 3 lines", "}"].join("\n"));
+  const re = ["function g(", "  a: number,", "  ch = '\\'',", "  c: number,", "  d: number,", "  e: number,", "  h: number,", '  q = /"[(]/): number {', "  const x = 1;", "  const y = 2;", "  return x;", "}"];
+  assert.equal(foldCode(re.join("\n")), [...re.slice(0, 8), "  ⋯ 3 lines", "}"].join("\n"));
   const rust = ["fn f<T>(x: T) -> T", "where", "    T: Clone,", "{", "    let a = 1;", "    let b = 2;", "    x.clone()", "}"];
   assert.equal(foldCode(rust.join("\n")), [...rust.slice(0, 4), "    ⋯ 2 lines", "    x.clone()", "}"].join("\n"));
 });
