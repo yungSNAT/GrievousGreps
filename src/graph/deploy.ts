@@ -18,7 +18,7 @@ import type { EdgeV1, NodeV1 } from "./types.js";
 import { contentHash } from "../util/id.js";
 import { compileGlob, filesUnder, globMatches, type GlobSegment } from "./deploy-glob.js";
 import { routeServes } from "./route-paths.js";
-import { kustomizationIn, kustomize, linkKustomize } from "./kustomize.js";
+import { kustomizationIn, kustomize, linkKustomize, readsAsKustomization } from "./kustomize.js";
 import { readTerraform } from "./terraform.js";
 
 export type DeployFormat = "dockerfile" | "compose" | "kubernetes" | "kustomize" | "terraform";
@@ -360,8 +360,8 @@ function yamlFile(rel: string, source: string, format: "compose" | "kubernetes" 
     if (k) return kustomize(rel, k, lines);
     // Only a name the manifest reader would take: an extensionless `Kustomization` was never read.
     if (manifest && /\.ya?ml$/i.test(rel)) return kubernetes(rel, docs, lines);
-    // Neither: several documents are reported, as Kustomize refuses them.
-    if (docs.length > 1) throw new Skip("a kustomization is one YAML document");
+    // Neither: several documents, one of which reads as a kustomization, are reported, as Kustomize refuses them.
+    if (docs.length > 1 && readsAsKustomization(docs)) throw new Skip("a kustomization is one YAML document");
     return null;
   }
   return format === "compose" ? compose(rel, docs, lines) : kubernetes(rel, docs, lines);
