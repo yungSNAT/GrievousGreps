@@ -6,12 +6,14 @@ use std::io;
 use rusqlite::{OptionalExtension, Row, params};
 
 use crate::graph::{
-    Direction, EdgeHit, NodeV1, Savings, UnresolvedCall, is_walk_relation, looks_like_filename,
-    normalize_path_prefix, path_under_prefix, symbol_matches_node,
+    Direction, EdgeHit, NodeCrux, NodeV1, Savings, UnresolvedCall, is_walk_relation,
+    looks_like_filename, normalize_path_prefix, path_under_prefix, symbol_matches_node,
 };
 use crate::store::{GraphStore, sql_err};
 
-fn row_to_node(r: &Row<'_>) -> rusqlite::Result<NodeV1> {
+pub(crate) const NODE_SELECT: &str = "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars, summary, body_text, crux_code FROM nodes";
+
+pub(crate) fn row_to_node(r: &Row<'_>) -> rusqlite::Result<NodeV1> {
     let chars_raw: Option<i64> = r.get(10)?;
     let chars = match chars_raw {
         Some(c) if c >= 0 => Some(c as u64),
@@ -21,6 +23,7 @@ fn row_to_node(r: &Row<'_>) -> rusqlite::Result<NodeV1> {
         None => None,
     };
     let exported: i64 = r.get(7)?;
+    let crux_code: Option<String> = r.get(13)?;
     Ok(NodeV1 {
         id: r.get(0)?,
         name: r.get(1)?,
@@ -33,6 +36,9 @@ fn row_to_node(r: &Row<'_>) -> rusqlite::Result<NodeV1> {
         origin: r.get(8)?,
         body_hash: r.get(9)?,
         chars,
+        summary: r.get(11)?,
+        body_text: r.get(12)?,
+        crux: crux_code.map(|code| NodeCrux { code }),
     })
 }
 
@@ -48,25 +54,16 @@ impl GraphStore {
     }
 
     pub fn node_by_id(&self, id: &str) -> io::Result<Option<NodeV1>> {
+        let sql = format!("{NODE_SELECT} WHERE id = ?1");
         self.conn
-            .query_row(
-                "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars
-                 FROM nodes WHERE id = ?1",
-                params![id],
-                row_to_node,
-            )
+            .query_row(&sql, params![id], row_to_node)
             .optional()
             .map_err(sql_err)
     }
 
     pub fn nodes_by_path(&self, path: &str) -> io::Result<Vec<NodeV1>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars
-                 FROM nodes WHERE path = ?1 ORDER BY seq ASC",
-            )
-            .map_err(sql_err)?;
+        let sql = format!("{NODE_SELECT} WHERE path = ?1 ORDER BY seq ASC");
+        let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
         let rows = stmt
             .query_map(params![path], row_to_node)
             .map_err(sql_err)?;
@@ -91,13 +88,9 @@ impl GraphStore {
             && !last_seg.is_empty()
         {
             let lower_last = last_seg.to_lowercase();
-            let mut stmt = self
-                .conn
-                .prepare(
-                    "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars
-                     FROM nodes WHERE kind != 'file' AND name_lower = ?1 ORDER BY seq ASC",
-                )
-                .map_err(sql_err)?;
+            let sql =
+                format!("{NODE_SELECT} WHERE kind != 'file' AND name_lower = ?1 ORDER BY seq ASC");
+            let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
             let rows = stmt
                 .query_map(params![lower_last], row_to_node)
                 .map_err(sql_err)?;
@@ -105,13 +98,8 @@ impl GraphStore {
         }
 
         if matches.is_empty() && looks_like_filename(query) {
-            let mut stmt = self
-                .conn
-                .prepare(
-                    "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars
-                     FROM nodes WHERE kind = 'file' ORDER BY seq ASC",
-                )
-                .map_err(sql_err)?;
+            let sql = format!("{NODE_SELECT} WHERE kind = 'file' ORDER BY seq ASC");
+            let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
             let suffix = format!("/{lower_query}");
             let rows = stmt
                 .query_map([], row_to_node)
@@ -162,13 +150,11 @@ impl GraphStore {
     fn query_symbol_matches(&self, lower_query: &str) -> io::Result<Vec<NodeV1>> {
         let simple = !lower_query.contains('.') && !lower_query.contains('#');
         let sql = if simple {
-            "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars
-             FROM nodes WHERE kind != 'file' AND name_lower = ?1 ORDER BY seq ASC"
+            format!("{NODE_SELECT} WHERE kind != 'file' AND name_lower = ?1 ORDER BY seq ASC")
         } else {
-            "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars
-             FROM nodes WHERE kind != 'file' ORDER BY seq ASC"
+            format!("{NODE_SELECT} WHERE kind != 'file' ORDER BY seq ASC")
         };
-        let mut stmt = self.conn.prepare(sql).map_err(sql_err)?;
+        let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
         let rows = if simple {
             stmt.query_map(params![lower_query], row_to_node)
                 .map_err(sql_err)?

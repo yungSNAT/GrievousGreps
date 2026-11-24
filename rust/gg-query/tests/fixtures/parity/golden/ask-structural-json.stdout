@@ -1,0 +1,16 @@
+{
+  "query": "who calls computeTotal",
+  "mode": "structural",
+  "subject": "computeTotal",
+  "hits": [
+    {
+      "kind": "caller",
+      "title": "processOrder",
+      "pointer": "src/order.ts:L4-L6",
+      "snippet": "processOrder(subtotal: number): number",
+      "relation": "calls",
+      "score": 1
+    }
+  ],
+  "note": "callers / references of computeTotal"
+}

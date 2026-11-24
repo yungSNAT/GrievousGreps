@@ -1,0 +1,22 @@
+{
+  "query": "calculate order tax total",
+  "mode": "lexical",
+  "hits": [
+    {
+      "kind": "symbol",
+      "title": "computeTotal · function",
+      "pointer": "src/math.ts:L5-L8",
+      "snippet": "function computeTotal(subtotal: number, rate: number): number",
+      "score": 1.5
+    },
+    {
+      "kind": "symbol",
+      "title": "computeTax · function",
+      "pointer": "src/math.ts:L1-L3",
+      "snippet": "function computeTax(amount: number, rate: number): number",
+      "score": 1.0915245501569077
+    }
+  ],
+  "coverage": 0.367281636240871,
+  "coverageStrong": 0.2091020453010887
+}
