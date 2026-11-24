@@ -162,16 +162,19 @@ const BEFORE_REGEX = new Set(["return", "typeof", "case", "do", "else", "in", "o
 /** Where a JavaScript regex literal starting at `text[i]` ends, past its flags, or -1 when the `/` divides the value
  * before it (a name, a number, a string or a closing bracket), closes a JSX tag (`</td>`, `{x} />`) or the line ends
  * first. A `/>` starting a line ends a multi-line tag; elsewhere only a `.jsx` or `.tsx` file reads every `/>` as a
- * tag's end, and other files read `/>/` as a regex. */
+ * tag's end, and other files read `/>/` as a regex unless a keyword before it is a tag's attribute (`<Fade in />`).
+ * After a block's `}` (`if (ok) { … } /re/`) a regex may start; after an expression's `}` the `/` divides. */
 function regexEnd(text: string, i: number, jsx: boolean): number {
   let k = i - 1;
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
   if (text[i + 1] === ">" && (jsx || k < 0)) return -1;
   if (text[k] === "<") return -1;
-  if (k >= 0 && /[\w$)\]}'"`]/.test(text[k])) {
+  if (text[k] === "}" ? !endsBlock(text, k) : k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
     let s = k;
     while (s > 0 && /[\w$]/.test(text[s - 1])) s--;
     if (!BEFORE_REGEX.has(text.slice(s, k + 1))) return -1;
+    // A keyword-named boolean attribute: the `/>` closes the tag it sits in.
+    if (text[i + 1] === ">" && /<[A-Za-z_$][\w$.:-]*\s[^<>]*$/.test(text.slice(0, s))) return -1;
   }
   let inClass = false;
   let j = i + 1;
@@ -188,6 +191,21 @@ function regexEnd(text: string, i: number, jsx: boolean): number {
     j++;
   }
   return -1;
+}
+
+/** Whether the `}` at `text[k]` closes a statement block: its `{` is on the same line, after a `)` (`if (…)`, `for (…)`),
+ * a `;` or `else`, `do`, `try` or `finally`. An object literal, a JSX attribute or child, or a `{` on an earlier line is
+ * read as an expression. */
+function endsBlock(text: string, k: number): boolean {
+  let depth = 0;
+  for (let o = k; o >= 0; o--) {
+    if (text[o] === "}") depth++;
+    else if (text[o] === "{" && --depth === 0) {
+      const before = text.slice(0, o).trimEnd();
+      return /(?:[);]|\b(?:else|do|try|finally))$/.test(before);
+    }
+  }
+  return false;
 }
 
 /** A Rust raw string's opening (`r"`, `r#"`, `br##"`), matched at `lastIndex`. */

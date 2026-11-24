@@ -313,6 +313,16 @@ test('referenceLine: a regex literal, a Go raw string ending in a backslash and 
   for (const path of ['a.ts', 'a.js', 'a.mjs']) {
     assert.equal(at(path, 'function f(s) {\n  const t = s.replace(/>/g, "&gt;"); install("/");\n  install();\n}'), 2, path);
   }
+  // A boolean attribute named like a keyword (`<Fade in />`) ends the tag; after the same word outside a tag, `/>` opens a regex.
+  assert.equal(at('a.js', 'function F() {\n  return <Fade in /><B onClick={install} />;\n}'), 2);
+  assert.equal(at('a.js', 'function f(s) {\n  return />/.test(s) && install("/");\n}'), 2);
+  // A regex may follow a block's `}`; after an expression's `}` (an attribute, JSX text) the `/` divides or closes a tag.
+  for (const path of ['a.ts', 'a.js']) {
+    assert.equal(at(path, 'function f(s) {\n  if (ok) { done(); } /"/.test(s) || install();\n}'), 2, path);
+    assert.equal(at(path, 'function f(s) {\n  try { done(); } finally { end(); } /"/.test(s) || install();\n}'), 2, path);
+  }
+  assert.equal(at('a.js', 'function F() {\n  return <p>{a} / {install()}</p>;\n}'), 2);
+  assert.equal(at('a.ts', 'function f() {\n  const o = { a: 1 }; x = { b: 2 } / "/"; install();\n}'), 2);
   // A Go raw string has no escapes: a backslash before its backtick does not keep it open.
   assert.equal(at('a.go', 'func f() {\n\ts := `C:\\`\n\tinstall()\n}'), 3);
   // A Rust string, raw or not, runs across lines until it closes.
