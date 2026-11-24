@@ -33,8 +33,14 @@ export interface KustomizeRef {
   patches: string[];
   /** Its generated ConfigMaps' and Secrets' node ids. */
   generators: string[];
-  /** Each generator entry that makes a new object (no `behavior: merge` or `replace`), with its namespace as written. */
+  /** Each generator entry that makes a new object, with its namespace as written. */
   generated: Array<{ id: string; kind: string; name: string; ns: string | null }>;
+  /** Generator node ids that appear more than once (e.g. across namespaces), never linked from workloads. */
+  repeated: string[];
+  /** Local repo-relative paths from generator `files:` entries, when generator inputs are leaf-eligible. */
+  generatorFiles: string[];
+  /** False when generator options, unsupported inputs or `merge`/`replace` disqualify leaf linking. */
+  leafGenerators: boolean;
   /** Its `namespace`, which Kustomize gives every object it builds. */
   namespace: string | null;
   component: boolean;
@@ -72,6 +78,8 @@ export type DeployRef =
   | { from: string; to: "tfcounted" }
   /** What a Terraform block names that is not followed, for `trail build` to report. */
   | { from: string; to: "tfnote"; note: string }
+  /** A Kubernetes object carrying `internal.config.kubernetes.io/helm-generated` (keeps its own namespace). */
+  | { from: string; to: "helmAnnotated" }
   | KustomizeRef;
 
 export interface DeployExtract {
@@ -476,6 +484,10 @@ function kubernetes(rel: string, docs: Document[], lines: Lines): { nodes: NodeV
     if (seen.has(key)) throw new Skip(`duplicate ${kind} ${ns}/${name}`);
     seen.add(key);
     const from = `${rel}#${key}`;
+    const notes = meta.annotations;
+    if (notes !== undefined && notes !== null && (!isObj(notes) || "internal.config.kubernetes.io/helm-generated" in notes)) {
+      refs.push({ from, to: "helmAnnotated" });
+    }
     const named: string[] = [kind, name, ns];
     const spec = obj(m.spec, `${what}: spec`);
     if (WORKLOADS.has(kind)) {

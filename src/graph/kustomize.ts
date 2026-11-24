@@ -2,8 +2,10 @@
  * Kustomize in the deploy graph: structure only. A kustomization file gives a node linked to
  * the objects in the files it lists, the kustomizations in the folders it lists (`resources`,
  * `bases`, `components`), the objects in the patch files it lists, and a name-only node for
- * each generated ConfigMap or Secret. In a leaf build (files only) a workload's reference also
- * links to the generator it names, as `kustomize build` renames it. Otherwise names are not
+ * each generated ConfigMap or Secret. In a standalone leaf build (files only, with no options
+ * or strategies that alter generation) a workload's reference also links to the generator it
+ * names, as `kustomize build` on that folder renames it; an enclosing overlay can still patch
+ * or transform references. Otherwise names are not
  * resolved: `namespace`, `namePrefix`, `nameSuffix`, `images`, generator names and patches are
  * not applied to references, which link objects as written; each kustomization using them says
  * so in a report. Every include
@@ -80,18 +82,29 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
   const nodes: NodeV1[] = [];
   const generators: string[] = [];
   const generated: KustomizeRef["generated"] = [];
+  const repeated: string[] = [];
+  const repeatedSeen = new Set<string>();
+  const generatorFiles: string[] = [];
+  let leafGenerators = top.generatorOptions === undefined;
   const seen = new Set<string>();
   const names: string[] = [];
   for (const [field, genKind] of GENERATORS) {
     const items = (d.get(field, true) as { items?: unknown[] } | undefined)?.items;
     list(top[field], field).forEach((x, i) => {
-      // Only the name, namespace and behavior: literals, env files and file contents are never read.
+      // Only the name, namespace, behavior and file paths leave this function; literals and keys stay local.
       const entry = obj(x, `${field} entry`);
       const name = strict(entry.name, `${field} name`);
       const id = `${rel}#${field}:${name}`;
       const behavior = str(entry.behavior, `${field} behavior`);
+      if (!leafGeneratorEntry(dir, field, entry, generatorFiles)) leafGenerators = false;
       if (behavior !== "merge" && behavior !== "replace") generated.push({ id, kind: genKind, name, ns: str(entry.namespace, `${field} namespace`) || null });
-      if (seen.has(id)) return;
+      if (seen.has(id)) {
+        if (!repeatedSeen.has(id)) {
+          repeatedSeen.add(id);
+          repeated.push(id);
+        }
+        return;
+      }
       seen.add(id);
       generators.push(id);
       names.push(name);
@@ -103,9 +116,50 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
   nodes.unshift(resource(rel, "kustomization", dir, lines(d, d.contents), `${kind} ${dir}`, words.filter((w): w is string => !!w)));
   const present = (f: string) => top[f] !== undefined && top[f] !== null;
   return { nodes, refs: [{
-    from, to: "kustomize", dir, entries, patches, generators, generated, namespace, component: kind === "Component",
+    from, to: "kustomize", dir, entries, patches, generators, generated, repeated,
+    generatorFiles: leafGenerators ? generatorFiles : [], leafGenerators, namespace, component: kind === "Component",
     unread: UNREAD.filter(present), unapplied: UNAPPLIED.filter(present),
   }] };
+}
+
+const CM_GEN_KEYS = new Set(["name", "namespace", "behavior", "literals", "files"]);
+const SECRET_GEN_KEYS = new Set([...CM_GEN_KEYS, "type"]);
+
+/** Whether a generator entry uses only default/`create` behavior, valid `literals`, and local `files` paths (never `options` or `envs`). */
+function leafGeneratorEntry(dir: string, field: "configMapGenerator" | "secretGenerator", entry: Obj, filesOut: string[]): boolean {
+  const allowed = field === "secretGenerator" ? SECRET_GEN_KEYS : CM_GEN_KEYS;
+  for (const k of Object.keys(entry)) if (!allowed.has(k)) return false;
+  if (entry.behavior !== undefined && entry.behavior !== null && entry.behavior !== "create") return false;
+  if (field === "secretGenerator" && entry.type !== undefined && entry.type !== null && typeof entry.type !== "string") return false;
+  const keys = new Set<string>();
+  if (entry.literals !== undefined && entry.literals !== null) {
+    if (!Array.isArray(entry.literals)) return false;
+    for (const raw of entry.literals) {
+      if (typeof raw !== "string") return false;
+      const eq = raw.indexOf("=");
+      if (eq <= 0) return false;
+      const key = raw.slice(0, eq);
+      if (keys.has(key)) return false;
+      keys.add(key);
+    }
+  }
+  if (entry.files !== undefined && entry.files !== null) {
+    if (!Array.isArray(entry.files)) return false;
+    for (const raw of entry.files) {
+      if (typeof raw !== "string" || raw.includes("{{")) return false;
+      const eq = raw.indexOf("=");
+      if (eq === 0 || (eq > 0 && raw.indexOf("=", eq + 1) !== -1)) return false;
+      const path = eq < 0 ? raw : raw.slice(eq + 1);
+      if (!path || path.endsWith("/") || path.includes("\\")) return false;
+      const local = local_(dir, path);
+      if (local === null || local === "." || !(dir === "." || local.startsWith(`${dir}/`))) return false;
+      const key = eq < 0 ? posix.basename(local) : raw.slice(0, eq);
+      if (!key || keys.has(key)) return false;
+      keys.add(key);
+      filesOut.push(local);
+    }
+  }
+  return true;
 }
 
 interface Context {
@@ -175,12 +229,18 @@ export function linkKustomize(ctx: Context): void {
   const ks = all.filter((k) => !refused.has(k.dir));
   const byDir = new Map(ks.map((k) => [k.dir, k]));
   const objectsIn = new Map<string, NodeV1[]>();
+  const dirs = new Set<string>(byDir.keys());
   for (const n of ctx.nodes) {
-    if (n.kind === "resource" && n.origin === "deploy" && OBJECT_ID.test(n.id.slice(n.path.length + 1))) pushTo(objectsIn, n.path, n);
+    if (n.kind === "file") {
+      for (let d = posix.dirname(n.path); d !== "."; d = posix.dirname(d)) dirs.add(d);
+    } else if (n.kind === "resource" && n.origin === "deploy" && OBJECT_ID.test(n.id.slice(n.path.length + 1))) {
+      pushTo(objectsIn, n.path, n);
+    }
   }
+  const helmAnnotated = new Set(ctx.refs.filter((r) => r.to === "helmAnnotated").map((r) => r.from));
   const leaves = new Map<KustomizeRef, NodeV1[]>();
   for (const k of ks) {
-    const members = leafMembers(k, byDir, objectsIn);
+    const members = leafMembers(k, byDir, objectsIn, ctx.fileExists, dirs, helmAnnotated);
     if (members) leaves.set(k, members);
     for (const f of k.unread) report(k, `${f} not read`);
     for (const f of k.unapplied) {
@@ -246,17 +306,22 @@ export function linkKustomize(ctx: Context): void {
 }
 
 /**
- * The objects a leaf build holds, or null when it is not one. A leaf kustomization lists files only, in or below its
- * folder (no folder, no component, nothing remote or missing), holding each object once, and has no patch and no field
- * the graph does not read, so the objects in its files and its generators are all its build holds, and no reference in
- * them is rewritten by anything but its own name transforms. It is the lowest build of each object it lists, where
- * Kustomize renames references.
+ * The objects a standalone leaf build holds, or null when it is not one. A leaf kustomization is not a Component,
+ * lists `resources`/`bases` files only (no `components` entry, no folder, nothing remote or missing) in or below its
+ * folder, holds each object once, has no patch, no unread field, no `generatorOptions` or entry `options`, no
+ * `internal.config.kubernetes.io/helm-generated` annotation on a member, and only default/`create` generators with
+ * valid `literals` and existing local `files` (no `envs` or `merge`/`replace`). When built on its own, its files and
+ * generators are all the build holds and only its own transforms run; an enclosing build can still rewrite references
+ * after accumulation.
  */
-function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>): NodeV1[] | null {
-  if (k.component || k.patches.length || k.unread.length || k.unapplied.some((f) => f.startsWith("patches"))) return null;
+function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>,
+  fileExists: (path: string) => boolean, dirs: Set<string>, helmAnnotated: Set<string>): NodeV1[] | null {
+  if (k.component || !k.leafGenerators || k.patches.length || k.unread.length || k.unapplied.some((f) => f.startsWith("patches"))) return null;
+  if (k.generatorFiles.some((f) => !fileExists(f) || dirs.has(f))) return null;
   const members: NodeV1[] = [];
   const seen = new Set<string>();
   for (const e of k.entries) {
+    if (e.field === "components") return null;
     const local = local_(k.dir, e.path);
     // Kustomize refuses a file outside the kustomization's folder, and an object listed twice: no build, no rename.
     if (local === null || seen.has(local) || !(k.dir === "." || local.startsWith(`${k.dir}/`))) return null;
@@ -264,6 +329,7 @@ function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsI
     if (!objs) return null;
     seen.add(local);
     for (const n of objs) {
+      if (helmAnnotated.has(n.id)) return null;
       const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
       const key = `${m[1]}\0${k.namespace ?? m[2]}\0${m[3]}`;
       if (seen.has(key)) return null;
@@ -275,17 +341,19 @@ function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsI
 }
 
 /**
- * Link each workload in a leaf build to the generator its ConfigMap or Secret reference names. Kustomize renames a
- * reference in the lowest build holding an object of that kind, name and namespace (no namespace reads as `default`,
- * and the kustomization's `namespace` replaces every object's), so the link is made only when that build holds exactly
- * one such object and it is generated. A generated name that the build holds more than once is reported, not linked.
- * Generator entries with `behavior: merge` or `replace` change an existing object and make none.
+ * Link each workload in a standalone leaf build to the generator its ConfigMap or Secret reference names. When built
+ * standalone, `kustomize build` fixes references after accumulation by kind, effective namespace (the kustomization's
+ * `namespace`, else the object's or generator's, else `default`) and name, so the link is made only when that leaf
+ * holds one such object, it is generated and its generator node id is not repeated across namespaces. Enclosing
+ * overlays are out of scope and can still patch those references. A generated name held more than once or sharing a
+ * generator node id is reported, not linked.
  */
 function linkGenerated(ctx: Context, leaves: Map<KustomizeRef, NodeV1[]>, report: (k: KustomizeRef, reason: string) => void, charge: () => boolean): void {
   const wanted = new Map<string, Array<Extract<DeployRef, { to: "object" }>>>();
   for (const r of ctx.refs) if (r.to === "object" && GENERATORS.some(([, kind]) => kind === r.kind)) pushTo(wanted, r.from, r);
   for (const [k, members] of leaves) {
     if (!k.generated.length) continue;
+    const repeated = new Set(k.repeated);
     const ns = (n: string | null) => k.namespace ?? n ?? "default";
     const at = (kind: string, n: string, name: string) => `${kind}\0${n}\0${name}`;
     const held = new Map<string, { generated: string[]; written: number }>();
@@ -301,6 +369,8 @@ function linkGenerated(ctx: Context, leaves: Map<KustomizeRef, NodeV1[]>, report
         if (!c) continue;
         if (c.generated.length > 1 || c.written > 0) {
           report(k, `${r.kind} ${r.name} is ${c.generated.length + c.written} objects in this build: not linked to its generator`);
+        } else if (repeated.has(c.generated[0])) {
+          report(k, `${r.kind} ${r.name} has more than one generator entry: not linked to its generator`);
         } else if (!charge()) {
           ctx.skipped.push({ path: k.from.slice(0, -"#kustomization".length), reason: `Kustomize links omitted from here on after ${MAX_LINKS}` });
           return;
