@@ -51,6 +51,18 @@ test("links from kustomizations stop at a bound, which is reported", { timeout: 
   assert.ok(edges.filter((e) => e.source.endsWith("#kustomization")).length <= 2_000_000);
 });
 
+test("generator links share the link bound, and stop at it with a report", { timeout: 120_000 }, () => {
+  const { nodes, refsOut, read } = reader();
+  read("big/d.yaml", Array.from({ length: 2000 }, (_, i) => `apiVersion: v1\nkind: ConfigMap\nmetadata: { name: c${i} }\n`).join("---\n"));
+  // 998 x 2000 structure links, then z's 2001 objects and 1 generator: 1,998,002 before z's generator links.
+  for (let i = 0; i < 998; i++) read(`k${i}/kustomization.yaml`, "resources: [ ../big/d.yaml ]\n");
+  read("z/kustomization.yaml", "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=b ] } ]\n");
+  read("z/d.yaml", Array.from({ length: 2001 }, (_, i) => DEPLOYMENT.replace("name: api }", `name: api${i} }`)).join("---\n"));
+  const { edges, skipped } = resolveDeploy(nodes, refsOut, (p) => p.endsWith(".yaml"));
+  assert.ok(skipped.some((s) => s.path === "z/kustomization.yaml" && s.reason === "Kustomize links omitted from here on after 2000000"));
+  assert.equal(edges.filter((e) => e.target === "z/kustomization.yaml#configMapGenerator:app-config" && !e.source.endsWith("#kustomization")).length, 1998);
+});
+
 test("a patch file listed many times is followed once, so it cannot use up the link bound", { timeout: 120_000 }, () => {
   const { nodes, refsOut, read } = reader();
   read("big/d.yaml", Array.from({ length: 2000 }, (_, i) => `apiVersion: v1\nkind: ConfigMap\nmetadata: { name: c${i} }\n`).join("---\n"));

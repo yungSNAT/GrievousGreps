@@ -38,9 +38,15 @@ test("namespaces decide the match: none reads as default, the kustomization's re
     "writ/kustomization.yaml": "resources: [ d.yaml, cm.yaml ]\nconfigMapGenerator: [ { name: app-config, namespace: other, literals: [ a=b ] } ]\n",
     "writ/d.yaml": DEPLOYMENT,
     "writ/cm.yaml": CONFIGMAP,
+    // An empty namespace is none, on the kustomization and on a generator entry.
+    "emptyk/kustomization.yaml": 'namespace: ""\nresources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, namespace: other, literals: [ a=b ] } ]\n',
+    "emptyk/d.yaml": DEPLOYMENT,
+    "emptyg/kustomization.yaml": 'resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, namespace: "", literals: [ a=b ] } ]\n',
+    "emptyg/d.yaml": DEPLOYMENT,
   });
   assert.deepEqual(links, [
     "dflt/d.yaml#Deployment/default/api -> dflt/kustomization.yaml#configMapGenerator:app-config",
+    "emptyg/d.yaml#Deployment/default/api -> emptyg/kustomization.yaml#configMapGenerator:app-config",
     "set/d.yaml#Deployment/default/api -> set/kustomization.yaml#configMapGenerator:app-config",
   ]);
 });
@@ -109,9 +115,12 @@ test("only a leaf build links: a folder, a component, a patch or an unread field
     "out/shared/d.yaml": DEPLOYMENT,
     "twice/kustomization.yaml": `resources: [ d.yaml, ./d.yaml ]\n${GEN}`,
     "twice/d.yaml": DEPLOYMENT,
+    "same/kustomization.yaml": `resources: [ d.yaml, e.yaml ]\n${GEN}`,
+    "same/d.yaml": DEPLOYMENT,
+    "same/e.yaml": DEPLOYMENT,
   });
   assert.deepEqual(links, ["app1/deploy/deployment.yaml#Deployment/default/api -> app1/kustomization.yaml#configMapGenerator:app-config"]);
-  for (const k of ["over", "pat", "rep", "comp", "out/k", "twice"]) {
+  for (const k of ["over", "pat", "rep", "comp", "out/k", "twice", "same"]) {
     assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), k);
   }
 });

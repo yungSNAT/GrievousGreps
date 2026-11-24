@@ -79,7 +79,7 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
       const name = strict(entry.name, `${field} name`);
       const id = `${rel}#${field}:${name}`;
       const behavior = str(entry.behavior, `${field} behavior`);
-      if (behavior !== "merge" && behavior !== "replace") generated.push({ id, kind: genKind, name, ns: str(entry.namespace, `${field} namespace`) ?? null });
+      if (behavior !== "merge" && behavior !== "replace") generated.push({ id, kind: genKind, name, ns: str(entry.namespace, `${field} namespace`) || null });
       if (seen.has(id)) return;
       seen.add(id);
       generators.push(id);
@@ -87,7 +87,7 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
       nodes.push(resource(rel, `${field}:${name}`, name, lines(d, items?.[i]), `${genKind} ${name} (generated)`, [name]));
     });
   }
-  const namespace = str(top.namespace, "namespace") ?? null;
+  const namespace = str(top.namespace, "namespace") || null; // Kustomize reads an empty namespace as none.
   const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), namespace, ...names];
   nodes.unshift(resource(rel, "kustomization", dir, lines(d, d.contents), `${kind} ${dir}`, words.filter((w): w is string => !!w)));
   const present = (f: string) => top[f] !== undefined && top[f] !== null;
@@ -236,10 +236,11 @@ export function linkKustomize(ctx: Context): void {
 }
 
 /**
- * The objects a leaf build holds, or null when it is not one. A leaf kustomization lists files only, each once and in or
- * below its folder (no folder, no component, nothing remote or missing), and has no patch and no field the graph does not read, so the objects in its
- * files and its generators are all its build holds, and no reference in them is rewritten by anything but its own
- * name transforms. It is the lowest build of each object it lists, where Kustomize renames references.
+ * The objects a leaf build holds, or null when it is not one. A leaf kustomization lists files only, in or below its
+ * folder (no folder, no component, nothing remote or missing), holding each object once, and has no patch and no field
+ * the graph does not read, so the objects in its files and its generators are all its build holds, and no reference in
+ * them is rewritten by anything but its own name transforms. It is the lowest build of each object it lists, where
+ * Kustomize renames references.
  */
 function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>): NodeV1[] | null {
   if (k.component || k.patches.length || k.unread.length || k.unapplied.some((f) => f.startsWith("patches"))) return null;
@@ -252,7 +253,13 @@ function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsI
     const objs = byDir.has(local) ? undefined : objectsIn.get(local);
     if (!objs) return null;
     seen.add(local);
-    members.push(...objs);
+    for (const n of objs) {
+      const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
+      const key = `${m[1]}\0${k.namespace ?? m[2]}\0${m[3]}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+      members.push(n);
+    }
   }
   return members;
 }
