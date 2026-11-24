@@ -1,6 +1,7 @@
 //! Registry and path crate identity verification and bounded tree search.
 
 use std::fs;
+use std::net::Ipv6Addr;
 use std::path::{Path, PathBuf};
 
 use super::git::extract_git_origin_url;
@@ -91,11 +92,7 @@ fn is_valid_url_host(host: &str) -> bool {
     }
     if host.starts_with('[') && host.ends_with(']') {
         let inner = &host[1..host.len() - 1];
-        return !inner.is_empty()
-            && inner.contains(':')
-            && inner
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() || b == b':' || b == b'.');
+        return inner.parse::<Ipv6Addr>().is_ok();
     }
     if host.starts_with('.') || host.ends_with('.') || host.contains("..") {
         return false;
@@ -153,7 +150,12 @@ fn parse_registry_authority(authority: &str, default_port: u16) -> Option<String
         }
         None => None,
     };
-    let host_low = host.to_ascii_lowercase();
+    let host_low = if host.starts_with('[') && host.ends_with(']') {
+        let addr: Ipv6Addr = host[1..host.len() - 1].parse().ok()?;
+        format!("[{addr}]")
+    } else {
+        host.to_ascii_lowercase()
+    };
     Some(match port {
         Some(p) if p != default_port => format!("{host_low}:{p}"),
         _ => host_low,

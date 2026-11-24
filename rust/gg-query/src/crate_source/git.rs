@@ -219,7 +219,7 @@ pub(super) fn resolve_git(
             match find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2) {
                 SearchResult::Matches(found) if !found.is_empty() => unverified_candidate = true,
                 SearchResult::Matches(_) => {}
-                SearchResult::Unresolved(_) => unverified_candidate = true,
+                SearchResult::Unresolved(m) => return ResolveOutcome::Unresolved(m),
                 SearchResult::BudgetExhausted(m) => return ResolveOutcome::BudgetExhausted(m),
             }
             continue;

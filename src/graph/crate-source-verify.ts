@@ -61,7 +61,7 @@ function parseRegistryAuthorityPort(rawAuth: string): boolean {
 
 function normaliseRegistryUrl(raw: string): string | null {
   const noSparse = raw.startsWith("sparse+") ? raw.slice("sparse+".length) : raw;
-  if (/[\s\u0000-\u001f\u007f?#\\]/.test(noSparse)) return null;
+  if (/[\s\u0000-\u001f\u007f-\u009f?#\\]/.test(noSparse)) return null;
   const schemeIdx = noSparse.indexOf("://");
   if (schemeIdx === -1) return null;
   const scheme = noSparse.slice(0, schemeIdx).toLowerCase();
@@ -69,6 +69,7 @@ function normaliseRegistryUrl(raw: string): string | null {
   const rest = noSparse.slice(schemeIdx + 3);
   const slashIdx = rest.indexOf("/");
   const rawAuth = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+  const pathRaw = slashIdx === -1 ? "" : rest.slice(slashIdx);
   if (!rawAuth || rawAuth.includes("@") || !parseRegistryAuthorityPort(rawAuth)) return null;
   let parsed: URL;
   try {
@@ -85,7 +86,7 @@ function normaliseRegistryUrl(raw: string): string | null {
   ) {
     return null;
   }
-  const pathClean = parsed.pathname.replace(/\/+$/, "").replace(/\.git$/, "");
+  const pathClean = pathRaw.replace(/\/+$/, "").replace(/\.git$/, "");
   return `${scheme}://${parsed.host.toLowerCase()}${pathClean}`;
 }
 

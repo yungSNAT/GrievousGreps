@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
@@ -332,10 +332,11 @@ test("strict registry URL syntax, case-sensitive .git suffix and nearer malforme
   const chAbsent = join(base, "cargo-absent");
   mkdirSync(repo, { recursive: true });
 
-  // Malformed registry authorities with matching .git/config entries
+  // Malformed registry authorities (and C1 control U+0080 vs %C2%80) with matching .git/config entries
   for (const [dirTag, pkgName, badUrl] of [
     ["bad-empty-host-1", "emptyhost", "https://:443/index"],
     ["bad-space-host-1", "spacehost", "https://bad host/index"],
+    ["bad-c1-ctrl-1", "c1ctrl", "https://reg.example.com/team-%C2%80/index"],
   ]) {
     const srcDir = join(chPresent, "registry/src", dirTag, `${pkgName}-1.0.0`);
     mkdirSync(srcDir, { recursive: true });
@@ -352,6 +353,14 @@ test("strict registry URL syntax, case-sensitive .git suffix and nearer malforme
   const caseGit = join(chPresent, "registry/index/reg.example.com-case/.git");
   mkdirSync(caseGit, { recursive: true });
   writeFileSync(join(caseGit, "config"), '[remote "origin"]\n\turl = https://reg.example.com/team-a/index.GIT\n');
+
+  // Raw path comparison: /team/../index != /index
+  const dotSrc = join(chPresent, "registry/src/reg.example.com-dot/dotpkg-1.0.0");
+  mkdirSync(dotSrc, { recursive: true });
+  writeFileSync(join(dotSrc, "Cargo.toml"), '[package]\nname = "dotpkg"\nversion = "1.0.0"\n');
+  const dotGit = join(chPresent, "registry/index/reg.example.com-dot/.git");
+  mkdirSync(dotGit, { recursive: true });
+  writeFileSync(join(dotGit, "config"), '[remote "origin"]\n\turl = https://reg.example.com/index\n');
 
   // Nearer malformed workspace Cargo.toml under a valid farther workspace Cargo.toml
   const memberDir = join(repo, "sub/crates/ws-member");
@@ -376,9 +385,17 @@ test("strict registry URL syntax, case-sensitive .git suffix and nearer malforme
       'version = "1.0.0"',
       'source = "registry+https://bad host/index"',
       "[[package]]",
+      'name = "c1ctrl"',
+      'version = "1.0.0"',
+      'source = "registry+https://reg.example.com/team-\u0080/index"',
+      "[[package]]",
       'name = "casepkg"',
       'version = "1.0.0"',
       'source = "registry+https://reg.example.com/team-a/index"',
+      "[[package]]",
+      'name = "dotpkg"',
+      'version = "1.0.0"',
+      'source = "registry+https://reg.example.com/team/../index"',
       "[[package]]",
       'name = "ws-member"',
       'version = "2.3.4"',
@@ -386,12 +403,15 @@ test("strict registry URL syntax, case-sensitive .git suffix and nearer malforme
   );
 
   for (const ch of [chPresent, chAbsent]) {
-    for (const name of ["emptyhost", "spacehost"]) {
+    for (const name of ["emptyhost", "spacehost", "c1ctrl"]) {
       const m = resolveCrateSource({ crateName: name, repo, cargoHome: ch }).matches[0];
       assert.equal(m.status, "unresolved");
       assert.equal(m.path, undefined);
     }
   }
+
+  // Raw path comparison: /team/../index != /index
+  assert.equal(resolveCrateSource({ crateName: "dotpkg", repo, cargoHome: chPresent }).matches[0].status, "not_cached");
 
   // Uppercase .GIT is rejected; lowercase .git matches
   assert.equal(resolveCrateSource({ crateName: "casepkg", repo, cargoHome: chPresent }).matches[0].status, "not_cached");
@@ -402,4 +422,11 @@ test("strict registry URL syntax, case-sensitive .git suffix and nearer malforme
   const ws = resolveCrateSource({ crateName: "ws-member", repo, cargoHome: chPresent }).matches[0];
   assert.equal(ws.status, "unresolved");
   assert.equal(ws.path, undefined);
+
+  // Nearer dangling symlink at sub/Cargo.toml also fails closed as unresolved
+  rmSync(join(repo, "sub/Cargo.toml"));
+  symlinkSync(join(repo, "sub/does-not-exist.toml"), join(repo, "sub/Cargo.toml"), "file");
+  const wsSym = resolveCrateSource({ crateName: "ws-member", repo, cargoHome: chPresent }).matches[0];
+  assert.equal(wsSym.status, "unresolved");
+  assert.equal(wsSym.path, undefined);
 });

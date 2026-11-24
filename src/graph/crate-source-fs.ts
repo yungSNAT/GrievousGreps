@@ -157,8 +157,26 @@ function resolveWorkspaceVersion(crateDir: string, boundary: string): string | n
   const boundPrefix = canonBound.endsWith(sep) ? canonBound : `${canonBound}${sep}`;
   for (let i = 0; i < 8; i++) {
     if (cur !== canonBound && !cur.startsWith(boundPrefix)) break;
-    const manifest = containedRealpath(join(cur, "Cargo.toml"), canonBound);
-    if (manifest) {
+    const candidate = join(cur, "Cargo.toml");
+    let exists = false;
+    try {
+      lstatSync(candidate);
+      exists = true;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | null)?.code;
+      if (code !== "ENOENT") {
+        throw new WorkspaceManifestParseError(
+          `cannot inspect workspace manifest ${candidate}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    if (exists) {
+      const manifest = containedRealpath(candidate, canonBound);
+      if (!manifest) {
+        throw new WorkspaceManifestParseError(
+          `workspace manifest ${candidate} cannot be resolved within boundary`,
+        );
+      }
       let raw: string;
       try {
         raw = readBoundedRegularFile(manifest, MAX_MANIFEST_BYTES);

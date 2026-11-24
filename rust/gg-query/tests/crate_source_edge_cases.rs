@@ -24,6 +24,26 @@ fn run_crate_source_json(crate_name: &str, repo: &Path, cargo_home: &Path) -> (b
     (out.status.success(), json)
 }
 
+fn seed_registry_cache(cargo_home: &Path, dir_tag: &str, pkg_name: &str, origin_url: &str) {
+    let src_dir = cargo_home
+        .join("registry/src")
+        .join(dir_tag)
+        .join(format!("{pkg_name}-1.0.0"));
+    fs::create_dir_all(&src_dir).unwrap();
+    fs::write(
+        src_dir.join("Cargo.toml"),
+        format!("[package]\nname = \"{pkg_name}\"\nversion = \"1.0.0\"\n"),
+    )
+    .unwrap();
+    let idx_git = cargo_home.join("registry/index").join(dir_tag).join(".git");
+    fs::create_dir_all(&idx_git).unwrap();
+    fs::write(
+        idx_git.join("config"),
+        format!("[remote \"origin\"]\n\turl = {origin_url}\n"),
+    )
+    .unwrap();
+}
+
 #[test]
 fn malformed_registry_authorities_and_uppercase_git_suffix_rejected() {
     let tmp = tempdir().unwrap();
@@ -32,45 +52,24 @@ fn malformed_registry_authorities_and_uppercase_git_suffix_rejected() {
     let ch_absent = tmp.path().join("cargo-absent");
     fs::create_dir_all(&repo).unwrap();
 
-    // Present caches whose .git/config echo the same malformed authority strings
-    for (dir_tag, pkg_name, bad_url) in [
+    for (dir_tag, pkg_name, url) in [
         ("bad-empty-host-1", "emptyhost", "https://:443/index"),
         ("bad-space-host-1", "spacehost", "https://bad host/index"),
+        ("bad-ipv6-host-1", "badipv6", "https://[:::]/index"),
+        (
+            "reg.example.com-case",
+            "casepkg",
+            "https://reg.example.com/team-a/index.GIT",
+        ),
+        (
+            "reg.example.com-dot",
+            "dotpkg",
+            "https://reg.example.com/index",
+        ),
     ] {
-        let src_dir = ch_present
-            .join("registry/src")
-            .join(dir_tag)
-            .join(format!("{pkg_name}-1.0.0"));
-        fs::create_dir_all(&src_dir).unwrap();
-        fs::write(
-            src_dir.join("Cargo.toml"),
-            format!("[package]\nname = \"{pkg_name}\"\nversion = \"1.0.0\"\n"),
-        )
-        .unwrap();
-        let idx_git = ch_present.join("registry/index").join(dir_tag).join(".git");
-        fs::create_dir_all(&idx_git).unwrap();
-        fs::write(
-            idx_git.join("config"),
-            format!("[remote \"origin\"]\n\turl = {bad_url}\n"),
-        )
-        .unwrap();
+        seed_registry_cache(&ch_present, dir_tag, pkg_name, url);
     }
-
-    // Valid registry dir testing lowercase .git (accepted) vs uppercase .GIT (rejected)
-    let case_src = ch_present.join("registry/src/reg.example.com-case/casepkg-1.0.0");
-    fs::create_dir_all(&case_src).unwrap();
-    fs::write(
-        case_src.join("Cargo.toml"),
-        "[package]\nname = \"casepkg\"\nversion = \"1.0.0\"\n",
-    )
-    .unwrap();
     let case_git = ch_present.join("registry/index/reg.example.com-case/.git");
-    fs::create_dir_all(&case_git).unwrap();
-    fs::write(
-        case_git.join("config"),
-        "[remote \"origin\"]\n\turl = https://reg.example.com/team-a/index.GIT\n",
-    )
-    .unwrap();
 
     fs::write(
         repo.join("Cargo.lock"),
@@ -86,22 +85,37 @@ version = "1.0.0"
 source = "registry+https://bad host/index"
 
 [[package]]
+name = "badipv6"
+version = "1.0.0"
+source = "registry+https://[:::]/index"
+
+[[package]]
 name = "casepkg"
 version = "1.0.0"
 source = "registry+https://reg.example.com/team-a/index"
+
+[[package]]
+name = "dotpkg"
+version = "1.0.0"
+source = "registry+https://reg.example.com/team/../index"
 "#,
     )
     .unwrap();
 
-    // Both malformed authorities must return unresolved with no path whether cache is present or absent
+    // Malformed authorities (including invalid IPv6 [:::]) must return unresolved with no path
     for ch in [&ch_present, &ch_absent] {
-        for name in ["emptyhost", "spacehost"] {
+        for name in ["emptyhost", "spacehost", "badipv6"] {
             let (ok, json) = run_crate_source_json(name, &repo, ch);
             assert!(!ok);
             assert_eq!(json["matches"][0]["status"], "unresolved");
             assert!(json["matches"][0].get("path").is_none());
         }
     }
+
+    // Raw path comparison: /team/../index != /index
+    let (dot_ok, dot_json) = run_crate_source_json("dotpkg", &repo, &ch_present);
+    assert!(!dot_ok);
+    assert_eq!(dot_json["matches"][0]["status"], "not_cached");
 
     // Uppercase .GIT suffix is NOT stripped -> mismatch -> not_cached
     let (upper_ok, upper_json) = run_crate_source_json("casepkg", &repo, &ch_present);
@@ -165,6 +179,74 @@ fn nearer_unparseable_workspace_manifest_blocks_farther_workspace_version() {
     assert!(!ok2);
     assert_eq!(json2["matches"][0]["status"], "unresolved");
     assert!(json2["matches"][0].get("path").is_none());
+
+    // Also reject a nearer workspace Cargo.toml with unterminated array syntax (`members = [`)
+    fs::write(repo.join("sub/Cargo.toml"), "[workspace]\nmembers = [\n").unwrap();
+    let (ok3, json3) = run_crate_source_json("ws-member", &repo, &ch);
+    assert!(!ok3);
+    assert_eq!(json3["matches"][0]["status"], "unresolved");
+    assert!(json3["matches"][0].get("path").is_none());
+
+    // Also reject a dangling symlink at nearer sub/Cargo.toml (never walk past to farther ancestor)
+    #[cfg(unix)]
+    {
+        fs::remove_file(repo.join("sub/Cargo.toml")).unwrap();
+        std::os::unix::fs::symlink(
+            repo.join("sub/does-not-exist.toml"),
+            repo.join("sub/Cargo.toml"),
+        )
+        .unwrap();
+        let (ok4, json4) = run_crate_source_json("ws-member", &repo, &ch);
+        assert!(!ok4);
+        assert_eq!(json4["matches"][0]["status"], "unresolved");
+        assert!(json4["matches"][0].get("path").is_none());
+    }
+}
+
+#[test]
+fn unverified_git_checkout_workspace_parse_error_does_not_fall_through_to_other_checkout() {
+    let tmp = tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let ch = tmp.path().join("cargo");
+    let sha = "abcdef1234567890abcdef1234567890abcdef12";
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(
+        repo.join("Cargo.lock"),
+        format!(
+            "version = 4\n[[package]]\nname = \"mix-git\"\nversion = \"0.1.0\"\nsource = \"git+https://example.com/mix-git#{sha}\"\n"
+        ),
+    )
+    .unwrap();
+
+    // First checkout (sorted first): unverified (no .git/HEAD) with broken workspace Cargo.toml
+    let bad_rev = ch.join("git/checkouts/mix-git-aaa/abcdef1");
+    fs::create_dir_all(bad_rev.join("crates/mix-git")).unwrap();
+    fs::write(bad_rev.join("Cargo.toml"), "[workspace]\nmembers = [\n").unwrap();
+    fs::write(
+        bad_rev.join("crates/mix-git/Cargo.toml"),
+        "[package]\nname = \"mix-git\"\nversion.workspace = true\n",
+    )
+    .unwrap();
+
+    // Second checkout (sorted second): fully valid verified checkout
+    let good_rev = ch.join("git/checkouts/mix-git-bbb/abcdef1");
+    fs::create_dir_all(good_rev.join(".git")).unwrap();
+    fs::write(good_rev.join(".git/HEAD"), format!("{sha}\n")).unwrap();
+    fs::write(
+        good_rev.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://example.com/mix-git\n",
+    )
+    .unwrap();
+    fs::write(
+        good_rev.join("Cargo.toml"),
+        "[package]\nname = \"mix-git\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    let (ok, json) = run_crate_source_json("mix-git", &repo, &ch);
+    assert!(!ok);
+    assert_eq!(json["matches"][0]["status"], "unresolved");
+    assert!(json["matches"][0].get("path").is_none());
 }
 
 #[test]
