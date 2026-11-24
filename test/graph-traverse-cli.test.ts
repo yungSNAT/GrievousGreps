@@ -330,6 +330,8 @@ test('referenceLine: a regex literal, a Go raw string ending in a backslash and 
     assert.equal(at(path, 'function F() {\n  return <span>&nbsp;{done} / {install(total)}</span>;\n}'), 2, path);
     assert.equal(at(path, 'function F() {\n  return <p>Total (AUD) {amount} / {install(n)}</p>;\n}'), 2, path);
     assert.equal(at(path, 'function F() {\n  return <p>or else {n} / {install(m)}</p>;\n}'), 2, path);
+    assert.equal(at(path, 'function F() {\n  return <p>{a} else {n} / {install(m)}</p>;\n}'), 2, path);
+    assert.equal(at(path, 'function F() {\n  return <p>Ask if (needed) {n} / {install(m)}</p>;\n}'), 2, path);
   }
   assert.equal(at('a.ts', 'function f() {\n  const o = { a: 1 }; x = { b: 2 } / "/"; install();\n}'), 2);
   // A Go raw string has no escapes: a backslash before its backtick does not keep it open.

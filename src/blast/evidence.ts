@@ -170,7 +170,7 @@ function regexEnd(text: string, i: number, syntax: Syntax): number {
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
   if (text[i + 1] === ">" && (syntax.jsx || k < 0)) return -1;
   if (text[k] === "<") return -1;
-  if (text[k] === "}" ? !endsBlock(text, k) : k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
+  if (text[k] === "}" ? !endsBlock(text, k, !syntax.ts) :k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
     let s = k;
     while (s > 0 && /[\w$]/.test(text[s - 1])) s--;
     if (!BEFORE_REGEX.has(text.slice(s, k + 1))) return -1;
@@ -218,13 +218,15 @@ function openParen(text: string, k: number): number {
 /** Whether the `}` at `text[k]` closes a statement block whose `{` is on the same line: after `if (…)`, `for (…)`,
  * `while (…)`, `switch (…)`, `catch (…)` or `with (…)`, or after an `else`, `do`, `try` or `finally` that starts a
  * statement. Anything else (an object literal, a JSX attribute or child, a class body, a `{` on an earlier line) is read
- * as an expression. Braces are counted in the raw line, so one inside an earlier string can mislead it. */
-function endsBlock(text: string, k: number): boolean {
+ * as an expression. Where JSX can occur, a `{` after a tag's `>` with only text between is a child, never a block.
+ * Braces are counted in the raw line, so one inside an earlier string can mislead it. */
+function endsBlock(text: string, k: number, tags: boolean): boolean {
   let depth = 0;
   for (let o = k; o >= 0; o--) {
     if (text[o] === "}") depth++;
     else if (text[o] === "{" && --depth === 0) {
       const before = text.slice(0, o).trimEnd();
+      if (tags && /<[A-Za-z][^<>]*>[^<>]*$/.test(before)) return false;
       if (before.endsWith(")")) {
         const open = openParen(before, before.length - 1);
         return open >= 0 && /\b(?:if|for|while|switch|catch|with)$/.test(before.slice(0, open).trimEnd());
