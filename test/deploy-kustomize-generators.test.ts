@@ -104,9 +104,14 @@ test("only a leaf build links: a folder, a component, a patch or an unread field
     "rep/d.yaml": DEPLOYMENT,
     "comp/kustomization.yaml": `apiVersion: kustomize.config.k8s.io/v1alpha1\nkind: Component\nresources: [ d.yaml ]\n${GEN}`,
     "comp/d.yaml": DEPLOYMENT,
+    // Kustomize refuses to build a file outside the kustomization's folder, or an object listed twice.
+    "out/k/kustomization.yaml": `resources: [ ../shared/d.yaml ]\n${GEN}`,
+    "out/shared/d.yaml": DEPLOYMENT,
+    "twice/kustomization.yaml": `resources: [ d.yaml, ./d.yaml ]\n${GEN}`,
+    "twice/d.yaml": DEPLOYMENT,
   });
   assert.deepEqual(links, ["app1/deploy/deployment.yaml#Deployment/default/api -> app1/kustomization.yaml#configMapGenerator:app-config"]);
-  for (const k of ["over", "pat", "rep", "comp"]) {
+  for (const k of ["over", "pat", "rep", "comp", "out/k", "twice"]) {
     assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), k);
   }
 });

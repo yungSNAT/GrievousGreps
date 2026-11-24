@@ -236,8 +236,8 @@ export function linkKustomize(ctx: Context): void {
 }
 
 /**
- * The objects a leaf build holds, or null when it is not one. A leaf kustomization lists files only (no folder, no
- * component, nothing remote or missing) and has no patch and no field the graph does not read, so the objects in its
+ * The objects a leaf build holds, or null when it is not one. A leaf kustomization lists files only, each once and in or
+ * below its folder (no folder, no component, nothing remote or missing), and has no patch and no field the graph does not read, so the objects in its
  * files and its generators are all its build holds, and no reference in them is rewritten by anything but its own
  * name transforms. It is the lowest build of each object it lists, where Kustomize renames references.
  */
@@ -247,10 +247,11 @@ function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsI
   const seen = new Set<string>();
   for (const e of k.entries) {
     const local = local_(k.dir, e.path);
-    const objs = local === null || byDir.has(local) ? undefined : objectsIn.get(local);
+    // Kustomize refuses a file outside the kustomization's folder, and an object listed twice: no build, no rename.
+    if (local === null || seen.has(local) || !(k.dir === "." || local.startsWith(`${k.dir}/`))) return null;
+    const objs = byDir.has(local) ? undefined : objectsIn.get(local);
     if (!objs) return null;
-    if (seen.has(local!)) continue;
-    seen.add(local!);
+    seen.add(local);
     members.push(...objs);
   }
   return members;
