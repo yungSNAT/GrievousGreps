@@ -2,9 +2,11 @@
  * Kustomize in the deploy graph: structure only. A kustomization file gives a node linked to
  * the objects in the files it lists, the kustomizations in the folders it lists (`resources`,
  * `bases`, `components`), the objects in the patch files it lists, and a name-only node for
- * each generated ConfigMap or Secret. Names are not resolved: `namespace`, `namePrefix`,
- * `nameSuffix`, `images`, generator names and patches are not applied to references, which
- * link objects as written; each kustomization using them says so in a report. Every include
+ * each generated ConfigMap or Secret. In a leaf build (files only) a workload's reference also
+ * links to the generator it names, as `kustomize build` renames it. Otherwise names are not
+ * resolved: `namespace`, `namePrefix`, `nameSuffix`, `images`, generator names and patches are
+ * not applied to references, which link objects as written; each kustomization using them says
+ * so in a report. Every include
  * or patch not followed (remote, outside the repository, missing, a cycle) is reported with
  * the file, never dropped. No generator value and no patch value is kept.
  */
@@ -66,14 +68,18 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
   }
   const nodes: NodeV1[] = [];
   const generators: string[] = [];
+  const generated: KustomizeRef["generated"] = [];
   const seen = new Set<string>();
   const names: string[] = [];
   for (const [field, genKind] of GENERATORS) {
     const items = (d.get(field, true) as { items?: unknown[] } | undefined)?.items;
     list(top[field], field).forEach((x, i) => {
-      // Only the name: literals, env files and file contents are never read.
-      const name = strict(obj(x, `${field} entry`).name, `${field} name`);
+      // Only the name, namespace and behavior: literals, env files and file contents are never read.
+      const entry = obj(x, `${field} entry`);
+      const name = strict(entry.name, `${field} name`);
       const id = `${rel}#${field}:${name}`;
+      const behavior = str(entry.behavior, `${field} behavior`);
+      if (behavior !== "merge" && behavior !== "replace") generated.push({ id, kind: genKind, name, ns: str(entry.namespace, `${field} namespace`) ?? null });
       if (seen.has(id)) return;
       seen.add(id);
       generators.push(id);
@@ -81,10 +87,14 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
       nodes.push(resource(rel, `${field}:${name}`, name, lines(d, items?.[i]), `${genKind} ${name} (generated)`, [name]));
     });
   }
-  const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), str(top.namespace, "namespace"), ...names];
+  const namespace = str(top.namespace, "namespace") ?? null;
+  const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), namespace, ...names];
   nodes.unshift(resource(rel, "kustomization", dir, lines(d, d.contents), `${kind} ${dir}`, words.filter((w): w is string => !!w)));
   const present = (f: string) => top[f] !== undefined && top[f] !== null;
-  return { nodes, refs: [{ from, to: "kustomize", dir, entries, patches, generators, unread: UNREAD.filter(present), unapplied: UNAPPLIED.filter(present) }] };
+  return { nodes, refs: [{
+    from, to: "kustomize", dir, entries, patches, generators, generated, namespace, component: kind === "Component",
+    unread: UNREAD.filter(present), unapplied: UNAPPLIED.filter(present),
+  }] };
 }
 
 interface Context {
@@ -153,13 +163,18 @@ export function linkKustomize(ctx: Context): void {
   for (const k of all) if (refused.has(k.dir)) report(k, "not read: Kustomize refuses a folder with more than one kustomization file");
   const ks = all.filter((k) => !refused.has(k.dir));
   const byDir = new Map(ks.map((k) => [k.dir, k]));
-  for (const k of ks) {
-    for (const f of k.unread) report(k, `${f} not read`);
-    for (const f of k.unapplied) report(k, `${f} not applied to references, which link objects as written`);
-  }
   const objectsIn = new Map<string, NodeV1[]>();
   for (const n of ctx.nodes) {
     if (n.kind === "resource" && n.origin === "deploy" && OBJECT_ID.test(n.id.slice(n.path.length + 1))) pushTo(objectsIn, n.path, n);
+  }
+  const leaves = new Map<KustomizeRef, NodeV1[]>();
+  for (const k of ks) {
+    const members = leafMembers(k, byDir, objectsIn);
+    if (members) leaves.set(k, members);
+    for (const f of k.unread) report(k, `${f} not read`);
+    for (const f of k.unapplied) {
+      if (!(members && GENERATORS.some(([g]) => g === f))) report(k, `${f} not applied to references, which link objects as written`);
+    }
   }
   /** Each path's local target: a kustomization folder, objects in a file, or a report. A local path wins over a remote reading. */
   const follow = (k: KustomizeRef, field: string, p: string): KustomizeRef | NodeV1[] | null => {
@@ -215,8 +230,66 @@ export function linkKustomize(ctx: Context): void {
     }
     if (!link(k, k.generators)) break linking;
   }
+  if (links <= MAX_LINKS) linkGenerated(ctx, leaves, report, () => ++links <= MAX_LINKS);
   reportCycles(ks, kids, report);
   for (const [k, n] of reports) if (n > MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: `and ${n - MAX_REPORTS} more reports` });
+}
+
+/**
+ * The objects a leaf build holds, or null when it is not one. A leaf kustomization lists files only (no folder, no
+ * component, nothing remote or missing) and has no patch and no field the graph does not read, so the objects in its
+ * files and its generators are all its build holds, and no reference in them is rewritten by anything but its own
+ * name transforms. It is the lowest build of each object it lists, where Kustomize renames references.
+ */
+function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>): NodeV1[] | null {
+  if (k.component || k.patches.length || k.unread.length || k.unapplied.some((f) => f.startsWith("patches"))) return null;
+  const members: NodeV1[] = [];
+  const seen = new Set<string>();
+  for (const e of k.entries) {
+    const local = local_(k.dir, e.path);
+    const objs = local === null || byDir.has(local) ? undefined : objectsIn.get(local);
+    if (!objs) return null;
+    if (seen.has(local!)) continue;
+    seen.add(local!);
+    members.push(...objs);
+  }
+  return members;
+}
+
+/**
+ * Link each workload in a leaf build to the generator its ConfigMap or Secret reference names. Kustomize renames a
+ * reference in the lowest build holding an object of that kind, name and namespace (no namespace reads as `default`,
+ * and the kustomization's `namespace` replaces every object's), so the link is made only when that build holds exactly
+ * one such object and it is generated. A generated name that the build holds more than once is reported, not linked.
+ * Generator entries with `behavior: merge` or `replace` change an existing object and make none.
+ */
+function linkGenerated(ctx: Context, leaves: Map<KustomizeRef, NodeV1[]>, report: (k: KustomizeRef, reason: string) => void, charge: () => boolean): void {
+  const wanted = new Map<string, Array<Extract<DeployRef, { to: "object" }>>>();
+  for (const r of ctx.refs) if (r.to === "object" && GENERATORS.some(([, kind]) => kind === r.kind)) pushTo(wanted, r.from, r);
+  for (const [k, members] of leaves) {
+    if (!k.generated.length) continue;
+    const ns = (n: string | null) => k.namespace ?? n ?? "default";
+    const at = (kind: string, n: string, name: string) => `${kind}\0${n}\0${name}`;
+    const held = new Map<string, { generated: string[]; written: number }>();
+    const entry = (key: string) => held.get(key) ?? held.set(key, { generated: [], written: 0 }).get(key)!;
+    for (const g of k.generated) entry(at(g.kind, ns(g.ns), g.name)).generated.push(g.id);
+    for (const n of members) {
+      const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1));
+      if (m && held.has(at(m[1], ns(m[2]), m[3]))) entry(at(m[1], ns(m[2]), m[3])).written++;
+    }
+    for (const n of members) {
+      for (const r of wanted.get(n.id) ?? []) {
+        const c = held.get(at(r.kind, ns(r.ns), r.name));
+        if (!c) continue;
+        if (c.generated.length > 1 || c.written > 0) {
+          report(k, `${r.kind} ${r.name} is ${c.generated.length + c.written} objects in this build: not linked to its generator`);
+        } else if (!charge()) {
+          ctx.skipped.push({ path: k.from.slice(0, -"#kustomization".length), reason: `Kustomize links omitted from here on after ${MAX_LINKS}` });
+          return;
+        } else ctx.add(n.id, c.generated[0]);
+      }
+    }
+  }
 }
 
 /** Report each include that leads back to the kustomization listing it; depth first without recursion, so a long chain cannot exhaust the stack. */

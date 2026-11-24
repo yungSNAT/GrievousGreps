@@ -55,6 +55,8 @@ test("kustomization files are named by their file names", () => {
 test("a kustomization links to its base, the objects it lists, its patch files and its generators, and reports what it does not apply", async () => {
   await withBuild(REPO, ({ result, graph }) => {
     assert.deepEqual(refs(graph).filter((e) => e.includes("kustomization")), [
+      // base lists files only, so its Deployment's reference is renamed to the generated ConfigMap.
+      "base/deployment.yaml#Deployment/default/api -> base/kustomization.yaml#configMapGenerator:app-config",
       "base/kustomization.yaml#kustomization -> base/deployment.yaml#Deployment/default/api",
       "base/kustomization.yaml#kustomization -> base/kustomization.yaml#configMapGenerator:app-config",
       "base/kustomization.yaml#kustomization -> base/service.yaml#Service/default/api",
@@ -64,7 +66,6 @@ test("a kustomization links to its base, the objects it lists, its patch files a
       "overlays/prod/kustomization.yaml#kustomization -> overlays/prod/replicas.yaml#Deployment/default/api",
     ]);
     assert.deepEqual(result.skipped, [
-      { path: "base/kustomization.yaml", reason: `configMapGenerator ${APPLIED}` },
       ...["images", "secretGenerator", "patches"].map((f) => ({ path: "overlays/prod/kustomization.yaml", reason: `${f} ${APPLIED}` })),
       { path: "overlays/prod/kustomization.yaml", reason: "resources https://github.com/acme/shared//deploy?ref=v1 not followed: remote" },
     ]);

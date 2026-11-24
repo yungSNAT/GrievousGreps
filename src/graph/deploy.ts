@@ -33,6 +33,11 @@ export interface KustomizeRef {
   patches: string[];
   /** Its generated ConfigMaps' and Secrets' node ids. */
   generators: string[];
+  /** Each generator entry that makes a new object (no `behavior: merge` or `replace`), with its namespace as written. */
+  generated: Array<{ id: string; kind: string; name: string; ns: string | null }>;
+  /** Its `namespace`, which Kustomize gives every object it builds. */
+  namespace: string | null;
+  component: boolean;
   /** Fields present that add objects or change names or selectors, which the graph does not follow. */
   unread: string[];
   /** Fields present whose names and namespaces are not applied to the references of the objects it builds. */
