@@ -8,7 +8,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
@@ -282,5 +282,115 @@ test("on disk, directories in files: (unindexed, non-manifest, empty) are refuse
     assert.ok(result.skipped.some((s) => s.path === "empty/kustomization.yaml" && s.reason.startsWith("configMapGenerator not applied")));
   } finally {
     rmSync(emptyRoot, { recursive: true, force: true });
+  }
+});
+
+test("F3 empty name or escaping symlink, S1 unreferenced collision, S2 hidden docs, S3 non-allowlist fields and S4 build annotations never link", async () => {
+  const withDoc = (doc: string) => `${DEPLOYMENT}---\n${doc}`;
+  const { links, reasons } = generatorLinks({
+    // F3: empty generator name beside a valid one.
+    "emptyname/kustomization.yaml": 'resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=b ] }, { name: "", literals: [ a=b ] } ]\n',
+    "emptyname/d.yaml": DEPLOYMENT,
+    // S1: unreferenced ConfigMap collision aborts the whole build.
+    "s1/kustomization.yaml": "resources: [ d.yaml, cm.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=b ] }, { name: other, literals: [ a=b ] } ]\n",
+    "s1/d.yaml": DEPLOYMENT,
+    "s1/cm.yaml": CONFIGMAP.replace("app-config", "other"),
+    // S2: incomplete mixed files (empty namespace, List, ConfigMapList, non-manifest doc); empty YAML separators still link.
+    "s2emptyns/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s2emptyns/d.yaml": withDoc('apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config, namespace: "" }\n'),
+    "s2list/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s2list/d.yaml": withDoc("apiVersion: v1\nkind: List\nmetadata: { name: bundle }\nitems:\n  - apiVersion: v1\n    kind: ConfigMap\n    metadata: { name: app-config }\n"),
+    "s2cmlist/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s2cmlist/d.yaml": withDoc("apiVersion: v1\nkind: ConfigMapList\nmetadata: { name: bundle }\nitems:\n  - apiVersion: v1\n    kind: ConfigMap\n    metadata: { name: app-config }\n"),
+    "s2nonman/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s2nonman/d.yaml": withDoc("foo: bar\n"),
+    "s2sep/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s2sep/d.yaml": `---\n${DEPLOYMENT}---\n`,
+    // S3: allowlist and apiVersion validation (validators, commonAnnotations, images, v1alpha1, unknown field).
+    "s3val/kustomization.yaml": `validators: [ missing.yaml ]\nresources: [ d.yaml ]\n${GEN}`,
+    "s3val/d.yaml": DEPLOYMENT,
+    "s3ann/kustomization.yaml": `commonAnnotations: { "internal.config.kubernetes.io/needsHashSuffix": "false" }\nresources: [ d.yaml ]\n${GEN}`,
+    "s3ann/d.yaml": DEPLOYMENT,
+    "s3img/kustomization.yaml": `images: [ { name: api, newTag: 123 } ]\nresources: [ d.yaml ]\n${GEN}`,
+    "s3img/d.yaml": DEPLOYMENT,
+    "s3ver/kustomization.yaml": `apiVersion: kustomize.config.k8s.io/v1alpha1\nkind: Kustomization\nresources: [ d.yaml ]\n${GEN}`,
+    "s3ver/d.yaml": DEPLOYMENT,
+    "s3unk/kustomization.yaml": `unknownField: true\nresources: [ d.yaml ]\n${GEN}`,
+    "s3unk/d.yaml": DEPLOYMENT,
+    // S4: reserved internal/config annotations on member objects.
+    "s4prev/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s4prev/d.yaml": DEPLOYMENT.replace("metadata: { name: api }", 'metadata: { name: api, annotations: { "internal.config.kubernetes.io/previousNames": "api", "internal.config.kubernetes.io/previousNamespaces": "default", "internal.config.kubernetes.io/previousKinds": "Service" } }'),
+    "s4local/kustomization.yaml": `resources: [ d.yaml ]\n${GEN}`,
+    "s4local/d.yaml": DEPLOYMENT.replace("metadata: { name: api }", 'metadata: { name: api, annotations: { "config.kubernetes.io/local-config": "true" } }'),
+  });
+  assert.deepEqual(links, ["s2sep/d.yaml#Deployment/default/api -> s2sep/kustomization.yaml#configMapGenerator:app-config"]);
+  assert.ok(reasons.includes("s1/kustomization.yaml: ConfigMap other is 2 objects in this build: not linked to its generator"), reasons.join("\n"));
+  for (const k of ["emptyname", "s2emptyns", "s2list", "s2cmlist", "s2nonman", "s3val", "s3ann", "s3img", "s3ver", "s3unk", "s4prev", "s4local"]) {
+    assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), k);
+  }
+
+  // F3: symlink escaping leaf in files: (direct file symlink and symlinked parent dir) must not link; in-leaf symlink still links.
+  const symRoot = mkdtempSync(join(tmpdir(), "gg-kustomize-sym-"));
+  try {
+    mkdirSync(join(symRoot, "outside"), { recursive: true });
+    writeFileSync(join(symRoot, "outside/ext.txt"), "ext\n");
+    mkdirSync(join(symRoot, "dirlink/leaf"), { recursive: true });
+    writeFileSync(join(symRoot, "dirlink/leaf/d.yaml"), DEPLOYMENT);
+    writeFileSync(join(symRoot, "dirlink/leaf/kustomization.yaml"), "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ sub/ext.txt ] } ]\n");
+    symlinkSync(join(symRoot, "outside"), join(symRoot, "dirlink/leaf/sub"), process.platform === "win32" ? "junction" : "dir");
+    let fileLinks = false;
+    try {
+      mkdirSync(join(symRoot, "esc/leaf"), { recursive: true });
+      writeFileSync(join(symRoot, "esc/leaf/d.yaml"), DEPLOYMENT);
+      writeFileSync(join(symRoot, "esc/leaf/kustomization.yaml"), "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ cfg ] } ]\n");
+      symlinkSync(join(symRoot, "outside/ext.txt"), join(symRoot, "esc/leaf/cfg"), "file");
+      mkdirSync(join(symRoot, "inside"), { recursive: true });
+      writeFileSync(join(symRoot, "inside/d.yaml"), DEPLOYMENT);
+      writeFileSync(join(symRoot, "inside/real.txt"), "in\n");
+      writeFileSync(join(symRoot, "inside/kustomization.yaml"), "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ alias.txt ] } ]\n");
+      symlinkSync(join(symRoot, "inside/real.txt"), join(symRoot, "inside/alias.txt"), "file");
+      fileLinks = true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EPERM") throw e;
+    }
+    const result = await buildGraph(symRoot);
+    const graph = readGraph(wiringPath(contextDirFor(symRoot)))!;
+    const genEdges = refs(graph).filter((e) => /#(configMap|secret)Generator:/.test(e) && !e.includes("#kustomization ->"));
+    assert.deepEqual(genEdges, fileLinks ? ["inside/d.yaml#Deployment/default/api -> inside/kustomization.yaml#configMapGenerator:app-config"] : []);
+    for (const p of fileLinks ? ["esc/leaf", "dirlink/leaf"] : ["dirlink/leaf"]) {
+      assert.ok(result.skipped.some((s) => s.path === `${p}/kustomization.yaml` && s.reason.startsWith("configMapGenerator not applied")), p);
+    }
+  } finally {
+    rmSync(symRoot, { recursive: true, force: true });
+  }
+});
+
+test("S5: existing COPY confidence with absent, file, directory or symlink .dockerignore is unchanged", async () => {
+  const copyConfidence = async (setupIgnore: (root: string) => void) => {
+    const root = mkdtempSync(join(tmpdir(), "gg-dockerignore-"));
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src/app.py"), "def handle():\n    return 1\n");
+      writeFileSync(join(root, "Dockerfile"), "FROM python:3.12\nCOPY src/ /app/src/\n");
+      writeFileSync(join(root, "compose.yaml"), "services:\n  api:\n    build: .\n");
+      setupIgnore(root);
+      await buildGraph(root);
+      const graph = readGraph(wiringPath(contextDirFor(root)))!;
+      const edge = graph.edges.find((e) => e.source === "Dockerfile#stage:0" && e.target === "src/app.py");
+      return edge?.confidence;
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  };
+  assert.equal(await copyConfidence(() => {}), "extracted");
+  assert.equal(await copyConfidence((r) => writeFileSync(join(r, ".dockerignore"), "*.log\n")), "inferred");
+  assert.equal(await copyConfidence((r) => mkdirSync(join(r, ".dockerignore"), { recursive: true })), "inferred");
+  try {
+    assert.equal(await copyConfidence((r) => {
+      writeFileSync(join(r, "real.ignore"), "*.log\n");
+      symlinkSync(join(r, "real.ignore"), join(r, ".dockerignore"), "file");
+    }), "inferred");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EPERM") throw e;
   }
 });
