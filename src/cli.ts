@@ -2005,9 +2005,9 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
         } else {
           const existingFiles = existing
             ? existing.nodes.filter((n) => n.kind === "file").map((n) => join(repo, n.path))
-            : undefined;
+            : [];
           const initAudit = auditPolyglotRepo(repo, program.opts<GlobalOpts>().dir, {
-            ...(existingFiles ? { indexedFiles: existingFiles } : {}),
+            indexedFiles: existingFiles,
             ...(existing?.meta.extensions ? { extensions: existing.meta.extensions } : {}),
           });
           const initAuditLines = formatPolyglotAuditLines(initAudit);

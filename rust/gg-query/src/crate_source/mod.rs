@@ -4,18 +4,21 @@
 //! version from `Cargo.lock` to its local Cargo registry, git checkout or
 //! workspace path source directory so agents never read wrong or stale versions.
 
+mod git;
 mod lockfile;
+mod manifest;
 mod verify;
 
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
+use git::resolve_git;
 use lockfile::{LockPackage, discover_lockfiles, parse_cargo_lock};
-use verify::{ResolveOutcome, resolve_git, resolve_path_crate, resolve_registry};
+use verify::{ResolveOutcome, resolve_path_crate, resolve_registry};
 
 const MAX_RESULTS: usize = 16;
 
@@ -112,12 +115,34 @@ fn canonical_crate_key(name: &str) -> String {
     name.replace('-', "_")
 }
 
-fn normalise_absolute(path: PathBuf) -> Result<PathBuf, String> {
-    if path.is_absolute() {
-        return Ok(path);
+fn normalise_lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(comp.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                } else if !out.is_absolute() {
+                    out.push(comp.as_os_str());
+                }
+            }
+            Component::Normal(seg) => out.push(seg),
+        }
     }
-    let cwd = env::current_dir().map_err(|e| format!("cannot read current directory: {e}"))?;
-    Ok(cwd.join(path))
+    out
+}
+
+fn normalise_absolute(path: PathBuf) -> Result<PathBuf, String> {
+    let joined = if path.is_absolute() {
+        path
+    } else {
+        let cwd = env::current_dir().map_err(|e| format!("cannot read current directory: {e}"))?;
+        cwd.join(path)
+    };
+    Ok(normalise_lexical(&joined))
 }
 
 fn resolve_cargo_home(override_dir: Option<&Path>) -> Result<PathBuf, String> {

@@ -108,11 +108,11 @@ function discoverLockfiles(repoCanon: string, explicit?: string): string[] {
   const found: string[] = [];
   const state = { visited: 0, exhausted: false };
   scanLockfiles(repoCanon, repoCanon, 0, found, state);
+  if (state.exhausted) {
+    throw new Error(`lockfile scan budget exceeded under ${repoCanon}`);
+  }
   found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   if (found.length === 0) {
-    if (state.exhausted) {
-      throw new Error(`lockfile scan budget exceeded under ${repoCanon}`);
-    }
     throw new Error(`no Cargo.lock found under ${repoCanon}`);
   }
   return found;
@@ -125,7 +125,7 @@ function scanLockfiles(
   out: string[],
   state: { visited: number; exhausted: boolean },
 ): void {
-  if (depth > MAX_SCAN_DEPTH || out.length >= MAX_LOCKFILES || state.exhausted) return;
+  if (depth > MAX_SCAN_DEPTH || state.exhausted) return;
   const scanned = readDirIncremental(dir, MAX_SCAN_ENTRIES - state.visited);
   if (!scanned) return;
   state.visited += scanned.entries.length;
@@ -140,8 +140,11 @@ function scanLockfiles(
     if (entry.isFile() && entry.name === "Cargo.lock") {
       const canon = containedRealpath(full, repoCanon);
       if (canon) {
+        if (out.length >= MAX_LOCKFILES) {
+          state.exhausted = true;
+          return;
+        }
         out.push(canon);
-        if (out.length >= MAX_LOCKFILES) return;
       }
     } else if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) {
       subdirs.push(full);
@@ -150,7 +153,7 @@ function scanLockfiles(
   subdirs.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   for (const sub of subdirs) {
     scanLockfiles(repoCanon, sub, depth + 1, out, state);
-    if (state.exhausted || out.length >= MAX_LOCKFILES) return;
+    if (state.exhausted) return;
   }
 }
 

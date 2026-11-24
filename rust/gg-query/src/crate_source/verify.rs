@@ -1,15 +1,13 @@
-//! Identity, containment and incremental budget verification for `crate-source`.
+//! Registry and path crate identity verification and bounded tree search.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::lockfile::{
-    MAX_MANIFEST_BYTES, MAX_SCAN_ENTRIES, SKIP_DIRS, contained_canonical,
-    read_bounded_regular_file, read_manifest_identity, resolve_workspace_version,
-};
+use super::git::extract_git_origin_url;
+use super::lockfile::{MAX_SCAN_ENTRIES, SKIP_DIRS, contained_canonical};
+use super::manifest::{ReadFileError, read_manifest_identity, resolve_workspace_version};
 
 const MAX_REGISTRY_DIRS: usize = 64;
-const MAX_GIT_CHECKOUTS: usize = 128;
 
 pub(super) struct VerifiedDir {
     pub dir: PathBuf,
@@ -25,60 +23,132 @@ pub(super) enum ResolveOutcome {
     BudgetExhausted(String),
 }
 
-pub(super) fn verify_manifest_identity(
+pub(super) enum SearchResult {
+    Matches(Vec<VerifiedDir>),
+    BudgetExhausted(String),
+}
+
+enum VerifyResult {
+    Matched(VerifiedDir),
+    NotMatched,
+    BudgetExhausted(String),
+}
+
+fn verify_manifest_identity(
     dir: &Path,
     boundary: &Path,
     expected_name: &str,
     expected_version: &str,
-) -> Option<VerifiedDir> {
-    let canon_dir = contained_canonical(dir, boundary)?;
+) -> VerifyResult {
+    let Some(canon_dir) = contained_canonical(dir, boundary) else {
+        return VerifyResult::NotMatched;
+    };
     if !canon_dir.is_dir() {
-        return None;
+        return VerifyResult::NotMatched;
     }
     let manifest = canon_dir.join("Cargo.toml");
-    let canon_manifest = contained_canonical(&manifest, &canon_dir)?;
-    if !fs::metadata(&canon_manifest).is_ok_and(|m| m.is_file()) {
-        return None;
+    let Some(canon_manifest) = contained_canonical(&manifest, &canon_dir) else {
+        return VerifyResult::NotMatched;
+    };
+    if !fs::symlink_metadata(&canon_manifest).is_ok_and(|m| m.file_type().is_file()) {
+        return VerifyResult::NotMatched;
     }
-    let ident = read_manifest_identity(&canon_manifest).ok()??;
+    let ident = match read_manifest_identity(&canon_manifest) {
+        Ok(Some(id)) => id,
+        Ok(None) | Err(ReadFileError::Other(_)) => return VerifyResult::NotMatched,
+        Err(ReadFileError::BudgetExhausted(m)) => return VerifyResult::BudgetExhausted(m),
+    };
     if ident.name != expected_name {
-        return None;
+        return VerifyResult::NotMatched;
     }
     let actual_version = match ident.version {
         Some(v) => v,
-        None if ident.workspace_version => resolve_workspace_version(&canon_dir, boundary)?,
-        None => return None,
+        None if ident.workspace_version => match resolve_workspace_version(&canon_dir, boundary) {
+            Ok(Some(v)) => v,
+            Ok(None) | Err(ReadFileError::Other(_)) => return VerifyResult::NotMatched,
+            Err(ReadFileError::BudgetExhausted(m)) => return VerifyResult::BudgetExhausted(m),
+        },
+        None => return VerifyResult::NotMatched,
     };
     if actual_version != expected_version {
-        return None;
+        return VerifyResult::NotMatched;
     }
     let src_candidate = canon_dir.join("src");
     let src_dir = contained_canonical(&src_candidate, &canon_dir).filter(|p| p.is_dir());
-    Some(VerifiedDir {
+    VerifyResult::Matched(VerifiedDir {
         dir: canon_dir,
         manifest_path: canon_manifest,
         src_dir,
     })
 }
 
-fn registry_dir_matches_source(index_dir_name: &str, source_url: &str) -> Option<bool> {
-    let url = source_url.strip_prefix("registry+")?;
-    if url == "https://github.com/rust-lang/crates.io-index"
-        || url == "sparse+https://index.crates.io/"
-    {
-        return Some(
-            index_dir_name.starts_with("index.crates.io-")
-                || index_dir_name.starts_with("github.com-1ecc6299db9ec823"),
-        );
-    }
-    let after_scheme = url.split_once("://").map(|(_, rest)| rest)?;
-    let host_port = after_scheme.split('/').next()?;
-    let host = host_port.split(':').next()?.to_ascii_lowercase();
-    if host.is_empty() {
+fn normalise_registry_url(raw: &str) -> Option<String> {
+    let no_sparse = raw.strip_prefix("sparse+").unwrap_or(raw);
+    let (scheme, rest) = no_sparse.split_once("://")?;
+    let scheme_low = scheme.to_ascii_lowercase();
+    if scheme_low != "https" && scheme_low != "http" {
         return None;
     }
-    let lower_name = index_dir_name.to_ascii_lowercase();
-    Some(lower_name.starts_with(&format!("{host}-")))
+    let (authority, path_raw) = match rest.find('/') {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+    if authority.is_empty() {
+        return None;
+    }
+    let path_clean = path_raw.trim_end_matches('/');
+    let path_no_git = path_clean.strip_suffix(".git").unwrap_or(path_clean);
+    Some(format!(
+        "{scheme_low}://{}{path_no_git}",
+        authority.to_ascii_lowercase()
+    ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegistryIdentity {
+    Verified,
+    Mismatch,
+    Unverifiable,
+}
+
+fn verify_registry_index_identity(
+    cargo_home: &Path,
+    index_dir_name: &str,
+    locked_url: &str,
+    norm_locked_url: &str,
+) -> Result<RegistryIdentity, String> {
+    if locked_url == "https://github.com/rust-lang/crates.io-index"
+        || locked_url == "sparse+https://index.crates.io/"
+    {
+        return Ok(
+            if index_dir_name.starts_with("index.crates.io-")
+                || index_dir_name.starts_with("github.com-1ecc6299db9ec823")
+            {
+                RegistryIdentity::Verified
+            } else {
+                RegistryIdentity::Mismatch
+            },
+        );
+    }
+
+    let reg_index_root = cargo_home.join("registry").join("index");
+    let index_git_dir = reg_index_root.join(index_dir_name).join(".git");
+    let Some(canon_git) = contained_canonical(&index_git_dir, &reg_index_root) else {
+        return Ok(RegistryIdentity::Unverifiable);
+    };
+    match extract_git_origin_url(&canon_git, &canon_git) {
+        Ok(Some(origin)) => {
+            let norm_origin = normalise_registry_url(&origin).unwrap_or(origin);
+            if norm_origin == norm_locked_url {
+                Ok(RegistryIdentity::Verified)
+            } else {
+                Ok(RegistryIdentity::Mismatch)
+            }
+        }
+        Ok(None) => Ok(RegistryIdentity::Unverifiable),
+        Err(ReadFileError::BudgetExhausted(m)) => Err(m),
+        Err(ReadFileError::Other(_)) => Ok(RegistryIdentity::Unverifiable),
+    }
 }
 
 pub(super) fn resolve_registry(
@@ -87,6 +157,15 @@ pub(super) fn resolve_registry(
     name: &str,
     version: &str,
 ) -> ResolveOutcome {
+    let Some(locked_url) = source_url.strip_prefix("registry+") else {
+        return ResolveOutcome::Unresolved(format!("invalid registry source \"{source_url}\""));
+    };
+    let Some(norm_locked) = normalise_registry_url(locked_url) else {
+        return ResolveOutcome::Unresolved(format!(
+            "registry source \"{source_url}\" cannot be verified (invalid registry URL)"
+        ));
+    };
+
     let reg_src = cargo_home.join("registry").join("src");
     let Ok(entries) = fs::read_dir(&reg_src) else {
         return ResolveOutcome::NotCached;
@@ -114,241 +193,22 @@ pub(super) fn resolve_registry(
     dirs.sort_by(|a, b| a.0.cmp(&b.0));
 
     let folder_name = format!("{name}-{version}");
-    let mut matched: Vec<(bool, VerifiedDir)> = Vec::new();
+    let mut verified_hits: Vec<VerifiedDir> = Vec::new();
+    let mut unverifiable = false;
+
     for (dir_name, idx_dir) in dirs {
         let candidate = idx_dir.join(&folder_name);
-        if let Some(verified) = verify_manifest_identity(&candidate, &idx_dir, name, version) {
-            let source_match = registry_dir_matches_source(&dir_name, source_url);
-            if source_match == Some(false) {
-                continue;
-            }
-            matched.push((source_match == Some(true), verified));
-        }
-    }
-
-    let exact: Vec<VerifiedDir> = matched
-        .iter()
-        .filter(|(ok, _)| *ok)
-        .map(|(_, v)| VerifiedDir {
-            dir: v.dir.clone(),
-            manifest_path: v.manifest_path.clone(),
-            src_dir: v.src_dir.clone(),
-        })
-        .collect();
-    if exact.len() == 1 {
-        return ResolveOutcome::Found(exact.into_iter().next().unwrap());
-    }
-    if exact.len() > 1 {
-        return ResolveOutcome::Ambiguous(format!(
-            "multiple local registry directories match {name} {version} for {source_url}"
-        ));
-    }
-    if matched.len() == 1 {
-        return ResolveOutcome::Found(matched.into_iter().next().unwrap().1);
-    }
-    if matched.len() > 1 {
-        return ResolveOutcome::Ambiguous(format!(
-            "multiple local registry directories match {name} {version} and registry cannot be disambiguated"
-        ));
-    }
-    ResolveOutcome::NotCached
-}
-
-fn normalise_git_url(url: &str) -> String {
-    let base = url.split('?').next().unwrap_or(url);
-    let trimmed = base.trim().trim_end_matches('/');
-    let no_git = trimmed.strip_suffix(".git").unwrap_or(trimmed);
-    no_git.to_ascii_lowercase()
-}
-
-fn extract_git_origin_url(git_dir: &Path, boundary: &Path) -> Option<String> {
-    let cfg = git_dir.join("config");
-    let canon = contained_canonical(&cfg, boundary)?;
-    let text = read_bounded_regular_file(&canon, MAX_MANIFEST_BYTES).ok()?;
-    let mut in_origin = false;
-    for raw in text.lines() {
-        let line = raw.trim();
-        if line.starts_with('[') && line.ends_with(']') {
-            in_origin = line == "[remote \"origin\"]";
-            continue;
-        }
-        if in_origin
-            && let Some((k, v)) = line.split_once('=')
-            && k.trim() == "url"
-        {
-            return Some(normalise_git_url(v.trim()));
-        }
-    }
-    None
-}
-
-fn resolve_git_dir_pointer(rev_dir: &Path, cargo_home: &Path) -> Option<(PathBuf, PathBuf)> {
-    let dot_git = rev_dir.join(".git");
-    if let Some(canon) = contained_canonical(&dot_git, rev_dir)
-        && canon.is_dir()
-    {
-        return Some((canon, rev_dir.to_path_buf()));
-    }
-    let canon_file = contained_canonical(&dot_git, rev_dir)?;
-    let text = read_bounded_regular_file(&canon_file, 4096).ok()?;
-    let target = text.trim().strip_prefix("gitdir:")?.trim();
-    let joined = if Path::new(target).is_absolute() {
-        PathBuf::from(target)
-    } else {
-        rev_dir.join(target)
-    };
-    let git_root = cargo_home.join("git");
-    let canon_target = contained_canonical(&joined, &git_root)?;
-    canon_target.is_dir().then_some((canon_target, git_root))
-}
-
-fn read_verified_git_sha(rev_dir: &Path, cargo_home: &Path) -> Option<(String, Option<String>)> {
-    if let Some((git_dir, boundary)) = resolve_git_dir_pointer(rev_dir, cargo_home) {
-        let origin = extract_git_origin_url(&git_dir, &boundary);
-        let head = git_dir.join("HEAD");
-        if let Some(canon_head) = contained_canonical(&head, &boundary)
-            && let Ok(text) = read_bounded_regular_file(&canon_head, 4096)
-        {
-            let trimmed = text.trim();
-            if trimmed.len() == 40 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Some((trimmed.to_ascii_lowercase(), origin));
-            }
-            if let Some(ref_name) = trimmed.strip_prefix("ref:") {
-                let ref_path = git_dir.join(ref_name.trim());
-                if let Some(canon_ref) = contained_canonical(&ref_path, &boundary)
-                    && let Ok(ref_text) = read_bounded_regular_file(&canon_ref, 4096)
-                {
-                    let sha = ref_text.trim();
-                    if sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-                        return Some((sha.to_ascii_lowercase(), origin));
-                    }
-                }
-            }
-        }
-    }
-    let vcs_info = rev_dir.join(".cargo-vcs-info.json");
-    if let Some(canon_vcs) = contained_canonical(&vcs_info, rev_dir)
-        && let Ok(text) = read_bounded_regular_file(&canon_vcs, MAX_MANIFEST_BYTES)
-        && let Ok(val) = serde_json::from_str::<serde_json::Value>(&text)
-        && let Some(sha) = val.pointer("/git/sha1").and_then(|v| v.as_str())
-        && sha.len() == 40
-        && sha.bytes().all(|b| b.is_ascii_hexdigit())
-    {
-        return Some((sha.to_ascii_lowercase(), None));
-    }
-    None
-}
-
-fn repo_slug_from_url(url: &str) -> Option<String> {
-    let norm = normalise_git_url(url);
-    norm.rsplit('/')
-        .next()
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-}
-
-fn collect_git_repo_dirs(git_root: &Path) -> Result<Vec<(String, PathBuf)>, ResolveOutcome> {
-    let Ok(entries) = fs::read_dir(git_root) else {
-        return Err(ResolveOutcome::NotCached);
-    };
-    let mut scanned = 0_usize;
-    let mut repo_dirs: Vec<(String, PathBuf)> = Vec::new();
-    for entry in entries.flatten() {
-        scanned += 1;
-        if scanned > MAX_GIT_CHECKOUTS {
-            return Err(ResolveOutcome::BudgetExhausted(format!(
-                "git checkout directory count under {} exceeds {MAX_GIT_CHECKOUTS}",
-                git_root.display()
-            )));
-        }
-        if entry
-            .file_type()
-            .is_ok_and(|ft| ft.is_dir() && !ft.is_symlink())
-        {
-            repo_dirs.push((
-                entry.file_name().to_string_lossy().into_owned(),
-                entry.path(),
-            ));
-        }
-    }
-    repo_dirs.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(repo_dirs)
-}
-
-pub(super) fn resolve_git(
-    cargo_home: &Path,
-    source: &str,
-    name: &str,
-    version: &str,
-) -> ResolveOutcome {
-    let Some((url_part, raw_rev)) = source.rsplit_once('#') else {
-        return ResolveOutcome::Unresolved(format!("git source \"{source}\" lacks a commit SHA"));
-    };
-    if raw_rev.len() != 40 || !raw_rev.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return ResolveOutcome::Unresolved(format!(
-            "git source \"{source}\" does not carry a 40-char commit SHA"
-        ));
-    }
-    let expected_url = url_part.strip_prefix("git+").unwrap_or(url_part);
-    let full_rev = raw_rev.to_ascii_lowercase();
-    let short_rev = &full_rev[..7];
-    let norm_expected_url = normalise_git_url(expected_url);
-    let expected_slug = repo_slug_from_url(expected_url);
-
-    let repo_dirs = match collect_git_repo_dirs(&cargo_home.join("git").join("checkouts")) {
-        Ok(d) => d,
-        Err(outcome) => return outcome,
-    };
-
-    let mut verified_hits: Vec<VerifiedDir> = Vec::new();
-    let mut unverified_candidate = false;
-
-    for (repo_dir_name, repo_dir) in repo_dirs {
-        let rev_dir = repo_dir.join(short_rev);
-        if !fs::symlink_metadata(&rev_dir)
-            .is_ok_and(|m| m.file_type().is_dir() && !m.file_type().is_symlink())
-        {
-            continue;
-        }
-        let Some(canon_rev) = contained_canonical(&rev_dir, &repo_dir) else {
-            continue;
+        let verified = match verify_manifest_identity(&candidate, &idx_dir, name, version) {
+            VerifyResult::Matched(v) => v,
+            VerifyResult::NotMatched => continue,
+            VerifyResult::BudgetExhausted(m) => return ResolveOutcome::BudgetExhausted(m),
         };
-        let Some((actual_sha, origin_url)) = read_verified_git_sha(&canon_rev, cargo_home) else {
-            if !find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2)
-                .0
-                .is_empty()
-            {
-                unverified_candidate = true;
-            }
-            continue;
-        };
-        if actual_sha != full_rev {
-            continue;
+        match verify_registry_index_identity(cargo_home, &dir_name, locked_url, &norm_locked) {
+            Ok(RegistryIdentity::Verified) => verified_hits.push(verified),
+            Ok(RegistryIdentity::Mismatch) => {}
+            Ok(RegistryIdentity::Unverifiable) => unverifiable = true,
+            Err(m) => return ResolveOutcome::BudgetExhausted(m),
         }
-        if let Some(origin) = origin_url {
-            if origin != norm_expected_url {
-                continue;
-            }
-        } else {
-            let Some(ref slug) = expected_slug else {
-                continue;
-            };
-            if !repo_dir_name
-                .to_ascii_lowercase()
-                .starts_with(&format!("{slug}-"))
-            {
-                continue;
-            }
-        }
-        let (mut found, exhausted) =
-            find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2);
-        if exhausted {
-            return ResolveOutcome::BudgetExhausted(format!(
-                "directory scan budget exceeded inside {}",
-                canon_rev.display()
-            ));
-        }
-        verified_hits.append(&mut found);
     }
 
     if verified_hits.len() == 1 {
@@ -356,12 +216,12 @@ pub(super) fn resolve_git(
     }
     if verified_hits.len() > 1 {
         return ResolveOutcome::Ambiguous(format!(
-            "multiple verified git checkouts match {name} {version} at {short_rev}"
+            "multiple local registry directories match {name} {version} for {source_url}"
         ));
     }
-    if unverified_candidate {
+    if unverifiable {
         return ResolveOutcome::Unresolved(format!(
-            "git checkout at {short_rev} lacks verifiable full commit SHA (.git/HEAD or .cargo-vcs-info.json)"
+            "local cache for {name} {version} could not be verified against registry {source_url}"
         ));
     }
     ResolveOutcome::NotCached
@@ -373,13 +233,10 @@ pub(super) fn resolve_path_crate(
     name: &str,
     version: &str,
 ) -> ResolveOutcome {
-    let (hits, exhausted) = find_verified_crates_under(lockfile_dir, repo_canon, name, version, 3);
-    if exhausted {
-        return ResolveOutcome::BudgetExhausted(format!(
-            "directory scan budget exceeded under {}",
-            lockfile_dir.display()
-        ));
-    }
+    let hits = match find_verified_crates_under(lockfile_dir, repo_canon, name, version, 3) {
+        SearchResult::Matches(m) => m,
+        SearchResult::BudgetExhausted(msg) => return ResolveOutcome::BudgetExhausted(msg),
+    };
     if hits.len() == 1 {
         return ResolveOutcome::Found(hits.into_iter().next().unwrap());
     }
@@ -391,13 +248,13 @@ pub(super) fn resolve_path_crate(
     ResolveOutcome::NotCached
 }
 
-fn find_verified_crates_under(
+pub(super) fn find_verified_crates_under(
     root: &Path,
     boundary: &Path,
     crate_name: &str,
     expected_version: &str,
     max_depth: usize,
-) -> (Vec<VerifiedDir>, bool) {
+) -> SearchResult {
     let mut queue: Vec<(PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
     let mut visited = 0_usize;
     let mut matches = Vec::new();
@@ -405,13 +262,15 @@ fn find_verified_crates_under(
         let Some(canon_dir) = contained_canonical(&dir, boundary) else {
             continue;
         };
-        if let Some(verified) =
-            verify_manifest_identity(&canon_dir, boundary, crate_name, expected_version)
-        {
-            matches.push(verified);
-            if matches.len() > 1 {
-                return (matches, false);
+        match verify_manifest_identity(&canon_dir, boundary, crate_name, expected_version) {
+            VerifyResult::Matched(verified) => {
+                matches.push(verified);
+                if matches.len() > 1 {
+                    return SearchResult::Matches(matches);
+                }
             }
+            VerifyResult::NotMatched => {}
+            VerifyResult::BudgetExhausted(msg) => return SearchResult::BudgetExhausted(msg),
         }
         if depth >= max_depth {
             continue;
@@ -423,7 +282,10 @@ fn find_verified_crates_under(
         for entry in entries.flatten() {
             visited += 1;
             if visited > MAX_SCAN_ENTRIES {
-                return (matches, true);
+                return SearchResult::BudgetExhausted(format!(
+                    "directory scan budget exceeded under {}",
+                    root.display()
+                ));
             }
             if entry
                 .file_type()
@@ -438,5 +300,5 @@ fn find_verified_crates_under(
             queue.push((c, depth + 1));
         }
     }
-    (matches, false)
+    SearchResult::Matches(matches)
 }

@@ -223,3 +223,104 @@ test("polyglot audit boundary: sibling graft-tools/*.ts is indexed and existing-
   const py = audit.skipped.find((s) => s.extension === ".py");
   assert.equal(py?.reason, "unindexed_supported");
 });
+
+test("registry full-URL verification, git origin preservation across fallback, oversized manifest, lockfile budget and init --no-build without graph", () => {
+  const base = mkdtempSync(join(tmpdir(), "gg-hardening-extra-"));
+  const repo = join(base, "repo");
+  const ch = join(base, "cargo");
+  mkdirSync(repo, { recursive: true });
+
+  // 1. Custom registry same-host different-path (/team-a vs /team-b) + malformed URL
+  const privSrc = join(ch, "registry/src/reg.example.com-abc/priv-1.0.0");
+  mkdirSync(privSrc, { recursive: true });
+  writeFileSync(join(privSrc, "Cargo.toml"), '[package]\nname = "priv"\nversion = "1.0.0"\n');
+  const idxGit = join(ch, "registry/index/reg.example.com-abc/.git");
+  mkdirSync(idxGit, { recursive: true });
+  writeFileSync(join(idxGit, "config"), '[remote "origin"]\n\turl = https://reg.example.com/team-b/index\n');
+
+  const unvSrc = join(ch, "registry/src/reg.example.com-unv/unv-1.0.0");
+  mkdirSync(unvSrc, { recursive: true });
+  writeFileSync(join(unvSrc, "Cargo.toml"), '[package]\nname = "unv"\nversion = "1.0.0"\n');
+
+  // 2. Oversized manifest (>256 KiB) must report budget_exhausted
+  const hugeDir = join(ch, "registry/src/index.crates.io-111/huge-1.0.0");
+  mkdirSync(hugeDir, { recursive: true });
+  writeFileSync(join(hugeDir, "Cargo.toml"), `[package]\nname = "huge"\nversion = "1.0.0"\n${"#".repeat(270 * 1024)}\n`);
+
+  // 3. Git checkout with conflicting origin + broken HEAD + matching .cargo-vcs-info.json
+  const gitDir = join(ch, "git/checkouts/same-slug-999/abcdef1");
+  mkdirSync(join(gitDir, ".git"), { recursive: true });
+  writeFileSync(join(gitDir, ".git/config"), '[remote "origin"]\n\turl = https://evil.example.com/same-slug\n');
+  writeFileSync(join(gitDir, ".git/HEAD"), "ref: refs/heads/missing\n");
+  writeFileSync(join(gitDir, ".cargo-vcs-info.json"), '{"git":{"sha1":"abcdef1234567890abcdef1234567890abcdef12"}}');
+  writeFileSync(join(gitDir, "Cargo.toml"), '[package]\nname = "conflict-git"\nversion = "0.1.0"\n');
+
+  writeFileSync(
+    join(repo, "Cargo.lock"),
+    [
+      "version = 4",
+      "[[package]]",
+      'name = "priv"',
+      'version = "1.0.0"',
+      'source = "registry+https://reg.example.com/team-a/index"',
+      "[[package]]",
+      'name = "unv"',
+      'version = "1.0.0"',
+      'source = "registry+https://reg.example.com/team-a/index"',
+      "[[package]]",
+      'name = "badurl"',
+      'version = "1.0.0"',
+      'source = "registry+not-a-url"',
+      "[[package]]",
+      'name = "huge"',
+      'version = "1.0.0"',
+      'source = "registry+https://github.com/rust-lang/crates.io-index"',
+      "[[package]]",
+      'name = "conflict-git"',
+      'version = "0.1.0"',
+      'source = "git+https://trusted.example.com/same-slug#abcdef1234567890abcdef1234567890abcdef12"',
+    ].join("\n"),
+  );
+
+  assert.equal(resolveCrateSource({ crateName: "priv", repo, cargoHome: ch }).matches[0].status, "not_cached");
+  const unv = resolveCrateSource({ crateName: "unv", repo, cargoHome: ch }).matches[0];
+  assert.equal(unv.status, "unresolved");
+  assert.equal(unv.path, undefined);
+  const bad = resolveCrateSource({ crateName: "badurl", repo, cargoHome: ch }).matches[0];
+  assert.equal(bad.status, "unresolved");
+  assert.equal(bad.path, undefined);
+  assert.equal(resolveCrateSource({ crateName: "huge", repo, cargoHome: ch }).matches[0].status, "budget_exhausted");
+  assert.equal(resolveCrateSource({ crateName: "conflict-git", repo, cargoHome: ch }).matches[0].status, "not_cached");
+
+  // Matching full URL resolves found
+  writeFileSync(join(idxGit, "config"), '[remote "origin"]\n\turl = https://reg.example.com/team-a/index.git\n');
+  assert.equal(resolveCrateSource({ crateName: "priv", repo, cargoHome: ch }).matches[0].status, "found");
+
+  // 4. Partial lockfile scan exhaustion (>16 lockfiles) throws budget error
+  const manyLocks = join(base, "many-locks");
+  for (let i = 0; i < 18; i++) {
+    const sub = join(manyLocks, `p${i}`);
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, "Cargo.lock"), 'version = 4\n[[package]]\nname = "a"\nversion = "1.0.0"\n');
+  }
+  assert.throws(() => resolveCrateSource({ crateName: "a", repo: manyLocks, cargoHome: ch }), /budget exceeded/);
+
+  // 5. init --no-build with no existing graph reports eligible source files as unindexed_supported
+  const unbuilt = join(base, "unbuilt-repo");
+  mkdirSync(join(unbuilt, "src"), { recursive: true });
+  writeFileSync(join(unbuilt, "src/main.ts"), "export const v = 1;\n");
+  const emptyAudit = auditPolyglotRepo(unbuilt, undefined, { indexedFiles: [] });
+  assert.equal(emptyAudit.detected.length, 0);
+  assert.equal(emptyAudit.skipped.find((s) => s.extension === ".ts")?.reason, "unindexed_supported");
+
+  // 6. Unix FIFO manifest fails immediately without blocking
+  if (process.platform !== "win32") {
+    const fifoRepo = join(base, "fifo-repo");
+    const pkgDir = join(fifoRepo, "crates/fifo-pkg");
+    mkdirSync(pkgDir, { recursive: true });
+    writeFileSync(join(fifoRepo, "Cargo.lock"), 'version = 4\n[[package]]\nname = "fifo-pkg"\nversion = "0.1.0"\n');
+    const mk = spawnSync("mkfifo", [join(pkgDir, "Cargo.toml")]);
+    assert.equal(mk.status, 0);
+    assert.equal(resolveCrateSource({ crateName: "fifo-pkg", repo: fifoRepo, cargoHome: ch }).matches[0].status, "not_cached");
+  }
+});

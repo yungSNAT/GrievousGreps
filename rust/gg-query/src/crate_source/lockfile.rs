@@ -1,15 +1,12 @@
-//! Bounded, handle-based `Cargo.lock` and `Cargo.toml` readers for `crate-source`.
-//!
-//! Assumes a stable repository/cache tree during a single CLI invocation; all
-//! file reads open a regular-file handle and cap bytes via `Read::take(limit + 1)`.
+//! Bounded, handle-based `Cargo.lock` discovery and strict TOML parsing.
 
 use std::collections::HashSet;
-use std::fs::{self, File};
-use std::io::Read;
+use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::manifest::{ReadFileError, read_bounded_regular_file};
+
 pub(super) const MAX_LOCKFILE_BYTES: u64 = 16 * 1024 * 1024;
-pub(super) const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 pub(super) const MAX_LOCKFILES: usize = 16;
 pub(super) const MAX_SCAN_DEPTH: usize = 2;
 pub(super) const MAX_SCAN_ENTRIES: usize = 512;
@@ -31,39 +28,10 @@ pub(super) struct LockPackage {
     pub source: Option<String>,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct ManifestIdentity {
-    pub name: String,
-    pub version: Option<String>,
-    pub workspace_version: bool,
-}
-
 pub(super) fn contained_canonical(candidate: &Path, boundary: &Path) -> Option<PathBuf> {
     let canon_bound = fs::canonicalize(boundary).ok()?;
     let canon_cand = fs::canonicalize(candidate).ok()?;
     canon_cand.starts_with(&canon_bound).then_some(canon_cand)
-}
-
-/// Open a regular file by handle and read at most `max_bytes` UTF-8 bytes.
-pub(super) fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> Result<String, String> {
-    let file = File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
-    let meta = file
-        .metadata()
-        .map_err(|e| format!("cannot stat {}: {e}", path.display()))?;
-    if !meta.is_file() {
-        return Err(format!("{} is not a regular file", path.display()));
-    }
-    let mut buf = Vec::new();
-    file.take(max_bytes.saturating_add(1))
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    if (buf.len() as u64) > max_bytes {
-        return Err(format!(
-            "{} exceeds {max_bytes} byte safety cap",
-            path.display()
-        ));
-    }
-    String::from_utf8(buf).map_err(|e| format!("{} is not valid UTF-8: {e}", path.display()))
 }
 
 pub(super) fn discover_lockfiles(
@@ -107,14 +75,14 @@ pub(super) fn discover_lockfiles(
         &mut visited,
         &mut exhausted,
     );
+    if exhausted {
+        return Err(format!(
+            "lockfile scan budget exceeded under {}",
+            repo_canon.display()
+        ));
+    }
     found.sort();
     if found.is_empty() {
-        if exhausted {
-            return Err(format!(
-                "lockfile scan budget exceeded under {}",
-                repo_canon.display()
-            ));
-        }
         return Err(format!(
             "no Cargo.lock found under {}",
             repo_canon.display()
@@ -131,7 +99,7 @@ fn scan_lockfiles(
     visited: &mut usize,
     exhausted: &mut bool,
 ) {
-    if depth > MAX_SCAN_DEPTH || out.len() >= MAX_LOCKFILES {
+    if depth > MAX_SCAN_DEPTH || *exhausted {
         return;
     }
     let Ok(entries) = fs::read_dir(dir) else {
@@ -155,10 +123,11 @@ fn scan_lockfiles(
         let path = entry.path();
         if ft.is_file() && name_str == "Cargo.lock" {
             if let Some(canon) = contained_canonical(&path, repo_canon) {
-                out.push(canon);
                 if out.len() >= MAX_LOCKFILES {
+                    *exhausted = true;
                     return;
                 }
+                out.push(canon);
             }
         } else if ft.is_dir() && !SKIP_DIRS.contains(&name_str.as_ref()) {
             subdirs.push(path);
@@ -167,7 +136,7 @@ fn scan_lockfiles(
     subdirs.sort();
     for sub in subdirs {
         scan_lockfiles(repo_canon, &sub, depth + 1, out, visited, exhausted);
-        if *exhausted || out.len() >= MAX_LOCKFILES {
+        if *exhausted {
             return;
         }
     }
@@ -260,6 +229,44 @@ pub(super) fn parse_toml_string_strict(raw: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// Decode a bare or quoted TOML key, failing closed on invalid key syntax.
+fn parse_toml_key_strict(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("empty key in TOML".to_string());
+    }
+    if trimmed.starts_with('"') || trimmed.starts_with('\'') {
+        return parse_toml_string_strict(trimmed);
+    }
+    if trimmed
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Ok(trimmed.to_string());
+    }
+    Err(format!("invalid TOML key \"{trimmed}\""))
+}
+
+fn split_toml_key_val(line: &str) -> Option<(&str, &str)> {
+    let mut in_double = false;
+    let mut in_single = false;
+    let mut escape = false;
+    for (idx, ch) in line.char_indices() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_double => escape = true,
+            '"' if !in_single => in_double = !in_double,
+            '\'' if !in_double => in_single = !in_single,
+            '=' if !in_double && !in_single => return Some((&line[..idx], &line[idx + 1..])),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn flush_pkg(
     packages: &mut Vec<LockPackage>,
     name: &mut Option<String>,
@@ -304,7 +311,8 @@ fn array_bracket_delta(line: &str) -> isize {
 }
 
 pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> {
-    let text = read_bounded_regular_file(path, MAX_LOCKFILE_BYTES)?;
+    let text =
+        read_bounded_regular_file(path, MAX_LOCKFILE_BYTES).map_err(ReadFileError::into_string)?;
     let mut packages = Vec::new();
     let mut in_pkg = false;
     let mut cur_name: Option<String> = None;
@@ -347,15 +355,15 @@ pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> 
         if !in_pkg {
             continue;
         }
-        if let Some((raw_key, raw_val)) = stripped.split_once('=') {
-            let key = raw_key.trim();
-            if !seen_keys.insert(key.to_string()) {
+        if let Some((raw_key, raw_val)) = split_toml_key_val(stripped) {
+            let key = parse_toml_key_strict(raw_key)?;
+            if !seen_keys.insert(key.clone()) {
                 return Err(format!(
                     "duplicate key \"{key}\" in [[package]] table in {}",
                     path.display()
                 ));
             }
-            match key {
+            match key.as_str() {
                 "name" => cur_name = Some(parse_toml_string_strict(raw_val)?),
                 "version" => cur_ver = Some(parse_toml_string_strict(raw_val)?),
                 "source" => cur_src = Some(parse_toml_string_strict(raw_val)?),
@@ -373,111 +381,4 @@ pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> 
         &mut seen_keys,
     );
     Ok(packages)
-}
-
-fn is_workspace_version_inline(raw_val: &str) -> bool {
-    let s = strip_toml_comment(raw_val).trim();
-    if !(s.starts_with('{') && s.ends_with('}')) {
-        return false;
-    }
-    let inner = &s[1..s.len() - 1];
-    inner.split(',').any(|part| {
-        part.split_once('=')
-            .is_some_and(|(k, v)| k.trim() == "workspace" && v.trim() == "true")
-    })
-}
-
-/// Parse `[package]` `name` and `version` (including `version.workspace = true`)
-/// from a bounded regular `Cargo.toml` file.
-pub(super) fn read_manifest_identity(manifest: &Path) -> Result<Option<ManifestIdentity>, String> {
-    let text = read_bounded_regular_file(manifest, MAX_MANIFEST_BYTES)?;
-    let mut section = String::new();
-    let mut name: Option<String> = None;
-    let mut version: Option<String> = None;
-    let mut workspace_version = false;
-
-    for raw_line in text.lines() {
-        let stripped = strip_toml_comment(raw_line);
-        if stripped.is_empty() {
-            continue;
-        }
-        if stripped.starts_with('[') && stripped.ends_with(']') {
-            section = stripped[1..stripped.len() - 1].trim().to_string();
-            continue;
-        }
-        let Some((raw_k, raw_v)) = stripped.split_once('=') else {
-            continue;
-        };
-        let k = raw_k.trim();
-        let v = raw_v.trim();
-        if section == "package" {
-            if k == "name" {
-                name = parse_toml_string_strict(v).ok();
-            } else if k == "version" {
-                if is_workspace_version_inline(v) {
-                    workspace_version = true;
-                } else {
-                    version = parse_toml_string_strict(v).ok();
-                }
-            } else if k == "version.workspace" && v == "true" {
-                workspace_version = true;
-            }
-        } else if section == "package.version" && k == "workspace" && v == "true" {
-            workspace_version = true;
-        }
-    }
-
-    Ok(name.map(|n| ManifestIdentity {
-        name: n,
-        version,
-        workspace_version,
-    }))
-}
-
-/// Resolve `[workspace.package] version = "..."` by walking up from `crate_dir`
-/// without escaping `boundary`.
-pub(super) fn resolve_workspace_version(crate_dir: &Path, boundary: &Path) -> Option<String> {
-    let canon_bound = fs::canonicalize(boundary).ok()?;
-    let mut cur = fs::canonicalize(crate_dir).ok()?;
-    for _ in 0..8 {
-        if !cur.starts_with(&canon_bound) {
-            break;
-        }
-        let manifest = cur.join("Cargo.toml");
-        if let Some(canon_m) = contained_canonical(&manifest, &canon_bound)
-            && let Ok(text) = read_bounded_regular_file(&canon_m, MAX_MANIFEST_BYTES)
-            && let Some(ver) = extract_workspace_package_version(&text)
-        {
-            return Some(ver);
-        }
-        if cur == canon_bound {
-            break;
-        }
-        let Some(parent) = cur.parent() else {
-            break;
-        };
-        cur = parent.to_path_buf();
-    }
-    None
-}
-
-fn extract_workspace_package_version(text: &str) -> Option<String> {
-    let mut in_ws_pkg = false;
-    for raw_line in text.lines() {
-        let stripped = strip_toml_comment(raw_line);
-        if stripped.is_empty() {
-            continue;
-        }
-        if stripped.starts_with('[') && stripped.ends_with(']') {
-            in_ws_pkg = stripped[1..stripped.len() - 1].trim() == "workspace.package";
-            continue;
-        }
-        if in_ws_pkg
-            && let Some((k, v)) = stripped.split_once('=')
-            && k.trim() == "version"
-        {
-            return parse_toml_string_strict(v).ok();
-        }
-    }
-    None
 }
