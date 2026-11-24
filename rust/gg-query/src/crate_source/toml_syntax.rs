@@ -437,7 +437,6 @@ pub(super) fn parse_toml_document(text: &str) -> Result<Vec<ParsedEntry>, ReadFi
     let mut parser = Parser::new(text);
     let mut root: BTreeMap<String, EntryKind> = BTreeMap::new();
     let mut active_ptr: Vec<(String, Option<usize>)> = Vec::new();
-    let mut active_kind = HeaderKind::Table;
     let mut active_path: Vec<String> = Vec::new();
     let mut entries = Vec::new();
 
@@ -449,7 +448,6 @@ pub(super) fn parse_toml_document(text: &str) -> Result<Vec<ParsedEntry>, ReadFi
         if parser.peek() == Some(b'[') {
             let (kind, path) = parser.parse_header()?;
             active_ptr = open_table_path(&mut root, &path, &kind)?;
-            active_kind = kind;
             active_path = path;
             continue;
         }
@@ -467,10 +465,15 @@ pub(super) fn parse_toml_document(text: &str) -> Result<Vec<ParsedEntry>, ReadFi
         let cur_tbl = current_table_mut(&mut root, &active_ptr)?;
         insert_dotted_key(cur_tbl, &key_path, is_inline)?;
 
+        let in_array_table = active_ptr.iter().any(|(_, idx)| idx.is_some());
         let mut full_path = active_path.clone();
         full_path.extend(key_path);
         entries.push(ParsedEntry {
-            header_kind: active_kind.clone(),
+            header_kind: if in_array_table {
+                HeaderKind::ArrayTable
+            } else {
+                HeaderKind::Table
+            },
             full_path,
             value,
         });

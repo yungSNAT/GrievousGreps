@@ -175,9 +175,12 @@ fn duplicate_keys_invalid_escapes_and_bad_inline_tables_in_nearer_workspace_fail
     for bad_ws in [
         "[workspace]\nresolver = \"2\"\nresolver = \"3\"\n",
         "[workspace]\ndesc = \"bad \\q escape\"\n",
+        "[workspace]\ndesc = \"\\u000é\"\n",
+        "[workspace]\nx = 123456789é1234567890\n",
         "[workspace]\nmeta = { a = 1, }\n",
         "[workspace]\nmeta = { a = 1\nb = 2 }\n",
         "[workspace]\nmembers = [\"a\" \"b\"]\n",
+        "[workspace]\npackage = { version = 123 }\n",
     ] {
         fs::write(repo.join("sub/Cargo.toml"), bad_ws).unwrap();
         let (ok, json) = run_crate_source_json("ws-member", &repo, &ch);
@@ -185,4 +188,54 @@ fn duplicate_keys_invalid_escapes_and_bad_inline_tables_in_nearer_workspace_fail
         assert_eq!(json["matches"][0]["status"], "unresolved");
         assert!(json["matches"][0].get("path").is_none());
     }
+}
+
+#[test]
+fn array_table_ancestor_spoof_rejected_whilst_dotted_subtable_and_inline_workspace_package_work() {
+    let tmp = tempdir().unwrap();
+    let ch = tmp.path().join("cargo");
+
+    // Negative: [[workspace]] followed by [workspace.package] is inside an array-of-tables ancestor
+    let repo_anc = tmp.path().join("arr-ancestor");
+    fs::create_dir_all(repo_anc.join("crates/anc")).unwrap();
+    fs::write(
+        repo_anc.join("Cargo.toml"),
+        "[[workspace]]\n[workspace.package]\nversion = \"2.0.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        repo_anc.join("crates/anc/Cargo.toml"),
+        "[package]\nname = \"anc\"\nversion.workspace = true\n",
+    )
+    .unwrap();
+    fs::write(
+        repo_anc.join("Cargo.lock"),
+        "version = 4\n[[package]]\nname = \"anc\"\nversion = \"2.0.0\"\n",
+    )
+    .unwrap();
+    let (ok_anc, j_anc) = run_crate_source_json("anc", &repo_anc, &ch);
+    assert!(!ok_anc);
+    assert_eq!(j_anc["matches"][0]["status"], "not_cached");
+
+    // Positive: dotted key table extended by sub-table + inline [workspace] package = { version = "..." }
+    let repo_ok = tmp.path().join("dotted-inline-ok");
+    fs::create_dir_all(repo_ok.join("crates/good")).unwrap();
+    fs::write(
+        repo_ok.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"crates/good\"]\npackage = { version = \"4.2.0\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        repo_ok.join("crates/good/Cargo.toml"),
+        "[package]\nname = \"good\"\nversion.workspace = true\nmetadata.docs.rs.all-features = true\n\n[package.metadata.deb]\nmaintainer = \"ok\"\n",
+    )
+    .unwrap();
+    fs::write(
+        repo_ok.join("Cargo.lock"),
+        "version = 4\n[[package]]\nname = \"good\"\nversion = \"4.2.0\"\n",
+    )
+    .unwrap();
+    let (ok_good, j_good) = run_crate_source_json("good", &repo_ok, &ch);
+    assert!(ok_good);
+    assert_eq!(j_good["matches"][0]["status"], "found");
 }

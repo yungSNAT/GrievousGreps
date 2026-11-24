@@ -59,13 +59,12 @@ pub(super) fn parse_escape_at(src: &str, pos: &mut usize) -> Result<char, ReadFi
         }
     };
     let end = *pos + hex_len;
-    if end > bytes.len() {
-        return Err(syntax_err("truncated unicode escape in Cargo.toml"));
+    if end > bytes.len() || !bytes[*pos..end].iter().all(u8::is_ascii_hexdigit) {
+        return Err(syntax_err(
+            "invalid or truncated unicode escape in Cargo.toml",
+        ));
     }
     let hex = &src[*pos..end];
-    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(syntax_err("invalid unicode escape in Cargo.toml"));
-    }
     *pos = end;
     let code = u32::from_str_radix(hex, 16)
         .map_err(|_| syntax_err("invalid unicode escape in Cargo.toml"))?;
@@ -205,6 +204,9 @@ fn is_valid_offset(s: &str) -> bool {
 }
 
 pub(super) fn is_valid_datetime(tok: &str) -> bool {
+    if !tok.is_ascii() {
+        return false;
+    }
     if is_valid_date(tok) || is_valid_time(tok) {
         return true;
     }
@@ -237,7 +239,9 @@ pub(super) fn open_table_path(
             .entry(seg.clone())
             .or_insert_with(|| EntryKind::ImplicitTable(BTreeMap::new()));
         match entry {
-            EntryKind::ImplicitTable(m) | EntryKind::ExplicitTable(m) => {
+            EntryKind::ImplicitTable(m)
+            | EntryKind::ExplicitTable(m)
+            | EntryKind::DottedTable(m) => {
                 ptr.push((seg.clone(), None));
                 cur = m;
             }
@@ -248,7 +252,7 @@ pub(super) fn open_table_path(
                 ptr.push((seg.clone(), Some(idx)));
                 cur = &mut arr[idx];
             }
-            EntryKind::Value | EntryKind::InlineTable | EntryKind::DottedTable(_) => {
+            EntryKind::Value | EntryKind::InlineTable => {
                 return Err(syntax_err(format!(
                     "cannot extend non-table key \"{seg}\" in Cargo.toml"
                 )));
@@ -300,9 +304,11 @@ pub(super) fn current_table_mut<'a>(
 ) -> Result<&'a mut BTreeMap<String, EntryKind>, ReadFileError> {
     for (seg, arr_idx) in ptr {
         match cur.get_mut(seg) {
-            Some(EntryKind::ImplicitTable(m) | EntryKind::ExplicitTable(m))
-                if arr_idx.is_none() =>
-            {
+            Some(
+                EntryKind::ImplicitTable(m)
+                | EntryKind::ExplicitTable(m)
+                | EntryKind::DottedTable(m),
+            ) if arr_idx.is_none() => {
                 cur = m;
             }
             Some(EntryKind::ArrayOfTables(arr)) if arr_idx.is_some() => {

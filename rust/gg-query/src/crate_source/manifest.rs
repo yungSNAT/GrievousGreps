@@ -76,10 +76,31 @@ pub(super) fn read_bounded_regular_file(
         .map_err(|e| ReadFileError::Other(format!("{} is not valid UTF-8: {e}", path.display())))
 }
 
+fn lookup_inline_path<'a>(
+    pairs: &'a [(Vec<String>, TomlValue)],
+    target: &[&str],
+) -> Option<&'a TomlValue> {
+    for (key, val) in pairs {
+        let k: Vec<&str> = key.iter().map(String::as_str).collect();
+        if k.as_slice() == target {
+            return Some(val);
+        }
+        if target.len() > k.len()
+            && target[..k.len()] == k[..]
+            && let TomlValue::InlineTable(inner) = val
+            && let Some(found) = lookup_inline_path(inner, &target[k.len()..])
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
 fn is_inline_workspace_true(pairs: &[(Vec<String>, TomlValue)]) -> bool {
-    pairs
-        .iter()
-        .any(|(k, v)| k.len() == 1 && k[0] == "workspace" && matches!(v, TomlValue::Bool(true)))
+    matches!(
+        lookup_inline_path(pairs, &["workspace"]),
+        Some(TomlValue::Bool(true))
+    )
 }
 
 /// Parse `[package]` `name` and `version` (including `version.workspace = true`),
@@ -130,15 +151,26 @@ pub(super) fn read_manifest_identity(
 
 fn extract_workspace_package_version(text: &str) -> Result<Option<String>, ReadFileError> {
     let entries = parse_toml_document(text)?;
+    let target = ["workspace", "package", "version"];
     let mut found: Option<String> = None;
     for entry in entries {
         if entry.header_kind != HeaderKind::Table {
             continue;
         }
         let path: Vec<&str> = entry.full_path.iter().map(String::as_str).collect();
-        if path.as_slice() == ["workspace", "package", "version"] {
-            match entry.value {
-                TomlValue::Str(s) => found = Some(s),
+        let ver_val = if path.as_slice() == target {
+            Some(&entry.value)
+        } else if path.len() < target.len() && target[..path.len()] == path[..] {
+            match &entry.value {
+                TomlValue::InlineTable(pairs) => lookup_inline_path(pairs, &target[path.len()..]),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(v) = ver_val {
+            match v {
+                TomlValue::Str(s) => found = Some(s.clone()),
                 _ => {
                     return Err(ReadFileError::Other(
                         "invalid non-string workspace.package.version".to_string(),
