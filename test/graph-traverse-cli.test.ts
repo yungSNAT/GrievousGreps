@@ -315,13 +315,22 @@ test('referenceLine: a regex literal, a Go raw string ending in a backslash and 
   }
   // A boolean attribute named like a keyword (`<Fade in />`) ends the tag; after the same word outside a tag, `/>` opens a regex.
   assert.equal(at('a.js', 'function F() {\n  return <Fade in /><B onClick={install} />;\n}'), 2);
-  assert.equal(at('a.js', 'function f(s) {\n  return />/.test(s) && install("/");\n}'), 2);
-  // A regex may follow a block's `}`; after an expression's `}` (an attribute, JSX text) the `/` divides or closes a tag.
+  assert.equal(at('a.js', 'function F() {\n  return <Fade onExit={() => go()} in /><B onClick={install} />;\n}'), 2);
+  for (const path of ['a.js', 'a.ts']) {
+    assert.equal(at(path, 'function f(s) {\n  return />/.test(s) && install("/");\n}'), 2, path);
+    assert.equal(at(path, 'function f(s) {\n  while (a<b && c) return />/.test(s) && install("/");\n}'), 2, path);
+  }
+  // A regex may follow a one-line block's `}`; after an expression's `}` (an attribute, JSX text) the `/` divides or closes a tag.
   for (const path of ['a.ts', 'a.js']) {
     assert.equal(at(path, 'function f(s) {\n  if (ok) { done(); } /"/.test(s) || install();\n}'), 2, path);
     assert.equal(at(path, 'function f(s) {\n  try { done(); } finally { end(); } /"/.test(s) || install();\n}'), 2, path);
   }
-  assert.equal(at('a.js', 'function F() {\n  return <p>{a} / {install()}</p>;\n}'), 2);
+  for (const path of ['a.js', 'a.jsx', 'a.tsx']) {
+    assert.equal(at(path, 'function F() {\n  return <p>{a} / {install()}</p>;\n}'), 2, path);
+    assert.equal(at(path, 'function F() {\n  return <span>&nbsp;{done} / {install(total)}</span>;\n}'), 2, path);
+    assert.equal(at(path, 'function F() {\n  return <p>Total (AUD) {amount} / {install(n)}</p>;\n}'), 2, path);
+    assert.equal(at(path, 'function F() {\n  return <p>or else {n} / {install(m)}</p>;\n}'), 2, path);
+  }
   assert.equal(at('a.ts', 'function f() {\n  const o = { a: 1 }; x = { b: 2 } / "/"; install();\n}'), 2);
   // A Go raw string has no escapes: a backslash before its backtick does not keep it open.
   assert.equal(at('a.go', 'func f() {\n\ts := `C:\\`\n\tinstall()\n}'), 3);

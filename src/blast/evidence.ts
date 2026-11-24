@@ -127,7 +127,7 @@ export function opensQuote(text: string, i: number, rust: boolean): boolean {
 }
 
 /** How a file writes comments, by its extension, as blast's `codeLines` reads them. */
-interface Syntax { slash: boolean; dash: boolean; hash: boolean; rust: boolean; go: boolean; js: boolean; jsx: boolean }
+interface Syntax { slash: boolean; dash: boolean; hash: boolean; rust: boolean; go: boolean; js: boolean; jsx: boolean; ts: boolean }
 
 const JS_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts"]);
 
@@ -136,7 +136,7 @@ export function syntaxOf(path: string): Syntax {
   const hash = HASH_COMMENTS.has(ext);
   const dash = DASH_COMMENTS.has(ext);
   const js = JS_EXTENSIONS.has(ext);
-  return { hash, dash, slash: ext === "php" || (!hash && !dash), rust: ext === "rs", go: ext === "go", js, jsx: ext === "jsx" || ext === "tsx" };
+  return { hash, dash, slash: ext === "php" || (!hash && !dash), rust: ext === "rs", go: ext === "go", js, jsx: ext === "jsx" || ext === "tsx", ts: ext === "ts" || ext === "mts" || ext === "cts" };
 }
 
 /** Where the string or block comment `open` closes at or after `i` (past its last character), or -1 when it runs past
@@ -162,19 +162,20 @@ const BEFORE_REGEX = new Set(["return", "typeof", "case", "do", "else", "in", "o
 /** Where a JavaScript regex literal starting at `text[i]` ends, past its flags, or -1 when the `/` divides the value
  * before it (a name, a number, a string or a closing bracket), closes a JSX tag (`</td>`, `{x} />`) or the line ends
  * first. A `/>` starting a line ends a multi-line tag; elsewhere only a `.jsx` or `.tsx` file reads every `/>` as a
- * tag's end, and other files read `/>/` as a regex unless a keyword before it is a tag's attribute (`<Fade in />`).
- * After a block's `}` (`if (ok) { … } /re/`) a regex may start; after an expression's `}` the `/` divides. */
-function regexEnd(text: string, i: number, jsx: boolean): number {
+ * tag's end, and other files read `/>/` as a regex unless, in a file that can hold JSX, a keyword before it is an
+ * attribute of a tag open on the line (`<Fade in />`). After a one-line block's `}` (`if (ok) { … } /re/`) a regex may
+ * start; after any other `}` the `/` divides. */
+function regexEnd(text: string, i: number, syntax: Syntax): number {
   let k = i - 1;
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
-  if (text[i + 1] === ">" && (jsx || k < 0)) return -1;
+  if (text[i + 1] === ">" && (syntax.jsx || k < 0)) return -1;
   if (text[k] === "<") return -1;
   if (text[k] === "}" ? !endsBlock(text, k) : k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
     let s = k;
     while (s > 0 && /[\w$]/.test(text[s - 1])) s--;
     if (!BEFORE_REGEX.has(text.slice(s, k + 1))) return -1;
-    // A keyword-named boolean attribute: the `/>` closes the tag it sits in.
-    if (text[i + 1] === ">" && /<[A-Za-z_$][\w$.:-]*\s[^<>]*$/.test(text.slice(0, s))) return -1;
+    // A keyword-named boolean attribute: the `/>` closes the tag it sits in. TypeScript files hold no JSX.
+    if (text[i + 1] === ">" && !syntax.ts && inTag(text.slice(0, s))) return -1;
   }
   let inClass = false;
   let j = i + 1;
@@ -193,16 +194,42 @@ function regexEnd(text: string, i: number, jsx: boolean): number {
   return -1;
 }
 
-/** Whether the `}` at `text[k]` closes a statement block: its `{` is on the same line, after a `)` (`if (…)`, `for (…)`),
- * a `;` or `else`, `do`, `try` or `finally`. An object literal, a JSX attribute or child, or a `{` on an earlier line is
- * read as an expression. */
+/** Whether a line's text ends inside an open JSX tag: `<` and a tag name, then attributes with no `>` (a `{…}` value
+ * may hold one). A `<` straight after a value (`a<b`) compares; after a keyword (`return<A`) it opens a tag. */
+function inTag(prefix: string): boolean {
+  let p = prefix;
+  for (let q = ""; q !== p; ) [q, p] = [p, p.replace(/\{[^{}]*\}/g, "")];
+  const m = /<[A-Za-z_$][\w$.:-]*\s[^<>]*$/.exec(p);
+  if (!m) return false;
+  const before = p.slice(0, m.index).trimEnd();
+  return !/[\w$)\]]$/.test(before) || BEFORE_REGEX.has(/[\w$]+$/.exec(before)?.[0] ?? "");
+}
+
+/** The index of the `(` matching the `)` at `text[k]`, or -1. */
+function openParen(text: string, k: number): number {
+  let depth = 0;
+  for (let o = k; o >= 0; o--) {
+    if (text[o] === ")") depth++;
+    else if (text[o] === "(" && --depth === 0) return o;
+  }
+  return -1;
+}
+
+/** Whether the `}` at `text[k]` closes a statement block whose `{` is on the same line: after `if (…)`, `for (…)`,
+ * `while (…)`, `switch (…)`, `catch (…)` or `with (…)`, or after an `else`, `do`, `try` or `finally` that starts a
+ * statement. Anything else (an object literal, a JSX attribute or child, a class body, a `{` on an earlier line) is read
+ * as an expression. Braces are counted in the raw line, so one inside an earlier string can mislead it. */
 function endsBlock(text: string, k: number): boolean {
   let depth = 0;
   for (let o = k; o >= 0; o--) {
     if (text[o] === "}") depth++;
     else if (text[o] === "{" && --depth === 0) {
       const before = text.slice(0, o).trimEnd();
-      return /(?:[);]|\b(?:else|do|try|finally))$/.test(before);
+      if (before.endsWith(")")) {
+        const open = openParen(before, before.length - 1);
+        return open >= 0 && /\b(?:if|for|while|switch|catch|with)$/.test(before.slice(0, open).trimEnd());
+      }
+      return /(?:^|[{};])\s*(?:else|do|try|finally)$/.test(before);
     }
   }
   return false;
@@ -233,7 +260,7 @@ function codeOf(text: string, syntax: Syntax, open: string | null): { code: stri
     let from = i + 1;
     RUST_RAW.lastIndex = i;
     const raw = syntax.rust && /[bcr]/.test(ch) && !/\w/.test(text[i - 1] ?? "") ? RUST_RAW.exec(text) : null;
-    const regex = syntax.js && ch === "/" ? regexEnd(text, i, syntax.jsx) : -1;
+    const regex = syntax.js && ch === "/" ? regexEnd(text, i, syntax) : -1;
     // `\/*` is an escaped slash in a regex literal (`/\/*$/`), never a comment.
     if (syntax.slash && text.startsWith("/*", i) && text[i - 1] !== "\\") [open, from] = ["*/", i + 2];
     else if ((syntax.slash && text.startsWith("//", i)) || (syntax.dash && text.startsWith("--", i)) || (syntax.hash && ch === "#" && (i === 0 || /\s/.test(text[i - 1])))) break;
