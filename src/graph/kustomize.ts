@@ -150,7 +150,7 @@ function leafGeneratorEntry(dir: string, field: "configMapGenerator" | "secretGe
       const eq = raw.indexOf("=");
       if (eq === 0 || (eq > 0 && raw.indexOf("=", eq + 1) !== -1)) return false;
       const path = eq < 0 ? raw : raw.slice(eq + 1);
-      if (!path || path.endsWith("/") || path.includes("\\")) return false;
+      if (!path || path === "." || path === ".." || path.endsWith("/") || path.endsWith("/.") || path.includes("\\") || path.includes("\0")) return false;
       const local = local_(dir, path);
       if (local === null || local === "." || !(dir === "." || local.startsWith(`${dir}/`))) return false;
       const key = eq < 0 ? posix.basename(local) : raw.slice(0, eq);

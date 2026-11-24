@@ -8,8 +8,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildGraph } from "../src/graph/build.js";
 import { contextDirFor } from "../src/context/node-file.js";
+import { readGraph, wiringPath } from "../src/graph/write.js";
 import { DEPLOYMENT, everyFile, refs, resolveFiles, withBuild } from "./deploy-kustomize-fixtures.js";
 
 const CONFIGMAP = "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: app-config }\n";
@@ -209,6 +213,8 @@ test("only valid literals or existing local files with create behavior make a le
     "envs/present.env": "A=1\n",
     "badlit/kustomization.yaml": "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ bad ] } ]\n",
     "badlit/d.yaml": DEPLOYMENT,
+    "nulfile/kustomization.yaml": 'resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ "a\\0b" ] } ]\n',
+    "nulfile/d.yaml": DEPLOYMENT,
     "duplit/kustomization.yaml": "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ a=1, a=2 ] } ]\n",
     "duplit/d.yaml": DEPLOYMENT,
     // Merge or replace strategy disqualifies the leaf, whether its target is missing or present.
@@ -232,26 +238,49 @@ test("only valid literals or existing local files with create behavior make a le
     "filesok/d.yaml#Deployment/default/api -> filesok/kustomization.yaml#configMapGenerator:app-config",
     "secok/d.yaml#Deployment/default/api -> secok/kustomization.yaml#secretGenerator:creds",
   ]);
-  for (const k of ["missing", "dirfile", "outf/k", "dupkey", "envs", "badlit", "duplit", "mergemiss", "mergehit", "repmiss", "compfile"]) {
+  for (const k of ["missing", "dirfile", "outf/k", "dupkey", "envs", "badlit", "nulfile", "duplit", "mergemiss", "mergehit", "repmiss", "compfile"]) {
     assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), k);
   }
 });
 
-test("on disk, a directory in files: is refused and no file key or literal reaches the graph or caches", async () => {
+test("on disk, directories in files: (unindexed, non-manifest, empty) are refused and no file key or literal reaches the graph or caches", async () => {
   await withBuild({
     "dir/kustomization.yaml": "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ sub ] } ]\n",
     "dir/d.yaml": DEPLOYMENT,
-    "dir/sub/extra.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata: { name: other }\n",
+    "dir/sub/a.txt": "hello\n",
+    "nonman/kustomization.yaml": "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ sub ] } ]\n",
+    "nonman/d.yaml": DEPLOYMENT,
+    "nonman/sub/values.yaml": "foo: bar\n",
+    "dot/kustomization.yaml": 'resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ "sub/." ] } ]\n',
+    "dot/d.yaml": DEPLOYMENT,
+    "dot/sub/a.txt": "hello\n",
+    "nul/kustomization.yaml": 'resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ "a\\0b" ] } ]\n',
+    "nul/d.yaml": DEPLOYMENT,
     "ok/kustomization.yaml": 'resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, literals: [ "LITKEY=SECRET_LIT_VAL" ], files: [ "KEYSECRET=app.env" ] } ]\n',
     "ok/d.yaml": DEPLOYMENT,
     "ok/app.env": "A=SECRET_FILE_VAL\n",
   }, ({ root, result, graph }) => {
     const genEdges = refs(graph).filter((e) => /#(configMap|secret)Generator:/.test(e) && !e.includes("#kustomization ->"));
     assert.deepEqual(genEdges, ["ok/d.yaml#Deployment/default/api -> ok/kustomization.yaml#configMapGenerator:app-config"]);
-    assert.ok(result.skipped.some((s) => s.path === "dir/kustomization.yaml" && s.reason.startsWith("configMapGenerator not applied")));
+    for (const dir of ["dir", "nonman", "dot", "nul"]) {
+      assert.ok(result.skipped.some((s) => s.path === `${dir}/kustomization.yaml` && s.reason.startsWith("configMapGenerator not applied")), dir);
+    }
     for (const f of everyFile(contextDirFor(root))) {
       const text = readFileSync(f, "utf8");
       for (const secret of ["SECRET_LIT_VAL", "LITKEY", "KEYSECRET", "SECRET_FILE_VAL"]) assert.ok(!text.includes(secret), `${f}: ${secret}`);
     }
   });
+  const emptyRoot = mkdtempSync(join(tmpdir(), "gg-kustomize-empty-"));
+  try {
+    mkdirSync(join(emptyRoot, "empty/sub"), { recursive: true });
+    writeFileSync(join(emptyRoot, "empty/kustomization.yaml"), "resources: [ d.yaml ]\nconfigMapGenerator: [ { name: app-config, files: [ sub ] } ]\n");
+    writeFileSync(join(emptyRoot, "empty/d.yaml"), DEPLOYMENT);
+    const result = await buildGraph(emptyRoot);
+    const graph = readGraph(wiringPath(contextDirFor(emptyRoot)))!;
+    const genEdges = refs(graph).filter((e) => /#(configMap|secret)Generator:/.test(e) && !e.includes("#kustomization ->"));
+    assert.deepEqual(genEdges, []);
+    assert.ok(result.skipped.some((s) => s.path === "empty/kustomization.yaml" && s.reason.startsWith("configMapGenerator not applied")));
+  } finally {
+    rmSync(emptyRoot, { recursive: true, force: true });
+  }
 });

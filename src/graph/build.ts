@@ -13,7 +13,7 @@
  * whole node set, so an incremental build's output is byte-identical to a cold
  * one — the invariant `test/graph-incremental.test.ts` pins down.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, posix, resolve } from "node:path";
 import { walkDir } from "../ingest/fs.js";
 import { assertRealContextDir, contextDirFor, ensureGitignored, ensureSearchable } from "../context/node-file.js";
@@ -588,7 +588,13 @@ export async function buildGraph(
     routeNodes,
   });
   for (const n of routeNodes) nodes.push(n);
-  const deployment = resolveDeploy(nodes, deployRefs, (path) => existsSync(join(root, path)));
+  const deployment = resolveDeploy(nodes, deployRefs, (path) => {
+    try {
+      return statSync(join(root, path)).isFile();
+    } catch {
+      return false;
+    }
+  });
   for (const edge of deployment.edges) edges.push(edge);
   for (const file of deployment.skipped) skipped.push(file);
   for (const call of unresolvedCalls) {
