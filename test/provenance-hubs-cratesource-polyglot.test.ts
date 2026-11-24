@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
 import { resolveCrateSource } from "../src/graph/crate-source.js";
-import { computeHubs, formatHubsText } from "../src/graph/hubs.js";
+import { computeHubs, formatHubsText, parseHubLimit } from "../src/graph/hubs.js";
 import { auditPolyglotRepo, formatPolyglotAuditLines } from "../src/graph/polyglot-audit.js";
 import { edgeWalk, resolveSymbol } from "../src/graph/traverse.js";
 import { wiringPath } from "../src/graph/write.js";
@@ -247,4 +247,59 @@ test("polyglot-audit: detects indexed languages and warns on unsupported and fil
   const formatted = formatPolyglotAuditLines(repoAudit);
   assert.match(formatted.detectedLine ?? "", /typescript \(1\)/);
   assert.match(formatted.warningLine ?? "", /⚠ unindexed source extensions:/);
+});
+
+test("review regressions: strict hub limit, sibling graft-prefix audit, crafted lockfile version and uppercase git rev", async () => {
+  // 1. Strict --limit rejects trailing junk and decimals
+  assert.throws(() => parseHubLimit("15abc"), /--limit must be an integer/);
+  assert.throws(() => parseHubLimit("1.5"), /--limit must be an integer/);
+  assert.throws(() => parseHubLimit("0"), /--limit must be an integer/);
+  assert.throws(() => parseHubLimit("101"), /--limit must be an integer/);
+  assert.equal(parseHubLimit(" 12 "), 12);
+
+  // 2. Sibling directory sharing outDir prefix (`graft-tools/`) is NOT skipped by polyglot audit
+  const repo = mkdtempSync(join(tmpdir(), "gg-sibling-prefix-"));
+  mkdirSync(join(repo, "src"), { recursive: true });
+  mkdirSync(join(repo, "graft-tools"), { recursive: true });
+  writeFileSync(join(repo, "src/index.ts"), "export const x = 1;\n");
+  writeFileSync(join(repo, "graft-tools/extra.mojo"), "fn main():\n    pass\n");
+  const built = await buildGraph(repo);
+  assert.ok(
+    built.polyglotAudit.skipped.some((s) => s.extension === ".mojo"),
+    "graft-tools/extra.mojo must not be swallowed by graft/ outDir prefix",
+  );
+
+  // 3. Crafted Cargo.lock version fails closed, and uppercase git rev matches lowercase checkout dir
+  const base = mkdtempSync(join(tmpdir(), "gg-cratesrc-sec-"));
+  const ws = join(base, "ws");
+  const ch = join(base, "cargo");
+  mkdirSync(ws, { recursive: true });
+  const gitDir = join(ch, "git/checkouts/upper-1/abcdef1");
+  mkdirSync(join(gitDir, "src"), { recursive: true });
+  writeFileSync(join(gitDir, "Cargo.toml"), '[package]\nname = "upper-git"\nversion = "0.1.0"\n');
+  mkdirSync(join(ch, "registry/src/index-a"), { recursive: true });
+  mkdirSync(join(ch, "registry/src/other-index/evil-1.0.0"), { recursive: true });
+  writeFileSync(join(ch, "registry/src/other-index/evil-1.0.0/Cargo.toml"), '[package]\nname = "evil"\nversion = "1.0.0"\n');
+  writeFileSync(
+    join(ws, "Cargo.lock"),
+    [
+      "version = 4",
+      "",
+      "[[package]]",
+      'name = "upper-git"',
+      'version = "0.1.0"',
+      'source = "git+https://example.com/upper#ABCDEF1234567890ABCDEF1234567890ABCDEF12"',
+      "",
+      "[[package]]",
+      'name = "evil"',
+      'version = "../other-index/evil-1.0.0"',
+      'source = "registry+https://github.com/rust-lang/crates.io-index"',
+    ].join("\n"),
+  );
+  const upRes = resolveCrateSource({ crateName: "upper-git", repo: ws, cargoHome: ch });
+  assert.equal(upRes.matches[0].status, "found");
+  assert.throws(
+    () => resolveCrateSource({ crateName: "evil", repo: ws, cargoHome: ch }),
+    /invalid version/,
+  );
 });

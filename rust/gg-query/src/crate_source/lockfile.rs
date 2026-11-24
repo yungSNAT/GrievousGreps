@@ -236,17 +236,20 @@ pub(super) fn find_crate_dir_under(
         if visited > 256 {
             break;
         }
-        let manifest = dir.join("Cargo.toml");
-        if manifest.is_file()
-            && manifest_package_name(&manifest).as_deref() == Some(crate_name)
-            && let Some(canon) = contained_canonical(&dir, boundary)
+        let Some(canon_dir) = contained_canonical(&dir, boundary) else {
+            continue;
+        };
+        let manifest = canon_dir.join("Cargo.toml");
+        if let Some(canon_manifest) = contained_canonical(&manifest, boundary)
+            && canon_manifest.is_file()
+            && manifest_package_name(&canon_manifest).as_deref() == Some(crate_name)
         {
-            return Some(canon);
+            return Some(canon_dir);
         }
         if depth >= max_depth {
             continue;
         }
-        let Ok(entries) = fs::read_dir(&dir) else {
+        let Ok(entries) = fs::read_dir(&canon_dir) else {
             continue;
         };
         let mut children: Vec<PathBuf> = entries

@@ -340,3 +340,73 @@ fn crate_source_resolves_exact_registry_git_and_path_and_fails_closed() {
         .unwrap();
     assert!(!traversal.status.success());
 }
+
+#[test]
+fn crate_source_rejects_crafted_lockfile_version_and_matches_uppercase_git_rev() {
+    let tmp = tempdir().expect("tempdir");
+    let repo = tmp.path().join("ws");
+    let cargo_home = tmp.path().join("cargo");
+    fs::create_dir_all(&repo).unwrap();
+
+    // Lowercase git checkout directory matched by uppercase hex rev in Cargo.lock
+    let git_dir = cargo_home.join("git/checkouts/upper-repo-1/abcdef1");
+    fs::create_dir_all(git_dir.join("src")).unwrap();
+    fs::write(
+        git_dir.join("Cargo.toml"),
+        "[package]\nname = \"upper-git\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+
+    // Sibling registry index dir that a crafted version tries to escape into
+    let evil_dir = cargo_home.join("registry/src/other-index/evil-1.0.0");
+    fs::create_dir_all(evil_dir.join("src")).unwrap();
+    fs::write(
+        evil_dir.join("Cargo.toml"),
+        "[package]\nname = \"evil\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
+    fs::create_dir_all(cargo_home.join("registry/src/index-a")).unwrap();
+
+    fs::write(
+        repo.join("Cargo.lock"),
+        r#"version = 4
+
+[[package]]
+name = "upper-git"
+version = "0.1.0"
+source = "git+https://example.com/upper-repo#ABCDEF1234567890ABCDEF1234567890ABCDEF12"
+
+[[package]]
+name = "evil"
+version = "../other-index/evil-1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+"#,
+    )
+    .unwrap();
+
+    let up = Command::new(cargo_bin!("gg-query"))
+        .args(["crate-source", "upper-git"])
+        .arg(&repo)
+        .args(["--cargo-home"])
+        .arg(&cargo_home)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        up.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&up.stderr)
+    );
+    let up_json: Value = serde_json::from_slice(&up.stdout).unwrap();
+    assert_eq!(up_json["matches"][0]["status"], "found");
+
+    let evil = Command::new(cargo_bin!("gg-query"))
+        .args(["crate-source", "evil"])
+        .arg(&repo)
+        .args(["--cargo-home"])
+        .arg(&cargo_home)
+        .output()
+        .unwrap();
+    assert!(!evil.status.success());
+    assert!(String::from_utf8_lossy(&evil.stderr).contains("invalid version"));
+}

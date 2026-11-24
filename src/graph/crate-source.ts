@@ -181,21 +181,23 @@ function findCrateDirUnder(rootDir: string, boundary: string, crateName: string,
   while (stack.length > 0 && visited < 256) {
     const cur = stack.pop()!;
     visited++;
-    const manifest = join(cur.dir, "Cargo.toml");
-    if (existsSync(manifest) && manifestPackageName(manifest) === crateName) {
-      const canon = containedRealpath(cur.dir, boundary);
-      if (canon) return canon;
+    const canonDir = containedRealpath(cur.dir, boundary);
+    if (!canonDir) continue;
+    const manifest = join(canonDir, "Cargo.toml");
+    const canonManifest = containedRealpath(manifest, boundary);
+    if (canonManifest && statSync(canonManifest).isFile() && manifestPackageName(canonManifest) === crateName) {
+      return canonDir;
     }
     if (cur.depth >= maxDepth) continue;
     let entries;
     try {
-      entries = readdirSync(cur.dir, { withFileTypes: true });
+      entries = readdirSync(canonDir, { withFileTypes: true });
     } catch {
       continue;
     }
     const children = entries
       .filter((e) => e.isDirectory() && !e.isSymbolicLink() && !SKIP_DIRS.has(e.name))
-      .map((e) => join(cur.dir, e.name))
+      .map((e) => join(canonDir, e.name))
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     for (let i = children.length - 1; i >= 0; i--) {
       stack.push({ dir: children[i], depth: cur.depth + 1 });
@@ -221,7 +223,7 @@ function resolveRegistryDir(cargoHome: string, name: string, version: string): s
   for (const idxDir of indexDirs) {
     const candidate = join(idxDir, folderName);
     if (existsSync(join(candidate, "Cargo.toml"))) {
-      const canon = containedRealpath(candidate, regSrc);
+      const canon = containedRealpath(candidate, idxDir);
       if (canon && statSync(canon).isDirectory()) return canon;
     }
   }
@@ -233,7 +235,7 @@ function resolveGitDir(cargoHome: string, source: string, name: string): string 
   if (hashIdx === -1) return null;
   const rev = source.slice(hashIdx + 1);
   if (rev.length < 7 || !/^[0-9a-fA-F]+$/.test(rev)) return null;
-  const shortRev = rev.slice(0, 7);
+  const shortRev = rev.slice(0, 7).toLowerCase();
   const gitRoot = join(cargoHome, "git", "checkouts");
   let entries;
   try {
@@ -249,11 +251,14 @@ function resolveGitDir(cargoHome: string, source: string, name: string): string 
   for (const repoDir of repoDirs) {
     const revDir = join(repoDir, shortRev);
     try {
-      if (!lstatSync(revDir).isDirectory()) continue;
+      const st = lstatSync(revDir);
+      if (st.isSymbolicLink() || !st.isDirectory()) continue;
     } catch {
       continue;
     }
-    const found = findCrateDirUnder(revDir, gitRoot, name, 2);
+    const canonRev = containedRealpath(revDir, gitRoot);
+    if (!canonRev) continue;
+    const found = findCrateDirUnder(canonRev, gitRoot, name, 2);
     if (found) return found;
   }
   return null;
@@ -266,6 +271,8 @@ function buildMatchEntry(
   repoCanon: string,
   cargoHome: string,
 ): CrateSourceMatch {
+  validateCrateName(pkg.name);
+  validateVersion(pkg.version);
   let kind: CrateSourceKind = "path";
   let foundDir: string | null = null;
   if (pkg.source?.startsWith("registry+")) {

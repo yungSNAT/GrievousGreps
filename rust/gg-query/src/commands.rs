@@ -427,7 +427,7 @@ pub fn run_hubs(
     let ctx = context_dir_for(repo, override_dir);
     let Some(store) = GraphStore::open_or_sync(&ctx).map_err(|e| e.to_string())? else {
         return Err(format!(
-            "no graph found at {} — run `trail build` first",
+            "no graph found at {}: run `trail build` first",
             ctx.display()
         ));
     };

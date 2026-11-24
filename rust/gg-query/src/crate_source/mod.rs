@@ -145,7 +145,7 @@ fn resolve_registry_dir(cargo_home: &Path, name: &str, version: &str) -> Option<
         let candidate = idx_dir.join(&folder_name);
         if candidate.is_dir()
             && candidate.join("Cargo.toml").is_file()
-            && let Some(canon) = contained_canonical(&candidate, &reg_src)
+            && let Some(canon) = contained_canonical(&candidate, &idx_dir)
         {
             return Some(canon);
         }
@@ -158,7 +158,7 @@ fn resolve_git_dir(cargo_home: &Path, source: &str, name: &str) -> Option<PathBu
     if rev.len() < 7 || !rev.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let short_rev = &rev[..7];
+    let short_rev = rev[..7].to_ascii_lowercase();
     let git_root = cargo_home.join("git").join("checkouts");
     let entries = fs::read_dir(&git_root).ok()?;
     let mut repo_dirs: Vec<PathBuf> = entries
@@ -171,9 +171,11 @@ fn resolve_git_dir(cargo_home: &Path, source: &str, name: &str) -> Option<PathBu
         .collect();
     repo_dirs.sort();
     for repo_dir in repo_dirs.into_iter().take(MAX_GIT_CHECKOUTS) {
-        let rev_dir = repo_dir.join(short_rev);
-        if rev_dir.is_dir()
-            && let Some(found) = find_crate_dir_under(&rev_dir, &git_root, name, 2)
+        let rev_dir = repo_dir.join(&short_rev);
+        if fs::symlink_metadata(&rev_dir)
+            .is_ok_and(|m| m.file_type().is_dir() && !m.file_type().is_symlink())
+            && let Some(canon_rev) = contained_canonical(&rev_dir, &git_root)
+            && let Some(found) = find_crate_dir_under(&canon_rev, &git_root, name, 2)
         {
             return Some(found);
         }
@@ -318,6 +320,8 @@ pub fn resolve_crate_source(args: &CrateSourceArgs<'_>) -> Result<CrateSourceRep
             truncated += 1;
             continue;
         }
+        validate_crate_name(&pkg.name)?;
+        validate_version(&pkg.version)?;
         let lf_dir = lf.parent().unwrap_or(&repo_canon);
         matches.push(build_match_entry(
             &pkg,

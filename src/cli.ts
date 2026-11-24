@@ -1135,7 +1135,12 @@ grouped(program.command("callers"), GROUP.find)
       await refreshBefore(dir, opts);
       const globalOpts = program.opts<{ dir?: string }>();
       const { runCallersCommand, resolveDirection, resolveDepth } = await import("./graph/traverse-cli.js");
-      if (readWorkspace(dir, globalOpts.dir) && !opts.provenance) {
+      if (readWorkspace(dir, globalOpts.dir)) {
+        if (opts.provenance) {
+          console.error("✗ callers --provenance is not supported on a workspace parent; run it inside a child repository");
+          process.exit(1);
+          return;
+        }
         runWorkspaceCallers(dir, globalOpts.dir, symbol, {
           direction: resolveDirection(opts.direction),
           depth: resolveDepth(opts.depth),

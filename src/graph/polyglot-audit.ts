@@ -6,7 +6,7 @@
  * `--extensions`, or outside `--only`), so multi-language repositories never
  * suffer silent blind spots.
  */
-import { extname, resolve } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import { contextDirFor } from "../context/node-file.js";
 import { walkDir } from "../ingest/fs.js";
 import { relPosix } from "../util/paths.js";
@@ -137,6 +137,7 @@ export function auditPolyglotFiles(
 ): PolyglotAudit {
   const absRoot = resolve(root);
   const absOut = resolve(outDir);
+  const absOutPrefix = absOut.endsWith(sep) ? absOut : `${absOut}${sep}`;
   const indexedSet = new Set(indexedFiles.map((f) => resolve(f)));
   const supportedSet = new Set(supportedExtensions());
   const selectedExts = normalizeExtensions(opts.extensions);
@@ -159,7 +160,7 @@ export function auditPolyglotFiles(
   const skippedMap = new Map<string, SkippedSourceExtension>();
   for (const file of repoFiles) {
     const absFile = resolve(file);
-    if (absFile.startsWith(absOut) || indexedSet.has(absFile)) continue;
+    if (absFile === absOut || absFile.startsWith(absOutPrefix) || indexedSet.has(absFile)) continue;
     const ext = extname(absFile).toLowerCase();
     if (!ext) continue;
 

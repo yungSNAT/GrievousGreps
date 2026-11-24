@@ -146,7 +146,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'graft_repo_map',
     description:
-      'Token-budgeted repo orientation — directory clusters, per-directory hubs, and global hotspots computed purely from the wiring graph ($0, no LLM). Set mode:"hubs" for a compact PageRank and connectivity god-node summary.',
+      'Token-budgeted repo orientation: directory clusters, per-directory hubs and global hotspots computed purely from the wiring graph ($0, no LLM). Set mode:"hubs" for a compact PageRank and connectivity god-node summary.',
     inputSchema: {
       type: 'object',
       properties: {

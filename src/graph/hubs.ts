@@ -60,7 +60,16 @@ interface DegreeCounts {
 
 export function parseHubLimit(raw: string | number | undefined): number {
   if (raw === undefined) return DEFAULT_HUB_LIMIT;
-  const n = typeof raw === "number" ? raw : Number.parseInt(raw, 10);
+  let n: number;
+  if (typeof raw === "number") {
+    n = raw;
+  } else {
+    const trimmed = raw.trim();
+    if (!/^\d+$/.test(trimmed)) {
+      throw new Error(`--limit must be an integer between 1 and ${MAX_HUB_LIMIT}, got "${raw}"`);
+    }
+    n = Number.parseInt(trimmed, 10);
+  }
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > MAX_HUB_LIMIT) {
     throw new Error(`--limit must be an integer between 1 and ${MAX_HUB_LIMIT}, got "${raw}"`);
   }
