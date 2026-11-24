@@ -1,6 +1,6 @@
 /**
- * Regression tests for Alcuin GPT-6 Pro r1 findings across provenance, hubs,
- * crate-source, workspace MCP dispatch, source-files and polyglot audit.
+ * Hardening regression tests across provenance, hubs, crate-source,
+ * workspace MCP dispatch, source-files and polyglot audit.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -27,8 +27,8 @@ function runCli(args: string[]): { stdout: string; stderr: string; status: numbe
   return { stdout: res.stdout ?? "", stderr: res.stderr ?? "", status: res.status ?? 1 };
 }
 
-test("BLOCKER 2 + SHOULD 8: default callers preserves legacy path whilst --provenance upgrades and emits structured unresolvedCalls", async () => {
-  const d = mkdtempSync(join(tmpdir(), "gg-alcuin-b2-"));
+test("callers parity: default callers preserves legacy path whilst --provenance upgrades and emits structured unresolvedCalls", async () => {
+  const d = mkdtempSync(join(tmpdir(), "gg-hardening-b2-"));
   mkdirSync(join(d, "src"), { recursive: true });
   writeFileSync(join(d, "src/a.ts"), "export function A() { return 1; }\n");
   await buildGraph(d);
@@ -69,8 +69,8 @@ test("BLOCKER 2 + SHOULD 8: default callers preserves legacy path whilst --prove
   assert.equal(parsed.matches[0].unresolved, undefined);
 });
 
-test("BLOCKER 1 + SHOULD 1-5: crate-source verifies identity, workspace version, ambiguity, escaping src symlink, schemes and budget", () => {
-  const base = mkdtempSync(join(tmpdir(), "gg-alcuin-cs-"));
+test("crate-source hardening: crate-source verifies identity, workspace version, ambiguity, escaping src symlink, schemes and budget", () => {
+  const base = mkdtempSync(join(tmpdir(), "gg-hardening-cs-"));
   const repo = join(base, "repo");
   const ch = join(base, "cargo");
   mkdirSync(join(repo, "crates/ws-member/src"), { recursive: true });
@@ -161,7 +161,7 @@ test("BLOCKER 1 + SHOULD 1-5: crate-source verifies identity, workspace version,
   assert.equal(bud.status, "budget_exhausted");
 });
 
-test("SHOULD 7: hubs excludes self-loops from PageRank matching Rust parity", () => {
+test("hubs self-loop parity: hubs excludes self-loops from PageRank matching Rust parity", () => {
   const g: GraphV1 = {
     meta: { version: 1, nodeCount: 3, edgeCount: 2, languages: ["typescript"] },
     nodes: [
@@ -184,8 +184,8 @@ test("SHOULD 7: hubs excludes self-loops from PageRank matching Rust parity", ()
   assert.equal(report.hubs[0].outDegree, 2);
 });
 
-test("SHOULD 6: workspace MCP rejects provenance:true and mode:hubs explicitly", async () => {
-  const ws = mkdtempSync(join(tmpdir(), "gg-alcuin-ws-"));
+test("workspace MCP guard: workspace MCP rejects provenance:true and mode:hubs explicitly", async () => {
+  const ws = mkdtempSync(join(tmpdir(), "gg-hardening-ws-"));
   for (const child of ["api", "web"]) {
     const dir = join(ws, child);
     mkdirSync(join(dir, ".git"), { recursive: true });
@@ -207,8 +207,8 @@ test("SHOULD 6: workspace MCP rejects provenance:true and mode:hubs explicitly",
   assert.equal(normalMap.isError, false, normalMap.text);
 });
 
-test("SHOULD 9 + SHOULD 10: sibling graft-tools/*.ts is indexed and existing-graph audit flags unindexed supported files", async () => {
-  const repo = mkdtempSync(join(tmpdir(), "gg-alcuin-poly-"));
+test("polyglot audit boundary: sibling graft-tools/*.ts is indexed and existing-graph audit flags unindexed supported files", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "gg-hardening-poly-"));
   mkdirSync(join(repo, "src"), { recursive: true });
   mkdirSync(join(repo, "graft-tools"), { recursive: true });
   writeFileSync(join(repo, "src/app.ts"), "export function app() { return 1; }\n");

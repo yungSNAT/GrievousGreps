@@ -329,12 +329,16 @@ pub(super) fn resolve_git(
             if origin != norm_expected_url {
                 continue;
             }
-        } else if let Some(ref slug) = expected_slug
-            && !repo_dir_name
+        } else {
+            let Some(ref slug) = expected_slug else {
+                continue;
+            };
+            if !repo_dir_name
                 .to_ascii_lowercase()
                 .starts_with(&format!("{slug}-"))
-        {
-            continue;
+            {
+                continue;
+            }
         }
         let (mut found, exhausted) =
             find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2);

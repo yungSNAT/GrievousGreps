@@ -208,7 +208,7 @@ async function callWorkspaceTool(
     }
     case 'graft_repo_map': {
       if (args.mode === 'hubs' || (args.mode !== undefined && args.mode !== 'map')) {
-        return { text: 'graft_repo_map: mode "hubs" is not supported on a workspace parent; run it inside a child repository', isError: true };
+        return { text: `graft_repo_map: mode "${String(args.mode)}" is not supported on a workspace parent; run it inside a child repository`, isError: true };
       }
       const maxDirs = typeof args.max_dirs === 'number' && Number.isFinite(args.max_dirs) && args.max_dirs > 0 ? args.max_dirs : undefined;
       return { text: federateMap(root, dirOverride, { maxDirs }), isError: false };

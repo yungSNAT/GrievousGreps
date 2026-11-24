@@ -281,6 +281,28 @@ fn flush_pkg(
     seen_keys.clear();
 }
 
+fn array_bracket_delta(line: &str) -> isize {
+    let mut in_double = false;
+    let mut in_single = false;
+    let mut escape = false;
+    let mut delta = 0_isize;
+    for ch in line.chars() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_double => escape = true,
+            '"' if !in_single => in_double = !in_double,
+            '\'' if !in_double => in_single = !in_single,
+            '[' if !in_double && !in_single => delta += 1,
+            ']' if !in_double && !in_single => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
 pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> {
     let text = read_bounded_regular_file(path, MAX_LOCKFILE_BYTES)?;
     let mut packages = Vec::new();
@@ -289,10 +311,15 @@ pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> 
     let mut cur_ver: Option<String> = None;
     let mut cur_src: Option<String> = None;
     let mut seen_keys: HashSet<String> = HashSet::new();
+    let mut array_depth = 0_isize;
 
     for raw_line in text.lines() {
         let stripped = strip_toml_comment(raw_line);
         if stripped.is_empty() {
+            continue;
+        }
+        if array_depth > 0 {
+            array_depth = (array_depth + array_bracket_delta(stripped)).max(0);
             continue;
         }
         if stripped == "[[package]]" {
@@ -332,7 +359,9 @@ pub(super) fn parse_cargo_lock(path: &Path) -> Result<Vec<LockPackage>, String> 
                 "name" => cur_name = Some(parse_toml_string_strict(raw_val)?),
                 "version" => cur_ver = Some(parse_toml_string_strict(raw_val)?),
                 "source" => cur_src = Some(parse_toml_string_strict(raw_val)?),
-                _ => {}
+                _ => {
+                    array_depth = array_bracket_delta(raw_val).max(0);
+                }
             }
         }
     }

@@ -1,5 +1,4 @@
-//! Regression tests for Alcuin GPT-6 Pro r1 findings across `callers`, `hubs`,
-//! `provenance` and `crate-source`.
+//! Hardening regression tests across `callers`, `hubs`, `provenance` and `crate-source`.
 
 use std::fs;
 use std::path::Path;
@@ -281,6 +280,31 @@ fn crate_source_strict_toml_schemes_and_budget_exhausted() {
             .unwrap();
         assert!(!out.status.success(), "case {label} should fail closed");
     }
+
+    // Multiline dependencies array containing '=' inside query string must parse cleanly
+    let ml_dir = tmp.path().join("multiline_deps");
+    fs::create_dir_all(ml_dir.join("crates/demo")).unwrap();
+    fs::write(
+        ml_dir.join("crates/demo/Cargo.toml"),
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(
+        ml_dir.join("Cargo.lock"),
+        "version = 4\n[[package]]\nname = \"demo\"\nversion = \"0.1.0\"\ndependencies = [\n \"dep 1.0 (git+https://example.com/r?branch=main#0123456789abcdef0123456789abcdef01234567)\",\n \"dep2 1.0 (git+https://example.com/r2?branch=dev#0123456789abcdef0123456789abcdef01234567)\",\n]\n",
+    )
+    .unwrap();
+    let ml_out = Command::new(cargo_bin!("gg-query"))
+        .args(["crate-source", "demo"])
+        .arg(&ml_dir)
+        .arg("--json")
+        .output()
+        .unwrap();
+    assert!(
+        ml_out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&ml_out.stderr)
+    );
 
     // Registry budget exhaustion (> 64 index dirs) returns distinct budget_exhausted status
     let repo = tmp.path().join("budget-repo");

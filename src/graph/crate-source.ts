@@ -5,7 +5,7 @@
  * bounded resolution from a workspace's `Cargo.lock` to the exact local Cargo
  * registry, git checkout or path source directory.
  */
-import { readdirSync, realpathSync, statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
@@ -14,6 +14,7 @@ import {
   MAX_LOCKFILE_BYTES,
   MAX_SCAN_ENTRIES,
   readBoundedRegularFile,
+  readDirIncremental,
   resolveGit,
   resolvePathCrate,
   resolveRegistry,
@@ -125,19 +126,15 @@ function scanLockfiles(
   state: { visited: number; exhausted: boolean },
 ): void {
   if (depth > MAX_SCAN_DEPTH || out.length >= MAX_LOCKFILES || state.exhausted) return;
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
+  const scanned = readDirIncremental(dir, MAX_SCAN_ENTRIES - state.visited);
+  if (!scanned) return;
+  state.visited += scanned.entries.length;
+  if (scanned.exhausted) {
+    state.exhausted = true;
     return;
   }
   const subdirs: string[] = [];
-  for (const entry of entries) {
-    state.visited++;
-    if (state.visited > MAX_SCAN_ENTRIES) {
-      state.exhausted = true;
-      return;
-    }
+  for (const entry of scanned.entries) {
     if (entry.isSymbolicLink()) continue;
     const full = join(dir, entry.name);
     if (entry.isFile() && entry.name === "Cargo.lock") {

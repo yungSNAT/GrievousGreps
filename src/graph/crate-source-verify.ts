@@ -6,7 +6,7 @@
  * directly for bounded reads, and verifies `[package].name` + `[package].version`
  * (including `version.workspace = true`), registry index identity and full git SHA.
  */
-import { closeSync, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, type Dirent, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, sep } from "node:path";
 import { parse as parseToml } from "smol-toml";
 
@@ -30,6 +30,32 @@ export type ResolveOutcome =
   | { status: "ambiguous"; hint: string }
   | { status: "unresolved"; hint: string }
   | { status: "budget_exhausted"; hint: string };
+
+/** Read at most `maxEntries` directory entries incrementally via `opendirSync`. */
+export function readDirIncremental(
+  dir: string,
+  maxEntries: number,
+): { entries: Dirent[]; exhausted: boolean } | null {
+  let handle;
+  try {
+    handle = opendirSync(dir);
+  } catch {
+    return null;
+  }
+  const entries: Dirent[] = [];
+  let count = 0;
+  try {
+    for (;;) {
+      const entry = handle.readSync();
+      if (entry === null) return { entries, exhausted: false };
+      count++;
+      if (count > maxEntries) return { entries, exhausted: true };
+      entries.push(entry);
+    }
+  } finally {
+    handle.closeSync();
+  }
+}
 
 export function containedRealpath(candidate: string, boundary: string): string | null {
   try {
@@ -178,18 +204,15 @@ export function resolveRegistry(
   version: string,
 ): ResolveOutcome {
   const regSrc = join(cargoHome, "registry", "src");
-  let entries;
-  try {
-    entries = readdirSync(regSrc, { withFileTypes: true });
-  } catch {
-    return { status: "not_cached" };
-  }
-  if (entries.length > MAX_REGISTRY_DIRS) {
+  const scanned = readDirIncremental(regSrc, MAX_REGISTRY_DIRS);
+  if (!scanned) return { status: "not_cached" };
+  if (scanned.exhausted) {
     return {
       status: "budget_exhausted",
       hint: `registry index directory count under ${regSrc} exceeds ${MAX_REGISTRY_DIRS}`,
     };
   }
+  const entries = scanned.entries;
   const dirs = entries
     .filter((e) => e.isDirectory() && !e.isSymbolicLink())
     .map((e) => ({ dirName: e.name, idxDir: join(regSrc, e.name) }))
@@ -322,15 +345,12 @@ export function resolveGit(cargoHome: string, source: string, name: string, vers
   const expectedSlug = normExpectedUrl.split("/").filter(Boolean).at(-1);
 
   const gitRoot = join(cargoHome, "git", "checkouts");
-  let entries;
-  try {
-    entries = readdirSync(gitRoot, { withFileTypes: true });
-  } catch {
-    return { status: "not_cached" };
-  }
-  if (entries.length > MAX_GIT_CHECKOUTS) {
+  const scanned = readDirIncremental(gitRoot, MAX_GIT_CHECKOUTS);
+  if (!scanned) return { status: "not_cached" };
+  if (scanned.exhausted) {
     return { status: "budget_exhausted", hint: `git checkout directory count under ${gitRoot} exceeds ${MAX_GIT_CHECKOUTS}` };
   }
+  const entries = scanned.entries;
   const repoDirs = entries
     .filter((e) => e.isDirectory() && !e.isSymbolicLink())
     .map((e) => ({ dirName: e.name, repoDir: join(gitRoot, e.name) }))
@@ -359,7 +379,7 @@ export function resolveGit(cargoHome: string, source: string, name: string, vers
     if (shaInfo.sha !== fullRev) continue;
     if (shaInfo.origin !== null) {
       if (shaInfo.origin !== normExpectedUrl) continue;
-    } else if (expectedSlug && !dirName.toLowerCase().startsWith(`${expectedSlug}-`)) {
+    } else if (!expectedSlug || !dirName.toLowerCase().startsWith(`${expectedSlug}-`)) {
       continue;
     }
     const sub = findVerifiedCratesUnder(canonRev, canonRev, name, version, 2);
@@ -419,16 +439,13 @@ function findVerifiedCratesUnder(
       if (matches.length > 1) return { matches, exhausted: false };
     }
     if (cur.depth >= maxDepth) continue;
-    let entries;
-    try {
-      entries = readdirSync(canonDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
+    const remaining = MAX_SCAN_ENTRIES - visited;
+    const scanned = readDirIncremental(canonDir, remaining);
+    if (!scanned) continue;
+    visited += scanned.entries.length;
+    if (scanned.exhausted) return { matches, exhausted: true };
     const children: string[] = [];
-    for (const e of entries) {
-      visited++;
-      if (visited > MAX_SCAN_ENTRIES) return { matches, exhausted: true };
+    for (const e of scanned.entries) {
       if (e.isDirectory() && !e.isSymbolicLink() && !SKIP_DIRS.has(e.name)) {
         children.push(join(canonDir, e.name));
       }
