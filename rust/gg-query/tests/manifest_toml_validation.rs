@@ -239,3 +239,144 @@ fn array_table_ancestor_spoof_rejected_whilst_dotted_subtable_and_inline_workspa
     assert!(ok_good);
     assert_eq!(j_good["matches"][0]["status"], "found");
 }
+
+#[test]
+fn calendar_dates_and_implicit_to_dotted_table_redefinition_enforced() {
+    let tmp = tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    let ch = tmp.path().join("cargo");
+    let member = repo.join("sub/crates/ws-member");
+    fs::create_dir_all(&member).unwrap();
+    fs::write(
+        repo.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"sub/crates/ws-member\"]\n[workspace.package]\nversion = \"2.3.4\"\n",
+    )
+    .unwrap();
+    fs::write(
+        member.join("Cargo.toml"),
+        "[package]\nname = \"ws-member\"\nversion.workspace = true\n",
+    )
+    .unwrap();
+    fs::write(
+        repo.join("Cargo.lock"),
+        "version = 4\n[[package]]\nname = \"ws-member\"\nversion = \"2.3.4\"\n",
+    )
+    .unwrap();
+
+    // Impossible calendar dates and TOML 1.0 dotted/table redefinitions -> unresolved, no path
+    for bad_ws in [
+        "[workspace]\nd = 2023-02-29\n",
+        "[workspace]\nd = 1900-02-29\n",
+        "[workspace]\nd = 2024-04-31\n",
+        "[workspace.metadata.a.b]\nx = 1\n[workspace.metadata]\na.c = 2\n[workspace.metadata.a]\ny = 3\n",
+        "[workspace.a.b]\nx = 1\n[workspace.a]\nb.c = 2\n",
+    ] {
+        fs::write(repo.join("sub/Cargo.toml"), bad_ws).unwrap();
+        let (ok, json) = run_crate_source_json("ws-member", &repo, &ch);
+        assert!(!ok, "invalid workspace must fail closed: {bad_ws}");
+        assert_eq!(json["matches"][0]["status"], "unresolved");
+        assert!(json["matches"][0].get("path").is_none());
+    }
+
+    // Positive controls: valid Gregorian leap days + new sub-table beneath dotted-defined table
+    fs::write(
+        repo.join("sub/Cargo.toml"),
+        "[workspace.metadata.a.b]\nx = 1\nd1 = 2024-02-29\nd2 = 2000-02-29\n[workspace.metadata]\na.c = 2\n[workspace.metadata.a.d]\ny = 3\n",
+    )
+    .unwrap();
+    let (ok_pos, j_pos) = run_crate_source_json("ws-member", &repo, &ch);
+    assert!(ok_pos);
+    assert_eq!(j_pos["matches"][0]["status"], "found");
+}
+
+#[test]
+fn header_dotted_key_inline_nesting_and_retained_memory_budgets_enforced() {
+    let tmp = tempdir().unwrap();
+    let ch = tmp.path().join("cargo");
+
+    // 1. Over-depth header (257 segments), dotted assignment (257), inline-table dotted key (257),
+    //    and mixed header (150) + dotted key (107) = 257 all return budget_exhausted (including with a valid second candidate)
+    let hdr_257 = format!("[{}]\nx = 1\n", vec!["a"; 257].join("."));
+    let dot_257 = format!("{} = 1\n", vec!["a"; 257].join("."));
+    let inl_257 = format!(
+        "[package.metadata]\nt = {{ {} = 1 }}\n",
+        vec!["a"; 257].join(".")
+    );
+    let mix_257 = format!(
+        "[{}]\n{} = 1\n",
+        vec!["a"; 150].join("."),
+        vec!["b"; 107].join(".")
+    );
+    // Large valid manifest: 120k header key + 15,000 short assignments (~244 KB < 256 KiB) -> found without memory blowup
+    let mut wide_body = format!(
+        "[package]\nname = \"wide\"\nversion = \"1.0.0\"\n[package.metadata.\"{}\"]\n",
+        "h".repeat(120_000)
+    );
+    for i in 0..15_000 {
+        wide_body.push_str(&format!("k{i}=0\n"));
+    }
+    assert!(wide_body.len() < 256 * 1024);
+    let wide_repo = tmp.path().join("wide-ok");
+    fs::create_dir_all(wide_repo.join("crates/wide")).unwrap();
+    fs::write(wide_repo.join("crates/wide/Cargo.toml"), &wide_body).unwrap();
+    fs::write(
+        wide_repo.join("Cargo.lock"),
+        "version = 4\n[[package]]\nname = \"wide\"\nversion = \"1.0.0\"\n",
+    )
+    .unwrap();
+    let (ok_wide, j_wide) = run_crate_source_json("wide", &wide_repo, &ch);
+    assert!(ok_wide);
+    assert_eq!(j_wide["matches"][0]["status"], "found");
+
+    // Retained-bytes budget exhaustion (<256 KiB source expanding >512 KiB retained map entries)
+    let mut mem_exhaust = String::from("[package]\nname = \"deep\"\nversion = \"1.0.0\"\n");
+    for t in 0..450 {
+        mem_exhaust.push_str("[[m]]\n");
+        for k in 0..70 {
+            mem_exhaust.push_str(&format!("a{k}=0\n"));
+        }
+        if t == 449 {
+            break;
+        }
+    }
+    assert!(mem_exhaust.len() < 256 * 1024);
+
+    for (label, manifest_body) in [
+        (
+            "hdr257",
+            format!("[package]\nname = \"deep\"\nversion = \"1.0.0\"\n{hdr_257}"),
+        ),
+        (
+            "dot257",
+            format!("[package]\nname = \"deep\"\nversion = \"1.0.0\"\n{dot_257}"),
+        ),
+        (
+            "inl257",
+            format!("[package]\nname = \"deep\"\nversion = \"1.0.0\"\n{inl_257}"),
+        ),
+        (
+            "mix257",
+            format!("[package]\nname = \"deep\"\nversion = \"1.0.0\"\n{mix_257}"),
+        ),
+        ("memcap", mem_exhaust),
+    ] {
+        let r = tmp.path().join(format!("bud-{label}"));
+        fs::create_dir_all(r.join("crates/aaa-valid")).unwrap();
+        fs::create_dir_all(r.join("crates/zzz-bad")).unwrap();
+        fs::write(
+            r.join("crates/aaa-valid/Cargo.toml"),
+            "[package]\nname = \"deep\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(r.join("crates/zzz-bad/Cargo.toml"), &manifest_body).unwrap();
+        fs::write(
+            r.join("Cargo.lock"),
+            "version = 4\n[[package]]\nname = \"deep\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let (ok, json) = run_crate_source_json("deep", &r, &ch);
+        assert!(!ok, "{label} must return budget_exhausted");
+        assert_eq!(json["matches"][0]["status"], "budget_exhausted", "{label}");
+        assert!(json["matches"][0].get("path").is_none(), "{label}");
+    }
+}

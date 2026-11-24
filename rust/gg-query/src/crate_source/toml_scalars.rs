@@ -1,14 +1,41 @@
-//! Scalar validation (numbers, dates, times, control chars) and table-tree
-//! duplicate/conflict tracking for zero-dependency TOML 1.0 manifest parsing.
+//! Scalar validation (numbers, Gregorian dates, times, control chars),
+//! cumulative retained-memory budgeting and table-tree duplicate/conflict
+//! tracking for zero-dependency TOML 1.0 manifest parsing.
 
 use std::collections::BTreeMap;
 
-use super::manifest::ReadFileError;
+use super::manifest::{MAX_MANIFEST_BYTES, ReadFileError};
+
+pub(super) const MAX_NESTING_DEPTH: usize = 256;
+pub(super) const MAX_RETAINED_BYTES: usize = 2 * (MAX_MANIFEST_BYTES as usize);
+const KEY_ENTRY_OVERHEAD: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum HeaderKind {
     Table,
     ArrayTable,
+}
+
+pub(super) struct MemoryBudget {
+    used: usize,
+    limit: usize,
+}
+
+impl MemoryBudget {
+    pub(super) fn new(limit: usize) -> Self {
+        Self { used: 0, limit }
+    }
+
+    pub(super) fn charge(&mut self, bytes: usize) -> Result<(), ReadFileError> {
+        self.used = self.used.saturating_add(bytes);
+        if self.used > self.limit {
+            return Err(ReadFileError::BudgetExhausted(format!(
+                "Cargo.toml retained memory exceeds {} byte safety cap",
+                self.limit
+            )));
+        }
+        Ok(())
+    }
 }
 
 pub(super) enum EntryKind {
@@ -22,6 +49,12 @@ pub(super) enum EntryKind {
 
 pub(super) fn syntax_err(msg: impl Into<String>) -> ReadFileError {
     ReadFileError::Other(msg.into())
+}
+
+pub(super) fn budget_depth_err() -> ReadFileError {
+    ReadFileError::BudgetExhausted(format!(
+        "Cargo.toml nesting depth exceeds {MAX_NESTING_DEPTH}"
+    ))
 }
 
 pub(super) fn is_disallowed_control(c: char, allow_newline: bool) -> bool {
@@ -157,15 +190,34 @@ fn parse_two_digits(b: &[u8]) -> Option<u8> {
     }
 }
 
+fn is_gregorian_leap_year(year: u16) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+}
+
 pub(super) fn is_valid_date(s: &str) -> bool {
     let b = s.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' || !b[..4].iter().all(u8::is_ascii_digit) {
         return false;
     }
+    let Ok(year) = s[..4].parse::<u16>() else {
+        return false;
+    };
     let (Some(m), Some(d)) = (parse_two_digits(&b[5..7]), parse_two_digits(&b[8..10])) else {
         return false;
     };
-    (1..=12).contains(&m) && (1..=31).contains(&d)
+    let max_day = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_gregorian_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+    (1..=max_day).contains(&d)
 }
 
 fn is_valid_time(s: &str) -> bool {
@@ -229,71 +281,81 @@ pub(super) fn is_valid_datetime(tok: &str) -> bool {
 
 pub(super) fn open_table_path(
     root: &mut BTreeMap<String, EntryKind>,
-    path: &[String],
+    path: Vec<String>,
     kind: &HeaderKind,
+    budget: &mut MemoryBudget,
 ) -> Result<Vec<(String, Option<usize>)>, ReadFileError> {
+    if path.len() > MAX_NESTING_DEPTH {
+        return Err(budget_depth_err());
+    }
     let mut cur = root;
     let mut ptr = Vec::with_capacity(path.len());
-    for seg in &path[..path.len() - 1] {
-        let entry = cur
-            .entry(seg.clone())
-            .or_insert_with(|| EntryKind::ImplicitTable(BTreeMap::new()));
-        match entry {
-            EntryKind::ImplicitTable(m)
-            | EntryKind::ExplicitTable(m)
-            | EntryKind::DottedTable(m) => {
-                ptr.push((seg.clone(), None));
-                cur = m;
+    let last_idx = path.len() - 1;
+    for (idx, seg) in path.into_iter().enumerate() {
+        if idx < last_idx {
+            if !cur.contains_key(seg.as_str()) {
+                budget.charge(seg.len() + KEY_ENTRY_OVERHEAD)?;
+                cur.insert(seg.clone(), EntryKind::ImplicitTable(BTreeMap::new()));
             }
-            EntryKind::ArrayOfTables(arr) => {
-                let idx = arr.len().checked_sub(1).ok_or_else(|| {
-                    syntax_err(format!("empty array table \"{seg}\" in Cargo.toml"))
-                })?;
-                ptr.push((seg.clone(), Some(idx)));
-                cur = &mut arr[idx];
+            match cur.get_mut(seg.as_str()) {
+                Some(
+                    EntryKind::ImplicitTable(m)
+                    | EntryKind::ExplicitTable(m)
+                    | EntryKind::DottedTable(m),
+                ) => {
+                    ptr.push((seg, None));
+                    cur = m;
+                }
+                Some(EntryKind::ArrayOfTables(arr)) => {
+                    let arr_i = arr.len().checked_sub(1).ok_or_else(|| {
+                        syntax_err(format!("empty array table \"{seg}\" in Cargo.toml"))
+                    })?;
+                    ptr.push((seg, Some(arr_i)));
+                    cur = &mut arr[arr_i];
+                }
+                _ => {
+                    return Err(syntax_err(format!(
+                        "cannot extend non-table key \"{seg}\" in Cargo.toml"
+                    )));
+                }
             }
-            EntryKind::Value | EntryKind::InlineTable => {
-                return Err(syntax_err(format!(
-                    "cannot extend non-table key \"{seg}\" in Cargo.toml"
-                )));
-            }
+            continue;
         }
-    }
-    let last = path.last().unwrap();
-    match kind {
-        HeaderKind::Table => match cur.remove(last) {
-            None => {
-                cur.insert(last.clone(), EntryKind::ExplicitTable(BTreeMap::new()));
-                ptr.push((last.clone(), None));
-            }
-            Some(EntryKind::ImplicitTable(m)) => {
-                cur.insert(last.clone(), EntryKind::ExplicitTable(m));
-                ptr.push((last.clone(), None));
-            }
-            Some(_) => {
-                return Err(syntax_err(format!(
-                    "duplicate or conflicting table [{last}] in Cargo.toml"
-                )));
-            }
-        },
-        HeaderKind::ArrayTable => match cur.get_mut(last) {
-            None => {
-                cur.insert(
-                    last.clone(),
-                    EntryKind::ArrayOfTables(vec![BTreeMap::new()]),
-                );
-                ptr.push((last.clone(), Some(0)));
-            }
-            Some(EntryKind::ArrayOfTables(arr)) => {
-                arr.push(BTreeMap::new());
-                ptr.push((last.clone(), Some(arr.len() - 1)));
-            }
-            Some(_) => {
-                return Err(syntax_err(format!(
-                    "conflicting array-of-tables [[{last}]] in Cargo.toml"
-                )));
-            }
-        },
+        match kind {
+            HeaderKind::Table => match cur.remove(seg.as_str()) {
+                None => {
+                    budget.charge(seg.len() + KEY_ENTRY_OVERHEAD)?;
+                    cur.insert(seg.clone(), EntryKind::ExplicitTable(BTreeMap::new()));
+                    ptr.push((seg, None));
+                }
+                Some(EntryKind::ImplicitTable(m)) => {
+                    cur.insert(seg.clone(), EntryKind::ExplicitTable(m));
+                    ptr.push((seg, None));
+                }
+                Some(_) => {
+                    return Err(syntax_err(format!(
+                        "duplicate or conflicting table [{seg}] in Cargo.toml"
+                    )));
+                }
+            },
+            HeaderKind::ArrayTable => match cur.get_mut(seg.as_str()) {
+                None => {
+                    budget.charge(seg.len() + KEY_ENTRY_OVERHEAD)?;
+                    cur.insert(seg.clone(), EntryKind::ArrayOfTables(vec![BTreeMap::new()]));
+                    ptr.push((seg, Some(0)));
+                }
+                Some(EntryKind::ArrayOfTables(arr)) => {
+                    budget.charge(KEY_ENTRY_OVERHEAD)?;
+                    arr.push(BTreeMap::new());
+                    ptr.push((seg, Some(arr.len() - 1)));
+                }
+                Some(_) => {
+                    return Err(syntax_err(format!(
+                        "conflicting array-of-tables [[{seg}]] in Cargo.toml"
+                    )));
+                }
+            },
+        }
     }
     Ok(ptr)
 }
@@ -303,7 +365,7 @@ pub(super) fn current_table_mut<'a>(
     ptr: &[(String, Option<usize>)],
 ) -> Result<&'a mut BTreeMap<String, EntryKind>, ReadFileError> {
     for (seg, arr_idx) in ptr {
-        match cur.get_mut(seg) {
+        match cur.get_mut(seg.as_str()) {
             Some(
                 EntryKind::ImplicitTable(m)
                 | EntryKind::ExplicitTable(m)
@@ -324,13 +386,19 @@ pub(super) fn insert_dotted_key(
     mut cur: &mut BTreeMap<String, EntryKind>,
     key_path: &[String],
     is_inline_table: bool,
+    budget: &mut MemoryBudget,
 ) -> Result<(), ReadFileError> {
     for seg in &key_path[..key_path.len() - 1] {
-        let entry = cur
-            .entry(seg.clone())
-            .or_insert_with(|| EntryKind::DottedTable(BTreeMap::new()));
-        match entry {
-            EntryKind::DottedTable(m) | EntryKind::ImplicitTable(m) => cur = m,
+        if matches!(cur.get(seg.as_str()), Some(EntryKind::ImplicitTable(_))) {
+            if let Some(EntryKind::ImplicitTable(m)) = cur.remove(seg.as_str()) {
+                cur.insert(seg.clone(), EntryKind::DottedTable(m));
+            }
+        } else if !cur.contains_key(seg.as_str()) {
+            budget.charge(seg.len() + KEY_ENTRY_OVERHEAD)?;
+            cur.insert(seg.clone(), EntryKind::DottedTable(BTreeMap::new()));
+        }
+        match cur.get_mut(seg.as_str()) {
+            Some(EntryKind::DottedTable(m)) => cur = m,
             _ => {
                 return Err(syntax_err(format!(
                     "key \"{seg}\" conflicts with existing key or table in Cargo.toml"
@@ -339,11 +407,12 @@ pub(super) fn insert_dotted_key(
         }
     }
     let last = key_path.last().unwrap();
-    if cur.contains_key(last) {
+    if cur.contains_key(last.as_str()) {
         return Err(syntax_err(format!(
             "duplicate key \"{last}\" in Cargo.toml"
         )));
     }
+    budget.charge(last.len() + KEY_ENTRY_OVERHEAD)?;
     cur.insert(
         last.clone(),
         if is_inline_table {

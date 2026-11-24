@@ -1,17 +1,19 @@
 //! Zero-dependency TOML 1.0 recursive-descent parser for `Cargo.toml`
-//! manifests. Validates full document syntax fail-closed before returning
-//! extracted entries.
+//! manifests. Validates full document syntax, nesting depth and retained-memory
+//! budgets fail-closed, retaining only identity-relevant entries.
 
 use std::collections::BTreeMap;
 
 use super::manifest::ReadFileError;
 use super::toml_scalars::{
-    EntryKind, HeaderKind, current_table_mut, insert_dotted_key, is_bare_key_byte,
-    is_disallowed_control, is_valid_date, is_valid_datetime, is_valid_number, open_table_path,
-    parse_escape_at, syntax_err,
+    EntryKind, HeaderKind, MAX_NESTING_DEPTH, MAX_RETAINED_BYTES, MemoryBudget, budget_depth_err,
+    current_table_mut, insert_dotted_key, is_bare_key_byte, is_disallowed_control, is_valid_date,
+    is_valid_datetime, is_valid_number, open_table_path, syntax_err,
 };
-
-pub(super) const MAX_NESTING_DEPTH: usize = 256;
+use super::toml_strings::{
+    consume_newline_at, parse_basic_string, parse_literal_string, parse_ml_basic_string,
+    parse_ml_literal_string,
+};
 
 #[derive(Debug, Clone)]
 pub(super) enum TomlValue {
@@ -26,6 +28,42 @@ pub(super) struct ParsedEntry {
     pub header_kind: HeaderKind,
     pub full_path: Vec<String>,
     pub value: TomlValue,
+}
+
+fn is_identity_assignment(
+    in_array_table: bool,
+    active_ptr: &[(String, Option<usize>)],
+    key_path: &[String],
+) -> bool {
+    if in_array_table {
+        return false;
+    }
+    let total_len = active_ptr.len() + key_path.len();
+    if total_len == 0 || total_len > 3 {
+        return false;
+    }
+    let seg = |i: usize| -> &str {
+        if i < active_ptr.len() {
+            active_ptr[i].0.as_str()
+        } else {
+            key_path[i - active_ptr.len()].as_str()
+        }
+    };
+    match seg(0) {
+        "package" => match total_len {
+            1 => true,
+            2 => matches!(seg(1), "name" | "version"),
+            3 => seg(1) == "version" && seg(2) == "workspace",
+            _ => false,
+        },
+        "workspace" => match total_len {
+            1 => true,
+            2 => seg(1) == "package",
+            3 => seg(1) == "package" && seg(2) == "version",
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 struct Parser<'a> {
@@ -58,20 +96,7 @@ impl<'a> Parser<'a> {
     }
 
     fn consume_newline(&mut self) -> Result<bool, ReadFileError> {
-        match self.peek() {
-            Some(b'\n') => {
-                self.pos += 1;
-                Ok(true)
-            }
-            Some(b'\r') => {
-                if self.bytes.get(self.pos + 1) != Some(&b'\n') {
-                    return Err(syntax_err("bare carriage return in Cargo.toml"));
-                }
-                self.pos += 2;
-                Ok(true)
-            }
-            _ => Ok(false),
-        }
+        consume_newline_at(self.bytes, &mut self.pos)
     }
 
     fn skip_comment(&mut self) -> Result<bool, ReadFileError> {
@@ -111,149 +136,13 @@ impl<'a> Parser<'a> {
         Err(syntax_err("unexpected trailing token in Cargo.toml"))
     }
 
-    fn parse_basic_string(&mut self) -> Result<String, ReadFileError> {
-        self.pos += 1;
-        let mut out = String::new();
-        while let Some(ch) = self.src[self.pos..].chars().next() {
-            if ch == '"' {
-                self.pos += 1;
-                return Ok(out);
-            }
-            if ch == '\\' {
-                self.pos += 1;
-                out.push(parse_escape_at(self.src, &mut self.pos)?);
-                continue;
-            }
-            if ch == '\n' || ch == '\r' || is_disallowed_control(ch, false) {
-                return Err(syntax_err("invalid control or newline in basic string"));
-            }
-            out.push(ch);
-            self.pos += ch.len_utf8();
-        }
-        Err(syntax_err("unterminated basic string in Cargo.toml"))
-    }
-
-    fn parse_literal_string(&mut self) -> Result<String, ReadFileError> {
-        self.pos += 1;
-        let start = self.pos;
-        while let Some(ch) = self.src[self.pos..].chars().next() {
-            if ch == '\'' {
-                let s = self.src[start..self.pos].to_string();
-                self.pos += 1;
-                return Ok(s);
-            }
-            if ch == '\n' || ch == '\r' || is_disallowed_control(ch, false) {
-                return Err(syntax_err("invalid control or newline in literal string"));
-            }
-            self.pos += ch.len_utf8();
-        }
-        Err(syntax_err("unterminated literal string in Cargo.toml"))
-    }
-
-    fn consume_ml_quote_run(&mut self, quote: u8, out: &mut String) -> Result<bool, ReadFileError> {
-        let mut run = 0;
-        while self.pos + run < self.bytes.len() && self.bytes[self.pos + run] == quote {
-            run += 1;
-        }
-        if run >= 6 {
-            return Err(syntax_err(
-                "invalid run of 6 or more quotes in multiline string",
-            ));
-        }
-        self.pos += run;
-        let keep = if run >= 3 { run - 3 } else { run };
-        for _ in 0..keep {
-            out.push(quote as char);
-        }
-        Ok(run >= 3)
-    }
-
-    fn parse_ml_basic_string(&mut self) -> Result<String, ReadFileError> {
-        self.pos += 3;
-        let _ = self.consume_newline()?;
-        let mut out = String::new();
-        while self.pos < self.bytes.len() {
-            match self.bytes[self.pos] {
-                b'"' => {
-                    if self.consume_ml_quote_run(b'"', &mut out)? {
-                        return Ok(out);
-                    }
-                }
-                b'\\' => {
-                    self.pos += 1;
-                    let saved = self.pos;
-                    self.skip_ws();
-                    if self.consume_newline()? {
-                        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
-                            if matches!(self.peek(), Some(b'\n' | b'\r')) {
-                                self.consume_newline()?;
-                            } else {
-                                self.pos += 1;
-                            }
-                        }
-                    } else {
-                        self.pos = saved;
-                        out.push(parse_escape_at(self.src, &mut self.pos)?);
-                    }
-                }
-                b'\r' => {
-                    self.consume_newline()?;
-                    out.push('\n');
-                }
-                _ => {
-                    let ch = self.src[self.pos..].chars().next().unwrap();
-                    if is_disallowed_control(ch, true) {
-                        return Err(syntax_err("invalid control char in multiline basic string"));
-                    }
-                    out.push(ch);
-                    self.pos += ch.len_utf8();
-                }
-            }
-        }
-        Err(syntax_err(
-            "unterminated multiline basic string in Cargo.toml",
-        ))
-    }
-
-    fn parse_ml_literal_string(&mut self) -> Result<String, ReadFileError> {
-        self.pos += 3;
-        let _ = self.consume_newline()?;
-        let mut out = String::new();
-        while self.pos < self.bytes.len() {
-            match self.bytes[self.pos] {
-                b'\'' => {
-                    if self.consume_ml_quote_run(b'\'', &mut out)? {
-                        return Ok(out);
-                    }
-                }
-                b'\r' => {
-                    self.consume_newline()?;
-                    out.push('\n');
-                }
-                _ => {
-                    let ch = self.src[self.pos..].chars().next().unwrap();
-                    if is_disallowed_control(ch, true) {
-                        return Err(syntax_err(
-                            "invalid control char in multiline literal string",
-                        ));
-                    }
-                    out.push(ch);
-                    self.pos += ch.len_utf8();
-                }
-            }
-        }
-        Err(syntax_err(
-            "unterminated multiline literal string in Cargo.toml",
-        ))
-    }
-
     fn parse_simple_key(&mut self) -> Result<String, ReadFileError> {
         if self.starts_with(b"\"\"\"") || self.starts_with(b"'''") {
             return Err(syntax_err("multiline string cannot be used as a TOML key"));
         }
         match self.peek() {
-            Some(b'"') => self.parse_basic_string(),
-            Some(b'\'') => self.parse_literal_string(),
+            Some(b'"') => parse_basic_string(self.src, &mut self.pos, true),
+            Some(b'\'') => parse_literal_string(self.src, &mut self.pos, true),
             Some(b) if is_bare_key_byte(b) => {
                 let start = self.pos;
                 while self.peek().is_some_and(is_bare_key_byte) {
@@ -265,12 +154,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_dotted_key(&mut self) -> Result<Vec<String>, ReadFileError> {
+    fn parse_dotted_key(&mut self, max_segments: usize) -> Result<Vec<String>, ReadFileError> {
+        if max_segments == 0 {
+            return Err(budget_depth_err());
+        }
         let mut parts = vec![self.parse_simple_key()?];
         loop {
             self.skip_ws();
             if self.peek() != Some(b'.') {
                 break;
+            }
+            if parts.len() >= max_segments {
+                return Err(budget_depth_err());
             }
             self.pos += 1;
             self.skip_ws();
@@ -279,11 +174,13 @@ impl<'a> Parser<'a> {
         Ok(parts)
     }
 
-    fn parse_array(&mut self, depth: usize) -> Result<TomlValue, ReadFileError> {
+    fn parse_array(
+        &mut self,
+        depth: usize,
+        budget: &mut MemoryBudget,
+    ) -> Result<TomlValue, ReadFileError> {
         if depth >= MAX_NESTING_DEPTH {
-            return Err(ReadFileError::BudgetExhausted(format!(
-                "Cargo.toml nesting depth exceeds {MAX_NESTING_DEPTH}"
-            )));
+            return Err(budget_depth_err());
         }
         self.pos += 1;
         loop {
@@ -292,7 +189,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 return Ok(TomlValue::Array);
             }
-            let _ = self.parse_value(depth + 1)?;
+            let _ = self.parse_value(depth + 1, false, budget)?;
             self.skip_ws_newlines_comments()?;
             match self.peek() {
                 Some(b',') => self.pos += 1,
@@ -305,11 +202,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_inline_table(&mut self, depth: usize) -> Result<TomlValue, ReadFileError> {
+    fn parse_inline_table(
+        &mut self,
+        depth: usize,
+        retain: bool,
+        budget: &mut MemoryBudget,
+    ) -> Result<TomlValue, ReadFileError> {
         if depth >= MAX_NESTING_DEPTH {
-            return Err(ReadFileError::BudgetExhausted(format!(
-                "Cargo.toml nesting depth exceeds {MAX_NESTING_DEPTH}"
-            )));
+            return Err(budget_depth_err());
         }
         self.pos += 1;
         self.skip_ws();
@@ -319,18 +219,28 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Ok(TomlValue::InlineTable(pairs));
         }
+        let max_key_segs = MAX_NESTING_DEPTH - depth;
         loop {
             self.skip_ws();
-            let key = self.parse_dotted_key()?;
+            let key = self.parse_dotted_key(max_key_segs)?;
             self.skip_ws();
             if self.peek() != Some(b'=') {
                 return Err(syntax_err("expected '=' in inline table"));
             }
             self.pos += 1;
             self.skip_ws();
-            let val = self.parse_value(depth + 1)?;
-            insert_dotted_key(&mut seen, &key, matches!(val, TomlValue::InlineTable(_)))?;
-            pairs.push((key, val));
+            let val = self.parse_value(depth + key.len(), retain, budget)?;
+            insert_dotted_key(
+                &mut seen,
+                &key,
+                matches!(val, TomlValue::InlineTable(_)),
+                budget,
+            )?;
+            if retain {
+                let key_bytes: usize = key.iter().map(|s| s.len() + 16).sum();
+                budget.charge(key_bytes)?;
+                pairs.push((key, val));
+            }
             self.skip_ws();
             match self.peek() {
                 Some(b',') => {
@@ -386,18 +296,33 @@ impl<'a> Parser<'a> {
         )))
     }
 
-    fn parse_value(&mut self, depth: usize) -> Result<TomlValue, ReadFileError> {
-        if self.starts_with(b"\"\"\"") {
-            return self.parse_ml_basic_string().map(TomlValue::Str);
-        }
-        if self.starts_with(b"'''") {
-            return self.parse_ml_literal_string().map(TomlValue::Str);
+    fn parse_value(
+        &mut self,
+        depth: usize,
+        retain: bool,
+        budget: &mut MemoryBudget,
+    ) -> Result<TomlValue, ReadFileError> {
+        let str_val = if self.starts_with(b"\"\"\"") {
+            Some(parse_ml_basic_string(self.src, &mut self.pos, retain)?)
+        } else if self.starts_with(b"'''") {
+            Some(parse_ml_literal_string(self.src, &mut self.pos, retain)?)
+        } else if self.peek() == Some(b'"') {
+            Some(parse_basic_string(self.src, &mut self.pos, retain)?)
+        } else if self.peek() == Some(b'\'') {
+            Some(parse_literal_string(self.src, &mut self.pos, retain)?)
+        } else {
+            None
+        };
+        if let Some(s) = str_val {
+            if retain {
+                budget.charge(s.len() + 16)?;
+                return Ok(TomlValue::Str(s));
+            }
+            return Ok(TomlValue::Scalar);
         }
         match self.peek() {
-            Some(b'"') => self.parse_basic_string().map(TomlValue::Str),
-            Some(b'\'') => self.parse_literal_string().map(TomlValue::Str),
-            Some(b'[') => self.parse_array(depth),
-            Some(b'{') => self.parse_inline_table(depth),
+            Some(b'[') => self.parse_array(depth, budget),
+            Some(b'{') => self.parse_inline_table(depth, retain, budget),
             Some(_) => self.parse_bare_value(),
             None => Err(syntax_err("unexpected end of file expecting TOML value")),
         }
@@ -412,7 +337,7 @@ impl<'a> Parser<'a> {
             HeaderKind::Table
         };
         self.skip_ws();
-        let path = self.parse_dotted_key()?;
+        let path = self.parse_dotted_key(MAX_NESTING_DEPTH)?;
         self.skip_ws();
         match kind {
             HeaderKind::ArrayTable => {
@@ -435,9 +360,9 @@ impl<'a> Parser<'a> {
 
 pub(super) fn parse_toml_document(text: &str) -> Result<Vec<ParsedEntry>, ReadFileError> {
     let mut parser = Parser::new(text);
+    let mut budget = MemoryBudget::new(MAX_RETAINED_BYTES);
     let mut root: BTreeMap<String, EntryKind> = BTreeMap::new();
     let mut active_ptr: Vec<(String, Option<usize>)> = Vec::new();
-    let mut active_path: Vec<String> = Vec::new();
     let mut entries = Vec::new();
 
     loop {
@@ -447,36 +372,38 @@ pub(super) fn parse_toml_document(text: &str) -> Result<Vec<ParsedEntry>, ReadFi
         }
         if parser.peek() == Some(b'[') {
             let (kind, path) = parser.parse_header()?;
-            active_ptr = open_table_path(&mut root, &path, &kind)?;
-            active_path = path;
+            active_ptr = open_table_path(&mut root, path, &kind, &mut budget)?;
             continue;
         }
-        let key_path = parser.parse_dotted_key()?;
+        let max_key_segs = MAX_NESTING_DEPTH.saturating_sub(active_ptr.len());
+        let key_path = parser.parse_dotted_key(max_key_segs)?;
         parser.skip_ws();
         if parser.peek() != Some(b'=') {
             return Err(syntax_err("expected '=' after TOML key in Cargo.toml"));
         }
         parser.pos += 1;
         parser.skip_ws();
-        let value = parser.parse_value(0)?;
+
+        let in_array_table = active_ptr.iter().any(|(_, idx)| idx.is_some());
+        let retain = is_identity_assignment(in_array_table, &active_ptr, &key_path);
+        let value = parser.parse_value(0, retain, &mut budget)?;
         parser.expect_eol_or_eof()?;
 
         let is_inline = matches!(value, TomlValue::InlineTable(_));
         let cur_tbl = current_table_mut(&mut root, &active_ptr)?;
-        insert_dotted_key(cur_tbl, &key_path, is_inline)?;
+        insert_dotted_key(cur_tbl, &key_path, is_inline, &mut budget)?;
 
-        let in_array_table = active_ptr.iter().any(|(_, idx)| idx.is_some());
-        let mut full_path = active_path.clone();
-        full_path.extend(key_path);
-        entries.push(ParsedEntry {
-            header_kind: if in_array_table {
-                HeaderKind::ArrayTable
-            } else {
-                HeaderKind::Table
-            },
-            full_path,
-            value,
-        });
+        if retain {
+            let mut full_path: Vec<String> = active_ptr.iter().map(|(s, _)| s.clone()).collect();
+            full_path.extend(key_path);
+            let retained_bytes: usize = full_path.iter().map(|s| s.len() + 16).sum();
+            budget.charge(retained_bytes)?;
+            entries.push(ParsedEntry {
+                header_kind: HeaderKind::Table,
+                full_path,
+                value,
+            });
+        }
     }
 
     Ok(entries)
