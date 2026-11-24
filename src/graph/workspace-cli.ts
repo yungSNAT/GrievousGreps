@@ -12,6 +12,7 @@ import { cmd } from "../brand.js";
 import { nativeFallbackNotice } from "./native.js";
 import type { EngineConfig } from "../ai/providers.js";
 import { formatAsk } from "../ask/ask.js";
+import { budgetAsk } from "../ask/budget.js";
 import { errorCode, track } from "../telemetry/index.js";
 import type { Direction } from "./traverse.js";
 import { queryJson } from "./query-json.js";
@@ -142,9 +143,18 @@ export function runWorkspaceAsk(
   root: string,
   override: string | undefined,
   query: string,
-  opts: { limit?: number; source?: boolean; full?: boolean; in?: string; json?: boolean },
+  opts: { limit?: number; source?: boolean; full?: boolean; in?: string; json?: boolean; maxTokens?: number },
 ): void {
-  const r = federateAsk(root, override, query, { limit: opts.limit, source: opts.source, full: opts.full, in: opts.in });
+  const budget = opts.maxTokens !== undefined;
+  const r = federateAsk(root, override, query, {
+    limit: opts.limit, source: opts.source || budget, full: opts.full || budget, in: opts.in,
+  });
+  if (budget) {
+    const fitted = budgetAsk(r, opts.maxTokens as number);
+    if (opts.json) console.log(queryJson(fitted.result));
+    else process.stdout.write(fitted.text);
+    return;
+  }
   if (opts.json) console.log(queryJson(r));
   else process.stdout.write(formatAsk(r));
 }

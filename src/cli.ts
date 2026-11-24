@@ -33,6 +33,7 @@ import { CACHE_DIR, contextDirFor } from "./context/node-file.js";
 import { loadGraphCached } from "./graph/load.js";
 import { ensureFreshChildren, ensureFreshGraph, indexLine, refreshNote } from "./graph/refresh.js";
 import { queryJson, setQueryIndex } from "./graph/query-json.js";
+import { budgetAsk, parseMaxTokens } from "./ask/budget.js";
 import { isWorkspaceBuildRoot, readWorkspace, workspaceRepos } from "./graph/workspace.js";
 import { NOT_GIT_LINE, NOT_GIT_PAIR_REFUSAL, homeFolderRefusal, isGitWorkTree } from "./init-guard.js";
 import { hasGraftIndex, nearestGraftRoot } from "./graph/root.js";
@@ -845,20 +846,24 @@ grouped(program.command("build"), GROUP.setup)
  * that keeps branches and the workspace current. Spawns no git itself. Teammates' branches come up after an edit
  * instead, once there's a function to compare (notes/edit-overlap.ts).
  */
-function afterAsk(r: AskResult, repo: string): void {
+function afterAsk(r: AskResult, repo: string, savedTokens?: number): void {
   // Every lookup is reported, not only ones that showed a learning: the tokens
   // the map saved are what the team page's running total counts. A no-op unless
   // this machine is connected and the repo is the workspace's.
-  recordLookup(r, repo);
+  recordLookup(r, repo, undefined, savedTokens);
   if (!r.notesChecked) return;
   rememberRepo(repo);
   maybeRefreshBranches(repo);
-  const me = noteAuthor(repo);
-  const shown = r.notes ?? [];
-  if (shown.length) {
-    for (const h of shown) h.note.teammate = !!h.note.author && !!me && h.note.author !== me;
-  }
+  markTeammates(r, repo);
   maybeSyncInBackground(repo);
+}
+
+/** Label each learning shown that a teammate wrote; read when the answer is rendered. */
+function markTeammates(r: AskResult, repo: string): void {
+  const shown = r.notes ?? [];
+  if (!shown.length) return;
+  const me = noteAuthor(repo);
+  for (const h of shown) h.note.teammate = !!h.note.author && !!me && h.note.author !== me;
 }
 
 grouped(program.command("ask"), GROUP.find)
@@ -868,39 +873,57 @@ grouped(program.command("ask"), GROUP.find)
   .option("-n, --limit <n>", "max results", "8")
   .option("--source", "inline the source at each file:line hit (retriever mode: the pack IS the answer, no need to re-open files)")
   .option("--full", "with --source: inline whole definition spans instead of the default ≤8-line crux excerpts")
+  .option("--max-tokens <n>", "fit the answer to about n tokens: the top hit whole if it fits, later hits folded to signature and call lines, then pointers only (implies --source --full, so it can cost more than no budget; below about 100 the first pointer alone may not fit)")
   .option("--in <path>", "narrow to nodes under this path prefix, filtered before scoring (segment-aware, like scopeOf)")
   .option("--json", "output the result as JSON")
   .option("--no-graph-rank", "rank by lexical relevance only, without the graph-connectivity re-rank (ablation/eval)")
   .option(...NO_REFRESH_FLAG)
-  .action(async (query: string, dirArg: string | undefined, opts: { limit: string; source?: boolean; full?: boolean; in?: string; json?: boolean; refresh?: boolean; graphRank?: boolean }) => {
+  .action(async (query: string, dirArg: string | undefined, opts: { limit: string; source?: boolean; full?: boolean; maxTokens?: string; in?: string; json?: boolean; refresh?: boolean; graphRank?: boolean }) => {
     // The prompt hook passes what the person typed on stdin, out of sight of `ps`.
     if (query === "-") query = readFileSync(0, "utf8").trim();
+    const maxTokens = opts.maxTokens === undefined ? undefined : parseMaxTokens(opts.maxTokens);
+    if (typeof maxTokens === "string") {
+      console.error(`✗ --${maxTokens.replace("max_tokens", "max-tokens")}`);
+      process.exit(1);
+    }
+    const budget = maxTokens !== undefined;
     const dir = noteQuery(queryRoot(dirArg));
     await refreshBefore(dir, opts);
     const askGlobalDir = program.opts<GlobalOpts>().dir;
     if (readWorkspace(dir, askGlobalDir)) {
       runWorkspaceAsk(dir, askGlobalDir, query, {
-        limit: Number(opts.limit), source: opts.source, full: opts.full, in: opts.in, json: opts.json,
+        limit: Number(opts.limit), source: opts.source, full: opts.full, in: opts.in, json: opts.json, maxTokens,
       });
       return;
     }
     const engine = engineFrom();
     let r;
     try {
-      r = engine.ask(dir, query, { limit: Number(opts.limit), source: opts.source, full: opts.full, in: opts.in, graphRank: opts.graphRank });
+      r = engine.ask(dir, query, {
+        limit: Number(opts.limit), source: opts.source || budget, full: opts.full || budget, in: opts.in, graphRank: opts.graphRank,
+      });
     } catch (err) {
       console.error(`✗ ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
       return;
     }
     noteHit(r.hits.length > 0);
+    // A budgeted answer is rendered here, so its learnings are labelled first.
+    if (TRAIL && maxTokens !== undefined && r.notesChecked) markTeammates(r, dir);
+    const fitted = maxTokens === undefined ? undefined : budgetAsk(r, maxTokens);
     // Teammates' branches on the same files, and the learnings shown, counted as a use.
-    if (TRAIL) afterAsk(r, dir);
+    if (TRAIL) afterAsk(fitted?.result ?? r, dir, fitted?.savedTokens);
     // How many notes reached the agent: the demand side of `trail note`.
     if (r.notesChecked) queryNote.notes = String(Math.min(r.notes?.length ?? 0, 2));
     // And how many of those may be stale: they name code that's gone (notes/stale.ts).
     if (r.notesChecked) queryNote.stale = String(Math.min(r.notes?.filter((h) => h.note.stale?.length).length ?? 0, 2));
-    if (opts.json) {
+    if (fitted) {
+      if (opts.json) console.log(queryJson(fitted.result));
+      else {
+        process.stdout.write(fitted.text);
+        printLines(cloudLines(dir, { command: "ask" }));
+      }
+    } else if (opts.json) {
       console.log(queryJson(r));
     } else {
       const { formatAsk } = await import("./ask/ask.js");
