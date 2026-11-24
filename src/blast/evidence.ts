@@ -170,7 +170,7 @@ function regexEnd(text: string, i: number, syntax: Syntax): number {
   while (k >= 0 && (text[k] === " " || text[k] === "\t")) k--;
   if (text[i + 1] === ">" && (syntax.jsx || k < 0)) return -1;
   if (text[k] === "<") return -1;
-  if (text[k] === "}" ? !endsBlock(text, k, !syntax.ts) :k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
+  if (text[k] === "}" ? !endsBlock(text, k, !syntax.ts) : k >= 0 && /[\w$)\]'"`]/.test(text[k])) {
     let s = k;
     while (s > 0 && /[\w$]/.test(text[s - 1])) s--;
     if (!BEFORE_REGEX.has(text.slice(s, k + 1))) return -1;
