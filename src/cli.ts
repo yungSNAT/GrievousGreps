@@ -38,6 +38,8 @@ import { isWorkspaceBuildRoot, readWorkspace, workspaceRepos } from "./graph/wor
 import { NOT_GIT_LINE, NOT_GIT_PAIR_REFUSAL, homeFolderRefusal, isGitWorkTree } from "./init-guard.js";
 import { hasGraftIndex, nearestGraftRoot } from "./graph/root.js";
 import { unsupportedExtensions, supportedExtensions } from "./graph/source-files.js";
+import { auditPolyglotRepo, formatPolyglotAuditLines } from "./graph/polyglot-audit.js";
+import { registerDiscoverCommands } from "./cli-discover.js";
 import {
   runWorkspaceAsk,
   runWorkspaceBuild,
@@ -767,6 +769,8 @@ grouped(program.command("build"), GROUP.setup)
       console.log(`✓ wiring: ${g.nodes} nodes (${fmt(g.byKind)}), ${g.edges} edges, ${g.cards} cards [${g.languages.join(", ")}]`);
     }
     console.log(`  parsed: ${g.parsed} of ${g.files} files (${g.reused} replayed from cache)${g.failed ? `, ${g.failed} FAILED` : ""}`);
+    const polyglotLines = formatPolyglotAuditLines(g.polyglotAudit);
+    if (polyglotLines.warningLine) console.error(polyglotLines.warningLine);
     for (const s of g.skipped.slice(0, 10)) console.log(`  skipped ${JSON.stringify(s.path)}: ${s.reason}`);
     if (g.skipped.length > 10) console.log(`  … and ${g.skipped.length - 10} more deployment files skipped`);
     // Worth one line: this build started from a graph the user never built *here*.
@@ -1118,19 +1122,20 @@ grouped(program.command("callers"), GROUP.find)
   .option("--direction <in|out>", 'edge direction: "in" = callers (default), "out" = callees')
   .option("-d, --depth <n>", 'walk transitively up to N hops for blast radius, or "all" for the full connected closure (default 1)')
   .option("--in <path>", "narrow matches to nodes at or under this path prefix")
+  .option("--provenance", "tag every hit as EXTRACTED or INFERRED and rate multi-hop paths by their weakest hop")
   .option("--json", "output as JSON")
   .option(...NO_REFRESH_FLAG)
   .action(
     async (
       symbol: string,
       dirArg: string | undefined,
-      opts: { direction?: string; depth?: string; in?: string; json?: boolean; refresh?: boolean },
+      opts: { direction?: string; depth?: string; in?: string; provenance?: boolean; json?: boolean; refresh?: boolean },
     ) => {
       const dir = noteQuery(queryRoot(dirArg));
       await refreshBefore(dir, opts);
       const globalOpts = program.opts<{ dir?: string }>();
       const { runCallersCommand, resolveDirection, resolveDepth } = await import("./graph/traverse-cli.js");
-      if (readWorkspace(dir, globalOpts.dir)) {
+      if (readWorkspace(dir, globalOpts.dir) && !opts.provenance) {
         runWorkspaceCallers(dir, globalOpts.dir, symbol, {
           direction: resolveDirection(opts.direction),
           depth: resolveDepth(opts.depth),
@@ -1143,6 +1148,7 @@ grouped(program.command("callers"), GROUP.find)
         direction: opts.direction,
         depth: opts.depth,
         in: opts.in,
+        provenance: opts.provenance,
         json: opts.json,
         globalDir: globalOpts.dir,
       });
@@ -1260,6 +1266,17 @@ grouped(program.command("map"), GROUP.find)
     }
     process.stdout.write(formatRepoMap(map));
   });
+
+registerDiscoverCommands({
+  program,
+  groupFind: GROUP.find,
+  dirArg: DIR_ARG,
+  noRefreshFlag: NO_REFRESH_FLAG,
+  queryRoot,
+  noteQuery,
+  refreshBefore,
+  grouped,
+});
 
 // `trail docs`: ranked search over the repository's Markdown and text, answered
 // by the gg-docs binary (src/docs/docs-cli.ts says how it is found). Apart from
@@ -1974,6 +1991,16 @@ async function runInitCommand(dir: string, opts: InitOptions, progress?: InitPro
         graphLine = "✓ graph ready";
       } else {
         graphLine = `· skipped the graph build: run ${cmd("graft build")}`;
+      }
+      if (!children.length) {
+        const initAudit = auditPolyglotRepo(repo, program.opts<GlobalOpts>().dir);
+        const initAuditLines = formatPolyglotAuditLines(initAudit);
+        if (initAuditLines.detectedLine && graphLine) {
+          graphLine = `${graphLine} · ${initAuditLines.detectedLine}`;
+        }
+        if (initAuditLines.warningLine && !res.messages.some((m) => m.includes("unindexed source extensions:"))) {
+          console.error(initAuditLines.warningLine);
+        }
       }
     }
     // After the graph build too: it adds the map's ignore lines (`.trail/.gitignore` under trail, `.gitignore` and `.ignore`

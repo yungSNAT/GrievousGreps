@@ -6,12 +6,18 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use gg_query::ask::{AskOptions, format_ask, format_skeleton, run_ask, run_skeleton};
+use gg_query::crate_source::{
+    CrateSourceArgs, ResolutionStatus, format_crate_source_json, format_crate_source_text,
+    resolve_crate_source,
+};
 use gg_query::embed::SafetensorsEmbedder;
 use gg_query::format::{SymbolResult, format_blast_json, format_callers_json, format_callers_text};
 use gg_query::graph::{
     Direction, EdgeHit, NodeV1, UnresolvedCall, group_digits, normalize_path_prefix, parse_depth,
     path_under_prefix,
 };
+use gg_query::hubs::{compute_hubs, format_hubs_json, format_hubs_text, parse_hub_limit};
+use gg_query::provenance::{format_callers_provenance_json, format_callers_provenance_text};
 use gg_query::store::GraphStore;
 use gg_query::vectors::{dense_files, read_vectors};
 
@@ -23,6 +29,7 @@ pub struct CallersCmdArgs<'a> {
     pub depth: Option<&'a str>,
     pub in_prefix: Option<&'a str>,
     pub json: bool,
+    pub provenance: bool,
 }
 
 pub struct AskCmdArgs<'a> {
@@ -150,7 +157,32 @@ pub fn run_callers(args: &CallersCmdArgs<'_>) -> Result<(), String> {
             args.symbol
         ));
     }
-    if args.json {
+    if args.provenance {
+        if args.json {
+            println!(
+                "{}",
+                format_callers_provenance_json(
+                    args.symbol,
+                    dir,
+                    &results,
+                    &unresolved_by_name,
+                    saved.as_ref()
+                )
+            );
+        } else {
+            print!(
+                "{}",
+                format_callers_provenance_text(
+                    args.repo,
+                    dir,
+                    max_depth > 1,
+                    &results,
+                    &unresolved_by_name,
+                    saved.as_ref()
+                )
+            );
+        }
+    } else if args.json {
         println!(
             "{}",
             format_callers_json(
@@ -380,6 +412,50 @@ pub fn run_ask_dense(args: &AskDenseCmdArgs<'_>) -> Result<(), String> {
         for h in &hits {
             println!("{:.6}  {}:L{}-L{}", h.score, h.path, h.start, h.end);
         }
+    }
+    Ok(())
+}
+
+pub fn run_hubs(
+    repo: &Path,
+    override_dir: Option<&Path>,
+    limit: Option<usize>,
+    in_prefix: Option<&str>,
+    json: bool,
+) -> Result<(), String> {
+    let parsed_limit = parse_hub_limit(limit)?;
+    let ctx = context_dir_for(repo, override_dir);
+    let Some(store) = GraphStore::open_or_sync(&ctx).map_err(|e| e.to_string())? else {
+        return Err(format!(
+            "no graph found at {} — run `trail build` first",
+            ctx.display()
+        ));
+    };
+    let report = compute_hubs(&store, parsed_limit, in_prefix).map_err(|e| e.to_string())?;
+    if json {
+        println!("{}", format_hubs_json(&report)?);
+    } else {
+        print!("{}", format_hubs_text(&report));
+    }
+    Ok(())
+}
+
+pub fn run_crate_source(args: &CrateSourceArgs<'_>, json: bool) -> Result<(), String> {
+    let report = resolve_crate_source(args)?;
+    if json {
+        println!("{}", format_crate_source_json(&report)?);
+    } else {
+        print!("{}", format_crate_source_text(&report));
+    }
+    if report
+        .matches
+        .iter()
+        .all(|m| m.status != ResolutionStatus::Found)
+    {
+        return Err(format!(
+            "crate \"{}\" is locked in Cargo.lock but not cached locally under {}",
+            report.query, report.cargo_home
+        ));
     }
     Ok(())
 }

@@ -19,6 +19,8 @@ import { grepGraph } from '../search/grep.js';
 import { formatGrepResult, zeroHitNote } from '../search/grep-cli.js';
 import { ignoredCode } from '../search/ignored-code.js';
 import { buildRepoMap, formatRepoMap } from '../graph/map.js';
+import { computeHubs, formatHubsText, parseHubLimit } from '../graph/hubs.js';
+import { formatProvenanceText } from '../graph/provenance.js';
 import {
   federateAsk,
   federateCallers,
@@ -121,6 +123,7 @@ export const TOOLS: ToolDef[] = [
         },
         depth: { description: 'transitive walk depth for blast radius (default 1 = direct edges only); pass "all" for the full connected closure — every source that would be affected' },
         in: { type: 'string', description: 'narrow matches to nodes at or under this repo-relative path prefix, e.g. server/src; from a folder of several repositories, begin with the repository folder, e.g. api/server/src' },
+        provenance: { type: 'boolean', description: 'when true, tag every edge as EXTRACTED or INFERRED and rate multi-hop paths by their weakest hop' },
       },
       required: ['symbol'],
     },
@@ -143,11 +146,14 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'graft_repo_map',
     description:
-      'Token-budgeted repo orientation — directory clusters, per-directory hubs, and global hotspots computed purely from the wiring graph ($0, no LLM). Use this to get oriented in an unfamiliar repo before diving into files.',
+      'Token-budgeted repo orientation — directory clusters, per-directory hubs, and global hotspots computed purely from the wiring graph ($0, no LLM). Set mode:"hubs" for a compact PageRank and connectivity god-node summary.',
     inputSchema: {
       type: 'object',
       properties: {
         max_dirs: { type: 'number', description: 'max directory entries shown, rest counted into dropped (default 16)' },
+        mode: { type: 'string', enum: ['map', 'hubs'], description: '"map" (default) = directory clusters and hotspots; "hubs" = top PageRank/connectivity god-node summary' },
+        limit: { type: 'number', description: 'for mode:"hubs", max hub symbols shown (1..100, default 15)' },
+        in: { type: 'string', description: 'for mode:"hubs", narrow to symbols at or under this repo-relative path prefix' },
       },
     },
   },
@@ -332,6 +338,16 @@ async function callSingleTool(
         }
         const depth = traceDepth(args.depth);
         const results = matches.map((m) => ({ symbol: m, hits: edgeWalk(w, m, direction, depth) }));
+        if (args.provenance === true) {
+          const text = formatProvenanceText({
+            direction,
+            showDepth: depth > 1,
+            results,
+            unresolvedNote: (symName) => unresolvedNoteFor(w, direction, symName),
+            saved: callersSavings(w, results),
+          });
+          return { text, isError: false };
+        }
         const body = callerBlocks(w, direction, depth > 1, results).join('\n\n');
         const text = withSavings(body, callersSavings(w, results));
         return { text, isError: false };
@@ -352,6 +368,12 @@ async function callSingleTool(
       case 'graft_repo_map': {
         const w = loadGraphCached(contextDirFor(root, dirOverride));
         if (!w) return { text: noGraph(), isError: true };
+        if (args.mode === 'hubs') {
+          const limit = args.limit === undefined ? undefined : parseHubLimit(typeof args.limit === 'number' || typeof args.limit === 'string' ? args.limit : String(args.limit));
+          const inArg = typeof args.in === 'string' && args.in ? args.in : undefined;
+          const hubs = computeHubs(w, { limit, in: inArg });
+          return { text: formatHubsText(hubs), isError: false };
+        }
         const maxDirs = typeof args.max_dirs === 'number' && Number.isFinite(args.max_dirs) && args.max_dirs > 0 ? args.max_dirs : undefined;
         const map = buildRepoMap(w, { maxDirs });
         return { text: formatRepoMap(map), isError: false };
