@@ -38,7 +38,7 @@ function codeRepo(tag: string): string {
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src", "score.ts"), "export function score(v: number): number {\n  return bonus(v) + 1;\n}\n\nexport function bonus(v: number): number {\n  return v * 2;\n}\n");
   git(dir, "add", "--", "src");
-  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", "Add score");
+  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", `Add score (${tag})`);
   return dir;
 }
 

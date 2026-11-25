@@ -41,7 +41,7 @@ function codeRepo(tag: string): string {
   mkdirSync(join(dir, "src"));
   writeFileSync(join(dir, "src", "gear.ts"), "export function turn(v: number): number {\n  return v * 2;\n}\n");
   git(dir, "add", "--", "src");
-  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", "Add gear");
+  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", `Add gear (${tag})`);
   return dir;
 }
 
