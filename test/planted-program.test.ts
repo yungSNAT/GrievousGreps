@@ -155,6 +155,6 @@ test("cmd.exe planted in the working folder never runs as the shell, even with C
 test("npm planted in the working folder never runs: the update check's npm comes from PATH", (t) => {
   const repo = clonedRepo(t);
   const marks = plant(t, repo, ["npm"]);
-  inside(repo, () => getNpmViewVersion("@equitybot/grievousgreps", 30_000));
+  inside(repo, () => getNpmViewVersion("@yungsnat/grievousgreps", 30_000));
   assert.deepEqual(ran(marks), [], "the planted npm ran");
 });

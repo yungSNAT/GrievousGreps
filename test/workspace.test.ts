@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
@@ -18,6 +18,7 @@ import {
   federateCheck,
   federateCallers,
   federateGrep,
+  federateSkeleton,
   isWorkspaceBuildRoot,
   workspaceRepos,
 } from "../src/graph/workspace.js";
@@ -867,4 +868,123 @@ test("readWorkspace: rejects foreign/invalid json as not-a-workspace", () => {
   writeWorkspace(p, { version: 1, children: ["x", "a"] });
   assert.deepEqual(readWorkspace(p), { version: 1, children: ["a", "x"] });
   rmSync(p, { recursive: true, force: true });
+});
+
+test("workspace skeleton & MCP graft_file_api: routes by child path prefix and rejects escapes", async () => {
+  const p = workspaceFx({
+    repoA: {
+      "src/a.ts": "export function alphaHandler(x: number): number { return x + 1; }\n",
+      "lib/dup.ts": "export function libDup(): number { return 1; }\n",
+      "pkg/dup.ts": "export function pkgDup(): number { return 2; }\n",
+    },
+    repoB: {
+      "src/b.ts": "export function betaHandler(): number { return 2; }\n",
+    },
+    repoUnbuilt: {
+      "src/u.ts": "export function unbuiltHandler(): number { return 3; }\n",
+    },
+  });
+  const outside = mkdtempSync(join(tmpdir(), "ws-outside-"));
+  writeFileSync(join(outside, "secret.ts"), "export function secret(): number { return 0; }\n");
+  try {
+    await buildWorkspace(p);
+    rmSync(contextDirFor(join(p, "repoUnbuilt")), { recursive: true, force: true });
+
+    // Direct federateSkeleton: exact path, unique basename inside child, Windows separators.
+    const exact = federateSkeleton(p, undefined, "repoA/src/a.ts");
+    assert.equal(exact.file, "repoA/src/a.ts");
+    assert.equal(exact.entries.length, 1);
+    assert.equal(exact.entries[0].name, "alphaHandler");
+
+    const byBase = federateSkeleton(p, undefined, "repoA/a.ts");
+    assert.equal(byBase.file, "repoA/src/a.ts");
+    assert.equal(byBase.entries[0].name, "alphaHandler");
+
+    const withBackslash = federateSkeleton(p, undefined, "repoB\\src\\b.ts");
+    assert.equal(withBackslash.file, "repoB/src/b.ts");
+    assert.equal(withBackslash.entries[0].name, "betaHandler");
+
+    // Ambiguous basename within a child prefixes every candidate with `<child>/`.
+    const ambig = federateSkeleton(p, undefined, "repoA/dup.ts");
+    assert.equal(ambig.entries.length, 0);
+    assert.match(ambig.note ?? "", /ambiguous — matches: repoA\/lib\/dup\.ts, repoA\/pkg\/dup\.ts/);
+
+    // MCP graft_file_api routes through the workspace instead of failing with "no wiring graph".
+    const mcpOk = await callTool(p, "graft_file_api", { file: "repoA/src/a.ts" });
+    assert.equal(mcpOk.isError, false, mcpOk.text);
+    assert.match(mcpOk.text, /graft skeleton — repoA\/src\/a\.ts/);
+    assert.match(mcpOk.text, /alphaHandler/);
+
+    const mcpAlias = await callTool(p, "graft_skeleton", { file: "repoB/b.ts" });
+    assert.equal(mcpAlias.isError, false, mcpAlias.text);
+    assert.match(mcpAlias.text, /graft skeleton — repoB\/src\/b\.ts/);
+    assert.match(mcpAlias.text, /betaHandler/);
+
+    const mcpUnbuilt = await callTool(p, "graft_file_api", { file: "repoUnbuilt/src/u.ts" });
+    assert.equal(mcpUnbuilt.isError, true);
+    assert.match(mcpUnbuilt.text, /no wiring graph/);
+
+    const mcpNoRepo = await callTool(p, "graft_file_api", { file: "unknown/a.ts" });
+    assert.equal(mcpNoRepo.isError, true);
+    assert.match(mcpNoRepo.text, /no workspace repo "unknown".*repoA.*repoB/s);
+
+    const mcpRepoOnly = await callTool(p, "graft_file_api", { file: "repoA" });
+    assert.equal(mcpRepoOnly.isError, true);
+    assert.match(mcpRepoOnly.text, /repository and file/);
+
+    // Path traversal, cross-child escape, absolute paths and NUL bytes are rejected cleanly.
+    for (const bad of [
+      "../outside.ts",
+      "repoA/../../outside.ts",
+      "repoA/../repoB/src/b.ts",
+      "repoA\\..\\repoB\\src\\b.ts",
+      "/etc/passwd",
+      "C:\\Windows\\win.ini",
+      "repoA/src/a.ts\0",
+    ]) {
+      assert.throws(() => federateSkeleton(p, undefined, bad), /refusing a path outside workspace/);
+      const mcpBad = await callTool(p, "graft_file_api", { file: bad });
+      assert.equal(mcpBad.isError, true, `expected MCP error for ${JSON.stringify(bad)}`);
+      assert.match(mcpBad.text, /refusing a path outside workspace/);
+    }
+
+    // Symlink inside a child pointing outside the workspace is refused.
+    const linkDir = join(p, "repoA", "escape-link");
+    let linked = false;
+    try {
+      symlinkSync(outside, linkDir, "junction");
+      linked = true;
+    } catch {
+      /* symlink creation restricted in this environment */
+    }
+    if (linked) {
+      assert.throws(() => federateSkeleton(p, undefined, "repoA/escape-link/secret.ts"), /symlink/i);
+      const mcpLink = await callTool(p, "graft_file_api", { file: "repoA/escape-link/secret.ts" });
+      assert.equal(mcpLink.isError, true);
+      assert.match(mcpLink.text, /symlink/i);
+    }
+
+    // CLI `skeleton` (plain + --json) routes by child path prefix and exits 1 on traversal/unknown repo.
+    const cliText = runCli(["skeleton", "repoA/src/a.ts", p, "--no-refresh"]);
+    assert.equal(cliText.status, 0, cliText.describe());
+    assert.match(cliText.stdout, /graft skeleton — repoA\/src\/a\.ts/);
+    assert.match(cliText.stdout, /alphaHandler/);
+
+    const cliJson = runCli(["skeleton", "repoB/src/b.ts", p, "--json", "--no-refresh"]);
+    assert.equal(cliJson.status, 0, cliJson.describe());
+    const parsed = JSON.parse(cliJson.stdout) as { file: string; entries: Array<{ name: string }> };
+    assert.equal(parsed.file, "repoB/src/b.ts");
+    assert.deepEqual(parsed.entries.map((e) => e.name), ["betaHandler"]);
+
+    const cliBad = runCli(["skeleton", "repoA/../repoB/src/b.ts", p, "--no-refresh"]);
+    assert.equal(cliBad.status, 1);
+    assert.match(cliBad.stderr, /refusing a path outside workspace/);
+
+    const cliUnknown = runCli(["skeleton", "nope/a.ts", p, "--no-refresh"]);
+    assert.equal(cliUnknown.status, 1);
+    assert.match(cliUnknown.stderr, /no workspace repo "nope"/);
+  } finally {
+    rmSync(p, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
 });
