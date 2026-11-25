@@ -1,7 +1,7 @@
 import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
 import { tmpRepo } from "./helpers.js";
@@ -481,5 +481,25 @@ describe("uninstall", () => {
     assert.equal(r.status, 0, r.detail);
     assert.match(r.stderr, /⚠ 1 file\(s\) could not be removed and were left as-is: see above\./);
     assert.equal(readFileSync(join(repo, ".cursor", "mcp.json"), "utf8"), "{ not json");
+  });
+
+  test("a wiring file that links out of the repo is left alone", (t) => {
+    const repo = codeRepo("uninstall-link");
+    const home = scratchDir("uninstall-link-home");
+    const init = cli(["init", repo, "--agents", "cursor", "--no-build", "--no-global"], { home });
+    assert.equal(init.status, 0, init.detail);
+    const outside = join(home, "mcp.json");
+    writeFileSync(outside, readFileSync(join(repo, ".cursor", "mcp.json")));
+    rmSync(join(repo, ".cursor", "mcp.json"));
+    try {
+      symlinkSync(outside, join(repo, ".cursor", "mcp.json"), "file");
+    } catch {
+      t.skip("this machine can't make a symlink");
+      return;
+    }
+    const r = cli(["uninstall", repo, "--no-global"], { home });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stderr, /⚠ would remove: .+: a link out of this repo, left untouched/);
+    assert.doesNotMatch(r.stderr, /machine-wide/);
   });
 });

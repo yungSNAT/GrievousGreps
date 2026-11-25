@@ -254,6 +254,29 @@ describe("sign-in, the rarer paths", () => {
     assert.match(r.stdout, /✓ shared 1 learning from 1 repo/);
   });
 
+  test("--code shares two repos' learnings, counted in the plural", () => {
+    const dir = widgetsRepo("code-share-two");
+    const gadgets = widgetsRepo("code-share-gadgets", false);
+    git(gadgets, "remote", "add", "origin", "https://github.com/acme/gadgets.git");
+    const home = homeWith("code-share-two-home", []);
+    for (const d of [dir, gadgets]) {
+      note(d, home, "Gear turns twice", "Ada");
+      commitAll(d, "Keep the learning");
+    }
+    const both: Route = { ...claimed, body: { ...(claimed.body as object), repos: [KEY, "github.com/acme/gadgets"] } };
+    const r = trail(["login", dir, "--code", "TRL-ABCD", "--server", SERVER], { home, routes: [both, { on: "PUT /api/cli/learnings", status: 200, body: { learnings: 2, added: 2 } }] });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /✓ shared 4 learnings from 2 repos/);
+  });
+
+  test("--server with no --workspace: a repo already in that workspace is signed in", () => {
+    const dir = widgetsRepo("server-no-slug");
+    const home = homeWith("server-no-slug-home", [cloud("acme", "Acme", [KEY])]);
+    const r = trail(["login", dir, "--server", SERVER], { home });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stderr, /^✓ already signed in to workspace Acme · http:\/\/trail\.test\/w\/acme$/m);
+  });
+
   test("--global with a Codex config that can't be written leaves Codex as it was", () => {
     const dir = widgetsRepo("code-codex");
     const home = homeWith("code-codex-home", []);

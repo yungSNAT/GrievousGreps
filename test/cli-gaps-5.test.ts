@@ -1,8 +1,9 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { claudeProjectDir } from "../src/notes/session-cost.js";
 import { tmpRepo } from "./helpers.js";
 import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
@@ -194,6 +195,29 @@ describe("queries", () => {
       assert.equal(r.status, 0, r.detail);
       assert.match(r.stdout, /Score adds a bonus/);
     }
+
+    // Learnings, but none on this query's code; then one whose learning names code that's gone.
+    const elsewhere = codeRepo("ask-elsewhere");
+    writeFileSync(join(elsewhere, "src", "pause.ts"), "export function pause(): void {}\n");
+    git(elsewhere, "add", "--", "src");
+    git(elsewhere, "-c", "commit.gpgsign=false", "commit", "-m", "Add pause");
+    build(elsewhere, { trail: true });
+    const kept = cli(["note", elsewhere, "--title", "Pause waits", "-m", "## Decided\npause() in src/pause.ts returns at once.", "--touches", "src/pause.ts", "--anyway"], { trail: true });
+    assert.equal(kept.status, 0, kept.detail);
+    const none = cli(["ask", "score bonus", elsewhere, "--no-refresh", "--limit", "1"], { trail: true });
+    assert.equal(none.status, 0, none.detail);
+    assert.doesNotMatch(none.stdout, /Pause waits/);
+    writeFileSync(join(dir, "src", "score.ts"), "export function total(v: number): number {\n  return v;\n}\n");
+    const stale = cli(["ask", "score bonus", dir, "--no-refresh"], { trail: true });
+    assert.equal(stale.status, 0, stale.detail);
+  });
+
+  test("an -e extension given with its dot is still named when nothing parses it", () => {
+    const dir = codeRepo("ext-dot");
+    const r = cli(["build", dir, "-e", ".qqq", ".ts", "--no-gitignore", "--no-ignore"]);
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stderr, /\.qqq/);
+    assert.doesNotMatch(r.stderr, /\.\.qqq/);
   });
 
   test("check on a workspace parent checks each repo", () => {
@@ -267,5 +291,44 @@ describe("note", () => {
     const r = cli(["note", dir, "--title", "Score", "-m", "score() adds one.", "--anyway"], { trail: true });
     assert.equal(r.status, 0, r.detail);
     assert.match(r.stdout, /· tip: learnings read best under ## Decided, ## Tried and ruled out and ## Watch out/);
+  });
+
+  test("a long learning is saved with a warning to cut it", () => {
+    const dir = codeRepo("note-long");
+    const body = `## Decided\nscore() in src/score.ts adds bonus() first. ${"The bonus doubles its input before the score adds one. ".repeat(30)}`;
+    const r = cli(["note", dir, "--title", "Bonus before score", "-m", body, "--touches", "src/score.ts", "--anyway"], { trail: true });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /^· long: \d+ words\. Long learnings get skimmed; cut it to the fact and the why\.$/m);
+  });
+
+  test("one that builds on a learning with no author", () => {
+    const dir = codeRepo("note-no-author");
+    const first = cli(["note", dir, "--title", "Bonus before score", "-m", "## Decided\nscore() in src/score.ts adds bonus() first.", "--touches", "src/score.ts", "--author", "Ada", "--anyway"], { trail: true });
+    assert.equal(first.status, 0, first.detail);
+    const learnings = join(dir, ".trail", "learnings");
+    for (const f of readdirSync(learnings).filter((f) => f.endsWith(".md")))
+      writeFileSync(join(learnings, f), readFileSync(join(learnings, f), "utf8").replace(/^author:.*\r?\n/m, ""));
+    const r = cli(["note", dir, "--title", "Bonus doubles", "-m", "## Decided\nbonus() in src/score.ts doubles its input.", "--touches", "src/score.ts", "--author", "Bo", "--anyway"], { trail: true });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /^· builds on a learning from /m);
+  });
+
+  test("this session's edits in two repos save the learning to both", () => {
+    const dir = codeRepo("note-session");
+    const other = codeRepo("note-session-other");
+    const home = scratchDir("note-session-home");
+    const project = claudeProjectDir(dir, home);
+    mkdirSync(project, { recursive: true });
+    const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    const edit = (id: string, file: string) => ({ type: "tool_use", id, name: "Edit", input: { file_path: file } });
+    writeFileSync(join(project, "session.jsonl"), [
+      { type: "user", timestamp: at(20), message: { role: "user", content: "make score() in src/score.ts add bonus() first" } },
+      { type: "assistant", timestamp: at(15), message: { id: "m1", usage: { input_tokens: 1200, output_tokens: 300 }, content: [edit("t1", join(dir, "src", "score.ts")), edit("t2", join(other, "src", "score.ts"))] } },
+    ].map((e) => JSON.stringify(e)).join("\n") + "\n");
+    const r = cli(["note", dir, "--title", "Bonus before score", "-m", "## Decided\nscore() in src/score.ts adds bonus() first.", "--author", "Ada", "--anyway", "--json"], { home, trail: true });
+    assert.equal(r.status, 0, r.detail);
+    const saved = JSON.parse(r.stdout) as Array<{ title: string }>;
+    assert.ok(Array.isArray(saved) && saved.length === 2, r.stdout);
+    for (const repoDir of [dir, other]) assert.equal(readdirSync(join(repoDir, ".trail", "learnings")).filter((f) => f.endsWith(".md")).length, 1);
   });
 });

@@ -1,7 +1,7 @@
 import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo } from "./helpers.js";
 import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
@@ -242,6 +242,31 @@ describe("--delete", () => {
     const syncing = share(["--delete", code], { home, cwd: repo, routes: [allowed, deleted] });
     assert.equal(syncing.status, 0, syncing.detail);
     assert.ok(JSON.parse(readFileSync(syncFile, "utf8")).stoppedAt, "the sending stops");
+  });
+
+  test("the background send names each session's repo", () => {
+    const { home, repo } = setup("sync-repo", [cloud("acme", "Acme", [])]);
+    // A session that has gone quiet: an hour since it was written.
+    const hourAgo = new Date(Date.now() - 3_600_000);
+    utimesSync(join(claudeProjectDir(repo, home), `${ID}.jsonl`), hourAgo, hourAgo);
+    mkdirSync(join(home, ".trail", "share"), { recursive: true });
+    writeFileSync(join(home, ".trail", "share", "sync.json"), JSON.stringify({ bundleId: "0b0b0b0b-1111-4222-8333-944455556666", secret: "fixturesecretpartone", since: Date.now() - 86_400_000, days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
+    const log = join(home, "fetch.jsonl");
+    const r = runCli(["_share-sync"], { home, cwd: repo, trail: true, routes: [posted], fetchLog: log });
+    assert.equal(r.status, 0, r.detail);
+    const sent = readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { path: string; body: { repo?: string } });
+    assert.ok(sent.some((s) => s.path === "/api/cli/shared-sessions" && s.body.repo === "github.com/acme/widgets"), JSON.stringify(sent.map((s) => [s.path, s.body?.repo, (s.body as { kind?: string })?.kind, (s.body as { session_id?: string })?.session_id])));
+  });
+
+  test("--stop with no hook to take out says only that it stopped", () => {
+    const { home, repo } = setup("stop-no-hook", [cloud("acme", "Acme", [])]);
+    mkdirSync(join(home, ".trail", "share"), { recursive: true });
+    const syncFile = join(home, ".trail", "share", "sync.json");
+    writeFileSync(syncFile, JSON.stringify({ bundleId: "0b0b0b0b-1111-4222-8333-944455556666", secret: "fixturesecretpartone", since: Date.now(), days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
+    const r = share(["--stop"], { home, cwd: repo });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stderr, /^✓ stopped: nothing more is sent\n· what already went stays with the Trail team until you take it back: trail share-session --delete 0b0b0b0b-1111-4222-8333-944455556666\.fixturesecretpartone\n$/);
+    assert.ok(JSON.parse(readFileSync(syncFile, "utf8")).stoppedAt);
   });
 });
 
