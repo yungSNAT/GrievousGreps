@@ -396,8 +396,9 @@ pub fn call_reference_line(
     // Fills the cache, so the reads below see the file.
     let first = reference_line(root, path, span, symbol_name, cache);
     let lines = cache.get(path)?.as_ref()?;
+    let imports = import_lines(lines);
     let mut names = vec![symbol_name.to_string()];
-    for line in lines {
+    for (line, _) in lines.iter().zip(&imports).filter(|(_, i)| **i) {
         for alias in aliases_in(line, symbol_name) {
             if !names.contains(&alias) {
                 names.push(alias);
@@ -411,11 +412,11 @@ pub fn call_reference_line(
         .iter()
         .enumerate()
         .take(end.min(lines.len()))
-        .skip(start - 1)
+        .skip(start.saturating_sub(1))
     {
         let (code, next_open) = code_of(line, syntax, open);
         open = next_open;
-        if !is_import_line(&code) && names.iter().any(|n| has_use_not_alias(&code, n)) {
+        if !imports[idx] && names.iter().any(|n| !word_positions(&code, n).is_empty()) {
             return Some(Quote {
                 n: idx + 1,
                 text: line.clone(),
@@ -486,25 +487,25 @@ fn aliases_in(line: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `word` occurs in `code` other than as either side of an `x as y` binding.
-fn has_use_not_alias(code: &str, word: &str) -> bool {
-    word_positions(code, word).into_iter().any(|i| {
-        let rest = &code[i + word.len()..];
-        let t = rest.trim_start();
-        let as_after = t.len() < rest.len()
-            && t.strip_prefix("as")
-                .is_some_and(|r| !r.bytes().next().is_some_and(is_word_char));
-        let before = &code[..i];
-        let as_before = before.ends_with(char::is_whitespace)
-            && before.trim_end().strip_suffix("as").is_some_and(|r| {
-                r.ends_with(char::is_whitespace)
-                    && r.trim_end()
-                        .bytes()
-                        .last()
-                        .is_some_and(|c| is_word_char(c) || c == b'$')
-            });
-        !as_after && !as_before
-    })
+/// Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the
+/// lines up to the close. Mirrors `importLines` in `src/graph/traverse-cli.ts`.
+fn import_lines(lines: &[String]) -> Vec<bool> {
+    let mut open = false;
+    lines
+        .iter()
+        .map(|l| {
+            if !open && !is_import_line(l) {
+                return false;
+            }
+            open = if open {
+                !l.contains([')', '}'])
+            } else {
+                l.rfind(['(', '{'])
+                    .is_some_and(|i| !l[i..].contains([')', '}']))
+            };
+            true
+        })
+        .collect()
 }
 
 pub fn reference_line_any(

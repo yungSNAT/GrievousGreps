@@ -155,11 +155,12 @@ function quoteFor(
   if (!hit.node || hit.depth > 1 || isTestPath(hit.node.path)) return undefined;
   const { path, span } = hit.node;
   // A file that imports the name, or imports it as another name, calls it on a later line: quote that line.
-  // Import lines and `x as y` bindings are blanked first, so neither is quoted as the call.
+  // Import statements are blanked first, so none is quoted as the call.
   const lines = read(path);
   if (!lines) return undefined;
-  const calls = lines.map((l) => (IMPORT_LINE.test(l) ? "" : l.replace(BINDING, "")));
-  const names = [name, ...aliasesOf(lines, name)].map(wordRe);
+  const imports = importLines(lines);
+  const calls = lines.map((l, i) => (imports[i] ? "" : l));
+  const names = [name, ...aliasesOf(lines.filter((_, i) => imports[i]), name)].map(wordRe);
   const call = referenceLine(path, span, names, () => calls, true);
   if (call) return { n: call.n, text: lines[call.n - 1] };
   return referenceLine(path, span, [wordRe(name)], read, true) ?? undefined;
@@ -168,10 +169,17 @@ function quoteFor(
 /** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`). */
 const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b)/;
 
-/** A `name as alias` binding (Python and JavaScript imports, Python `with` and `except`, TypeScript casts). */
-const BINDING = /[A-Za-z_$][\w$]*\s+as\s+[A-Za-z_$][\w$]*/g;
+/** Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the lines up to the close. */
+function importLines(lines: string[]): boolean[] {
+  let open = false;
+  return lines.map((l) => {
+    if (!open && !IMPORT_LINE.test(l)) return false;
+    open = open ? !/[)}]/.test(l) : /[({][^)}]*$/.test(l);
+    return true;
+  });
+}
 
-/** The names a file's imports bind `name` to (`name as alias`). */
+/** The names import lines bind `name` to (`name as alias`). */
 function aliasesOf(lines: string[], name: string): string[] {
   const pairs = lines.flatMap((l) => [...l.matchAll(/([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)/g)]);
   return [...new Set(pairs.filter((m) => m[1] === name && m[2] !== name).map((m) => m[2]))];
