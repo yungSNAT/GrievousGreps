@@ -184,6 +184,7 @@ pub fn parse_iso_ms(raw: &str) -> Option<f64> {
 struct PersonAcc {
     owner: Owner,
     seen: HashSet<String>,
+    emails: HashSet<String>,
 }
 
 pub fn owners_for(root: &Path, files: &[String], exclude: &[String], now: f64) -> Vec<Owner> {
@@ -251,7 +252,9 @@ pub fn owners_for(root: &Path, files: &[String], exclude: &[String], now: f64) -
                 last: at,
             },
             seen: HashSet::new(),
+            emails: HashSet::new(),
         });
+        entry.emails.insert(email.to_ascii_lowercase());
         if entry.seen.insert(hash.clone()) {
             entry.owner.commits += 1;
             entry.owner.score += weight;
@@ -261,6 +264,10 @@ pub fn owners_for(root: &Path, files: &[String], exclude: &[String], now: f64) -
         }
     }
 
+    filter_and_sort_owners(people, exclude)
+}
+
+fn filter_and_sort_owners(people: HashMap<String, PersonAcc>, exclude: &[String]) -> Vec<Owner> {
     let excluded: HashSet<String> = exclude
         .iter()
         .map(|e| e.trim().to_ascii_lowercase())
@@ -270,6 +277,7 @@ pub fn owners_for(root: &Path, files: &[String], exclude: &[String], now: f64) -
         .into_iter()
         .filter(|(email_key, acc)| {
             !excluded.contains(email_key)
+                && !acc.emails.iter().any(|e| excluded.contains(e))
                 && !excluded.contains(&acc.owner.name.to_ascii_lowercase())
                 && acc
                     .owner

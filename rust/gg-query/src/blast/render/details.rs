@@ -210,11 +210,13 @@ fn detail_all_symbols(
         }
         out.push(String::new());
         if listed >= MAX_SYMBOLS_LISTED {
-            out.push(format!(
-                "…{} not listed.",
-                plural(symbols - listed, "further symbol", None)
-            ));
-            out.push(String::new());
+            if symbols > listed {
+                out.push(format!(
+                    "…{} not listed.",
+                    plural(symbols - listed, "further symbol", None)
+                ));
+                out.push(String::new());
+            }
             break;
         }
     }

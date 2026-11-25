@@ -5,8 +5,9 @@ use std::path::Path;
 use std::process::Command as StdCommand;
 
 use gg_query::blast::diff::{ChangeStatus, ChangedFile, changed_files};
-use gg_query::blast::owners::diff_authors;
+use gg_query::blast::owners::{diff_authors, owners_for};
 use gg_query::blast::render::markdown_report;
+use gg_query::blast::types::{BlastReport, Impacted, ImpactedModule, LabelSource};
 use gg_query::blast::{BlastOptions, compute_blast_report};
 use gg_query::freshness::sha256_hex;
 use gg_query::store::GraphStore;
@@ -390,4 +391,87 @@ fn blast_handles_l0_span_determinism_and_earliest_evidence_line() {
         md.contains("```2: x();```"),
         "expected earliest line 2 in:\n{md}"
     );
+}
+
+#[test]
+fn blast_owners_excludes_noreply_author_by_raw_email() {
+    let tmp = tempdir().expect("tempdir");
+    let repo = tmp.path();
+    init_git(repo);
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/a.ts"), "export const a = 1;\n").unwrap();
+    run_git(repo, &["add", "."]);
+    run_git(
+        repo,
+        &["commit", "-q", "-m", "alice", "--date=2026-11-20T00:00:00Z"],
+    );
+    fs::write(repo.join("src/a.ts"), "export const a = 2;\n").unwrap();
+    run_git(repo, &["add", "."]);
+    run_git(
+        repo,
+        &[
+            "-c",
+            "user.name=Different Display",
+            "-c",
+            "user.email=222+bob@users.noreply.github.com",
+            "commit",
+            "-q",
+            "-m",
+            "bob",
+            "--date=2026-11-21T00:00:00Z",
+        ],
+    );
+
+    let now = 1_795_200_000_000.0; // ~2026-11-21Z
+    let kept = owners_for(
+        repo,
+        &["src/a.ts".to_string()],
+        &["222+bob@users.noreply.github.com".to_string()],
+        now,
+    );
+    assert_eq!(kept.len(), 1, "kept={kept:?}");
+    assert_eq!(kept[0].name, "Alice Author");
+}
+
+#[test]
+fn blast_markdown_omits_further_note_at_exact_cap_60() {
+    let syms: Vec<Impacted> = (1..=60)
+        .map(|i| Impacted {
+            id: format!("src/a.ts#fn_{i}"),
+            name: format!("fn_{i}"),
+            kind: "function".to_string(),
+            path: "src/a.ts".to_string(),
+            span: format!("L{i}-L{i}"),
+            relation: "calls".to_string(),
+            depth: 1,
+            inferred: false,
+        })
+        .collect();
+    let report = BlastReport {
+        basis: "diff".to_string(),
+        depth: 1,
+        changed: Vec::new(),
+        unindexed: Vec::new(),
+        deleted: Vec::new(),
+        seeds: Vec::new(),
+        impacted: syms.clone(),
+        modules: vec![ImpactedModule {
+            label: "a".to_string(),
+            label_source: LabelSource::Symbol,
+            key: "a".to_string(),
+            files: vec!["src/a.ts".to_string()],
+            symbols: syms,
+            from: Vec::new(),
+            owners: None,
+        }],
+        test_modules: Vec::new(),
+        areas: Vec::new(),
+        unresolved: Vec::new(),
+        left_behind: Vec::new(),
+        tests: None,
+        reviewers: None,
+    };
+    let md = markdown_report(&report, None);
+    assert!(md.contains("fn_60"), "missing 60th symbol");
+    assert!(!md.contains("further symbol"), "unexpected note:\n{md}");
 }

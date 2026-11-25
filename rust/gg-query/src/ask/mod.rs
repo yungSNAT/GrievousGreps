@@ -421,3 +421,53 @@ fn run_ask_inner(
 
     Ok((store, result))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::budget::budget_ask;
+    use super::{AskHit, AskMode, AskResult};
+    use crate::graph::Savings;
+
+    #[test]
+    fn budget_drops_stale_saved_when_hits_become_pointer_only() {
+        let body =
+            "export function veryBigBody() {\n  return 'padding line one two three four';\n}\n"
+                .repeat(8);
+        let orig = AskResult {
+            query: "veryBigBody".to_string(),
+            mode: AskMode::Structural,
+            subject: None,
+            hits: vec![AskHit {
+                kind: "function".to_string(),
+                title: "veryBigBody".to_string(),
+                pointer: "src/big.ts:L1-L24".to_string(),
+                snippet: "function veryBigBody()".to_string(),
+                relation: None,
+                related: None,
+                score: 1.0,
+                code: Some(body),
+                scope: None,
+                score_first: false,
+            }],
+            note: None,
+            coverage: None,
+            coverage_strong: None,
+            scopes: None,
+            saved: Some(Savings {
+                files: 1,
+                baseline_chars: 40_000,
+            }),
+            budget: None,
+        };
+        let (res, text) = budget_ask(&orig, 40, None).expect("budget");
+        assert!(
+            res.saved.is_none(),
+            "expected saved=None, got {:?}",
+            res.saved
+        );
+        assert!(
+            !text.contains("tokens saved"),
+            "stale savings line rendered:\n{text}"
+        );
+    }
+}

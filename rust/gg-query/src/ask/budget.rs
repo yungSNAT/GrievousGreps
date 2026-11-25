@@ -431,8 +431,7 @@ pub fn budget_ask(
         }
     };
 
-    let render_saved = saved.clone().or_else(|| orig.saved.clone());
-    let out_text = render(chosen.clone(), render_saved);
+    let out_text = render(chosen.clone(), saved.clone());
     let folded_count = levels
         .iter()
         .enumerate()
