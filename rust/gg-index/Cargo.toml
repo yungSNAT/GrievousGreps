@@ -1,0 +1,19 @@
+[package]
+name = "gg-index"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+description = "Native Rust indexing engine for GrievousGreps (staged port of src/graph)"
+
+[dependencies]
+icu_collator = "2.4"
+
+[lints.clippy]
+too_many_lines = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
