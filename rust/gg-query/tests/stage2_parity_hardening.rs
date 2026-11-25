@@ -7,6 +7,8 @@ use std::path::Path;
 use std::process::Command as StdCommand;
 
 use gg_query::ask::budget::fold_code;
+use gg_query::blast::diff::changed_files;
+use gg_query::blast::owners::diff_authors;
 use gg_query::evidence::{code_of, syntax_of};
 use gg_query::freshness::sha256_hex;
 use gg_query::graph::{is_deploy_file, reference_line};
@@ -622,4 +624,19 @@ fn callers_dot_suffix_and_hubs_integer_pagerank_parity() {
         hubs_stdout.contains("\"pagerank\": 1,\n"),
         "expected JS-exact integer pagerank JSON: {hubs_stdout}"
     );
+}
+
+#[test]
+fn blast_rejects_option_like_base_refs() {
+    let tmp = tempdir().expect("tempdir");
+    let repo = tmp.path();
+    init_git(repo);
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
+    run_git(repo, &["add", "."]);
+    run_git(repo, &["commit", "-q", "-m", "init"]);
+
+    for bad in ["", "-", "--upload-pack=evil", "-n1"] {
+        assert!(changed_files(repo, Some(bad)).is_none(), "{bad:?}");
+        assert!(diff_authors(repo, bad).is_empty(), "{bad:?}");
+    }
 }

@@ -80,6 +80,9 @@ pub fn ref_exists(root: &Path, git_ref: &str) -> bool {
 
 pub fn changed_files(root: &Path, base: Option<&str>) -> Option<DiffResult> {
     if let Some(b) = base {
+        if b.is_empty() || b.starts_with('-') {
+            return None;
+        }
         let range = format!("{b}...HEAD");
         let files = diff_files(root, &[&range])?;
         return Some(DiffResult {

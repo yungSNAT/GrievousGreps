@@ -294,6 +294,9 @@ pub fn owners_for(root: &Path, files: &[String], exclude: &[String], now: f64) -
 }
 
 pub fn diff_authors(root: &Path, base: &str) -> Vec<String> {
+    if base.is_empty() || base.starts_with('-') {
+        return Vec::new();
+    }
     let range = format!("{base}...HEAD");
     let Some(raw) = git_run(
         root,
