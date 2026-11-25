@@ -18,6 +18,8 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -32,6 +34,8 @@ export interface Route {
   /** Only for requests to this host (`trail.test`); any host when left out. */
   host?: string;
   status: number;
+  /** No answer: the request times out. */
+  timeout?: boolean;
   body?: unknown;
 }
 
@@ -42,7 +46,7 @@ const driver = `
   import { syncBuiltinESMExports } from "node:module";
 
   const argv = process.argv;
-  process.argv = [process.execPath, ${JSON.stringify(entry)}, ...argv.slice(1)];
+  process.argv = [process.execPath, ${JSON.stringify(entry)}, ...argv.slice(2)];
 
   // The platform the code sees, for the branches that pick a command by it. Nothing is run for real.
   if (process.env.GG_PLATFORM) Object.defineProperty(process, "platform", { value: process.env.GG_PLATFORM, configurable: true });
@@ -67,6 +71,7 @@ const driver = `
     }
     const hit = routes.find((r) => (!r.host || r.host === u.host) && (method + " " + u.pathname + u.search).startsWith(r.on));
     if (!hit) throw new Error("offline in cli-gaps");
+    if (hit.timeout) throw new DOMException("no answer in cli-gaps", "TimeoutError");
     return new Response(hit.body === undefined ? "" : JSON.stringify(hit.body), { status: hit.status });
   });
 
@@ -186,6 +191,20 @@ export function isolatedEnv(home: string): NodeJS.ProcessEnv {
   };
 }
 
+let written: string | undefined;
+/**
+ * The driver as a file, written once: a worker or a child the command starts
+ * inherits node's own flags, and `--eval` with `--input-type` would break it.
+ */
+function driverFile(): string {
+  if (written) return written;
+  const dir = mkdtempSync(join(tmpdir(), "graft-cli-gaps-driver-"));
+  process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+  written = join(dir, "driver.mjs");
+  writeFileSync(written, driver);
+  return written;
+}
+
 export function runCli(args: string[], o: CliOptions): CliResult {
   const env: NodeJS.ProcessEnv = { ...isolatedEnv(o.home), ...o.env };
   if (o.trail) env.TRAIL_INVOKED_AS = "trail";
@@ -194,7 +213,7 @@ export function runCli(args: string[], o: CliOptions): CliResult {
   if (o.fetchLog) env.GG_FETCH_LOG = o.fetchLog;
   if (o.answers) env.GG_ANSWERS = JSON.stringify(o.answers);
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
-  const r = spawnSync(process.execPath, ["--import", tsx, "--input-type=module", "--eval", driver, "--", ...args], {
+  const r = spawnSync(process.execPath, ["--import", tsx, driverFile(), ...args], {
     cwd: o.cwd ?? testDir,
     encoding: "utf8",
     input: o.input ?? "",
