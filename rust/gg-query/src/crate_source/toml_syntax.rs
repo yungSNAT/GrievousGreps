@@ -7,12 +7,12 @@ use std::collections::BTreeMap;
 use super::manifest::ReadFileError;
 use super::toml_scalars::{
     EntryKind, HeaderKind, MAX_NESTING_DEPTH, MAX_RETAINED_BYTES, MemoryBudget, budget_depth_err,
-    current_table_mut, insert_dotted_key, is_bare_key_byte, is_disallowed_control, is_valid_date,
-    is_valid_datetime, is_valid_number, open_table_path, syntax_err,
+    current_table_mut, insert_dotted_key, is_valid_date, is_valid_datetime, is_valid_number,
+    open_table_path, syntax_err,
 };
 use super::toml_strings::{
     consume_newline_at, parse_basic_string, parse_literal_string, parse_ml_basic_string,
-    parse_ml_literal_string,
+    parse_ml_literal_string, parse_simple_toml_key, skip_toml_comment,
 };
 
 #[derive(Debug, Clone)]
@@ -100,20 +100,7 @@ impl<'a> Parser<'a> {
     }
 
     fn skip_comment(&mut self) -> Result<bool, ReadFileError> {
-        if self.peek() != Some(b'#') {
-            return Ok(false);
-        }
-        self.pos += 1;
-        while let Some(ch) = self.src[self.pos..].chars().next() {
-            if ch == '\n' || ch == '\r' {
-                break;
-            }
-            if is_disallowed_control(ch, false) {
-                return Err(syntax_err("invalid control character in comment"));
-            }
-            self.pos += ch.len_utf8();
-        }
-        Ok(true)
+        skip_toml_comment(self.src, &mut self.pos)
     }
 
     fn skip_ws_newlines_comments(&mut self) -> Result<(), ReadFileError> {
@@ -137,21 +124,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_simple_key(&mut self) -> Result<String, ReadFileError> {
-        if self.starts_with(b"\"\"\"") || self.starts_with(b"'''") {
-            return Err(syntax_err("multiline string cannot be used as a TOML key"));
-        }
-        match self.peek() {
-            Some(b'"') => parse_basic_string(self.src, &mut self.pos, true),
-            Some(b'\'') => parse_literal_string(self.src, &mut self.pos, true),
-            Some(b) if is_bare_key_byte(b) => {
-                let start = self.pos;
-                while self.peek().is_some_and(is_bare_key_byte) {
-                    self.pos += 1;
-                }
-                Ok(self.src[start..self.pos].to_string())
-            }
-            _ => Err(syntax_err("expected TOML key in Cargo.toml")),
-        }
+        parse_simple_toml_key(self.src, &mut self.pos)
     }
 
     fn parse_dotted_key(&mut self, max_segments: usize) -> Result<Vec<String>, ReadFileError> {

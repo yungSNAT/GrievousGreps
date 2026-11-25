@@ -5,12 +5,14 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::brand::tag;
+use crate::evidence::{code_of, syntax_of};
 use crate::provenance::{Confidence, WeakestHop};
+use crate::safe_io::read_contained_to_string;
 
 pub const WALK_RELATIONS: &[&str] = &["calls", "references", "imports", "implements", "extends"];
 pub const INFERRED_MARK: &str = " [inferred]";
@@ -306,11 +308,14 @@ pub fn is_test_path(path: &str) -> bool {
 /// Mirrors `src/graph/deploy.ts::deployFormatOf` truthiness check.
 pub fn is_deploy_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
-    let base = normalized
-        .rsplit('/')
-        .next()
-        .unwrap_or(&normalized)
-        .to_ascii_lowercase();
+    let exact = normalized.rsplit('/').next().unwrap_or(&normalized);
+    if matches!(
+        exact,
+        "kustomization.yaml" | "kustomization.yml" | "Kustomization"
+    ) {
+        return true;
+    }
+    let base = exact.to_ascii_lowercase();
     if base.ends_with(".dockerignore") {
         return false;
     }
@@ -323,22 +328,10 @@ pub fn is_deploy_file(path: &str) -> bool {
     {
         return true;
     }
+    if exact.ends_with(".tf") {
+        return true;
+    }
     base.ends_with(".yaml") || base.ends_with(".yml")
-}
-
-/// Resolve `rel` strictly inside `root`, refusing traversal and symlink escapes.
-pub fn safe_resolve_inside(root: &Path, rel: &str) -> Option<PathBuf> {
-    let canon_root = fs::canonicalize(root).ok()?;
-    let joined = root.join(rel);
-    let meta = fs::symlink_metadata(&joined).ok()?;
-    if meta.file_type().is_symlink() || !meta.file_type().is_file() {
-        return None;
-    }
-    let canon = fs::canonicalize(&joined).ok()?;
-    if !canon.starts_with(&canon_root) {
-        return None;
-    }
-    Some(canon)
 }
 
 pub fn span_range(span: &str) -> Option<(usize, usize)> {
@@ -385,20 +378,38 @@ pub fn reference_line(
     symbol_name: &str,
     cache: &mut HashMap<String, Option<Vec<String>>>,
 ) -> Option<Quote> {
+    reference_line_any(root, path, span, &[symbol_name], cache)
+}
+
+pub fn reference_line_any(
+    root: &Path,
+    path: &str,
+    span: &str,
+    symbol_names: &[&str],
+    cache: &mut HashMap<String, Option<Vec<String>>>,
+) -> Option<Quote> {
+    if is_deploy_file(path) || symbol_names.is_empty() {
+        return None;
+    }
     let (start, end) = span_range(span)?;
+    if start == 0 {
+        return None;
+    }
     let lines = cache
         .entry(path.to_string())
         .or_insert_with(|| {
-            let full = root.join(path);
-            fs::read_to_string(full)
-                .ok()
+            read_contained_to_string(root, path, None)
                 .map(|s| s.lines().map(String::from).collect())
         })
         .as_ref()?;
-    let lo = start.saturating_sub(1);
+    let syntax = syntax_of(path);
+    let mut open: Option<String> = None;
+    let lo = start - 1;
     let hi = end.min(lines.len());
     for (idx, line) in lines.iter().enumerate().take(hi).skip(lo) {
-        if contains_word(line, symbol_name) {
+        let (code, next_open) = code_of(line, syntax, open);
+        open = next_open;
+        if symbol_names.iter().any(|name| contains_word(&code, name)) {
             return Some(Quote {
                 n: idx + 1,
                 text: line.clone(),
@@ -441,7 +452,8 @@ pub fn with_savings(body: &str, saved: Option<&Savings>) -> String {
     let delta = base - pack;
     let pct = ((delta as f64 / base as f64) * 100.0).round() as usize;
     format!(
-        "[trail] tokens saved ≈ {} ({pct}%) at most, against reading the {} file(s) whole\n\n{body}",
+        "{} tokens saved ≈ {} ({pct}%) at most, against reading the {} file(s) whole\n\n{body}",
+        tag(),
         group_digits(delta),
         s.files
     )

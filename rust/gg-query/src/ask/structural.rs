@@ -8,11 +8,12 @@ use std::io;
 use unicode_general_category::{GeneralCategory, get_general_category};
 
 use crate::ask::{AskHit, AskMode, AskResult};
+use crate::brand::cmd;
 use crate::graph::{NodeV1, path_under_prefix};
 use crate::store::GraphStore;
 
 pub enum StructuralOutcome {
-    Result(AskResult),
+    Result(Box<AskResult>),
     Fallthrough(String),
     None,
 }
@@ -129,8 +130,10 @@ fn find_subject_nodes(
 fn fallthrough_note_for(subject: &str) -> String {
     format!(
         "structural index: no entries for '{subject}' — showing lexical matches; \
-         for precise edges try trail callers '{subject}', or trail grep '{subject}' \
-         for every reference (loosen the pattern if it returns nothing)"
+         for precise edges try {} '{subject}', or {} '{subject}' \
+         for every reference (loosen the pattern if it returns nothing)",
+        cmd("graft callers"),
+        cmd("graft grep")
     )
 }
 
@@ -186,6 +189,7 @@ pub fn run_structural(
             score: 1.0,
             code: None,
             scope: None,
+            score_first: false,
         });
     }
 
@@ -195,15 +199,16 @@ pub fn run_structural(
     } else {
         format!("callers / references of {subject_name}")
     };
-    Ok(StructuralOutcome::Result(AskResult {
+    Ok(StructuralOutcome::Result(Box::new(AskResult {
         query: query.to_string(),
         mode: AskMode::Structural,
         subject: Some(subject_name),
         hits,
         note: Some(note),
-        saved: None,
         coverage: None,
         coverage_strong: None,
         scopes: None,
-    }))
+        saved: None,
+        budget: None,
+    })))
 }

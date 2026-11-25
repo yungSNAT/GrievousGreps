@@ -2,7 +2,7 @@
 //! zero-dependency TOML 1.0 manifest validation.
 
 use super::manifest::ReadFileError;
-use super::toml_scalars::{is_disallowed_control, parse_escape_at, syntax_err};
+use super::toml_scalars::{is_bare_key_byte, is_disallowed_control, parse_escape_at, syntax_err};
 
 pub(super) fn consume_newline_at(bytes: &[u8], pos: &mut usize) -> Result<bool, ReadFileError> {
     match bytes.get(*pos) {
@@ -203,4 +203,40 @@ pub(super) fn parse_ml_literal_string(
     Err(syntax_err(
         "unterminated multiline literal string in Cargo.toml",
     ))
+}
+
+pub(super) fn skip_toml_comment(src: &str, pos: &mut usize) -> Result<bool, ReadFileError> {
+    if src.as_bytes().get(*pos) != Some(&b'#') {
+        return Ok(false);
+    }
+    *pos += 1;
+    while let Some(ch) = src[*pos..].chars().next() {
+        if ch == '\n' || ch == '\r' {
+            break;
+        }
+        if is_disallowed_control(ch, false) {
+            return Err(syntax_err("invalid control character in comment"));
+        }
+        *pos += ch.len_utf8();
+    }
+    Ok(true)
+}
+
+pub(super) fn parse_simple_toml_key(src: &str, pos: &mut usize) -> Result<String, ReadFileError> {
+    let bytes = src.as_bytes();
+    if bytes[*pos..].starts_with(b"\"\"\"") || bytes[*pos..].starts_with(b"'''") {
+        return Err(syntax_err("multiline string cannot be used as a TOML key"));
+    }
+    match bytes.get(*pos) {
+        Some(b'"') => parse_basic_string(src, pos, true),
+        Some(b'\'') => parse_literal_string(src, pos, true),
+        Some(b) if is_bare_key_byte(*b) => {
+            let start = *pos;
+            while bytes.get(*pos).copied().is_some_and(is_bare_key_byte) {
+                *pos += 1;
+            }
+            Ok(src[start..*pos].to_string())
+        }
+        _ => Err(syntax_err("expected TOML key in Cargo.toml")),
+    }
 }

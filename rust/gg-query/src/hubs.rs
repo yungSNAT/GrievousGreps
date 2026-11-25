@@ -30,6 +30,7 @@ pub struct HubEntry {
     pub kind: String,
     pub path: String,
     pub span: String,
+    #[serde(serialize_with = "crate::graph::serialize_js_f64")]
     pub pagerank: f64,
     pub in_degree: usize,
     pub out_degree: usize,

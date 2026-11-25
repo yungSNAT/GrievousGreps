@@ -95,6 +95,8 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Added
 
+- **`gg-query` Stage 2 parity and security hardening.** Added `--no-refresh` and JSON `index` freshness reporting, `ask --max-tokens` budget fitting, full `blast` (`--base`, `--tests`, `--no-owners`, diff hunks, `leftBehind`, `unresolved`, `inferred`, modules and reviewer suggestions) and dynamic `trail`/`graft` branding, consolidated shared TOML parsing across `crate_source`, and hardened `reference_line` path resolution, `codeOf` non-code blanking, `.tf`/`Kustomization` deploy filtering and safe external `git` lookup.
+
 - **Structural graph failures can now fail the build command with `--strict`**
   instead of printing a successful wiring banner. Partial graph artifacts remain
   available, workspace builds report failed children, and `--allow-partial`

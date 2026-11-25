@@ -15,6 +15,7 @@ use crate::ask::scoring::{
     matched_idf_share, normalized_query_weights, score_bag, test_factor, wants_tests,
 };
 use crate::ask::{AskHit, AskMode, AskResult, AskScopes};
+use crate::brand::cmd;
 use crate::file_rank::{
     FileRankCandidate, RankedFile, file_first_round_robin, rank_files_bounded, round_robin_queues,
 };
@@ -111,6 +112,7 @@ pub(crate) fn make_symbol_hit(
             score,
             code: None,
             scope,
+            score_first: false,
         },
         group_key: format!("file:{}", node.path),
         coverage: cov,
@@ -479,7 +481,8 @@ pub fn run_lexical(
     };
     let note = is_empty.then(|| {
         format!(
-            "no matching nodes — try different words, or `trail build` if the code map is empty{}",
+            "no matching nodes — try different words, or `{}` if the code map is empty{}",
+            cmd("graft build"),
             scopes_here_clause(&scopes)
         )
     });
@@ -494,9 +497,10 @@ pub fn run_lexical(
         subject: None,
         hits: selected.into_iter().map(|e| e.hit).collect(),
         note,
-        saved: None,
         coverage,
         coverage_strong,
         scopes: scope_meta,
+        saved: None,
+        budget: None,
     })
 }
