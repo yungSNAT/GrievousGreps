@@ -155,18 +155,26 @@ function quoteFor(
   if (!hit.node || hit.depth > 1 || isTestPath(hit.node.path)) return undefined;
   const { path, span } = hit.node;
   // A file that imports the name, or imports it as another name, calls it on a later line: quote that line.
-  const names = [name, ...aliasesOf(read(path) ?? [], name)];
-  const calls = names.map((n) => new RegExp(`^(?!${IMPORT_LINE.source}).*${wordRe(n).source}(?!\\s+as\\b)`));
-  return (referenceLine(path, span, calls, read, true) ?? referenceLine(path, span, [wordRe(name)], read, true)) ?? undefined;
+  // Import lines and `x as y` bindings are blanked first, so neither is quoted as the call.
+  const lines = read(path);
+  if (!lines) return undefined;
+  const calls = lines.map((l) => (IMPORT_LINE.test(l) ? "" : l.replace(BINDING, "")));
+  const names = [name, ...aliasesOf(lines, name)].map(wordRe);
+  const call = referenceLine(path, span, names, () => calls, true);
+  if (call) return { n: call.n, text: lines[call.n - 1] };
+  return referenceLine(path, span, [wordRe(name)], read, true) ?? undefined;
 }
 
 /** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`). */
-const IMPORT_LINE = /\s*(?:from\s+\S+\s+import\b|import\b)/;
+const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b)/;
 
-/** The names a file's imports bind `name` to (`name as alias`, in Python and JavaScript). */
+/** A `name as alias` binding (Python and JavaScript imports, Python `with` and `except`, TypeScript casts). */
+const BINDING = /[A-Za-z_$][\w$]*\s+as\s+[A-Za-z_$][\w$]*/g;
+
+/** The names a file's imports bind `name` to (`name as alias`). */
 function aliasesOf(lines: string[], name: string): string[] {
-  const as = new RegExp(`${wordRe(name).source}\\s+as\\s+([A-Za-z_$][\\w$]*)`, "g");
-  return [...new Set(lines.flatMap((l) => [...l.matchAll(as)].map((m) => m[1])))].filter((a) => a !== name);
+  const pairs = lines.flatMap((l) => [...l.matchAll(/([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)/g)]);
+  return [...new Set(pairs.filter((m) => m[1] === name && m[2] !== name).map((m) => m[2]))];
 }
 
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched
