@@ -431,3 +431,7 @@ pub(super) fn list_source_files(
     }
     out
 }
+
+#[cfg(test)]
+#[path = "walk_tests.rs"]
+mod tests;

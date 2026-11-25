@@ -4,7 +4,6 @@
 //! YAML anchors and aliases cleanly.
 
 use std::collections::HashMap;
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -125,36 +124,26 @@ fn parse_concept_markdown(text: &str, default_slug: &str) -> ConceptDoc {
     }
 }
 
-fn collect_concept_filenames(out_dir: &Path) -> io::Result<Option<Vec<String>>> {
-    if !out_dir.is_dir() || fs::symlink_metadata(out_dir)?.file_type().is_symlink() {
-        return Ok(None);
-    }
-    let mut entries = Vec::new();
-    for entry in fs::read_dir(out_dir)? {
-        let entry = entry?;
-        let fname = entry.file_name().to_string_lossy().to_string();
+fn load_concepts_with_hook<F>(
+    out_dir: &Path,
+    in_prefix: Option<&str>,
+    mut after_enum: F,
+) -> io::Result<Vec<ConceptDoc>>
+where
+    F: FnMut(),
+{
+    let Some((anchor, canon_out)) = crate::safe_io::anchor_dir_no_follow(out_dir)? else {
+        return Ok(Vec::new());
+    };
+    let Some(entries) = crate::safe_io::list_anchored_filenames(&anchor, &canon_out)? else {
+        return Ok(Vec::new());
+    };
+    after_enum();
+    let mut out = Vec::new();
+    for fname in entries {
         if !fname.ends_with(".md") || fname == "INDEX.md" {
             continue;
         }
-        let ft = entry.file_type()?;
-        if ft.is_symlink() || !ft.is_file() {
-            continue;
-        }
-        entries.push(fname);
-    }
-    entries.sort();
-    Ok(Some(entries))
-}
-
-pub fn load_concepts(out_dir: &Path, in_prefix: Option<&str>) -> io::Result<Vec<ConceptDoc>> {
-    let Some(entries) = collect_concept_filenames(out_dir)? else {
-        return Ok(Vec::new());
-    };
-    let Ok((anchor, canon_out)) = crate::safe_io::anchor_root(out_dir) else {
-        return Ok(Vec::new());
-    };
-    let mut out = Vec::new();
-    for fname in entries {
         let Some(text) = crate::safe_io::read_contained_anchored_to_string(
             &canon_out,
             &anchor,
@@ -164,13 +153,15 @@ pub fn load_concepts(out_dir: &Path, in_prefix: Option<&str>) -> io::Result<Vec<
             continue;
         };
         let doc = parse_concept_markdown(&text, fname.strip_suffix(".md").unwrap_or(&fname));
-        let matches_prefix =
-            in_prefix.is_none_or(|prefix| doc.sources.iter().any(|p| path_under_prefix(p, prefix)));
-        if matches_prefix {
+        if in_prefix.is_none_or(|prefix| doc.sources.iter().any(|p| path_under_prefix(p, prefix))) {
             out.push(doc);
         }
     }
     Ok(out)
+}
+
+pub fn load_concepts(out_dir: &Path, in_prefix: Option<&str>) -> io::Result<Vec<ConceptDoc>> {
+    load_concepts_with_hook(out_dir, in_prefix, || {})
 }
 
 pub(crate) fn score_concepts(
@@ -236,20 +227,86 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn load_concepts_rejects_symlinked_markdown_and_keeps_regular() {
+    fn load_concepts_rejects_symlinked_markdown_dir_and_midcall_swap() {
+        use super::load_concepts_with_hook;
+        use crate::safe_io::{anchor_dir_no_follow, read_contained_anchored_to_string};
         use std::os::unix::fs::symlink;
 
         let tmp = tempdir().expect("tmp");
         let out_dir = tmp.path().join(".trail");
         let outside = tmp.path().join("outside.md");
+        let outside_dir = tmp.path().join("outside-dir");
         fs::create_dir_all(&out_dir).expect("mkdir");
+        fs::create_dir_all(&outside_dir).expect("out dir");
         fs::write(&outside, "# Secret\n\nsrc/a.ts\n").expect("write out");
+        fs::write(outside_dir.join("real.md"), "# Pwned\n\nsrc/pwn.ts\n").expect("write pwn");
         fs::write(out_dir.join("real.md"), "# Real Concept\n\nBody text.\n").expect("write real");
         symlink(&outside, out_dir.join("escape.md")).expect("symlink");
+
+        let (anchor, canon_out) = anchor_dir_no_follow(&out_dir)
+            .expect("anchor")
+            .expect("some");
+        assert!(
+            read_contained_anchored_to_string(&canon_out, &anchor, "escape.md", None).is_none()
+        );
 
         let docs = load_concepts(&out_dir, None).expect("load");
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].slug, "real");
+
+        let sym_out = tmp.path().join("sym-trail");
+        symlink(&outside_dir, &sym_out).expect("sym out");
+        assert!(load_concepts(&sym_out, None).expect("sym load").is_empty());
+        assert!(
+            load_concepts(&sym_out.join(""), None)
+                .expect("slash sym load")
+                .is_empty()
+        );
+        assert!(
+            load_concepts(&sym_out.join("."), None)
+                .expect("dot sym load")
+                .is_empty()
+        );
+
+        let swapped_docs = load_concepts_with_hook(&out_dir, None, || {
+            let backup = tmp.path().join("trail-old");
+            fs::rename(&out_dir, &backup).expect("mv");
+            symlink(&outside_dir, &out_dir).expect("swap");
+        })
+        .expect("swapped load");
+        assert!(swapped_docs.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn load_concepts_rejects_junction_out_dir_on_windows() {
+        use std::process::Command;
+
+        let tmp = tempdir().expect("tmp");
+        let outside = tmp.path().join("outside");
+        let sym_out = tmp.path().join("junc-trail");
+        fs::create_dir_all(&outside).expect("outside");
+        fs::write(outside.join("secret.md"), "# Secret\n\nsrc/a.ts\n").expect("write");
+        let st = Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&sym_out)
+            .arg(&outside)
+            .status()
+            .expect("mklink");
+        assert!(st.success());
+        assert!(load_concepts(&sym_out, None).expect("junc load").is_empty());
+        assert!(
+            load_concepts(&sym_out.join(""), None)
+                .expect("slash junc load")
+                .is_empty()
+        );
+        assert!(
+            load_concepts(&sym_out.join("."), None)
+                .expect("dot junc load")
+                .is_empty()
+        );
     }
 
     #[test]

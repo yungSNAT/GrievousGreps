@@ -121,6 +121,43 @@ pub fn read_contained_anchored_to_string(
     read_bounded_to_string(file, &meta, max_bytes)
 }
 
+/// Anchor `dir` atomically without following a symlink or reparse point at the leaf.
+pub fn anchor_dir_no_follow(dir: &Path) -> io::Result<Option<(RootAnchor, PathBuf)>> {
+    let clean: PathBuf = dir.components().collect();
+    if clean.as_os_str().is_empty() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    {
+        let Some((fd, id, canon)) = unix::anchor_dir_no_follow(&clean)? else {
+            return Ok(None);
+        };
+        Ok(Some((RootAnchor { _dir: fd, id }, canon)))
+    }
+    #[cfg(windows)]
+    {
+        let Some((fd, id, canon)) = win::anchor_dir_no_follow(&clean)? else {
+            return Ok(None);
+        };
+        Ok(Some((RootAnchor { _dir: fd, id }, canon)))
+    }
+}
+
+/// Enumerate sorted regular filenames strictly inside `anchor` without reopening `dir`.
+pub fn list_anchored_filenames(
+    anchor: &RootAnchor,
+    canon_dir: &Path,
+) -> io::Result<Option<Vec<String>>> {
+    #[cfg(unix)]
+    {
+        unix::list_anchored_filenames(&anchor._dir, canon_dir, anchor.id)
+    }
+    #[cfg(windows)]
+    {
+        win::list_anchored_filenames(&anchor._dir, canon_dir, anchor.id)
+    }
+}
+
 /// Read a contained UTF-8 regular file inside `root`, rejecting escapes and symlinks.
 pub fn read_contained_to_string(root: &Path, rel: &str, max_bytes: Option<u64>) -> Option<String> {
     let (file, meta) = open_contained_file(root, rel, max_bytes)?;
@@ -131,10 +168,12 @@ pub fn read_contained_to_string(root: &Path, rel: &str, max_bytes: Option<u64>) 
 mod unix {
     use super::FileId;
     use rustix::fd::{AsFd, BorrowedFd};
-    use rustix::fs::{CWD, Mode, OFlags, Stat, fstat, openat};
+    use rustix::fs::{CWD, Dir, FileType, Mode, OFlags, Stat, fstat, openat};
+    use rustix::io::Errno;
     use std::ffi::OsStr;
     use std::fs::{self, File};
     use std::io;
+    use std::os::unix::ffi::OsStrExt;
     use std::path::{Component, Path, PathBuf};
 
     fn dir_open_flags(nofollow: bool) -> OFlags {
@@ -188,6 +227,54 @@ mod unix {
         let st = fstat(&fd).map_err(io::Error::from)?;
         let canon = fs::canonicalize(root)?;
         Ok((File::from(fd), stat_id(&st), canon))
+    }
+
+    pub(super) fn anchor_dir_no_follow(dir: &Path) -> io::Result<Option<(File, FileId, PathBuf)>> {
+        let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let fd = match openat(CWD, dir, flags, Mode::empty()) {
+            Ok(fd) => fd,
+            Err(Errno::NOENT | Errno::NOTDIR | Errno::LOOP) => return Ok(None),
+            Err(e) => return Err(io::Error::from(e)),
+        };
+        let st = fstat(&fd).map_err(io::Error::from)?;
+        let id = stat_id(&st);
+        let canon = match fs::canonicalize(dir) {
+            Ok(c) => c,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let Ok(check) = open_canon_dir(&canon) else {
+            return Ok(None);
+        };
+        let check_st = fstat(&check).map_err(io::Error::from)?;
+        if stat_id(&check_st) != id {
+            return Ok(None);
+        }
+        Ok(Some((File::from(fd), id, canon)))
+    }
+
+    pub(super) fn list_anchored_filenames(
+        dir: &File,
+        _canon_dir: &Path,
+        _anchor_id: FileId,
+    ) -> io::Result<Option<Vec<String>>> {
+        let iter = Dir::read_from(dir)?;
+        let mut out = Vec::new();
+        for entry in iter {
+            let entry = entry?;
+            let name = OsStr::from_bytes(entry.file_name().to_bytes())
+                .to_string_lossy()
+                .into_owned();
+            if name == "." || name == ".." {
+                continue;
+            }
+            if !matches!(entry.file_type(), FileType::RegularFile | FileType::Unknown) {
+                continue;
+            }
+            out.push(name);
+        }
+        out.sort();
+        Ok(Some(out))
     }
 
     pub(super) fn open_contained_anchored(
