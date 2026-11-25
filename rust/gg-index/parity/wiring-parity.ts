@@ -88,6 +88,9 @@ const word = (max: number): string => Array.from({ length: int(max) }, atom).joi
 const ident = (): string => Array.from({ length: 1 + int(6) }, () => pick("aAbBzZ_09".split(""))).join("");
 
 const ids: string[] = [];
+const LONE = /[\ud800-\udfff]/gu;
+/** Sort keys only rarely carry a lone surrogate: such a graph is outside the contract. */
+const keyText = (s: string): string => (rand() < 0.01 ? s : s.replace(LONE, "x"));
 function id(): string {
   if (ids.length && rand() < 0.3) {
     const prev = pick(ids);
@@ -95,13 +98,14 @@ function id(): string {
     if (r < 0.25) return prev;
     if (r < 0.5) return prev.toUpperCase();
     if (r < 0.75) return prev.normalize(rand() < 0.5 ? "NFD" : "NFC");
-    return prev + atom();
+    return keyText(prev + atom());
   }
-  const v =
+  const v = keyText(
     rand() < 0.3
       ? word(14)
       : `${ident()}/${ident()}${pick(["", "_", "-", "."])}${ident()}.${pick(["ts", "py", "go", "rs", "TS"])}` +
-        (rand() < 0.6 ? `#${ident()}${rand() < 0.5 ? `.${word(4)}` : ""}${rand() < 0.2 ? "~2" : ""}` : "");
+          (rand() < 0.6 ? `#${ident()}${rand() < 0.5 ? `.${word(4)}` : ""}${rand() < 0.2 ? "~2" : ""}` : ""),
+  );
   ids.push(v);
   return v;
 }
@@ -166,7 +170,7 @@ function edge(): Gen {
   sources.push(source);
   const pairs: [string, Gen][] = shuffle([
     ["source", str(source)],
-    ["relation", str(rand() < 0.9 ? pick(["contains", "calls", "imports", "references", "implements", "extends", "Calls"]) : word(6))],
+    ["relation", str(rand() < 0.9 ? pick(["contains", "calls", "imports", "references", "implements", "extends", "Calls"]) : keyText(word(6)))],
     ["target", str(rand() < 0.5 ? pick(ids.length ? ids : ["t"]) : id())],
     ["confidence", str(pick(["extracted", "inferred", "lsp_resolved"]))],
   ]);
@@ -218,7 +222,8 @@ for (let i = 0; i < count; i++) inputs.push({ name: `gen-${i}`, text: graph(i % 
 
 /** The writer's contract: nodes are objects with a string `id`; edges are objects with
  * string `source`, `relation` and `target`. Outside it, what TypeScript does depends on
- * the order V8's sort happens to compare in, and Rust refuses the input. */
+ * the order V8's sort happens to compare in, and Rust refuses the input. Sort keys must
+ * also be well-formed UTF-16: TypeScript never builds one that is not. */
 function inDomain(text: string): boolean {
   let g: unknown;
   try {
@@ -227,7 +232,9 @@ function inDomain(text: string): boolean {
     return true; // both must refuse it
   }
   const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-  const strs = (v: unknown, keys: string[]): boolean => isObj(v) && keys.every((k) => typeof v[k] === "string");
+  // A lone surrogate in a sort key: ICU4X compares it as U+FFFD, ICU4C by its own code point.
+  const key = (v: unknown): boolean => typeof v === "string" && !/[\ud800-\udfff]/u.test(v);
+  const strs = (v: unknown, keys: string[]): boolean => isObj(v) && keys.every((k) => key(v[k]));
   return (
     isObj(g) &&
     Array.isArray(g.nodes) &&
@@ -252,7 +259,20 @@ for (const { name, text } of inputs) {
     tally.differ++;
     let at = 0;
     if (ts && rust) while (at < ts.length && ts[at] === rust[at]) at++;
-    console.log(JSON.stringify({ name, ts: ts ? ts.length : "threw", rust: rust ? rust.length : rs.stderr.toString().trim(), firstDiff: at }));
+    const lineAt = (b: Buffer): string => {
+      const from = b.lastIndexOf(10, at - 1) + 1;
+      const to = b.indexOf(10, at);
+      return b.subarray(from, to < 0 ? b.length : to).toString().slice(0, 300);
+    };
+    console.log(
+      JSON.stringify({
+        name,
+        ts: ts ? ts.length : "threw",
+        rust: rust ? rust.length : rs.stderr.toString().trim(),
+        firstDiff: at,
+        ...(ts && rust ? { tsLine: lineAt(ts), rustLine: lineAt(rust) } : {}),
+      }),
+    );
     if (keep) {
       mkdirSync(keep, { recursive: true });
       copyFileSync(inputPath, join(keep, `${name}.json`));

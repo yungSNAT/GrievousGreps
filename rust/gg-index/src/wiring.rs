@@ -39,7 +39,7 @@ pub fn wiring(mut graph: Json) -> Result<String, String> {
 
     let mut keyed = Vec::with_capacity(nodes.len());
     for node in nodes.drain(..) {
-        let id = string_field(&node, "id", "node")?;
+        let id = sort_key(&node, "id", "node")?;
         keyed.push((vec![id], strip_body_text(node)));
     }
     sort_keyed(&mut keyed);
@@ -49,7 +49,7 @@ pub fn wiring(mut graph: Json) -> Result<String, String> {
     for edge in edges.drain(..) {
         let keys = ["source", "relation", "target"]
             .into_iter()
-            .map(|k| string_field(&edge, k, "edge"))
+            .map(|k| sort_key(&edge, k, "edge"))
             .collect::<Result<Vec<_>, _>>()?;
         keyed.push((keys, edge));
     }
@@ -88,9 +88,15 @@ fn put_array(members: &mut [(Vec<u16>, Json)], key: &str, items: Vec<Json>) {
     }
 }
 
-fn string_field(item: &Json, key: &str, what: &str) -> Result<Vec<u16>, String> {
+/// A sort key. It must be well-formed UTF-16: ICU4X compares a lone surrogate as U+FFFD,
+/// where TypeScript's ICU orders it by its own code point. TypeScript never builds such a
+/// key (ids come from paths and names read as UTF-8), so refusing it loses nothing.
+fn sort_key(item: &Json, key: &str, what: &str) -> Result<Vec<u16>, String> {
     match item.get(key) {
-        Some(Json::Str(s)) => Ok(s.clone()),
+        Some(Json::Str(s)) if char::decode_utf16(s.iter().copied()).all(|c| c.is_ok()) => {
+            Ok(s.clone())
+        }
+        Some(Json::Str(_)) => Err(format!("a {what} `{key}` holds a lone surrogate")),
         _ => Err(format!("every {what} needs a string `{key}`")),
     }
 }
@@ -164,6 +170,8 @@ mod tests {
             r#"{"nodes":[]}"#,
             r#"{"nodes":[{"id":1}],"edges":[]}"#,
             r#"{"nodes":[],"edges":[{"source":"a","relation":"calls"}]}"#,
+            r#"{"nodes":[{"id":"a\ud800"}],"edges":[]}"#,
+            r#"{"nodes":[],"edges":[{"source":"a","relation":"calls","target":"\udc00"}]}"#,
         ] {
             assert!(wiring_from_text(g).is_err(), "{g}");
         }
