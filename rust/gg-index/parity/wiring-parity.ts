@@ -14,7 +14,7 @@
  * writer: the goldens the Rust tests compare against. Exit 1 when any case differs.
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wiringPath, writeGraph } from "../../../src/graph/write.js";
@@ -29,6 +29,7 @@ const all = (name: string): string[] => args.flatMap((a, i) => (a === name && ar
 const work = mkdtempSync(join(tmpdir(), "gg-index-parity-"));
 const outDir = join(work, "graft");
 mkdirSync(outDir);
+const rsOut = join(work, "rs-graft");
 
 /** Bytes `writeGraph` writes for `text`, or null when it (or JSON.parse) throws. */
 function tsWiring(text: string): Buffer | null {
@@ -293,8 +294,9 @@ for (const { name, text } of inputs) {
   tally.cases++;
   writeFileSync(inputPath, text);
   const ts = tsWiring(text);
-  const rs = spawnSync(bin, ["wiring", inputPath], { maxBuffer: 1 << 30 });
-  const rust = rs.status === 0 ? rs.stdout : null;
+  rmSync(wiringPath(rsOut), { force: true });
+  const rs = spawnSync(bin, ["wiring", inputPath, "--out-dir", rsOut], { maxBuffer: 1 << 30 });
+  const rust = rs.status === 0 && rs.stdout.length === 0 ? readFileSync(wiringPath(rsOut)) : null;
   if (ts === null && rust === null) tally.bothReject++;
   else if (ts !== null && rust !== null && ts.equals(rust)) tally.equal++;
   else if (rust === null && !inDomain(text)) tally.outOfDomainRejected++;
@@ -324,6 +326,72 @@ for (const { name, text } of inputs) {
     }
   }
 }
+/**
+ * Containment: each writer meets the same planted links and wrong file types, and must
+ * succeed or refuse alike, write the same bytes, leave no temp file and write nothing
+ * outside. Unix only: Windows needs privileges for symbolic links.
+ */
+function fsCases(): number {
+  if (process.platform === "win32") return 0;
+  const graph = JSON.stringify({ meta: { version: 1 }, nodes: [{ id: "b" }, { id: "a" }], edges: [] });
+  const plant: Record<string, (root: string, outside: string) => void> = {
+    "fresh": () => {},
+    "context dir is a symlink": (root, outside) => symlinkSync(outside, join(root, "graft")),
+    ".graph is a symlink": (root, outside) => {
+      mkdirSync(join(root, "graft"));
+      symlinkSync(outside, join(root, "graft", ".graph"));
+    },
+    ".graph is a file": (root) => {
+      mkdirSync(join(root, "graft"));
+      writeFileSync(join(root, "graft", ".graph"), "file");
+    },
+    "leaf is a symlink": (root, outside) => {
+      mkdirSync(join(root, "graft", ".graph"), { recursive: true });
+      writeFileSync(join(outside, "victim"), "keep");
+      symlinkSync(join(outside, "victim"), join(root, "graft", ".graph", "wiring.json"));
+    },
+    "leaf is a directory": (root) => mkdirSync(join(root, "graft", ".graph", "wiring.json"), { recursive: true }),
+  };
+  const run = (name: string, who: "ts" | "rust") => {
+    const root = join(work, `fs-${who}-${Object.keys(plant).indexOf(name)}`);
+    const outside = join(root, "outside");
+    mkdirSync(outside, { recursive: true });
+    plant[name](root, outside);
+    const target = join(root, "graft");
+    let ok: boolean;
+    if (who === "ts") {
+      try {
+        writeGraph(JSON.parse(graph), target);
+        ok = true;
+      } catch {
+        ok = false;
+      }
+    } else {
+      writeFileSync(join(root, "in.json"), graph);
+      ok = spawnSync(bin, ["wiring", join(root, "in.json"), "--out-dir", target]).status === 0;
+    }
+    const graphDir = join(target, ".graph");
+    const leaf = join(graphDir, "wiring.json");
+    const isDir = (p: string) => existsSync(p) && lstatSync(p).isDirectory();
+    return JSON.stringify({
+      ok,
+      leaf: existsSync(leaf) && lstatSync(leaf).isFile() ? readFileSync(leaf, "utf8") : null,
+      files: isDir(graphDir) && !lstatSync(target).isSymbolicLink() ? readdirSync(graphDir).sort() : null,
+      outside: readdirSync(outside).sort().map((f) => `${f}=${readFileSync(join(outside, f), "utf8")}`),
+    });
+  };
+  let differ = 0;
+  for (const name of Object.keys(plant)) {
+    const ts = run(name, "ts");
+    const rust = run(name, "rust");
+    if (ts !== rust) {
+      differ++;
+      console.log(JSON.stringify({ fsCase: name, ts, rust }));
+    }
+  }
+  return differ;
+}
+const fsDiffer = fsCases();
 rmSync(work, { recursive: true, force: true });
-console.log(JSON.stringify({ ...tally, seed: firstSeed }));
-process.exit(tally.differ ? 1 : 0);
+console.log(JSON.stringify({ ...tally, fsDiffer, seed: firstSeed }));
+process.exit(tally.differ || fsDiffer ? 1 : 0);

@@ -22,15 +22,18 @@ enum Cmd {
     Wiring {
         /// Graph JSON file
         graph: PathBuf,
+        /// Write <DIR>/.graph/wiring.json atomically instead of printing
+        #[arg(long, value_name = "DIR")]
+        out_dir: Option<PathBuf>,
     },
 }
 
 fn main() -> ExitCode {
-    let Cmd::Wiring { graph } = Cli::parse().command;
+    let Cmd::Wiring { graph, out_dir } = Cli::parse().command;
     // Deeply nested graphs recurse once a level; give them the stack they need.
     std::thread::Builder::new()
         .stack_size(gg_index::json::STACK_BYTES)
-        .spawn(move || wiring(&graph))
+        .spawn(move || wiring(&graph, out_dir.as_deref()))
         .map(|worker| worker.join().unwrap_or(ExitCode::FAILURE))
         .unwrap_or_else(|e| {
             eprintln!("gg-index: cannot start the worker thread: {e}");
@@ -38,15 +41,18 @@ fn main() -> ExitCode {
         })
 }
 
-fn wiring(graph: &Path) -> ExitCode {
+fn wiring(graph: &Path, out_dir: Option<&Path>) -> ExitCode {
     let result = std::fs::read(graph)
         .map_err(|e| format!("{}: {e}", graph.display()))
         .and_then(|bytes| gg_index::wiring::wiring_from_text(&String::from_utf8_lossy(&bytes)))
-        .and_then(|text| {
-            std::io::stdout()
+        .and_then(|text| match out_dir {
+            Some(dir) => gg_index::safe_write::write_wiring(dir, &text)
+                .map(drop)
+                .map_err(|e| e.to_string()),
+            None => std::io::stdout()
                 .lock()
                 .write_all(text.as_bytes())
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string()),
         });
     match result {
         Ok(()) => ExitCode::SUCCESS,
