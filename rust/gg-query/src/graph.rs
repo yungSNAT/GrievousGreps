@@ -407,11 +407,19 @@ pub fn call_reference_line(
     let (start, end) = span_range(span)?;
     let syntax = syntax_of(path);
     let mut open: Option<String> = None;
-    for (idx, line) in lines.iter().enumerate().take(end.min(lines.len())).skip(start - 1) {
+    for (idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(end.min(lines.len()))
+        .skip(start - 1)
+    {
         let (code, next_open) = code_of(line, syntax, open);
         open = next_open;
         if !is_import_line(&code) && names.iter().any(|n| has_use_not_alias(&code, n)) {
-            return Some(Quote { n: idx + 1, text: line.clone() });
+            return Some(Quote {
+                n: idx + 1,
+                text: line.clone(),
+            });
         }
     }
     first
@@ -420,13 +428,17 @@ pub fn call_reference_line(
 /// A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`).
 fn is_import_line(code: &str) -> bool {
     let t = code.trim_start();
-    let starts_word = |s: &str, w: &str| s.starts_with(w) && !s[w.len()..].bytes().next().is_some_and(is_word_char);
+    let starts_word = |s: &str, w: &str| {
+        s.starts_with(w) && !s[w.len()..].bytes().next().is_some_and(is_word_char)
+    };
     if starts_word(t, "import") {
         return true;
     }
     if starts_word(t, "from") {
         let rest = t["from".len()..].trim_start();
-        let after = rest.find(char::is_whitespace).map(|i| rest[i..].trim_start());
+        let after = rest
+            .find(char::is_whitespace)
+            .map(|i| rest[i..].trim_start());
         return after.is_some_and(|a| starts_word(a, "import"));
     }
     false
@@ -474,15 +486,24 @@ fn aliases_in(line: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether `word` occurs in `code` other than followed by whitespace and the word `as`.
+/// Whether `word` occurs in `code` other than as either side of an `x as y` binding.
 fn has_use_not_alias(code: &str, word: &str) -> bool {
     word_positions(code, word).into_iter().any(|i| {
         let rest = &code[i + word.len()..];
         let t = rest.trim_start();
-        let as_word = t.len() < rest.len()
+        let as_after = t.len() < rest.len()
             && t.strip_prefix("as")
                 .is_some_and(|r| !r.bytes().next().is_some_and(is_word_char));
-        !as_word
+        let before = &code[..i];
+        let as_before = before.ends_with(char::is_whitespace)
+            && before.trim_end().strip_suffix("as").is_some_and(|r| {
+                r.ends_with(char::is_whitespace)
+                    && r.trim_end()
+                        .bytes()
+                        .last()
+                        .is_some_and(|c| is_word_char(c) || c == b'$')
+            });
+        !as_after && !as_before
     })
 }
 

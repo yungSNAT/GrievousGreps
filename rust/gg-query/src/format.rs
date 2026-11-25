@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use crate::brand::cmd;
 use crate::graph::{
-    Direction, EdgeHit, INFERRED_MARK, NodeV1, Quote, Savings, UnresolvedCall, is_test_path,
-    call_reference_line, with_savings,
+    Direction, EdgeHit, INFERRED_MARK, NodeV1, Quote, Savings, UnresolvedCall, call_reference_line,
+    is_test_path, with_savings,
 };
 
 const QUIET_SHOWN: usize = 3;

@@ -17,7 +17,11 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     let tmp = tempdir().unwrap();
     let repo = tmp.path();
     write(repo, "pkg/util.py", "def helper(x):\n    return x + 1\n");
-    write(repo, "py_alias.py", "from pkg.util import helper as h\n\nh(3)\n");
+    write(
+        repo,
+        "py_alias.py",
+        "from pkg.util import helper as h\n\nh(3)\n",
+    );
     write(
         repo,
         "py_plain.py",
