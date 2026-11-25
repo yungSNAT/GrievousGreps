@@ -66,7 +66,7 @@ fn binary_prints_the_golden_bytes() {
 #[test]
 fn binary_refuses_bad_input_and_usage() {
     let bin = env!("CARGO_BIN_EXE_gg-index");
-    let dir = std::env::temp_dir().join(format!("gg-index-bad-{}", std::process::id()));
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bad-input");
     fs::create_dir_all(&dir).unwrap();
     let bad = dir.join("bad.json");
     fs::write(&bad, "{\"nodes\":[{\"id\":1}],\"edges\":[]}").unwrap();
