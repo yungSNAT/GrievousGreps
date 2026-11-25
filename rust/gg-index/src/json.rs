@@ -6,10 +6,21 @@
 //! - Printing follows `JSON.stringify(value, null, 2)` (array-index keys first, then
 //!   insertion order) followed by `asciiJson`, which escapes every unit from U+007F up.
 
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
-/// Deepest nesting accepted; graphs nest 4 levels.
-const MAX_DEPTH: usize = 512;
+/// Deepest nesting accepted. TypeScript's `JSON.stringify` overflows V8's stack near depth
+/// 3,600 to 4,200 (Node 26 on Windows and Linux), so this sits above every graph it can
+/// write. Parsing, printing and dropping recurse once a level: run them on a thread with
+/// [`STACK_BYTES`] of stack.
+pub const MAX_DEPTH: usize = 10_000;
+
+/// Stack that [`MAX_DEPTH`] levels of parsing, printing and dropping fit in, debug builds
+/// included.
+pub const STACK_BYTES: usize = 256 << 20;
+
+/// Members an object holds before repeated keys are found through a hash index.
+const INDEX_FROM: usize = 16;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Json {
@@ -94,6 +105,7 @@ impl Parser<'_> {
     fn object(&mut self, depth: usize) -> Result<Json, String> {
         self.i += 1;
         let mut members: Vec<(Vec<u16>, Json)> = Vec::new();
+        let mut index: Option<HashMap<Vec<u16>, usize>> = None;
         self.ws();
         if self.eat("}") {
             return Ok(Json::Obj(members));
@@ -110,9 +122,22 @@ impl Parser<'_> {
             }
             self.ws();
             let v = self.value(depth + 1)?;
-            match members.iter_mut().find(|(k, _)| *k == key) {
-                Some(slot) => slot.1 = v,
-                None => members.push((key, v)),
+            let at = match &index {
+                Some(index) => index.get(&key).copied(),
+                None => members.iter().position(|(k, _)| *k == key),
+            };
+            match at {
+                Some(at) => members[at].1 = v,
+                None => {
+                    if let Some(index) = &mut index {
+                        index.insert(key.clone(), members.len());
+                    }
+                    members.push((key, v));
+                    if index.is_none() && members.len() >= INDEX_FROM {
+                        let built = members.iter().enumerate().map(|(n, (k, _))| (k.clone(), n));
+                        index = Some(built.collect());
+                    }
+                }
             }
             self.ws();
             if self.eat("}") {
@@ -453,6 +478,34 @@ mod tests {
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn repeated_keys_in_a_large_object_use_the_index() {
+        let keys: String = (0..40).map(|n| format!("\"k{n}\":{n},")).collect();
+        let v = parse(&format!("{{{keys}\"k3\":true,\"k39\":null,\"z\":0}}")).unwrap();
+        let Json::Obj(m) = &v else { unreachable!() };
+        assert_eq!(m.len(), 41);
+        assert_eq!(m[3], (utf16("k3"), Json::Bool(true)));
+        assert_eq!(m[39], (utf16("k39"), Json::Null));
+        assert_eq!(m[40].0, utf16("z"));
+    }
+
+    #[test]
+    fn nesting_stops_past_the_cap() {
+        let deep = |d: usize| format!("{}{}", "[".repeat(d), "]".repeat(d));
+        let ok = std::thread::Builder::new()
+            .stack_size(STACK_BYTES)
+            .spawn(move || {
+                (
+                    parse(&deep(MAX_DEPTH + 1)).is_ok(),
+                    parse(&deep(MAX_DEPTH + 2)).is_err(),
+                )
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(ok, (true, true));
     }
 
     #[test]

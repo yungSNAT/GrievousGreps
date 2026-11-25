@@ -115,8 +115,14 @@ type Gen = string; // JSON text
 const ws = (): string => (rand() < 0.8 ? "" : pick([" ", "\n", "\t", "\r\n", "  "]));
 function str(s: string): Gen {
   let out = '"';
-  for (const ch of s.split("")) {
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
     const u = ch.charCodeAt(0);
+    // A surrogate pair goes in raw (4 UTF-8 bytes) half the time, escaped otherwise.
+    if (u >= 0xd800 && u <= 0xdbff && /[\udc00-\udfff]/.test(s[i + 1] ?? "") && rand() < 0.5) {
+      out += s[i] + s[++i];
+      continue;
+    }
     const mustEscape = u < 0x20 || (u >= 0xd800 && u <= 0xdfff) || ch === '"' || ch === "\\";
     if (mustEscape || rand() < 0.05) {
       const named: Record<string, string> = { '"': '\\"', "\\": "\\\\", "\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t", "/": "\\/" };
@@ -127,11 +133,47 @@ function str(s: string): Gen {
   return out + '"';
 }
 const NUMS = ["0", "-0", "1", "1.0", "1E2", "1e+2", "1e21", "1e-7", "0.1", "-3.25e-10", "123456789012345678901", "5e-324", "1.7976931348623157e308", "1e400", "-1e400", "2.5", "100", "9007199254740993", "0.000001", "0.0000001", "4.35"];
+/** A number lexeme: a fixed edge case, a random double in several spellings, or random digits. */
+function num(): Gen {
+  const r = rand();
+  if (r < 0.3) return pick(NUMS);
+  if (r < 0.75) {
+    const view = new DataView(new ArrayBuffer(8));
+    view.setUint32(0, Math.floor(rand() * 2 ** 32));
+    view.setUint32(4, Math.floor(rand() * 2 ** 32));
+    const x = view.getFloat64(0);
+    if (!Number.isFinite(x)) return pick(NUMS);
+    const spelling = rand();
+    if (spelling < 0.5) return String(x);
+    if (spelling < 0.75) return x.toExponential(int(21));
+    const p = x.toPrecision(1 + int(21));
+    return /^-?(0|[1-9])/.test(p) ? p : String(x);
+  }
+  const digits = Array.from({ length: 1 + int(17) }, (_, i) => (i === 0 ? 1 + int(9) : int(10))).join("");
+  const point = int(digits.length + 1);
+  const mantissa = point && point < digits.length ? `${digits.slice(0, point)}.${digits.slice(point)}` : digits;
+  return `${rand() < 0.3 ? "-" : ""}${mantissa}${rand() < 0.7 ? `e${pick(["", "+", "-"])}${int(331)}` : ""}`;
+}
+/** Nesting below V8's `JSON.stringify` limit (about 3,600 levels on Windows, 4,100 on Linux). */
+function nested(depth: number): Gen {
+  let open = "";
+  let close = "";
+  for (let i = 0; i < depth; i++) {
+    if (rand() < 0.5) {
+      open += "[";
+      close = "]" + close;
+    } else {
+      open += '{"k":';
+      close = "}" + close;
+    }
+  }
+  return open + scalar() + close;
+}
 function scalar(): Gen {
   const r = rand();
   if (r < 0.1) return "null";
   if (r < 0.2) return pick(["true", "false"]);
-  if (r < 0.45) return pick(NUMS);
+  if (r < 0.45) return num();
   return str(word(10));
 }
 function obj(pairs: [string, Gen][]): Gen {
@@ -151,7 +193,7 @@ function node(): Gen {
     ["owner", () => str(ident())], ["path", () => str(word(10))], ["span", () => str(`L${int(99)}-L${int(999)}`)],
     ["signature", () => (rand() < 0.3 ? "null" : str(word(20)))], ["exported", () => pick(["true", "false"])],
     ["origin", () => str(pick(["ast", "generic", "deploy"]))], ["body_hash", () => str(word(12))],
-    ["chars", () => pick(NUMS)], ["body_text", () => str(word(30))], ["arity", () => pick(NUMS)],
+    ["chars", num], ["body_text", () => str(word(30))], ["arity", num],
     ["variadic", () => pick(["true", "false"])], ["summary_state", () => str("pending")],
     ["summary", () => (rand() < 0.5 ? "null" : str(word(20)))],
     ["crux", () => (rand() < 0.5 ? "null" : obj([["code", str(word(15))], ["span", str("L1-L2")]]))],
@@ -161,6 +203,7 @@ function node(): Gen {
   if (rand() < 0.05) pairs.push(["id", str(id())]); // repeated key: the last value wins
   pairs.splice(int(pairs.length + 1), 0, ["id", str(id())]);
   if (rand() < 0.1) pairs.push(["body_text", str(word(5))]);
+  if (rand() < 0.01) pairs.push(["deep", nested(1 + int(3000))]);
   return obj(extras(pairs));
 }
 

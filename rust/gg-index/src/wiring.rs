@@ -3,8 +3,9 @@
 //! Nodes lose `body_text` and are sorted by `id`; edges are sorted by `source`, then
 //! `relation`, then `target`. Both sorts are stable and compare with
 //! `String.prototype.localeCompare`, which is ICU collation. ICU4X's root collation
-//! matches it on hosts whose default locale is English or C/POSIX; TypeScript on a host
-//! whose locale tailors collation (Swedish, for one) sorts differently, and this does not.
+//! matches it on hosts whose default locale is English or C/POSIX and whose Node carries
+//! ICU 78 data. TypeScript sorts differently on a host whose locale tailors collation
+//! (Swedish, for one) and may for characters an older ICU does not know; this does not.
 
 use std::cmp::Ordering;
 use std::sync::LazyLock;
@@ -90,7 +91,9 @@ fn put_array(members: &mut [(Vec<u16>, Json)], key: &str, items: Vec<Json>) {
 
 /// A sort key. It must be well-formed UTF-16: ICU4X compares a lone surrogate as U+FFFD,
 /// where TypeScript's ICU orders it by its own code point. TypeScript never builds such a
-/// key (ids come from paths and names read as UTF-8), so refusing it loses nothing.
+/// key from source code, but a YAML deploy file can: a double-quoted `"\uD800"` in a
+/// compose service or Kubernetes name reaches an id. Refusing it fails loudly instead of
+/// writing a different order.
 fn sort_key(item: &Json, key: &str, what: &str) -> Result<Vec<u16>, String> {
     match item.get(key) {
         Some(Json::Str(s)) if char::decode_utf16(s.iter().copied()).all(|c| c.is_ok()) => {

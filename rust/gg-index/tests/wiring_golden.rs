@@ -84,3 +84,33 @@ fn binary_refuses_bad_input_and_usage() {
     assert_eq!(out.status.code(), Some(1));
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn binary_writes_a_graph_nested_to_the_cap() {
+    // A free-form field nested to the cap: TypeScript overflows near depth 4,000; Rust must
+    // not overflow below its cap on any platform, debug builds included.
+    let depth = gg_index::json::MAX_DEPTH - 2;
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("deep-input");
+    fs::create_dir_all(&dir).unwrap();
+    let input = dir.join("deep.json");
+    let field = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    fs::write(
+        &input,
+        format!("{{\"nodes\":[{{\"id\":\"a\",\"x\":{field}}}],\"edges\":[]}}"),
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
+        .arg("wiring")
+        .arg(&input)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.ends_with("  \"edges\": []\n}\n"));
+    assert_eq!(text.matches('[').count(), depth + 2);
+    fs::remove_dir_all(&dir).unwrap();
+}

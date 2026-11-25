@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -27,7 +27,16 @@ enum Cmd {
 
 fn main() -> ExitCode {
     let Cmd::Wiring { graph } = Cli::parse().command;
-    let result = std::fs::read(&graph)
+    // Deeply nested graphs recurse once a level; give them the stack they need.
+    std::thread::Builder::new()
+        .stack_size(gg_index::json::STACK_BYTES)
+        .spawn(move || wiring(&graph))
+        .map(|worker| worker.join().unwrap_or(ExitCode::FAILURE))
+        .unwrap_or(ExitCode::FAILURE)
+}
+
+fn wiring(graph: &Path) -> ExitCode {
+    let result = std::fs::read(graph)
         .map_err(|e| format!("{}: {e}", graph.display()))
         .and_then(|bytes| gg_index::wiring::wiring_from_text(&String::from_utf8_lossy(&bytes)))
         .and_then(|text| {
