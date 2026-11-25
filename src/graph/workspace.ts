@@ -811,9 +811,18 @@ function resolveWorkspaceFile(
     throw new Error(`workspace file path must include a repository and file, e.g. ${onlyChild}/<file>`);
   }
   const relFile = relParts.join("/");
-  const childRoot = resolveInside(root, onlyChild);
-  resolveInside(childRoot, relFile);
+  const childRoot = containedIn(root, onlyChild, file);
+  containedIn(childRoot, relFile, file);
   return { child: onlyChild, childRoot, relFile };
+}
+
+/** resolveInside, with an error that names only the path the caller gave (its own names absolute paths). */
+function containedIn(base: string, rel: string, shown: string): string {
+  try {
+    return resolveInside(base, rel);
+  } catch {
+    throw new Error(`refusing a path that leaves its repository or passes through a symlink: ${shown}`);
+  }
 }
 
 const AMBIGUOUS_PREFIX = "ambiguous — matches: ";
@@ -828,7 +837,7 @@ export function federateSkeleton(
   const wg = loadWorkspaceGraphs(root, override);
   const { child, childRoot, relFile } = resolveWorkspaceFile(root, wg, file);
   const r = skeleton(childRoot, relFile);
-  if (r.entries.length > 0) resolveInside(childRoot, r.file);
+  if (r.entries.length > 0) containedIn(childRoot, r.file, `${child}/${r.file}`);
   const note = r.note?.startsWith(AMBIGUOUS_PREFIX)
     ? `${AMBIGUOUS_PREFIX}${r.note.slice(AMBIGUOUS_PREFIX.length).split(", ").map((p) => `${child}/${p}`).join(", ")}`
     : r.note;

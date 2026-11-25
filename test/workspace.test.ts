@@ -962,6 +962,7 @@ test("workspace skeleton & MCP graft_file_api: routes by child path prefix and r
       const mcpLink = await callTool(p, "graft_file_api", { file: "repoA/escape-link/secret.ts" });
       assert.equal(mcpLink.isError, true);
       assert.match(mcpLink.text, /symlink/i);
+      assert.ok(!mcpLink.text.includes(p), "the refusal names the input path, not the workspace's location");
     }
 
     // CLI `skeleton` (plain + --json) routes by child path prefix and exits 1 on traversal/unknown repo.
