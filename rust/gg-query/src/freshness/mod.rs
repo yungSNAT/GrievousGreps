@@ -13,7 +13,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::brand::cmd;
-use crate::safe_io::{RootAnchor, anchor_root, open_contained_anchored};
+use crate::safe_io::{anchor_root, open_contained_anchored};
 use crate::store::wiring_json_path;
 
 use walk::{WalkContext, list_source_files};
@@ -175,13 +175,7 @@ fn read_source_hash(ctx: &WalkContext, rel: &str) -> io::Result<Option<String>> 
     Ok(Some(sha256_hex(text.as_bytes())))
 }
 
-fn read_bounded_utf8_anchored(
-    canon_dir: &Path,
-    anchor: &RootAnchor,
-    name: &str,
-    max_bytes: u64,
-) -> Option<String> {
-    let (file, meta) = open_contained_anchored(canon_dir, anchor, name, Some(max_bytes))?;
+fn read_bounded_utf8_file(file: fs::File, meta: &fs::Metadata, max_bytes: u64) -> Option<String> {
     if !meta.file_type().is_file() || meta.len() > max_bytes {
         return None;
     }
@@ -194,33 +188,37 @@ fn read_bounded_utf8_anchored(
 }
 
 fn read_latest_fingerprint(out_dir: &Path) -> Option<FingerprintRecord> {
-    let cache = out_dir.join(CACHE_DIR);
+    let (out_anchor, canon_out) = anchor_root(out_dir).ok()?;
+    let cache = canon_out.join(CACHE_DIR);
     let cache_meta = fs::symlink_metadata(&cache).ok()?;
     if cache_meta.file_type().is_symlink() || !cache_meta.is_dir() {
         return None;
     }
-    let (cache_anchor, canon_cache) = anchor_root(&cache).ok()?;
-    let mut candidates = Vec::new();
-    for entry in fs::read_dir(&cache).ok()?.flatten() {
+    let canon_cache = fs::canonicalize(&cache).ok()?;
+    if canon_cache != canon_out.join(CACHE_DIR) {
+        return None;
+    }
+    let mut names = Vec::new();
+    for entry in fs::read_dir(&canon_cache).ok()?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with(FINGERPRINT_PREFIX) || !name.ends_with(".json") {
-            continue;
+        if name.starts_with(FINGERPRINT_PREFIX) && name.ends_with(".json") {
+            names.push(name);
         }
-        let path = entry.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else {
+    }
+    let mut candidates = Vec::new();
+    for name in names {
+        let rel = format!("{CACHE_DIR}/{name}");
+        let Some((file, meta)) =
+            open_contained_anchored(&canon_out, &out_anchor, &rel, Some(MAX_FINGERPRINT_BYTES))
+        else {
             continue;
         };
-        if meta.file_type().is_symlink() || !meta.is_file() {
-            continue;
-        }
         let modified = meta.modified().ok();
-        candidates.push((modified, name));
+        candidates.push((modified, name, file, meta));
     }
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
-    for (_, name) in candidates {
-        let Some(raw) =
-            read_bounded_utf8_anchored(&canon_cache, &cache_anchor, &name, MAX_FINGERPRINT_BYTES)
-        else {
+    for (_, _, file, meta) in candidates {
+        let Some(raw) = read_bounded_utf8_file(file, &meta, MAX_FINGERPRINT_BYTES) else {
             continue;
         };
         if let Ok(rec) = serde_json::from_str::<FingerprintRecord>(&raw)
@@ -354,4 +352,57 @@ pub fn format_query_json<T: Serialize>(
         obj.insert("index".to_string(), idx_val);
     }
     serde_json::to_string_pretty(&val).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_latest_fingerprint;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn read_latest_fingerprint_rejects_symlinked_cache_dir_on_unix() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().expect("tmp");
+        let outside = tmp.path().join("outside");
+        let out_dir = tmp.path().join("out");
+        fs::create_dir_all(&outside).expect("outside");
+        fs::create_dir_all(&out_dir).expect("out");
+        fs::write(
+            outside.join("fingerprint.abc.json"),
+            r#"{"version":1,"files":{"a.ts":[1,1.0,"deadbeef"]}}"#,
+        )
+        .expect("fp");
+        symlink(&outside, out_dir.join(".cache")).expect("sym");
+        assert!(read_latest_fingerprint(&out_dir).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_latest_fingerprint_rejects_junction_cache_dir_on_windows() {
+        use std::process::Command;
+
+        let tmp = tempdir().expect("tmp");
+        let outside = tmp.path().join("outside");
+        let out_dir = tmp.path().join("out");
+        fs::create_dir_all(&outside).expect("outside");
+        fs::create_dir_all(&out_dir).expect("out");
+        fs::write(
+            outside.join("fingerprint.abc.json"),
+            r#"{"version":1,"files":{"a.ts":[1,1.0,"deadbeef"]}}"#,
+        )
+        .expect("fp");
+        let st = Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(out_dir.join(".cache"))
+            .arg(&outside)
+            .status()
+            .expect("mklink");
+        assert!(st.success());
+        assert!(read_latest_fingerprint(&out_dir).is_none());
+    }
 }
