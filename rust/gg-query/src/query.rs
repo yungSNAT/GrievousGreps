@@ -7,7 +7,8 @@ use rusqlite::{OptionalExtension, Row, params};
 
 use crate::graph::{
     Direction, EdgeHit, EdgeV1, NodeCrux, NodeV1, Savings, UnresolvedCall, is_walk_relation,
-    looks_like_filename, normalize_path_prefix, path_under_prefix, symbol_matches_node,
+    looks_like_filename, normalize_path_prefix, path_under_prefix, strip_ordinals,
+    symbol_matches_node,
 };
 use crate::provenance::{Confidence, WeakestHop};
 use crate::store::{GraphStore, sql_err};
@@ -82,9 +83,16 @@ impl GraphStore {
         in_prefix: Option<&str>,
     ) -> io::Result<Vec<NodeV1>> {
         let lower_query = query.to_lowercase();
-        let mut matches = self.query_symbol_matches(&lower_query)?;
+        // A `path#symbol` id, or its tail from a path segment, takes no fallback.
+        let is_id = query.contains('#');
+        let mut matches = if is_id {
+            self.query_id_matches(&lower_query)?
+        } else {
+            self.query_symbol_matches(&lower_query)?
+        };
 
         if matches.is_empty()
+            && !is_id
             && let Some((_, last_seg)) = query.rsplit_once('.')
             && !last_seg.is_empty()
         {
@@ -146,6 +154,34 @@ impl GraphStore {
             .optional()
             .map_err(sql_err)?;
         Ok(found.is_some())
+    }
+
+    /// Non-file nodes whose id, ordinals stripped or not, is `lower_query` or ends with `/` and it, or whose name is it.
+    fn query_id_matches(&self, lower_query: &str) -> io::Result<Vec<NodeV1>> {
+        let sql = format!("{NODE_SELECT} WHERE kind != 'file' ORDER BY seq ASC");
+        let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
+        let rows = stmt
+            .query_map([], row_to_node)
+            .map_err(sql_err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sql_err)?;
+        let tail = format!("/{lower_query}");
+        Ok(rows
+            .into_iter()
+            .filter(|n| {
+                if n.name.to_lowercase() == lower_query {
+                    return true;
+                }
+                let lower_id = n.id.to_lowercase();
+                let stripped = match lower_id.find('#') {
+                    Some(i) => format!("{}{}", &lower_id[..=i], strip_ordinals(&lower_id[i + 1..])),
+                    None => lower_id.clone(),
+                };
+                [lower_id, stripped]
+                    .iter()
+                    .any(|id| id == lower_query || id.ends_with(&tail))
+            })
+            .collect())
     }
 
     fn query_symbol_matches(&self, lower_query: &str) -> io::Result<Vec<NodeV1>> {

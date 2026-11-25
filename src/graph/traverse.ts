@@ -52,6 +52,12 @@ export interface ResolveSymbolOptions {
  *     (contains `.`, no `#`), fall back to `kind: 'file'` nodes matched by
  *     name or path.
  *
+ * A query holding `#` is a node id (`pkg/util.py#helper`, as `callers --json`
+ * prints), or its tail from a path segment on (`util.py#helper`): it matches
+ * those non-file nodes' ids case-insensitively, ordinals stripped or not, or a
+ * name equal to it, and takes neither fallback, so a stale id finds nothing
+ * rather than every node sharing its last segment.
+ *
  * `opts.in` then filters whichever candidate set was produced, by path
  * substring. Multiple matches are not an error — every match is returned.
  */
@@ -59,9 +65,10 @@ export function resolveSymbol(graph: GraphV1, query: string, opts: ResolveSymbol
   const lowerQuery = query.toLowerCase();
   const looksLikeFilename = query.includes(".") && !query.includes("#");
 
-  let matches = symbolMatches(graph.nodes, lowerQuery);
+  const isId = query.includes("#");
+  let matches = isId ? idMatches(graph.nodes, lowerQuery) : symbolMatches(graph.nodes, lowerQuery);
 
-  if (matches.length === 0 && query.includes(".")) {
+  if (matches.length === 0 && query.includes(".") && !isId) {
     const lastSegment = query.slice(query.lastIndexOf(".") + 1).toLowerCase();
     if (lastSegment) {
       matches = graph.nodes.filter((n) => n.kind !== "file" && n.name.toLowerCase() === lastSegment);
@@ -97,6 +104,18 @@ export function resolveSymbol(graph: GraphV1, query: string, opts: ResolveSymbol
  * string), not just the very end of the string. */
 function stripOrdinals(idTail: string): string {
   return idTail.replace(/~\d+(?=\.|$)/g, "");
+}
+
+function idMatches(nodes: NodeV1[], lowerQuery: string): NodeV1[] {
+  const tail = "/" + lowerQuery;
+  return nodes.filter((n) => {
+    if (n.kind === "file") return false;
+    if (n.name.toLowerCase() === lowerQuery) return true;
+    const lowerId = n.id.toLowerCase();
+    const hashIdx = lowerId.indexOf("#");
+    const stripped = hashIdx === -1 ? lowerId : lowerId.slice(0, hashIdx + 1) + stripOrdinals(lowerId.slice(hashIdx + 1));
+    return [lowerId, stripped].some((id) => id === lowerQuery || id.endsWith(tail));
+  });
 }
 
 function symbolMatches(nodes: NodeV1[], lowerQuery: string): NodeV1[] {

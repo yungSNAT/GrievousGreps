@@ -408,3 +408,22 @@ test("impactOf: marks never change which nodes are reached, or at what depth", (
     assert.deepEqual(reach(impactOf(graphOf(nodes, edges), nodes[0], 9)), plain);
   }
 });
+
+test("resolveSymbol: a path#symbol id, or its tail from a path segment, names its nodes and takes no fallback", () => {
+  const helper = nodeStub({ id: "pkg/util.py#helper", name: "helper" });
+  const helper2 = nodeStub({ id: "pkg/util.py#helper~2", name: "helper" });
+  const otherHelper = nodeStub({ id: "other/util.py#helper", name: "helper" });
+  const clsGet = nodeStub({ id: "pkg/util.py#Cls.get", name: "get" });
+  const xGet = nodeStub({ id: "pkg/x.py#get", name: "get" });
+  const g = graphOf([helper, helper2, otherHelper, clsGet, xGet], []);
+  const ids = (q: string) => resolveSymbol(g, q).map((n) => n.id).sort();
+  assert.deepEqual(ids("pkg/util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("pkg/util.py#helper~2"), ["pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("PKG/Util.py#HELPER"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("util.py#helper"), ["other/util.py#helper", "pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("pkg/util.py#Cls.get"), ["pkg/util.py#Cls.get"]);
+  // A stale or partial id finds nothing, never every node sharing its last segment.
+  assert.deepEqual(ids("pkg/nope.py#get"), []);
+  assert.deepEqual(ids("kg/util.py#helper"), []);
+  assert.deepEqual(resolveSymbol(g, "pkg/util.py#helper", { in: "other" }), []);
+});
