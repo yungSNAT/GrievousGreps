@@ -357,9 +357,9 @@ fn hubs_self_loop_excluded_from_pagerank_whilst_degrees_counted() {
     let json: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(json["totals"]["walkEdges"], 1);
     assert_eq!(json["hubs"][0]["name"], "A");
-    assert_eq!(json["hubs"][0]["pagerank"], 1.0);
+    assert_eq!(json["hubs"][0]["pagerank"].as_f64(), Some(1.0));
     assert_eq!(json["hubs"][1]["name"], "B");
-    assert_eq!(json["hubs"][1]["pagerank"], 1.0);
+    assert_eq!(json["hubs"][1]["pagerank"].as_f64(), Some(1.0));
     assert_eq!(json["hubs"][0]["inDegree"], 1);
     assert_eq!(json["hubs"][0]["outDegree"], 2);
 }

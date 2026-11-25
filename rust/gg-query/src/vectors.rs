@@ -142,6 +142,8 @@ where
         }
         let mut top: Option<DenseFile> = None;
         for c in 0..n {
+            // Keep f64 accumulation: JS `dot += query[i] * F16[...]` accumulates in IEEE-754 f64;
+            // f32 drifts by ~1e-7..3e-7 on sample-repo (ask-dense.json) and can break exact parity/ties.
             let mut dot = 0.0_f64;
             for (i, &q) in query.iter().enumerate() {
                 dot += f64::from(q) * f64::from(f16[index.data[at + i] as usize]);

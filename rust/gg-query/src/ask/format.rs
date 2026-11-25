@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
+use crate::ask::budget::format_budget_footer;
 use crate::ask::{AskMode, AskResult};
+use crate::brand::{cmd, tag};
 use crate::graph::{group_digits, js_locale_cmp, scope_label, to_tokens};
 
 fn saved_tokens(r: &AskResult, body: &str) -> usize {
@@ -28,7 +30,8 @@ fn ask_savings_line(r: &AskResult, body: &str) -> String {
     let base = to_tokens(s.baseline_chars);
     let pct = ((saved as f64 / base as f64) * 100.0).round() as usize;
     format!(
-        "[trail] tokens saved ≈ {} ({pct}%) at most, against reading the {} file(s) whole",
+        "{} tokens saved ≈ {} ({pct}%) at most, against reading the {} file(s) whole",
+        tag(),
         group_digits(saved),
         s.files
     )
@@ -47,10 +50,14 @@ fn escalation_nudge(r: &AskResult) -> String {
         format!("only {n} hits")
     };
     format!(
-        "\n\n[trail] {count_phrase} — don't re-ask with new wording; switch tool: \
-         `trail grep \"<literal>\"` for every occurrence · \
-         `trail skeleton <file>` for a file's full API · \
-         `trail callers <symbol>` for who-uses."
+        "\n\n{} {count_phrase} — don't re-ask with new wording; switch tool: \
+         `{} \"<literal>\"` for every occurrence · \
+         `{} <file>` for a file's full API · \
+         `{} <symbol>` for who-uses.",
+        tag(),
+        cmd("graft grep"),
+        cmd("graft skeleton"),
+        cmd("graft callers")
     )
 }
 
@@ -82,9 +89,24 @@ fn scope_footer_lines(r: &AskResult) -> Vec<String> {
     out
 }
 
-/// Render an `AskResult` as the exact markdown context pack produced by `trail ask`.
+/// Render an `AskResult` as the exact markdown context pack produced by `trail ask` / `graft ask`.
 pub fn format_ask(r: &AskResult) -> String {
-    let head = format!("trail ask — \"{}\"  ({})", r.query, r.mode.as_str());
+    let base = format_ask_with_found(r, r);
+    match &r.budget {
+        Some(b) => format!("{base}{}\n", format_budget_footer(b)),
+        None => base,
+    }
+}
+
+/// Render an `AskResult` body before appending any budget footer, taking the
+/// escalation-nudge count from `found` (`src/ask/ask.ts::formatAskWithSaved`).
+pub fn format_ask_with_found(r: &AskResult, found: &AskResult) -> String {
+    let head = format!(
+        "{} — \"{}\"  ({})",
+        cmd("graft ask"),
+        r.query,
+        r.mode.as_str()
+    );
     let note_block = match &r.note {
         Some(note) => note
             .lines()
@@ -106,7 +128,7 @@ pub fn format_ask(r: &AskResult) -> String {
         } else {
             &note_block
         };
-        return format!("{head}\n\n{msg}{}\n", escalation_nudge(r));
+        return format!("{head}\n\n{msg}{}\n", escalation_nudge(found));
     }
 
     let mut lines: Vec<String> = if note_block.is_empty() {
@@ -166,5 +188,5 @@ pub fn format_ask(r: &AskResult) -> String {
     } else {
         format!("{savings}\n\n{body}")
     };
-    format!("{prefix}{}\n", escalation_nudge(r))
+    format!("{prefix}{}\n", escalation_nudge(found))
 }

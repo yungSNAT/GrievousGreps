@@ -1,6 +1,7 @@
 //! Full native `ask` engine (structural + lexical BM25/PPR + semantic RRF hybrid)
 //! and `skeleton` view, matching `src/ask/ask.ts`.
 
+pub mod budget;
 pub mod concepts;
 pub mod format;
 pub mod lexical;
@@ -24,6 +25,7 @@ use crate::graph::{
 use crate::store::GraphStore;
 use crate::vectors::FuseHit;
 
+pub use budget::{AskBudget, budget_ask, parse_max_tokens};
 pub use format::format_ask;
 pub use skeleton::{SkeletonEntry, SkeletonResult, format_skeleton, run_skeleton};
 
@@ -53,22 +55,54 @@ impl Serialize for AskMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct AskHit {
     pub kind: String,
     pub title: String,
     pub pointer: String,
     pub snippet: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub relation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub related: Option<Vec<String>>,
-    #[serde(serialize_with = "serialize_js_f64")]
     pub score: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    pub(crate) score_first: bool,
+}
+
+impl Serialize for AskHit {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        struct JsF64(f64);
+        impl Serialize for JsF64 {
+            fn serialize<S2: serde::Serializer>(&self, s: S2) -> Result<S2::Ok, S2::Error> {
+                serialize_js_f64(&self.0, s)
+            }
+        }
+        let mut st = serializer.serialize_struct("AskHit", 9)?;
+        st.serialize_field("kind", &self.kind)?;
+        st.serialize_field("title", &self.title)?;
+        st.serialize_field("pointer", &self.pointer)?;
+        if !self.score_first {
+            st.serialize_field("snippet", &self.snippet)?;
+        }
+        if let Some(ref v) = self.relation {
+            st.serialize_field("relation", v)?;
+        }
+        if let Some(ref v) = self.related {
+            st.serialize_field("related", v)?;
+        }
+        st.serialize_field("score", &JsF64(self.score))?;
+        if self.score_first {
+            st.serialize_field("snippet", &self.snippet)?;
+        }
+        if let Some(ref v) = self.code {
+            st.serialize_field("code", v)?;
+        }
+        if let Some(ref v) = self.scope {
+            st.serialize_field("scope", v)?;
+        }
+        st.end()
+    }
 }
 
 impl FuseHit for AskHit {
@@ -104,8 +138,6 @@ pub struct AskResult {
     pub hits: Vec<AskHit>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub saved: Option<Savings>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "serialize_opt_js_f64"
@@ -119,6 +151,10 @@ pub struct AskResult {
     pub coverage_strong: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<AskScopes>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved: Option<Savings>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget: Option<AskBudget>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,9 +178,15 @@ pub fn discover_model_dir(explicit: Option<&Path>, repo: &Path) -> Option<PathBu
         return is_valid_model_dir(d).then(|| d.to_path_buf());
     }
     let rel = Path::new("models").join("potion-code-16M-v2");
-    for base in [Some(repo.to_path_buf()), env::current_dir().ok()]
-        .into_iter()
-        .flatten()
+    let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    for base in [
+        Some(repo.to_path_buf()),
+        env::current_dir().ok(),
+        env::current_exe().ok(),
+        Some(manifest_root),
+    ]
+    .into_iter()
+    .flatten()
     {
         for ancestor in base.ancestors().take(6) {
             let cand = ancestor.join(&rel);
@@ -237,7 +279,7 @@ fn inline_source(root: &Path, hits: &mut [AskHit], store: Option<&GraphStore>, f
     }
 }
 
-fn hit_files(hits: &[AskHit]) -> Vec<String> {
+pub(crate) fn hit_files(hits: &[AskHit]) -> Vec<String> {
     let mut files = HashSet::new();
     for h in hits {
         if let Some((path, _, _)) = parse_pointer_span(&h.pointer) {
@@ -260,6 +302,33 @@ pub fn run_ask(
     query: &str,
     opts: &AskOptions<'_>,
 ) -> Result<AskResult, String> {
+    let (_store, res) = run_ask_inner(repo, out_dir, query, opts)?;
+    Ok(res)
+}
+
+/// Answer a query and fit its rendered output to `max_tokens` (`--max-tokens`).
+pub fn run_ask_with_budget(
+    repo: &Path,
+    out_dir: &Path,
+    query: &str,
+    opts: &AskOptions<'_>,
+    max_tokens: usize,
+) -> Result<(AskResult, String), String> {
+    let forced = AskOptions {
+        source: true,
+        full: true,
+        ..opts.clone()
+    };
+    let (store, result) = run_ask_inner(repo, out_dir, query, &forced)?;
+    budget::budget_ask(&result, max_tokens, store.as_ref())
+}
+
+fn run_ask_inner(
+    repo: &Path,
+    out_dir: &Path,
+    query: &str,
+    opts: &AskOptions<'_>,
+) -> Result<(Option<GraphStore>, AskResult), String> {
     let store = GraphStore::open_or_sync(out_dir).map_err(|e| e.to_string())?;
     let model_dir = discover_model_dir(opts.model_dir, repo);
     let use_semantic = store.is_some() && semantic_enabled(opts.semantic, model_dir.as_deref());
@@ -287,7 +356,7 @@ pub fn run_ask(
                     ));
                 }
                 match structural::run_structural(query, snap, opts.limit, in_ref)? {
-                    structural::StructuralOutcome::Result(res) => Ok(res),
+                    structural::StructuralOutcome::Result(res) => Ok(*res),
                     structural::StructuralOutcome::Fallthrough(note) => {
                         let mut res = lexical::run_lexical(
                             query,
@@ -349,5 +418,5 @@ pub fn run_ask(
         }
     }
 
-    Ok(result)
+    Ok((store, result))
 }

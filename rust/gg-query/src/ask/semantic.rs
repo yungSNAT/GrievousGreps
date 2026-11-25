@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::ask::{AskHit, AskMode, AskResult};
+use crate::brand::cmd;
 use crate::embed::SafetensorsEmbedder;
 use crate::graph::{NodeV1, ScopeV1, path_under_prefix, scope_of, span_range};
 use crate::store::GraphStore;
@@ -34,7 +35,7 @@ pub fn with_semantic(
         Ok(None) => {
             return Ok(skip(
                 result,
-                "no vectors yet — run `trail build`".to_string(),
+                format!("no vectors yet — run `{}`", cmd("graft build")),
             ));
         }
         Err(e) => return Ok(skip(result, e.to_string())),
@@ -152,6 +153,7 @@ fn build_dense_hit(store: &GraphStore, d: &DenseFile, scopes: &[ScopeV1], scoped
                 score: d.score,
                 code: None,
                 scope,
+                score_first: false,
             }
         }
         None => AskHit {
@@ -164,6 +166,7 @@ fn build_dense_hit(store: &GraphStore, d: &DenseFile, scopes: &[ScopeV1], scoped
             score: d.score,
             code: None,
             scope,
+            score_first: false,
         },
     }
 }

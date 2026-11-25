@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize, Serializer};
 
+use crate::brand::tag;
+use crate::evidence::{code_of, syntax_of};
 use crate::provenance::{Confidence, WeakestHop};
 
 pub const WALK_RELATIONS: &[&str] = &["calls", "references", "imports", "implements", "extends"];
@@ -306,11 +308,14 @@ pub fn is_test_path(path: &str) -> bool {
 /// Mirrors `src/graph/deploy.ts::deployFormatOf` truthiness check.
 pub fn is_deploy_file(path: &str) -> bool {
     let normalized = path.replace('\\', "/");
-    let base = normalized
-        .rsplit('/')
-        .next()
-        .unwrap_or(&normalized)
-        .to_ascii_lowercase();
+    let exact = normalized.rsplit('/').next().unwrap_or(&normalized);
+    if matches!(
+        exact,
+        "kustomization.yaml" | "kustomization.yml" | "Kustomization"
+    ) {
+        return true;
+    }
+    let base = exact.to_ascii_lowercase();
     if base.ends_with(".dockerignore") {
         return false;
     }
@@ -321,6 +326,9 @@ pub fn is_deploy_file(path: &str) -> bool {
             && base.len() > 11)
         || (base.ends_with(".dockerfile") && base.len() > ".dockerfile".len())
     {
+        return true;
+    }
+    if exact.ends_with(".tf") {
         return true;
     }
     base.ends_with(".yaml") || base.ends_with(".yml")
@@ -385,20 +393,27 @@ pub fn reference_line(
     symbol_name: &str,
     cache: &mut HashMap<String, Option<Vec<String>>>,
 ) -> Option<Quote> {
+    if is_deploy_file(path) {
+        return None;
+    }
     let (start, end) = span_range(span)?;
     let lines = cache
         .entry(path.to_string())
         .or_insert_with(|| {
-            let full = root.join(path);
+            let full = safe_resolve_inside(root, path)?;
             fs::read_to_string(full)
                 .ok()
                 .map(|s| s.lines().map(String::from).collect())
         })
         .as_ref()?;
+    let syntax = syntax_of(path);
+    let mut open: Option<String> = None;
     let lo = start.saturating_sub(1);
     let hi = end.min(lines.len());
     for (idx, line) in lines.iter().enumerate().take(hi).skip(lo) {
-        if contains_word(line, symbol_name) {
+        let (code, next_open) = code_of(line, syntax, open);
+        open = next_open;
+        if contains_word(&code, symbol_name) {
             return Some(Quote {
                 n: idx + 1,
                 text: line.clone(),
@@ -441,7 +456,8 @@ pub fn with_savings(body: &str, saved: Option<&Savings>) -> String {
     let delta = base - pack;
     let pct = ((delta as f64 / base as f64) * 100.0).round() as usize;
     format!(
-        "[trail] tokens saved ≈ {} ({pct}%) at most, against reading the {} file(s) whole\n\n{body}",
+        "{} tokens saved ≈ {} ({pct}%) at most, against reading the {} file(s) whole\n\n{body}",
+        tag(),
         group_digits(delta),
         s.files
     )

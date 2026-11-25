@@ -4,6 +4,7 @@ use std::io;
 
 use serde::Serialize;
 
+use crate::brand::cmd;
 use crate::graph::{Savings, span_range, with_savings};
 use crate::store::GraphStore;
 
@@ -33,7 +34,10 @@ pub fn run_skeleton(store: Option<&GraphStore>, file: &str) -> io::Result<Skelet
         return Ok(SkeletonResult {
             file: file.to_string(),
             entries: Vec::new(),
-            note: Some("no wiring graph — run `trail build` first".to_string()),
+            note: Some(format!(
+                "no wiring graph — run `{}` first",
+                cmd("graft build")
+            )),
             saved: None,
         });
     };
@@ -106,9 +110,9 @@ pub fn run_skeleton(store: Option<&GraphStore>, file: &str) -> io::Result<Skelet
     })
 }
 
-/// Render a `SkeletonResult` as compact markdown matching `trail skeleton`.
+/// Render a `SkeletonResult` as compact markdown matching `trail skeleton` / `graft skeleton`.
 pub fn format_skeleton(r: &SkeletonResult) -> String {
-    let head = format!("trail skeleton — {}", r.file);
+    let head = format!("{} — {}", cmd("graft skeleton"), r.file);
     if r.entries.is_empty() {
         let msg = r.note.as_deref().unwrap_or("no definitions.");
         return format!("{head}\n\n{msg}\n");

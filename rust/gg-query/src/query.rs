@@ -6,7 +6,7 @@ use std::io;
 use rusqlite::{OptionalExtension, Row, params};
 
 use crate::graph::{
-    Direction, EdgeHit, NodeCrux, NodeV1, Savings, UnresolvedCall, is_walk_relation,
+    Direction, EdgeHit, EdgeV1, NodeCrux, NodeV1, Savings, UnresolvedCall, is_walk_relation,
     looks_like_filename, normalize_path_prefix, path_under_prefix, symbol_matches_node,
 };
 use crate::provenance::{Confidence, WeakestHop};
@@ -149,24 +149,13 @@ impl GraphStore {
     }
 
     fn query_symbol_matches(&self, lower_query: &str) -> io::Result<Vec<NodeV1>> {
-        let simple = !lower_query.contains('.') && !lower_query.contains('#');
-        let sql = if simple {
-            format!("{NODE_SELECT} WHERE kind != 'file' AND name_lower = ?1 ORDER BY seq ASC")
-        } else {
-            format!("{NODE_SELECT} WHERE kind != 'file' ORDER BY seq ASC")
-        };
+        let sql = format!("{NODE_SELECT} WHERE kind != 'file' ORDER BY seq ASC");
         let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
-        let rows = if simple {
-            stmt.query_map(params![lower_query], row_to_node)
-                .map_err(sql_err)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(sql_err)?
-        } else {
-            stmt.query_map([], row_to_node)
-                .map_err(sql_err)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(sql_err)?
-        };
+        let rows = stmt
+            .query_map([], row_to_node)
+            .map_err(sql_err)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sql_err)?;
         Ok(rows
             .into_iter()
             .filter(|n| symbol_matches_node(n, lower_query))
@@ -425,5 +414,48 @@ impl GraphStore {
             files,
             baseline_chars,
         }))
+    }
+
+    pub fn all_nodes(&self) -> io::Result<Vec<NodeV1>> {
+        let sql = format!("{NODE_SELECT} ORDER BY seq ASC");
+        let mut stmt = self.conn.prepare(&sql).map_err(sql_err)?;
+        let rows = stmt.query_map([], row_to_node).map_err(sql_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql_err)
+    }
+
+    pub fn all_edges(&self) -> io::Result<Vec<EdgeV1>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT source, target, relation, confidence FROM edges ORDER BY seq ASC")
+            .map_err(sql_err)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(EdgeV1 {
+                    source: r.get(0)?,
+                    target: r.get(1)?,
+                    relation: r.get(2)?,
+                    confidence: r.get(3)?,
+                })
+            })
+            .map_err(sql_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql_err)
+    }
+
+    pub fn all_unresolved_calls(&self) -> io::Result<Vec<UnresolvedCall>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, source, through, file FROM unresolved_calls ORDER BY seq ASC")
+            .map_err(sql_err)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok(UnresolvedCall {
+                    name: r.get(0)?,
+                    source: r.get(1)?,
+                    through: r.get(2)?,
+                    file: r.get(3)?,
+                })
+            })
+            .map_err(sql_err)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql_err)
     }
 }

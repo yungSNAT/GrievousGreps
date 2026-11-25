@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::manifest::{ReadFileError, read_bounded_regular_file};
+use super::toml_strings::{parse_basic_string, parse_literal_string, parse_simple_toml_key};
 
 pub(super) const MAX_LOCKFILE_BYTES: u64 = 16 * 1024 * 1024;
 pub(super) const MAX_LOCKFILES: usize = 16;
@@ -142,11 +143,8 @@ fn scan_lockfiles(
     }
 }
 
-/// Strip `# comment` outside quoted strings on a single TOML line.
-pub(super) fn strip_toml_comment(line: &str) -> &str {
-    let mut in_double = false;
-    let mut in_single = false;
-    let mut escape = false;
+fn find_outside_toml_quotes(line: &str, needle: char) -> Option<usize> {
+    let (mut in_double, mut in_single, mut escape) = (false, false, false);
     for (idx, ch) in line.char_indices() {
         if escape {
             escape = false;
@@ -156,77 +154,35 @@ pub(super) fn strip_toml_comment(line: &str) -> &str {
             '\\' if in_double => escape = true,
             '"' if !in_single => in_double = !in_double,
             '\'' if !in_double => in_single = !in_single,
-            '#' if !in_double && !in_single => return line[..idx].trim(),
+            c if c == needle && !in_double && !in_single => return Some(idx),
             _ => {}
         }
     }
-    line.trim()
+    None
 }
 
-fn parse_unicode_escape(chars: &mut std::str::Chars<'_>, digits: usize) -> Result<char, String> {
-    let mut hex = String::with_capacity(digits);
-    for _ in 0..digits {
-        let Some(c) = chars.next() else {
-            return Err("truncated unicode escape in TOML string".to_string());
-        };
-        if !c.is_ascii_hexdigit() {
-            return Err(format!("invalid unicode escape digit '{c}' in TOML string"));
-        }
-        hex.push(c);
+/// Strip `# comment` outside quoted strings on a single TOML line.
+pub(super) fn strip_toml_comment(line: &str) -> &str {
+    match find_outside_toml_quotes(line, '#') {
+        Some(idx) => line[..idx].trim(),
+        None => line.trim(),
     }
-    let code = u32::from_str_radix(&hex, 16)
-        .map_err(|_| "invalid unicode scalar in TOML string".to_string())?;
-    char::from_u32(code).ok_or_else(|| "invalid unicode scalar in TOML string".to_string())
 }
 
-/// Strict single-line TOML string parser matching `smol-toml` rules:
-/// rejects unknown escapes, unterminated strings and trailing non-comment text.
+/// Strict single-line TOML string parser shared with `toml_strings`.
 pub(super) fn parse_toml_string_strict(raw: &str) -> Result<String, String> {
     let trimmed = strip_toml_comment(raw).trim();
-    if let Some(rest) = trimmed.strip_prefix('\'') {
-        let Some(end) = rest.find('\'') else {
-            return Err("unterminated literal string in TOML".to_string());
-        };
-        if !rest[end + 1..].trim().is_empty() {
-            return Err("unexpected trailing tokens after TOML string".to_string());
-        }
-        return Ok(rest[..end].to_string());
+    let mut pos = 0;
+    let val = match trimmed.as_bytes().first() {
+        Some(b'\'') => parse_literal_string(trimmed, &mut pos, true),
+        Some(b'"') => parse_basic_string(trimmed, &mut pos, true),
+        _ => return Err(format!("expected TOML string value, got \"{trimmed}\"")),
     }
-    if !trimmed.starts_with('"') {
-        return Err(format!("expected TOML string value, got \"{trimmed}\""));
-    }
-    let mut out = String::new();
-    let mut chars = trimmed[1..].chars();
-    let mut closed = false;
-    while let Some(c) = chars.next() {
-        match c {
-            '"' => {
-                closed = true;
-                break;
-            }
-            '\\' => match chars.next() {
-                Some('\\') => out.push('\\'),
-                Some('"') => out.push('"'),
-                Some('b') => out.push('\u{0008}'),
-                Some('f') => out.push('\u{000C}'),
-                Some('n') => out.push('\n'),
-                Some('r') => out.push('\r'),
-                Some('t') => out.push('\t'),
-                Some('u') => out.push(parse_unicode_escape(&mut chars, 4)?),
-                Some('U') => out.push(parse_unicode_escape(&mut chars, 8)?),
-                Some(other) => return Err(format!("unknown TOML escape sequence '\\{other}'")),
-                None => return Err("unterminated escape in TOML string".to_string()),
-            },
-            other => out.push(other),
-        }
-    }
-    if !closed {
-        return Err("unterminated basic string in TOML".to_string());
-    }
-    if !chars.as_str().trim().is_empty() {
+    .map_err(ReadFileError::into_string)?;
+    if !trimmed[pos..].trim().is_empty() {
         return Err("unexpected trailing tokens after TOML string".to_string());
     }
-    Ok(out)
+    Ok(val)
 }
 
 /// Decode a bare or quoted TOML key, failing closed on invalid key syntax.
@@ -235,36 +191,17 @@ fn parse_toml_key_strict(raw: &str) -> Result<String, String> {
     if trimmed.is_empty() {
         return Err("empty key in TOML".to_string());
     }
-    if trimmed.starts_with('"') || trimmed.starts_with('\'') {
-        return parse_toml_string_strict(trimmed);
+    let mut pos = 0;
+    let key = parse_simple_toml_key(trimmed, &mut pos).map_err(ReadFileError::into_string)?;
+    if !trimmed[pos..].trim().is_empty() {
+        return Err(format!("invalid TOML key \"{trimmed}\""));
     }
-    if trimmed
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
-        return Ok(trimmed.to_string());
-    }
-    Err(format!("invalid TOML key \"{trimmed}\""))
+    Ok(key)
 }
 
 fn split_toml_key_val(line: &str) -> Option<(&str, &str)> {
-    let mut in_double = false;
-    let mut in_single = false;
-    let mut escape = false;
-    for (idx, ch) in line.char_indices() {
-        if escape {
-            escape = false;
-            continue;
-        }
-        match ch {
-            '\\' if in_double => escape = true,
-            '"' if !in_single => in_double = !in_double,
-            '\'' if !in_double => in_single = !in_single,
-            '=' if !in_double && !in_single => return Some((&line[..idx], &line[idx + 1..])),
-            _ => {}
-        }
-    }
-    None
+    let idx = find_outside_toml_quotes(line, '=')?;
+    Some((&line[..idx], &line[idx + 1..]))
 }
 
 fn flush_pkg(

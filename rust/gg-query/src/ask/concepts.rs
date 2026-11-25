@@ -201,6 +201,7 @@ pub(crate) fn score_concepts(
                     score: total,
                     code: None,
                     scope: None,
+                    score_first: false,
                 },
                 group_key,
                 coverage: cov,

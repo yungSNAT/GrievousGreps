@@ -24,7 +24,7 @@
             {
               "n": 10,
               "sign": "+",
-              "text": "export function zeroTax(): number { return 0; }"
+              "text": "export function zeroTax() { return 0; }"
             }
           ],
           "dropped": 0
@@ -120,5 +120,10 @@
     }
   ],
   "unresolved": [],
-  "leftBehind": []
+  "leftBehind": [],
+  "index": {
+    "state": "stale",
+    "changed": 1,
+    "reason": "refresh is off"
+  }
 }

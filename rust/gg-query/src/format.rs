@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::brand::cmd;
 use crate::graph::{
     Direction, EdgeHit, INFERRED_MARK, NodeV1, Quote, Savings, UnresolvedCall, is_test_path,
     reference_line, with_savings,
@@ -78,7 +79,8 @@ fn loose_note_for(direction: Direction, name: &str, candidate_count: usize) -> S
         String::new()
     };
     format!(
-        "  no indexed {label} — the graph has no {dir} call/reference edges for this symbol as written.{ambiguity} Check the name (try the bare symbol, or \"Type.method\"), or find its uses with trail grep \"{name}\". Fall back to raw grep -rn only for unindexed files"
+        "  no indexed {label} — the graph has no {dir} call/reference edges for this symbol as written.{ambiguity} Check the name (try the bare symbol, or \"Type.method\"), or find its uses with {} \"{name}\". Fall back to raw grep -rn only for unindexed files",
+        cmd("graft grep")
     )
 }
 
@@ -206,6 +208,52 @@ fn hit_lines(
         .collect()
 }
 
+fn quiet_lines(direction: Direction, quiet: &[&NodeV1], total: usize) -> Vec<String> {
+    let label = match direction {
+        Direction::Out => "callees",
+        Direction::In => "callers",
+    };
+    let mut names: Vec<&str> = Vec::new();
+    for n in quiet {
+        if !names.contains(&n.name.as_str()) {
+            names.push(&n.name);
+        }
+    }
+    let named: String = names
+        .iter()
+        .map(|n| format!("\"{n}\""))
+        .collect::<Vec<_>>()
+        .join(" or ");
+    let mut lines: Vec<String> = quiet
+        .iter()
+        .take(QUIET_SHOWN)
+        .map(|n| header_of(n))
+        .collect();
+    if quiet.len() > QUIET_SHOWN {
+        let rest = &quiet[QUIET_SHOWN..];
+        let rest_files: HashSet<&str> = rest.iter().map(|n| n.path.as_str()).collect();
+        lines.push(format!(
+            "… and {} more in {} file(s)",
+            rest.len(),
+            rest_files.len()
+        ));
+    }
+    let which = if quiet.len() == total {
+        format!("any of the {total}")
+    } else {
+        format!("{} of the {total}", quiet.len())
+    };
+    let grep = if names.len() == 1 {
+        format!(", or find its uses with {} {named}", cmd("graft grep"))
+    } else {
+        String::new()
+    };
+    lines.push(format!(
+        "  no indexed {label} for {which} definitions named {named}; a cross-file caller of a shared name is dropped rather than guessed, so this may undercount. Pick one with --in <path prefix>{grep}"
+    ));
+    lines
+}
+
 pub fn format_callers_text(
     root: &Path,
     direction: Direction,
@@ -267,18 +315,7 @@ pub fn format_callers_text(
     }
 
     if !quiet.is_empty() {
-        let mut q_lines: Vec<String> = quiet
-            .iter()
-            .take(QUIET_SHOWN)
-            .map(|n| header_of(n))
-            .collect();
-        if quiet.len() > QUIET_SHOWN {
-            q_lines.push(format!(
-                "  … and {} more with no indexed edges",
-                quiet.len() - QUIET_SHOWN
-            ));
-        }
-        q_lines.push(loose_note_for(direction, &quiet[0].name, results.len()));
+        let mut q_lines = quiet_lines(direction, &quiet, results.len());
         for q in &quiet {
             if noted.insert(q.name.clone())
                 && let Some(calls) = unresolved_by_name.get(&q.name)
@@ -326,8 +363,8 @@ struct JsonMatch<'a> {
     hits: Vec<JsonHit<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
-    #[serde(rename = "unresolvedCalls", skip_serializing_if = "Option::is_none")]
-    unresolved_calls: Option<&'a [UnresolvedCall]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unresolved: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -362,16 +399,15 @@ pub fn format_callers_json(
                     span: h.node.as_ref().map(|n| n.span.as_str()),
                 })
                 .collect();
-            let note = r.hits.is_empty().then(|| {
-                loose_note_for(direction, &r.symbol.name, results.len())
-                    .trim()
-                    .to_string()
-            });
-            let unresolved_calls = if direction == Direction::In {
+            let note = r
+                .hits
+                .is_empty()
+                .then(|| loose_note_for(direction, &r.symbol.name, results.len()));
+            let unresolved = if direction == Direction::In {
                 unresolved_by_name
                     .get(&r.symbol.name)
-                    .filter(|v| !v.is_empty())
-                    .map(Vec::as_slice)
+                    .and_then(|c| unresolved_note_for(c, direction, &r.symbol.name))
+                    .map(|s| s.trim().to_string())
             } else {
                 None
             };
@@ -385,7 +421,7 @@ pub fn format_callers_json(
                 },
                 hits,
                 note,
-                unresolved_calls,
+                unresolved,
             }
         })
         .collect();

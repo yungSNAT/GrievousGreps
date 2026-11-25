@@ -461,7 +461,7 @@ impl SafetensorsEmbedder {
             if let Some(ref all) = self.whole {
                 let base = id * dim;
                 for (slot, &bits) in out.iter_mut().zip(&all[base..base + dim]) {
-                    *slot += f16[bits as usize];
+                    *slot = (f64::from(*slot) + f64::from(f16[bits as usize])) as f32;
                 }
             } else {
                 let pos = self.table.offset + (id as u64) * (dim as u64) * 2;
@@ -475,14 +475,18 @@ impl SafetensorsEmbedder {
                     if !v.is_finite() {
                         return Err(invalid("model.safetensors: non-finite embedding value"));
                     }
-                    *slot += v;
+                    *slot = (f64::from(*slot) + f64::from(v)) as f32;
                 }
             }
         }
-        let norm: f32 = out.iter().map(|&v| v * v).sum::<f32>().sqrt();
+        let norm: f64 = out
+            .iter()
+            .map(|&v| f64::from(v) * f64::from(v))
+            .sum::<f64>()
+            .sqrt();
         if norm > 0.0 {
             for slot in &mut out {
-                *slot /= norm;
+                *slot = (f64::from(*slot) / norm) as f32;
             }
         }
         Ok(out)
