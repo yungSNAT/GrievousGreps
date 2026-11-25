@@ -11,6 +11,7 @@
  * - detached children (upkeep, telemetry flush, background waits, the browser) are never
  *   started; `GG_DETACHED_THROWS` makes starting one fail instead.
  * - `GG_UNREF_SERVERS`: a server the command starts doesn't hold the process open.
+ * - `answers`: what a person types at each prompt, in order.
  * - `GG_PLATFORM`: the `process.platform` the code sees.
  * - `GG_CLOCK_STEP_MS`: every `Date.now()` is that much later than the one before, so a
  *   wait with a deadline ends at its first check.
@@ -28,6 +29,8 @@ const tsx = import.meta.resolve("tsx");
 export interface Route {
   /** `METHOD /path/prefix` */
   on: string;
+  /** Only for requests to this host (`trail.test`); any host when left out. */
+  host?: string;
   status: number;
   body?: unknown;
 }
@@ -62,10 +65,27 @@ const driver = `
     if (process.env.GG_FETCH_LOG) {
       appendFileSync(process.env.GG_FETCH_LOG, JSON.stringify({ method, path: u.pathname + u.search, body: init.body ? JSON.parse(init.body) : null }) + "\\n");
     }
-    const hit = routes.find((r) => (method + " " + u.pathname + u.search).startsWith(r.on));
+    const hit = routes.find((r) => (!r.host || r.host === u.host) && (method + " " + u.pathname + u.search).startsWith(r.on));
     if (!hit) throw new Error("offline in cli-gaps");
     return new Response(hit.body === undefined ? "" : JSON.stringify(hit.body), { status: hit.status });
   });
+
+  // A person at the terminal answering each question in turn. Piped input can't do it: the
+  // first prompt's reader takes every line, so the next prompt finds the input closed.
+  if (process.env.GG_ANSWERS) {
+    const answers = JSON.parse(process.env.GG_ANSWERS);
+    const { EventEmitter } = await import("node:events");
+    const readline = (await import("node:readline")).default;
+    mock.method(readline, "createInterface", () => {
+      const rl = new EventEmitter();
+      rl.close = () => rl.emit("close");
+      rl.question = (q, cb) => {
+        process.stderr.write(q);
+        setImmediate(() => (answers.length ? cb(answers.shift()) : rl.close()));
+      };
+      return rl;
+    });
+  }
 
   const spawn = childProcess.spawn;
   mock.method(childProcess, "spawn", (file, args, options) => {
@@ -111,6 +131,8 @@ export interface CliOptions {
   tty?: Array<"stdin" | "stdout" | "stderr">;
   routes?: Route[];
   fetchLog?: string;
+  /** What a person types at each prompt, in order; after the last, the input closes. */
+  answers?: string[];
   trail?: boolean;
   env?: Record<string, string | undefined>;
 }
@@ -170,6 +192,7 @@ export function runCli(args: string[], o: CliOptions): CliResult {
   if (o.tty?.length) env.GG_TTY = o.tty.join(",");
   if (o.routes) env.GG_ROUTES = JSON.stringify(o.routes);
   if (o.fetchLog) env.GG_FETCH_LOG = o.fetchLog;
+  if (o.answers) env.GG_ANSWERS = JSON.stringify(o.answers);
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
   const r = spawnSync(process.execPath, ["--import", tsx, "--input-type=module", "--eval", driver, "--", ...args], {
     cwd: o.cwd ?? testDir,

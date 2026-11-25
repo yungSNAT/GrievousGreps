@@ -1,7 +1,7 @@
 import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo } from "./helpers.js";
 import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
@@ -309,5 +309,88 @@ describe("workspace, the rarer paths", () => {
     const add = trail(["workspace", "add", dir], { home: homeWith("ws-secret-add-home", [cloud("acme", "Acme", [])]), routes: [added, { on: "PUT /api/cli/learnings", status: 200, body: { repo: KEY, learnings: 0, added: 0 } }] });
     assert.equal(add.status, 0, add.detail);
     assert.match(add.stderr, /· left out: .*looks like it holds a secret/);
+  });
+});
+
+describe("counts and names, the other way round", () => {
+  test("one person with two learnings, one with no author, and many overlapping branches", () => {
+    const dir = widgetsRepo("local-counts");
+    const home = homeWith("local-counts-home", []);
+    note(dir, home, "Gear turns twice", "Ada");
+    note(dir, home, "Gear rounds down", "Ada", ["--always-follow"]);
+    const r = trail(["team", dir], { home });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /^1 person · 2 new learnings$/m);
+    assert.match(r.stdout, /^ {2}Ada +Gear .+2 learnings$/m);
+
+    // A learning with no author is someone's.
+    const file = readdirSync(join(dir, ".trail", "learnings")).find((f) => f.endsWith(".md"))!;
+    const p = join(dir, ".trail", "learnings", file);
+    writeFileSync(p, readFileSync(p, "utf8").replace(/^author:.*\r?\n/m, ""));
+    const authors = ["Bo", "Cy", "Di", "Ed", "Flo", "Gus"];
+    branchCache(dir, authors.map((a) => ({ ref: `origin/${a.toLowerCase()}-gear`, author: a, files: ["src/gear.ts"] })));
+    const json = trail(["team", dir, "--json"], { home });
+    assert.equal(json.status, 0, json.detail);
+    const t = JSON.parse(json.stdout);
+    assert.ok(t.members.some((m: { name: string }) => m.name === "someone"), json.stdout);
+    assert.equal(t.overlaps.length, 5, "at most five overlaps");
+  });
+
+  test("a member with several learnings, from the workspace", () => {
+    const dir = widgetsRepo("ws-plural");
+    const home = homeWith("ws-plural-home", [cloud("acme", "Acme", [KEY])]);
+    const view = { workspace: "Acme", repo: "widgets", days: 7, people: 1, sessions: 2, new_learnings: 2, reused: 1, members: [{ name: "Ada", topics: [], learnings: 2, reused: 1 }], overlaps: [] };
+    const r = trail(["team", dir], { home, routes: [{ on: "GET /api/cli/team", status: 200, body: view }] });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /^ {2}Ada +2 learnings +reused 1×$/m);
+  });
+
+  test("check over two changed files and two learnings", () => {
+    const dir = widgetsRepo("check-two");
+    const home = homeWith("check-two-home", []);
+    note(dir, home, "Gear turns twice", "Bo");
+    note(dir, home, "Gear rounds down", "Cy", ["--always-follow"]);
+    commitAll(dir, "Keep the learnings");
+    git(dir, "checkout", "-q", "-b", "change");
+    writeFileSync(join(dir, "src", "gear.ts"), "export function turn(n: number): number {\n  return n * 3;\n}\n");
+    writeFileSync(join(dir, "src", "cog.ts"), "export const teeth = 12;\n");
+    commitAll(dir, "Turn three times");
+    const r = trail(["check", dir, "--base", "main"], { home });
+    assert.match(r.stdout, /^checking 2 changed files against 2 learnings and 0 skills$/m);
+  });
+
+  test("status: three workspaces, a session with nothing saved, and one that can't be read", () => {
+    const dir = widgetsRepo("status-more");
+    const home = homeWith("status-more-home", [cloud("acme", "Acme", [KEY]), cloud("globex", "Globex", []), cloud("initech", "Initech", [])]);
+    note(dir, home, "Gear turns twice", "Ada");
+    const d = sessionDir(dir);
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "empty.json"), "{}");
+    let linked = true;
+    try {
+      symlinkSync(join(d, "missing-target.json"), join(d, "gone.json"));
+    } catch {
+      linked = false; // no symlinks for this account (Windows without the privilege)
+    }
+    const r = trail(["status", dir], { home });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /· 2 more workspaces \(trail workspace\)$/m);
+    assert.match(r.stdout, /^this week +nothing saved yet$/m);
+    assert.ok(linked || process.platform === "win32", "the unreadable session needs a symlink");
+  });
+
+  test("a learning on a teammate's branch that looks like it holds a secret is named with its branch", () => {
+    const dir = widgetsRepo("ws-secret-branch");
+    const home = homeWith("ws-secret-branch-home", [cloud("acme", "Acme", [KEY])]);
+    const secret = ["ghp", "_", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"].join("");
+    note(dir, home, "Gear deploy", "Bo");
+    const file = readdirSync(join(dir, ".trail", "learnings")).find((f) => f.endsWith(".md"))!;
+    const text = readFileSync(join(dir, ".trail", "learnings", file), "utf8") + `\nThe deploy used ${secret} once.\n`;
+    rmSync(join(dir, ".trail", "learnings", file));
+    branchCache(dir, [{ ref: "origin/bo-gear", author: "Bo", files: ["src/gear.ts"], learnings: [{ name: "bo-gear-deploy.md", text }] }]);
+    const meRoute: Route = { on: "GET /api/cli/me", status: 200, body: { user: { name: "Ada", email: "ada@example.invalid" }, workspace: workspace("acme", "Acme"), repos: [{ key: KEY, name: "widgets", learnings: 0, added_by: "Ada" }] } };
+    const r = trail(["workspace", dir], { home, routes: [meRoute] });
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /· left out: .* \(on origin\/bo-gear\): looks like it holds a secret/);
   });
 });
