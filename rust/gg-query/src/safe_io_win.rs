@@ -162,3 +162,59 @@ pub(super) fn open_contained_anchored(
     verify_handle_containment(canon_root, anchor_id, &leaf_path, &file)?;
     Some((file, meta))
 }
+
+pub(super) fn anchor_dir_no_follow(dir: &Path) -> io::Result<Option<(File, FileId, PathBuf)>> {
+    let dir_handle = match open_pinned_dir(dir, false) {
+        Ok(f) => f,
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::InvalidData | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            return Ok(None);
+        }
+        Err(e) => return Err(e),
+    };
+    let id = file_id(&dir_handle)?;
+    let canon = match fs::canonicalize(dir) {
+        Ok(c) => c,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let mut pinned = Vec::new();
+    if pin_strict_prefixes(&canon, &mut pinned).is_err() {
+        return Ok(None);
+    }
+    let Ok(check) = open_pinned_dir(&canon, false) else {
+        return Ok(None);
+    };
+    if file_id(&check)? != id {
+        return Ok(None);
+    }
+    Ok(Some((dir_handle, id, canon)))
+}
+
+pub(super) fn list_anchored_filenames(
+    _dir: &File,
+    canon_dir: &Path,
+    anchor_id: FileId,
+) -> io::Result<Option<Vec<String>>> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(canon_dir)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        if ft.is_symlink() || !ft.is_file() {
+            continue;
+        }
+        out.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    let Ok(check) = open_pinned_dir(canon_dir, false) else {
+        return Ok(None);
+    };
+    if file_id(&check)? != anchor_id {
+        return Ok(None);
+    }
+    out.sort();
+    Ok(Some(out))
+}

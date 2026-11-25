@@ -349,7 +349,7 @@ pub fn format_budget_footer(b: &AskBudget) -> String {
         format!(", {}", parts.join(", "))
     };
     let how = if b.folded > 0 || b.pointer_only > 0 || b.omitted > 0 {
-        "; for whole bodies, rerun with a larger --max-tokens or without it, or read a pointer"
+        "; for whole bodies, rerun with a larger max_tokens or without it, or read a pointer"
     } else {
         ""
     };
@@ -457,4 +457,24 @@ pub fn budget_ask(
         ..orig.clone()
     };
     Ok((final_result, full_text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AskBudget, format_budget_footer};
+
+    #[test]
+    fn format_budget_footer_matches_ts_max_tokens_hint() {
+        let footer = format_budget_footer(&AskBudget {
+            max_limit: 500,
+            used_count: 420,
+            folded: 1,
+            pointer_only: 2,
+            omitted: 3,
+        });
+        assert_eq!(
+            footer,
+            "budget: about 420 of 500 tokens, 1 folded, 2 as pointers only, 3 left out; for whole bodies, rerun with a larger max_tokens or without it, or read a pointer"
+        );
+    }
 }
