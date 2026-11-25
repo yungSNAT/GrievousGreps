@@ -108,9 +108,9 @@ test("only a leaf build links: a folder, a component, a patch or an unread field
     "app2/kustomization.yaml": "namePrefix: app2-\nresources: [ deploy/deployment.yaml, config/configmap.yaml ]\n",
     "app2/deploy/deployment.yaml": DEPLOYMENT,
     "app2/config/configmap.yaml": CONFIGMAP,
-    "over/kustomization.yaml": `resources: [ ../base, d.yaml ]\n${GEN}`,
+    // A folder that is not a leaf; an overlay of leaf folders links (test/deploy-kustomize-overlay.test.ts).
+    "over/kustomization.yaml": `resources: [ ../pat, d.yaml ]\n${GEN}`,
     "over/d.yaml": DEPLOYMENT,
-    "base/kustomization.yaml": "resources: []\n",
     "pat/kustomization.yaml": `resources: [ d.yaml ]\npatches: [ { path: p.yaml } ]\n${GEN}`,
     "pat/d.yaml": DEPLOYMENT,
     "pat/p.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: { name: other }\nspec: { replicas: 2 }\n",
