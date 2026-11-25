@@ -381,6 +381,111 @@ pub fn reference_line(
     reference_line_any(root, path, span, &[symbol_name], cache)
 }
 
+/// Mirrors `quoteFor` in `src/graph/traverse-cli.ts`: a file that imports the name, or imports it as
+/// another name (`name as alias`), calls it on a later line, so that line is quoted; else the first mention.
+pub fn call_reference_line(
+    root: &Path,
+    path: &str,
+    span: &str,
+    symbol_name: &str,
+    cache: &mut HashMap<String, Option<Vec<String>>>,
+) -> Option<Quote> {
+    if is_deploy_file(path) || symbol_name.is_empty() {
+        return None;
+    }
+    // Fills the cache, so the reads below see the file.
+    let first = reference_line(root, path, span, symbol_name, cache);
+    let lines = cache.get(path)?.as_ref()?;
+    let mut names = vec![symbol_name.to_string()];
+    for line in lines {
+        for alias in aliases_in(line, symbol_name) {
+            if !names.contains(&alias) {
+                names.push(alias);
+            }
+        }
+    }
+    let (start, end) = span_range(span)?;
+    let syntax = syntax_of(path);
+    let mut open: Option<String> = None;
+    for (idx, line) in lines.iter().enumerate().take(end.min(lines.len())).skip(start - 1) {
+        let (code, next_open) = code_of(line, syntax, open);
+        open = next_open;
+        if !is_import_line(&code) && names.iter().any(|n| has_use_not_alias(&code, n)) {
+            return Some(Quote { n: idx + 1, text: line.clone() });
+        }
+    }
+    first
+}
+
+/// A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`).
+fn is_import_line(code: &str) -> bool {
+    let t = code.trim_start();
+    let starts_word = |s: &str, w: &str| s.starts_with(w) && !s[w.len()..].bytes().next().is_some_and(is_word_char);
+    if starts_word(t, "import") {
+        return true;
+    }
+    if starts_word(t, "from") {
+        let rest = t["from".len()..].trim_start();
+        let after = rest.find(char::is_whitespace).map(|i| rest[i..].trim_start());
+        return after.is_some_and(|a| starts_word(a, "import"));
+    }
+    false
+}
+
+/// Each word-bounded occurrence of `word` in `s`, by byte offset.
+fn word_positions(s: &str, word: &str) -> Vec<usize> {
+    let b = s.as_bytes();
+    s.match_indices(word)
+        .map(|(i, _)| i)
+        .filter(|&i| {
+            (i == 0 || !is_word_char(b[i - 1]))
+                && b.get(i + word.len()).is_none_or(|&c| !is_word_char(c))
+        })
+        .collect()
+}
+
+/// The text after ` as ` when it follows `s[at..]`'s word, if any.
+fn as_follows(rest: &str) -> Option<&str> {
+    let t = rest.trim_start();
+    if t.len() == rest.len() {
+        return None;
+    }
+    let t = t.strip_prefix("as")?;
+    if t.bytes().next().is_some_and(is_word_char) || t.len() == t.trim_start().len() {
+        return None;
+    }
+    Some(t.trim_start())
+}
+
+/// The names `name as alias` binds on a line.
+fn aliases_in(line: &str, name: &str) -> Vec<String> {
+    word_positions(line, name)
+        .into_iter()
+        .filter_map(|i| as_follows(&line[i + name.len()..]))
+        .filter_map(|t| {
+            let end = t
+                .bytes()
+                .position(|c| !(is_word_char(c) || c == b'$'))
+                .unwrap_or(t.len());
+            let first = t.bytes().next()?;
+            (end > 0 && !first.is_ascii_digit()).then(|| t[..end].to_string())
+        })
+        .filter(|a| a != name)
+        .collect()
+}
+
+/// Whether `word` occurs in `code` other than followed by whitespace and the word `as`.
+fn has_use_not_alias(code: &str, word: &str) -> bool {
+    word_positions(code, word).into_iter().any(|i| {
+        let rest = &code[i + word.len()..];
+        let t = rest.trim_start();
+        let as_word = t.len() < rest.len()
+            && t.strip_prefix("as")
+                .is_some_and(|r| !r.bytes().next().is_some_and(is_word_char));
+        !as_word
+    })
+}
+
 pub fn reference_line_any(
     root: &Path,
     path: &str,
