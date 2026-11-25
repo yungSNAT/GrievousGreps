@@ -5,14 +5,14 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::brand::tag;
 use crate::evidence::{code_of, syntax_of};
 use crate::provenance::{Confidence, WeakestHop};
+use crate::safe_io::read_contained_to_string;
 
 pub const WALK_RELATIONS: &[&str] = &["calls", "references", "imports", "implements", "extends"];
 pub const INFERRED_MARK: &str = " [inferred]";
@@ -334,21 +334,6 @@ pub fn is_deploy_file(path: &str) -> bool {
     base.ends_with(".yaml") || base.ends_with(".yml")
 }
 
-/// Resolve `rel` strictly inside `root`, refusing traversal and symlink escapes.
-pub fn safe_resolve_inside(root: &Path, rel: &str) -> Option<PathBuf> {
-    let canon_root = fs::canonicalize(root).ok()?;
-    let joined = root.join(rel);
-    let meta = fs::symlink_metadata(&joined).ok()?;
-    if meta.file_type().is_symlink() || !meta.file_type().is_file() {
-        return None;
-    }
-    let canon = fs::canonicalize(&joined).ok()?;
-    if !canon.starts_with(&canon_root) {
-        return None;
-    }
-    Some(canon)
-}
-
 pub fn span_range(span: &str) -> Option<(usize, usize)> {
     let rest = span.strip_prefix('L')?;
     if let Some((a, b)) = rest.split_once("-L") {
@@ -413,9 +398,7 @@ pub fn reference_line_any(
     let lines = cache
         .entry(path.to_string())
         .or_insert_with(|| {
-            let full = safe_resolve_inside(root, path)?;
-            fs::read_to_string(full)
-                .ok()
+            read_contained_to_string(root, path, None)
                 .map(|s| s.lines().map(String::from).collect())
         })
         .as_ref()?;

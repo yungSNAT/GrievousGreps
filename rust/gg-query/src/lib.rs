@@ -16,6 +16,7 @@ pub mod program;
 pub mod provenance;
 pub mod query;
 pub mod query_ask;
+pub mod safe_io;
 pub mod store;
 mod store_ask;
 pub mod tokenize;

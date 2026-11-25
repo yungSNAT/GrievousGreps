@@ -11,11 +11,11 @@ pub mod types;
 pub use types::*;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fs;
 use std::path::Path;
 
 use crate::ask::concepts::load_concepts;
-use crate::graph::{Direction, EdgeHit, NodeV1, is_deploy_file, safe_resolve_inside, span_range};
+use crate::graph::{Direction, EdgeHit, NodeV1, is_deploy_file, span_range};
+use crate::safe_io::read_contained_to_string;
 use crate::store::GraphStore;
 
 use areas::{changed_areas, group_by_module, tests_reached, to_impacted, unresolved_for_seeds};
@@ -189,11 +189,8 @@ pub(crate) fn read_lines_safe(
     let loaded = if is_deploy_file(path) {
         None
     } else {
-        safe_resolve_inside(root, path).and_then(|abs| {
-            fs::read_to_string(abs)
-                .ok()
-                .map(|raw| raw.split('\n').map(String::from).collect())
-        })
+        read_contained_to_string(root, path, None)
+            .map(|raw| raw.split('\n').map(String::from).collect())
     };
     cache.insert(path.to_string(), loaded.clone());
     loaded

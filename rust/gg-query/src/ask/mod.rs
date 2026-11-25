@@ -13,15 +13,15 @@ pub mod structural;
 
 use std::collections::{HashMap, HashSet};
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::graph::{
-    Savings, is_deploy_file, normalize_path_prefix, safe_resolve_inside, scopes_here_clause,
-    serialize_js_f64, serialize_opt_js_f64,
+    Savings, is_deploy_file, normalize_path_prefix, scopes_here_clause, serialize_js_f64,
+    serialize_opt_js_f64,
 };
+use crate::safe_io::read_contained_to_string;
 use crate::store::GraphStore;
 use crate::vectors::FuseHit;
 
@@ -216,8 +216,7 @@ fn parse_pointer_span(pointer: &str) -> Option<(&str, usize, usize)> {
 }
 
 fn slice_span(root: &Path, rel: &str, from: usize, to: usize) -> Option<String> {
-    let abs = safe_resolve_inside(root, rel)?;
-    let raw = fs::read_to_string(abs).ok()?.replace("\r\n", "\n");
+    let raw = read_contained_to_string(root, rel, None)?.replace("\r\n", "\n");
     let lines: Vec<&str> = raw.split('\n').collect();
     if lines.is_empty() {
         return None;
@@ -468,6 +467,46 @@ mod tests {
         assert!(
             !text.contains("tokens saved"),
             "stale savings line rendered:\n{text}"
+        );
+    }
+
+    #[test]
+    fn budget_keeps_first_hit_as_pointer_and_reports_overrun_for_tiny_cap() {
+        let mk_hit = |n: usize| AskHit {
+            kind: "function".to_string(),
+            title: format!("fn{n}"),
+            pointer: format!("src/f{n}.ts:L1-L13"),
+            snippet: format!("does thing {n}"),
+            relation: None,
+            related: None,
+            score: (10 - n) as f64,
+            code: Some("export function f() {\n  return 1;\n}".to_string()),
+            scope: None,
+            score_first: false,
+        };
+        let orig = AskResult {
+            query: "q".to_string(),
+            mode: AskMode::Lexical,
+            subject: None,
+            hits: vec![mk_hit(1), mk_hit(2)],
+            note: None,
+            coverage: None,
+            coverage_strong: None,
+            scopes: None,
+            saved: None,
+            budget: None,
+        };
+        let (res, text) = budget_ask(&orig, 1, None).expect("budget");
+        assert_eq!(res.hits.len(), 1);
+        assert_eq!(res.hits[0].pointer, "src/f1.ts:L1-L13");
+        assert!(res.hits[0].code.is_none());
+        let b = res.budget.expect("budget");
+        assert_eq!(b.max_limit, 1);
+        assert_eq!(b.pointer_only, 1);
+        assert_eq!(b.omitted, 1);
+        assert!(
+            b.used_count > 1,
+            "expected overrun reported in used_tokens: {b:?}\n{text}"
         );
     }
 }

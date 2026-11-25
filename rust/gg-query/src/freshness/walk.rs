@@ -2,14 +2,15 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
 
 use serde::Deserialize;
 
-use crate::graph::{is_deploy_file, normalize_path_prefix, safe_resolve_inside};
+use crate::graph::{is_deploy_file, normalize_path_prefix};
 use crate::program::locate_program;
+use crate::safe_io::{RootAnchor, anchor_root, open_contained_anchored, read_contained_to_string};
 
 use super::MAX_FILE_BYTES;
 
@@ -72,11 +73,26 @@ struct BuildConfig {
     follow_nested_repos: bool,
 }
 
+pub(super) struct WalkContext {
+    pub(super) walk_root: PathBuf,
+    pub(super) canon_root: PathBuf,
+    pub(super) anchor: RootAnchor,
+}
+
+impl WalkContext {
+    pub(super) fn open(root: &Path) -> Option<Self> {
+        let walk_root = canonical_walk_root(root);
+        let (anchor, canon_root) = anchor_root(&walk_root).ok()?;
+        Some(Self {
+            walk_root,
+            canon_root,
+            anchor,
+        })
+    }
+}
+
 fn read_build_config(root: &Path) -> BuildConfig {
-    let Some(path) = safe_resolve_inside(root, ".graft/config.json") else {
-        return BuildConfig::default();
-    };
-    let Ok(raw) = fs::read_to_string(path) else {
+    let Some(raw) = read_contained_to_string(root, ".graft/config.json", Some(1024 * 1024)) else {
         return BuildConfig::default();
     };
     serde_json::from_str(&raw).unwrap_or_default()
@@ -128,47 +144,16 @@ fn canonical_walk_root(dir: &Path) -> PathBuf {
     }
 }
 
-/// Reject intermediate symlink directories, non-regular leaves, oversize files, and escapes.
-fn resolve_contained_file(
-    root: &Path,
-    canon_root: &Path,
-    rel: &str,
-) -> Option<(PathBuf, fs::Metadata)> {
-    let mut parts = Vec::new();
-    for comp in Path::new(rel).components() {
-        match comp {
-            Component::Normal(seg) => parts.push(seg),
-            Component::CurDir => {}
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
-        }
-    }
-    let (leaf, ancestors) = parts.split_last()?;
-    let mut cur = root.to_path_buf();
-    for seg in ancestors {
-        cur.push(seg);
-        let meta = fs::symlink_metadata(&cur).ok()?;
-        if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
-            return None;
-        }
-    }
-    cur.push(leaf);
-    let meta = fs::symlink_metadata(&cur).ok()?;
-    if meta.file_type().is_symlink() || !meta.file_type().is_file() || meta.len() > MAX_FILE_BYTES {
-        return None;
-    }
-    let canon = fs::canonicalize(&cur).ok()?;
-    if !canon.starts_with(canon_root) {
-        return None;
-    }
-    Some((cur, meta))
+/// Verify containment through an anchored handle open and return leaf metadata.
+fn stat_contained_file(ctx: &WalkContext, rel: &str) -> Option<fs::Metadata> {
+    open_contained_anchored(&ctx.canon_root, &ctx.anchor, rel, Some(MAX_FILE_BYTES)).map(|(_, m)| m)
 }
 
 fn git_visible_files_shallow(
-    root: &Path,
-    canon_root: &Path,
+    ctx: &WalkContext,
     includes: &HashSet<String>,
-) -> Option<Vec<(String, PathBuf, fs::Metadata)>> {
-    let git = locate_program("git", root).ok()?;
+) -> Option<Vec<(String, fs::Metadata)>> {
+    let git = locate_program("git", &ctx.walk_root).ok()?;
     let out = Command::new(git)
         .args([
             "ls-files",
@@ -178,7 +163,7 @@ fn git_visible_files_shallow(
             "-z",
             "--",
         ])
-        .current_dir(root)
+        .current_dir(&ctx.walk_root)
         .output()
         .ok()?;
     if !out.status.success() {
@@ -195,10 +180,10 @@ fn git_visible_files_shallow(
         if skipped_path(rel, includes) {
             continue;
         }
-        let Some((abs, meta)) = resolve_contained_file(root, canon_root, rel) else {
+        let Some(meta) = stat_contained_file(ctx, rel) else {
             continue;
         };
-        files.push((normalize_path_prefix(rel), abs, meta));
+        files.push((normalize_path_prefix(rel), meta));
     }
     Some(files)
 }
@@ -239,18 +224,17 @@ fn parse_stage_entries(stdout: &[u8]) -> BTreeMap<String, (bool, bool)> {
 }
 
 fn git_visible_files_recursive(
-    root: &Path,
-    top_root: &Path,
-    canon_top: &Path,
+    dir: &Path,
+    ctx: &WalkContext,
     includes: &HashSet<String>,
     cfg: &BuildConfig,
     seen_roots: &mut HashSet<PathBuf>,
-) -> Option<Vec<(String, PathBuf, fs::Metadata)>> {
-    let key = fs::canonicalize(root).ok()?;
-    if !key.starts_with(canon_top) || !seen_roots.insert(key.clone()) {
+) -> Option<Vec<(String, fs::Metadata)>> {
+    let key = fs::canonicalize(dir).ok()?;
+    if !key.starts_with(&ctx.canon_root) || !seen_roots.insert(key.clone()) {
         return Some(Vec::new());
     }
-    let git = locate_program("git", root).ok()?;
+    let git = locate_program("git", dir).ok()?;
     let out = Command::new(git)
         .args([
             "ls-files",
@@ -262,7 +246,7 @@ fn git_visible_files_recursive(
             "-z",
             "--",
         ])
-        .current_dir(root)
+        .current_dir(dir)
         .output()
         .ok()?;
     if !out.status.success() {
@@ -273,9 +257,9 @@ fn git_visible_files_recursive(
     let entries = parse_stage_entries(&out.stdout);
     let mut files = Vec::new();
     for (rel, (gitlink, nested)) in entries {
-        let abs = root.join(&rel);
+        let abs = dir.join(&rel);
         let top_rel = abs
-            .strip_prefix(top_root)
+            .strip_prefix(&ctx.walk_root)
             .ok()
             .and_then(|p| p.to_str())
             .map(normalize_path_prefix)
@@ -290,17 +274,15 @@ fn git_visible_files_recursive(
             {
                 continue;
             }
-            if let Some(child) =
-                git_visible_files_recursive(&abs, top_root, canon_top, includes, cfg, seen_roots)
-            {
+            if let Some(child) = git_visible_files_recursive(&abs, ctx, includes, cfg, seen_roots) {
                 files.extend(child);
             } else {
-                files.extend(walk_filesystem(&abs, top_root, canon_top, includes));
+                files.extend(walk_filesystem(&abs, ctx, includes));
             }
             continue;
         }
-        if let Some((safe_abs, meta)) = resolve_contained_file(root, canon_top, &rel) {
-            files.push((top_rel, safe_abs, meta));
+        if let Some(meta) = stat_contained_file(ctx, &top_rel) {
+            files.push((top_rel, meta));
         }
     }
     seen_roots.remove(&key);
@@ -309,11 +291,19 @@ fn git_visible_files_recursive(
 
 fn walk_filesystem(
     dir: &Path,
-    top_root: &Path,
-    canon_top: &Path,
+    ctx: &WalkContext,
     includes: &HashSet<String>,
-) -> Vec<(String, PathBuf, fs::Metadata)> {
+) -> Vec<(String, fs::Metadata)> {
     let mut out = Vec::new();
+    let Ok(dir_meta) = fs::symlink_metadata(dir) else {
+        return out;
+    };
+    if dir_meta.file_type().is_symlink() || !dir_meta.is_dir() {
+        return out;
+    }
+    if !fs::canonicalize(dir).is_ok_and(|c| c.starts_with(&ctx.canon_root)) {
+        return out;
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return out;
     };
@@ -328,23 +318,15 @@ fn walk_filesystem(
         let full = entry.path();
         if ft.is_dir() {
             if !should_skip_dir(&name, includes) {
-                out.extend(walk_filesystem(&full, top_root, canon_top, includes));
+                out.extend(walk_filesystem(&full, ctx, includes));
             }
-        } else if ft.is_file() && !name.starts_with('.') {
-            let Ok(meta) = fs::symlink_metadata(&full) else {
-                continue;
-            };
-            if meta.file_type().is_symlink()
-                || !meta.file_type().is_file()
-                || meta.len() > MAX_FILE_BYTES
-            {
-                continue;
-            }
-            if !fs::canonicalize(&full).is_ok_and(|c| c.starts_with(canon_top)) {
-                continue;
-            }
-            if let Ok(rel) = full.strip_prefix(top_root) {
-                out.push((normalize_path_prefix(&rel.to_string_lossy()), full, meta));
+        } else if ft.is_file()
+            && !name.starts_with('.')
+            && let Ok(rel) = full.strip_prefix(&ctx.walk_root)
+        {
+            let norm = normalize_path_prefix(&rel.to_string_lossy());
+            if let Some(meta) = stat_contained_file(ctx, &norm) {
+                out.push((norm, meta));
             }
         }
     }
@@ -370,29 +352,21 @@ fn mtime_ms_of(meta: &fs::Metadata) -> Option<f64> {
 
 pub(super) fn list_source_files(
     root: &Path,
+    ctx: &WalkContext,
     out_dir: &Path,
     only_dirs: &[String],
     extensions: &[String],
-) -> Vec<(String, PathBuf, u64, f64)> {
+) -> Vec<(String, u64, f64)> {
     let cfg = read_build_config(root);
     let includes: HashSet<String> = cfg.include_dirs.iter().cloned().collect();
-    let walk_root = canonical_walk_root(root);
-    let canon_root = fs::canonicalize(&walk_root).unwrap_or_else(|_| walk_root.clone());
 
     let candidates = if cfg.follow_submodules || cfg.follow_nested_repos {
         let mut seen = HashSet::new();
-        git_visible_files_recursive(
-            &walk_root,
-            &walk_root,
-            &canon_root,
-            &includes,
-            &cfg,
-            &mut seen,
-        )
-        .unwrap_or_else(|| walk_filesystem(&walk_root, &walk_root, &canon_root, &includes))
+        git_visible_files_recursive(&ctx.walk_root, ctx, &includes, &cfg, &mut seen)
+            .unwrap_or_else(|| walk_filesystem(&ctx.walk_root, ctx, &includes))
     } else {
-        git_visible_files_shallow(&walk_root, &canon_root, &includes)
-            .unwrap_or_else(|| walk_filesystem(&walk_root, &walk_root, &canon_root, &includes))
+        git_visible_files_shallow(ctx, &includes)
+            .unwrap_or_else(|| walk_filesystem(&ctx.walk_root, ctx, &includes))
     };
 
     let selected: Option<Vec<String>> = (!extensions.is_empty()).then(|| {
@@ -409,20 +383,20 @@ pub(super) fn list_source_files(
             .collect()
     });
     let canon_out = fs::canonicalize(out_dir).ok();
-    let abs_out = walk_root.join(out_dir.strip_prefix(root).unwrap_or(out_dir));
+    let out_rel = canon_out
+        .as_ref()
+        .and_then(|co| co.strip_prefix(&ctx.canon_root).ok())
+        .or_else(|| out_dir.strip_prefix(&ctx.walk_root).ok())
+        .or_else(|| out_dir.strip_prefix(root).ok())
+        .and_then(|p| p.to_str())
+        .map(normalize_path_prefix)
+        .filter(|s| !s.is_empty());
 
     let mut out = Vec::new();
-    for (rel, abs, meta) in candidates {
-        if abs == abs_out || abs.starts_with(&abs_out) {
-            continue;
-        }
-        let Ok(canon_abs) = fs::canonicalize(&abs) else {
-            continue;
-        };
-        if !canon_abs.starts_with(&canon_root)
-            || canon_out
-                .as_ref()
-                .is_some_and(|co| canon_abs.starts_with(co))
+    for (rel, meta) in candidates {
+        if out_rel
+            .as_ref()
+            .is_some_and(|prefix| rel == *prefix || rel.starts_with(&format!("{prefix}/")))
         {
             continue;
         }
@@ -446,7 +420,7 @@ pub(super) fn list_source_files(
         let Some(mtime_ms) = mtime_ms_of(&meta) else {
             continue;
         };
-        out.push((rel, abs, meta.len(), mtime_ms));
+        out.push((rel, meta.len(), mtime_ms));
     }
     out
 }

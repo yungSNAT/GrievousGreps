@@ -13,9 +13,10 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::brand::cmd;
+use crate::safe_io::{RootAnchor, anchor_root, open_contained_anchored};
 use crate::store::wiring_json_path;
 
-use walk::list_source_files;
+use walk::{WalkContext, list_source_files};
 
 const CACHE_DIR: &str = ".cache";
 const FINGERPRINT_PREFIX: &str = "fingerprint.";
@@ -147,9 +148,11 @@ pub fn sha256_hex(input: &[u8]) -> String {
     out
 }
 
-fn read_source_hash(path: &Path) -> io::Result<Option<String>> {
-    let file = fs::File::open(path)?;
-    let meta = file.metadata()?;
+fn read_source_hash(ctx: &WalkContext, rel: &str) -> io::Result<Option<String>> {
+    let Some((file, meta)) = open_contained_anchored(&ctx.canon_root, &ctx.anchor, rel, None)
+    else {
+        return Err(io::Error::from(io::ErrorKind::NotFound));
+    };
     if !meta.file_type().is_file() || meta.len() > MAX_FILE_BYTES {
         return Ok(None);
     }
@@ -172,9 +175,13 @@ fn read_source_hash(path: &Path) -> io::Result<Option<String>> {
     Ok(Some(sha256_hex(text.as_bytes())))
 }
 
-fn read_bounded_utf8_file(path: &Path, max_bytes: u64) -> Option<String> {
-    let file = fs::File::open(path).ok()?;
-    let meta = file.metadata().ok()?;
+fn read_bounded_utf8_anchored(
+    canon_dir: &Path,
+    anchor: &RootAnchor,
+    name: &str,
+    max_bytes: u64,
+) -> Option<String> {
+    let (file, meta) = open_contained_anchored(canon_dir, anchor, name, Some(max_bytes))?;
     if !meta.file_type().is_file() || meta.len() > max_bytes {
         return None;
     }
@@ -192,6 +199,7 @@ fn read_latest_fingerprint(out_dir: &Path) -> Option<FingerprintRecord> {
     if cache_meta.file_type().is_symlink() || !cache_meta.is_dir() {
         return None;
     }
+    let (cache_anchor, canon_cache) = anchor_root(&cache).ok()?;
     let mut candidates = Vec::new();
     for entry in fs::read_dir(&cache).ok()?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -206,11 +214,13 @@ fn read_latest_fingerprint(out_dir: &Path) -> Option<FingerprintRecord> {
             continue;
         }
         let modified = meta.modified().ok();
-        candidates.push((modified, name, path));
+        candidates.push((modified, name));
     }
     candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.cmp(&a.1)));
-    for (_, _, path) in candidates {
-        let Some(raw) = read_bounded_utf8_file(&path, MAX_FINGERPRINT_BYTES) else {
+    for (_, name) in candidates {
+        let Some(raw) =
+            read_bounded_utf8_anchored(&canon_cache, &cache_anchor, &name, MAX_FINGERPRINT_BYTES)
+        else {
             continue;
         };
         if let Ok(rec) = serde_json::from_str::<FingerprintRecord>(&raw)
@@ -225,12 +235,13 @@ fn read_latest_fingerprint(out_dir: &Path) -> Option<FingerprintRecord> {
 /// Compare working tree files against the latest build fingerprint.
 pub fn probe_drift(root: &Path, out_dir: &Path) -> Option<Drift> {
     let fp = read_latest_fingerprint(out_dir)?;
+    let ctx = WalkContext::open(root)?;
     let mut drift = Drift::default();
     let mut seen = HashSet::new();
     let force_hash = always_hash();
 
-    for (rel, abs, size, mtime_ms) in
-        list_source_files(root, out_dir, &fp.only_dirs, &fp.extensions)
+    for (rel, size, mtime_ms) in
+        list_source_files(root, &ctx, out_dir, &fp.only_dirs, &fp.extensions)
     {
         seen.insert(rel.clone());
         let Some((rec_size, rec_mtime, rec_hash)) = fp.files.get(&rel) else {
@@ -244,7 +255,7 @@ pub fn probe_drift(root: &Path, out_dir: &Path) -> Option<Drift> {
         {
             continue;
         }
-        match read_source_hash(&abs) {
+        match read_source_hash(&ctx, &rel) {
             Ok(Some(now_hash)) if now_hash != *rec_hash => drift.changed.push(rel),
             Ok(None) if !rec_hash.is_empty() => drift.changed.push(rel),
             _ => {}

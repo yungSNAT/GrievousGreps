@@ -398,6 +398,7 @@ pub fn budget_ask(
             (estimate_tokens(&text) as isize) <= cap
         });
 
+        // Matches `src/ask/budget.ts:161-162`: hit 1 always shows as a pointer on tiny caps.
         let Some(level) = fit.or(if i == 0 { Some(Level::Pointer) } else { None }) else {
             omitted = orig.hits.len() - i;
             break;
