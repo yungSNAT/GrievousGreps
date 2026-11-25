@@ -370,30 +370,9 @@ pub fn js_number(v: f64) -> String {
     if v == 0.0 {
         return "0".into();
     }
-    // `{:e}` gives the shortest digits that round-trip, as JavaScript picks them.
-    let sci = format!("{:e}", v.abs());
-    let (mantissa, exp) = sci.split_once('e').expect("LowerExp has an exponent");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let k = digits.len() as i64;
-    let n = exp.parse::<i64>().expect("LowerExp exponent is an integer") + 1;
-    let sign = if v < 0.0 { "-" } else { "" };
-    let body = if k <= n && n <= 21 {
-        format!("{digits}{}", "0".repeat((n - k) as usize))
-    } else if 0 < n && n <= 21 {
-        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
-    } else if -6 < n && n <= 0 {
-        format!("0.{}{digits}", "0".repeat((-n) as usize))
-    } else {
-        let e = n - 1;
-        let e_sign = if e < 0 { '-' } else { '+' };
-        let tail = if k > 1 {
-            format!(".{}", &digits[1..])
-        } else {
-            String::new()
-        };
-        format!("{}{tail}e{e_sign}{}", &digits[..1], e.abs())
-    };
-    format!("{sign}{body}")
+    // Rust's `{:e}` breaks a tie between 2 shortest digit strings upwards; ECMAScript
+    // picks the even one (-859538942790036.25 prints as ...036.2). ryu-js follows ECMAScript.
+    ryu_js::Buffer::new().format_finite(v).to_owned()
 }
 
 #[cfg(test)]
@@ -416,6 +395,10 @@ mod tests {
             (0.000_001, "0.000001"),
             (5e-324, "5e-324"),
             (1.797_693_134_862_315_7e308, "1.7976931348623157e+308"),
+            (-859_538_942_790_036.25, "-859538942790036.2"),
+            (1_030_019_659_035_116.25, "1030019659035116.2"),
+            (1.23e-18, "1.23e-18"),
+            (9_007_199_254_740_994.0, "9007199254740994"),
             (f64::INFINITY, "null"),
         ];
         for (v, want) in cases {

@@ -10,6 +10,7 @@ description = "Native Rust indexing engine for GrievousGreps (staged port of src
 [dependencies]
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 icu_collator = "2.4"
+ryu-js = "1.0"
 
 [lints.clippy]
 too_many_lines = "warn"

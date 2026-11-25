@@ -146,15 +146,15 @@ function num(): Gen {
     const spelling = rand();
     if (spelling < 0.5) return String(x);
     if (spelling < 0.75) return x.toExponential(int(21));
-    const p = x.toPrecision(1 + int(21));
-    return /^-?(0|[1-9])/.test(p) ? p : String(x);
+    return x.toPrecision(1 + int(21));
   }
   const digits = Array.from({ length: 1 + int(17) }, (_, i) => (i === 0 ? 1 + int(9) : int(10))).join("");
   const point = int(digits.length + 1);
   const mantissa = point && point < digits.length ? `${digits.slice(0, point)}.${digits.slice(point)}` : digits;
-  return `${rand() < 0.3 ? "-" : ""}${mantissa}${rand() < 0.7 ? `e${pick(["", "+", "-"])}${int(331)}` : ""}`;
+  return `${rand() < 0.3 ? "-" : ""}${mantissa}${rand() < 0.7 ? `${pick(["e", "E"])}${pick(["", "+", "-"])}${int(331)}` : ""}`;
 }
-/** Nesting below V8's `JSON.stringify` limit (about 3,600 levels on Windows, 4,100 on Linux). */
+/** Nesting below V8's `JSON.stringify` limit (about 3,600 levels on Windows, 4,100 on Linux).
+ * Output grows with the square of the depth, so deep fields are rare and at most 1,500 deep. */
 function nested(depth: number): Gen {
   let open = "";
   let close = "";
@@ -203,7 +203,7 @@ function node(): Gen {
   if (rand() < 0.05) pairs.push(["id", str(id())]); // repeated key: the last value wins
   pairs.splice(int(pairs.length + 1), 0, ["id", str(id())]);
   if (rand() < 0.1) pairs.push(["body_text", str(word(5))]);
-  if (rand() < 0.01) pairs.push(["deep", nested(1 + int(3000))]);
+  if (rand() < 0.002) pairs.push(["deep", nested(1 + int(1500))]);
   return obj(extras(pairs));
 }
 

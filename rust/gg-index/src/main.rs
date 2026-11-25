@@ -32,7 +32,10 @@ fn main() -> ExitCode {
         .stack_size(gg_index::json::STACK_BYTES)
         .spawn(move || wiring(&graph))
         .map(|worker| worker.join().unwrap_or(ExitCode::FAILURE))
-        .unwrap_or(ExitCode::FAILURE)
+        .unwrap_or_else(|e| {
+            eprintln!("gg-index: cannot start the worker thread: {e}");
+            ExitCode::FAILURE
+        })
 }
 
 fn wiring(graph: &Path) -> ExitCode {

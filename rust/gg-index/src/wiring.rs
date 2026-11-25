@@ -26,6 +26,9 @@ pub fn locale_compare(a: &[u16], b: &[u16]) -> Ordering {
 }
 
 /// Parse a graph and return its `wiring.json` text.
+///
+/// Parsing, printing and dropping recurse once a nesting level, so a graph nested near
+/// [`json::MAX_DEPTH`] needs [`json::STACK_BYTES`] of stack: call this on such a thread.
 pub fn wiring_from_text(text: &str) -> Result<String, String> {
     wiring(json::parse(text)?)
 }
