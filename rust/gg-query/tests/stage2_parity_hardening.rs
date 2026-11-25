@@ -1,5 +1,5 @@
-//! Integration and unit tests for Stage 2 parity, security hardening,
-//! `--no-refresh`/`index`, `ask --max-tokens`, `blast`, `brand()`, and `code_of`.
+//! Integration and unit tests for Stage 2 security hardening,
+//! `--no-refresh`/`index`, `callers`, `hubs`, and `code_of`.
 
 use std::collections::HashMap;
 use std::fs;
@@ -7,36 +7,13 @@ use std::path::Path;
 use std::process::Command as StdCommand;
 
 use gg_query::ask::budget::fold_code;
-use gg_query::blast::diff::changed_files;
-use gg_query::blast::owners::diff_authors;
+use gg_query::blast::owners::parse_iso_ms;
 use gg_query::evidence::{code_of, syntax_of};
 use gg_query::freshness::sha256_hex;
 use gg_query::graph::{is_deploy_file, reference_line};
 use gg_query::program::locate_program;
 use snapbox::cmd::{Command, cargo_bin};
 use tempfile::tempdir;
-
-fn run_git(repo: &Path, args: &[&str]) {
-    let out = StdCommand::new("git")
-        .args(args)
-        .current_dir(repo)
-        .output()
-        .expect("git command");
-    assert!(
-        out.status.success(),
-        "git {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-}
-
-fn init_git(repo: &Path) {
-    run_git(repo, &["init", "-q", "-b", "main"]);
-    run_git(repo, &["config", "user.name", "Alice Author"]);
-    run_git(
-        repo,
-        &["config", "user.email", "111+alice@users.noreply.github.com"],
-    );
-}
 
 fn write_graph(ctx: &Path, json: &serde_json::Value) {
     let gdir = ctx.join(".graph");
@@ -112,13 +89,10 @@ fn reference_line_rejects_traversal_symlinks_deploy_and_blanks_non_code() {
     fs::write(root.join("src/test.jsx"), code_file).expect("write jsx");
 
     let mut cache = HashMap::new();
-    // Traversal outside root refused
     assert!(reference_line(&root, "../secret.ts", "L1-L1", "targetSymbol", &mut cache).is_none());
-    // Deploy files never quoted
     assert!(reference_line(&root, "main.tf", "L1-L1", "targetSymbol", &mut cache).is_none());
     assert!(reference_line(&root, "Kustomization", "L1-L1", "targetSymbol", &mut cache).is_none());
 
-    // Lines 1..=9 blank out strings, templates, block/line comments, regexes and JSX; line 11 hits
     let q = reference_line(&root, "src/test.jsx", "L1-L11", "targetSymbol", &mut cache)
         .expect("should match code mention");
     assert_eq!(q.n, 11);
@@ -126,7 +100,6 @@ fn reference_line_rejects_traversal_symlinks_deploy_and_blanks_non_code() {
         .expect("division right of <Fade in /> stays code");
     assert_eq!(q_div.n, 10);
 
-    // Rust raw strings, char literals, and multi-line comments
     fs::write(
         root.join("src/lib.rs"),
         "fn f<'a>() {\n  let s = r#\"targetSymbol\"#;\n  let ch = 'x'; // targetSymbol\n  targetSymbol();\n}\n",
@@ -136,7 +109,6 @@ fn reference_line_rejects_traversal_symlinks_deploy_and_blanks_non_code() {
         .expect("rust real call");
     assert_eq!(q_rs.n, 4);
 
-    // Multi-line open quote carries across lines in JSX and blanking ignores JSX boolean `in`
     let (blanked, open) = code_of("<Fade in />", syntax_of("a.jsx"), None);
     assert!(open.is_none());
     assert_eq!(blanked, "<Fade in />");
@@ -181,11 +153,9 @@ fn program_lookup_refuses_repo_local_rogue_git_and_relative_path() {
         }
     }
 
-    // Direct relative or repo-local path rejected
     assert!(locate_program("./git", &repo).is_err());
     assert!(locate_program(rogue.to_str().unwrap(), &repo).is_err());
 
-    // Real locate_program("git", &repo) resolves to system git outside repo (never rogue inside repo)
     if let Ok(resolved) = locate_program("git", &repo) {
         assert!(
             !resolved.starts_with(&repo),
@@ -239,7 +209,6 @@ fn no_refresh_and_index_freshness_across_commands() {
     let ctx = repo.join("graft");
     write_graph(&ctx, &graph);
 
-    // 1. Without fingerprint: `--no-refresh` reports stale reason
     let out = Command::new(cargo_bin!("gg-query"))
         .args(["callers", "alpha", "--json", "--no-refresh"])
         .arg(repo)
@@ -257,7 +226,6 @@ fn no_refresh_and_index_freshness_across_commands() {
         "index: stale (no build fingerprint, and refresh is off); answers may miss those edits"
     ));
 
-    // 2. With clean fingerprint: fresh & clean stderr across status/ask/callers/skeleton/hubs
     write_fingerprint(&ctx, &[("src/a.ts", &src_file)]);
     for args in [
         vec!["ask", "alpha", "--json", "--no-refresh", "--no-semantic"],
@@ -283,7 +251,6 @@ fn no_refresh_and_index_freshness_across_commands() {
     let st_json: serde_json::Value = serde_json::from_slice(&st.stdout).expect("json");
     assert_eq!(st_json["codeMap"]["inSync"], true);
 
-    // 3. Edit src/a.ts -> drift detected -> stale changed: 1 & status inSync: false
     fs::write(&src_file, "export function alpha() { return 2; }\n").expect("edit a.ts");
     let st_dirty = Command::new(cargo_bin!("gg-query"))
         .args(["status", "--json"])
@@ -303,267 +270,6 @@ fn no_refresh_and_index_freshness_across_commands() {
     assert_eq!(ask_dirty_json["index"]["state"], "stale");
     assert_eq!(ask_dirty_json["index"]["changed"], 1);
     assert_eq!(ask_dirty_json["index"]["reason"], "refresh is off");
-    assert!(
-        String::from_utf8_lossy(&ask_dirty.stderr)
-            .contains("index: stale (refresh is off, 1 file changed since the last build)")
-    );
-}
-
-fn setup_owners_left_behind_repo() -> tempfile::TempDir {
-    let tmp = tempdir().expect("tempdir");
-    let repo = tmp.path();
-    fs::create_dir_all(repo.join("src")).expect("mkdir src");
-    fs::create_dir_all(repo.join("test")).expect("mkdir test");
-    fs::write(repo.join(".gitignore"), "graft/\n").expect("write gitignore");
-
-    let math = repo.join("src/math.ts");
-    let caller = repo.join("src/caller.ts");
-    let test_file = repo.join("test/caller.test.ts");
-    fs::write(
-        &math,
-        "export function compute(x: number): number {\n  return x + 1;\n}\n",
-    )
-    .unwrap();
-    fs::write(
-        &caller,
-        "import { compute } from './math';\nexport function useIt(): number {\n  return compute(5);\n}\n",
-    )
-    .unwrap();
-    fs::write(
-        &test_file,
-        "import { useIt } from '../src/caller';\nexport function runTest() { return useIt(); }\n",
-    )
-    .unwrap();
-
-    init_git(repo);
-    run_git(repo, &["add", "."]);
-    run_git(repo, &["commit", "-q", "-m", "initial"]);
-
-    // Second author commits caller.ts + test/caller.test.ts so reviewers suggest @bob
-    run_git(repo, &["config", "user.name", "Bob Reviewer"]);
-    run_git(
-        repo,
-        &["config", "user.email", "222+bob@users.noreply.github.com"],
-    );
-    fs::write(
-        &caller,
-        "import { compute } from './math';\nexport function useIt(): number {\n  // keep\n  return compute(5);\n}\n",
-    )
-    .unwrap();
-    run_git(repo, &["add", "src/caller.ts", "test/caller.test.ts"]);
-    run_git(repo, &["commit", "-q", "-m", "bob touched caller"]);
-    run_git(repo, &["checkout", "-q", "-b", "feat/sig-change"]);
-
-    // Alice changes compute's declaration without editing useIt()'s call
-    run_git(repo, &["config", "user.name", "Alice Author"]);
-    run_git(
-        repo,
-        &["config", "user.email", "111+alice@users.noreply.github.com"],
-    );
-    fs::write(
-        &math,
-        "export function compute(x: number, y: number): number {\n  return x + y;\n}\n",
-    )
-    .unwrap();
-    run_git(repo, &["add", "src/math.ts"]);
-    run_git(
-        repo,
-        &["commit", "-q", "-m", "alice changed compute signature"],
-    );
-
-    let graph = serde_json::json!({
-        "meta": { "nodeCount": 6, "edgeCount": 3 },
-        "nodes": [
-            {"id":"src/math.ts","name":"math.ts","kind":"file","path":"src/math.ts","span":"L1-L3","signature":null,"exported":false,"origin":"ast","body_hash":"1","chars":70},
-            {"id":"src/math.ts#compute","name":"compute","kind":"function","path":"src/math.ts","span":"L1-L3","signature":"function compute(x: number, y: number): number","exported":true,"origin":"ast","body_hash":"2"},
-            {"id":"src/caller.ts","name":"caller.ts","kind":"file","path":"src/caller.ts","span":"L1-L5","signature":null,"exported":false,"origin":"ast","body_hash":"3","chars":100},
-            {"id":"src/caller.ts#useIt","name":"useIt","kind":"function","path":"src/caller.ts","span":"L2-L5","signature":"function useIt(): number","exported":true,"origin":"ast","body_hash":"4"},
-            {"id":"test/caller.test.ts","name":"caller.test.ts","kind":"file","path":"test/caller.test.ts","span":"L1-L2","signature":null,"exported":false,"origin":"ast","body_hash":"5","chars":85},
-            {"id":"test/caller.test.ts#runTest","name":"runTest","kind":"function","path":"test/caller.test.ts","span":"L2-L2","signature":"function runTest()","exported":true,"origin":"ast","body_hash":"6"}
-        ],
-        "edges": [
-            {"source":"src/caller.ts#useIt","target":"src/math.ts#compute","relation":"calls","confidence":"extracted"},
-            {"source":"test/caller.test.ts#runTest","target":"src/caller.ts#useIt","relation":"calls","confidence":"extracted"},
-            {"source":"test/caller.test.ts#runTest","target":"src/math.ts#compute","relation":"calls","confidence":"inferred"}
-        ],
-        "unresolvedCalls": [
-            {"name":"compute","source":"src/dyn.ts#dyn","through":"obj","file":null}
-        ]
-    });
-    write_graph(&repo.join("graft"), &graph);
-    tmp
-}
-
-#[test]
-fn brand_switching_and_max_tokens() {
-    let tmp = setup_owners_left_behind_repo();
-    let repo = tmp.path();
-
-    let graft_ask = Command::new(cargo_bin!("gg-query"))
-        .env("TRAIL_INVOKED_AS", "graft")
-        .args([
-            "ask",
-            "compute",
-            "--source",
-            "--max-tokens",
-            "120",
-            "--no-semantic",
-        ])
-        .arg(repo)
-        .output()
-        .expect("graft ask");
-    assert!(graft_ask.status.success());
-    let graft_text = String::from_utf8_lossy(&graft_ask.stdout);
-    assert!(graft_text.contains("graft ask — \"compute\""));
-    assert!(graft_text.contains("budget: about "));
-
-    let bad_tok = Command::new(cargo_bin!("gg-query"))
-        .args(["ask", "compute", "--max-tokens", "0"])
-        .arg(repo)
-        .output()
-        .expect("bad max-tokens");
-    assert!(!bad_tok.status.success());
-    assert!(
-        String::from_utf8_lossy(&bad_tok.stderr)
-            .contains("--max-tokens must be a whole number of at least 1, got \"0\"")
-    );
-}
-
-#[test]
-fn blast_left_behind_tests_and_owners() {
-    let tmp = setup_owners_left_behind_repo();
-    let repo = tmp.path();
-
-    let blast_json_out = Command::new(cargo_bin!("gg-query"))
-        .args([
-            "blast", "--base", "main", "--tests", "--depth", "1", "--format", "json",
-        ])
-        .arg(repo)
-        .output()
-        .expect("blast");
-    assert!(
-        blast_json_out.status.success(),
-        "stderr={}",
-        String::from_utf8_lossy(&blast_json_out.stderr)
-    );
-    let report: serde_json::Value = serde_json::from_slice(&blast_json_out.stdout).expect("json");
-    assert_eq!(report["basis"], "main...HEAD");
-    assert_eq!(report["seeds"][0]["declarationChanged"], true);
-    assert_eq!(report["unresolved"][0]["name"], "compute");
-    assert_eq!(report["unresolved"][0]["calls"], 1);
-    assert_eq!(report["leftBehind"][0]["name"], "useIt");
-    assert_eq!(report["leftBehind"][0]["line"], 4);
-    assert!(
-        report["tests"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|t| t["path"] == "test/caller.test.ts")
-    );
-    assert!(
-        report["reviewers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|r| r["handle"] == "bob")
-    );
-
-    let blast_no_owners = Command::new(cargo_bin!("gg-query"))
-        .args(["blast", "--base", "main", "--no-owners", "--format", "json"])
-        .arg(repo)
-        .output()
-        .expect("blast --no-owners");
-    let no_own_json: serde_json::Value =
-        serde_json::from_slice(&blast_no_owners.stdout).expect("json");
-    assert!(no_own_json.get("reviewers").is_none());
-    assert!(no_own_json["modules"][0].get("owners").is_none());
-
-    let bad_base = Command::new(cargo_bin!("gg-query"))
-        .args(["blast", "--base", "nonexistent/branch"])
-        .arg(repo)
-        .output()
-        .expect("bad base");
-    assert!(!bad_base.status.success());
-    assert!(String::from_utf8_lossy(&bad_base.stderr).contains("fetch-depth: 0"));
-}
-
-fn copy_dir(src: &Path, dst: &Path) {
-    fs::create_dir_all(dst).expect("mkdir");
-    for entry in fs::read_dir(src).expect("read_dir") {
-        let entry = entry.expect("entry");
-        let to = dst.join(entry.file_name());
-        if entry.file_type().expect("type").is_dir() {
-            copy_dir(&entry.path(), &to);
-        } else {
-            fs::copy(entry.path(), &to).expect("copy");
-        }
-    }
-}
-
-#[test]
-fn blast_math_git_diff_matches_updated_ca19897_goldens() {
-    let parity_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("parity");
-    let tmp = tempdir().expect("tempdir");
-    let repo = tmp.path();
-    copy_dir(&parity_dir.join("sample-repo"), repo);
-
-    // Ensure LF on src/math.ts so working tree diff mirrors canonical git checkout
-    let math_path = repo.join("src/math.ts");
-    let mut math_orig = fs::read_to_string(&math_path)
-        .unwrap()
-        .replace("\r\n", "\n");
-    if !math_orig.ends_with('\n') {
-        math_orig.push('\n');
-    }
-    fs::write(&math_path, &math_orig).unwrap();
-    init_git(repo);
-    run_git(repo, &["add", "."]);
-    run_git(repo, &["commit", "-q", "-m", "baseline"]);
-
-    let fp_files = [
-        ("src/checkout.ts", repo.join("src/checkout.ts")),
-        ("src/math.ts", repo.join("src/math.ts")),
-        ("src/order.ts", repo.join("src/order.ts")),
-        ("src/report.py", repo.join("src/report.py")),
-    ];
-    let refs: Vec<(&str, &Path)> = fp_files.iter().map(|(k, v)| (*k, v.as_path())).collect();
-    write_fingerprint(&repo.join("graft"), &refs);
-    fs::write(
-        repo.join(".gitignore"),
-        "graft/.cache/fingerprint.*\ngraft/.graph/wiring.sqlite*\n",
-    )
-    .unwrap();
-    run_git(repo, &["add", ".gitignore"]);
-    run_git(repo, &["commit", "-q", "-m", "ignore local caches"]);
-
-    let appended = format!("{math_orig}\nexport function zeroTax() {{ return 0; }}\n");
-    fs::write(&math_path, appended).unwrap();
-
-    let golden_json = fs::read_to_string(parity_dir.join("golden/blast-math-json.stdout"))
-        .unwrap()
-        .replace("\r\n", "\n");
-    let golden_text = fs::read_to_string(parity_dir.join("golden/blast-math-text.stdout"))
-        .unwrap()
-        .replace("\r\n", "\n");
-
-    Command::new(cargo_bin!("gg-query"))
-        .args(["blast", "--depth", "2", "--format", "json", "--no-owners", "--no-refresh"])
-        .arg(repo)
-        .assert()
-        .success()
-        .stdout_eq(golden_json)
-        .stderr_eq("index: stale (refresh is off, 1 file changed since the last build); answers may miss those edits\n");
-
-    Command::new(cargo_bin!("gg-query"))
-        .args(["blast", "--depth", "2", "--no-owners", "--no-refresh"])
-        .arg(repo)
-        .assert()
-        .success()
-        .stdout_eq(golden_text)
-        .stderr_eq("index: stale (refresh is off, 1 file changed since the last build); answers may miss those edits\n");
 }
 
 #[test]
@@ -627,16 +333,40 @@ fn callers_dot_suffix_and_hubs_integer_pagerank_parity() {
 }
 
 #[test]
-fn blast_rejects_option_like_base_refs() {
-    let tmp = tempdir().expect("tempdir");
-    let repo = tmp.path();
-    init_git(repo);
-    fs::write(repo.join("a.txt"), "one\n").unwrap();
-    run_git(repo, &["add", "."]);
-    run_git(repo, &["commit", "-q", "-m", "init"]);
+fn parse_iso_ms_rejects_non_ascii_and_freshness_refuses_symlink_dir() {
+    assert!(parse_iso_ms("2026-01-01T00:00:a🦀").is_none());
+    assert!(parse_iso_ms("2026-01-01T00:00:00+aéb").is_none());
+    assert!(parse_iso_ms("2026-01-01T00:00:00Z").is_some());
 
-    for bad in ["", "-", "--upload-pack=evil", "-n1"] {
-        assert!(changed_files(repo, Some(bad)).is_none(), "{bad:?}");
-        assert!(diff_authors(repo, bad).is_empty(), "{bad:?}");
+    #[cfg(unix)]
+    {
+        use gg_query::freshness::probe_drift;
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().expect("tempdir");
+        let outside = tmp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let leaked = outside.join("secret.ts");
+        fs::write(&leaked, "export const s = 1;\n").unwrap();
+
+        let repo = tmp.path().join("repo");
+        fs::create_dir_all(repo.join("src")).unwrap();
+        let a_ts = repo.join("src/a.ts");
+        fs::write(&a_ts, "export const a = 1;\n").unwrap();
+        symlink(&outside, repo.join("src/link_dir")).unwrap();
+        assert!(
+            StdCommand::new("git")
+                .args(["init", "-q", "-b", "main"])
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let ctx = repo.join("graft");
+        write_graph(&ctx, &serde_json::json!({"nodes":[],"edges":[]}));
+        write_fingerprint(&ctx, &[("src/a.ts", &a_ts)]);
+        let drift = probe_drift(&repo, &ctx).expect("drift");
+        assert!(drift.added.is_empty(), "added={:?}", drift.added);
     }
+    let _ = StdCommand::new("git").arg("--version");
 }

@@ -118,7 +118,7 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 /// Parse ISO-8601 `%aI` timestamps (`YYYY-MM-DDTHH:MM:SS(.sss)?(Z|+HH:MM|-HH:MM)`).
 pub fn parse_iso_ms(raw: &str) -> Option<f64> {
     let s = raw.trim();
-    if s.len() < 19 {
+    if s.len() < 19 || !s.is_ascii() {
         return None;
     }
     let b = s.as_bytes();

@@ -17,8 +17,10 @@ const NOT_CALLS: &[&str] = &[
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AskBudget {
-    pub max_tokens: usize,
-    pub used_tokens: usize,
+    #[serde(rename = "max_tokens")]
+    pub max_limit: usize,
+    #[serde(rename = "used_tokens")]
+    pub used_count: usize,
     pub folded: usize,
     pub pointer_only: usize,
     pub omitted: usize,
@@ -347,23 +349,23 @@ pub fn format_budget_footer(b: &AskBudget) -> String {
         format!(", {}", parts.join(", "))
     };
     let how = if b.folded > 0 || b.pointer_only > 0 || b.omitted > 0 {
-        "; for whole bodies, rerun with a larger max_tokens or without it, or read a pointer"
+        "; for whole bodies, rerun with a larger --max-tokens or without it, or read a pointer"
     } else {
         ""
     };
     format!(
         "budget: about {} of {} tokens{detail}{how}",
-        b.used_tokens, b.max_tokens
+        b.used_count, b.max_limit
     )
 }
 
-/// Fit an `AskResult` (fetched with `source: true, full: true`) into `max_tokens`.
+/// Fit an `AskResult` (fetched with `source: true, full: true`) into `token_cap`.
 pub fn budget_ask(
     orig: &AskResult,
-    max_tokens: usize,
+    token_cap: usize,
     store: Option<&GraphStore>,
 ) -> Result<(AskResult, String), String> {
-    let cap = ((max_tokens as f64) * MARGIN).floor() as isize - FOOTER_TOKENS;
+    let cap = ((token_cap as f64) * MARGIN).floor() as isize - FOOTER_TOKENS;
     let mut chosen: Vec<AskHit> = Vec::new();
     let mut levels: Vec<Level> = Vec::new();
     let mut omitted = 0_usize;
@@ -439,13 +441,13 @@ pub fn budget_ask(
     let pointer_only = levels.iter().filter(|l| **l == Level::Pointer).count();
 
     let mut budget = AskBudget {
-        max_tokens,
-        used_tokens: 0,
+        max_limit: token_cap,
+        used_count: 0,
         folded: folded_count,
         pointer_only,
         omitted,
     };
-    budget.used_tokens =
+    budget.used_count =
         estimate_tokens(&out_text) + estimate_tokens(&format_budget_footer(&budget)) + 1;
     let full_text = format!("{out_text}{}\n", format_budget_footer(&budget));
     let final_result = AskResult {

@@ -23,6 +23,7 @@ pub fn brand() -> Brand {
             return Brand::Trail;
         }
     }
+    // nosemgrep: rust.lang.security.args-os.args-os -- checks argv[0] stem for CLI display branding only
     if let Some(arg0) = env::args_os().next()
         && let Some(stem) = Path::new(&arg0).file_stem().and_then(|s| s.to_str())
     {

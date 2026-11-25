@@ -199,7 +199,7 @@ fn parse_hunk_header(line: &str) -> Option<(usize, usize)> {
     let range = if count == 0 {
         (start, start)
     } else {
-        (start, start + count - 1)
+        (start, start.saturating_add(count - 1))
     };
     Some(range)
 }

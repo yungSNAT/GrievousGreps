@@ -127,7 +127,7 @@ enum Cmd {
         #[arg(long)]
         full: bool,
         #[arg(long = "max-tokens")]
-        max_tokens: Option<String>,
+        token_cap: Option<String>,
         #[arg(long = "in")]
         in_prefix: Option<String>,
         #[arg(long)]
@@ -304,7 +304,7 @@ fn dispatch_analysis(command: Cmd, dir: Option<&std::path::Path>) -> Result<(), 
             limit,
             source,
             full,
-            max_tokens,
+            token_cap,
             in_prefix,
             json,
             no_graph_rank,
@@ -318,7 +318,7 @@ fn dispatch_analysis(command: Cmd, dir: Option<&std::path::Path>) -> Result<(), 
             limit,
             source,
             full,
-            max_tokens: max_tokens.as_deref(),
+            token_cap: token_cap.as_deref(),
             in_prefix: in_prefix.as_deref(),
             json,
             no_graph_rank,

@@ -182,6 +182,7 @@ pub fn discover_model_dir(explicit: Option<&Path>, repo: &Path) -> Option<PathBu
     for base in [
         Some(repo.to_path_buf()),
         env::current_dir().ok(),
+        // nosemgrep: rust.lang.security.current-exe.current-exe -- locates read-only model dir beside binary
         env::current_exe().ok(),
         Some(manifest_root),
     ]
@@ -306,13 +307,13 @@ pub fn run_ask(
     Ok(res)
 }
 
-/// Answer a query and fit its rendered output to `max_tokens` (`--max-tokens`).
+/// Answer a query and fit its rendered output to `--max-tokens`.
 pub fn run_ask_with_budget(
     repo: &Path,
     out_dir: &Path,
     query: &str,
     opts: &AskOptions<'_>,
-    max_tokens: usize,
+    token_cap: usize,
 ) -> Result<(AskResult, String), String> {
     let forced = AskOptions {
         source: true,
@@ -320,7 +321,7 @@ pub fn run_ask_with_budget(
         ..opts.clone()
     };
     let (store, result) = run_ask_inner(repo, out_dir, query, &forced)?;
-    budget::budget_ask(&result, max_tokens, store.as_ref())
+    budget::budget_ask(&result, token_cap, store.as_ref())
 }
 
 fn run_ask_inner(

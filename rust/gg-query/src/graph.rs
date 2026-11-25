@@ -393,10 +393,23 @@ pub fn reference_line(
     symbol_name: &str,
     cache: &mut HashMap<String, Option<Vec<String>>>,
 ) -> Option<Quote> {
-    if is_deploy_file(path) {
+    reference_line_any(root, path, span, &[symbol_name], cache)
+}
+
+pub fn reference_line_any(
+    root: &Path,
+    path: &str,
+    span: &str,
+    symbol_names: &[&str],
+    cache: &mut HashMap<String, Option<Vec<String>>>,
+) -> Option<Quote> {
+    if is_deploy_file(path) || symbol_names.is_empty() {
         return None;
     }
     let (start, end) = span_range(span)?;
+    if start == 0 {
+        return None;
+    }
     let lines = cache
         .entry(path.to_string())
         .or_insert_with(|| {
@@ -408,12 +421,12 @@ pub fn reference_line(
         .as_ref()?;
     let syntax = syntax_of(path);
     let mut open: Option<String> = None;
-    let lo = start.saturating_sub(1);
+    let lo = start - 1;
     let hi = end.min(lines.len());
     for (idx, line) in lines.iter().enumerate().take(hi).skip(lo) {
         let (code, next_open) = code_of(line, syntax, open);
         open = next_open;
-        if contains_word(&code, symbol_name) {
+        if symbol_names.iter().any(|name| contains_word(&code, name)) {
             return Some(Quote {
                 n: idx + 1,
                 text: line.clone(),
