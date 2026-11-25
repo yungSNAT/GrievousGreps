@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, renameSync, rmSync, existsSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
@@ -983,6 +983,24 @@ test("workspace skeleton & MCP graft_file_api: routes by child path prefix and r
     const cliUnknown = runCli(["skeleton", "nope/a.ts", p, "--no-refresh"]);
     assert.equal(cliUnknown.status, 1);
     assert.match(cliUnknown.stderr, /no workspace repo "nope"/);
+
+    // A child folder that is itself a link, here to a built repository outside the workspace, is refused.
+    const movedB = join(outside, "repoB");
+    renameSync(join(p, "repoB"), movedB);
+    let childLinked = false;
+    try {
+      symlinkSync(movedB, join(p, "repoB"), "junction");
+      childLinked = true;
+    } catch {
+      /* symlink creation restricted in this environment */
+    }
+    if (childLinked) {
+      assert.throws(() => federateSkeleton(p, undefined, "repoB/src/b.ts"), /symlink/i);
+      const mcpChildLink = await callTool(p, "graft_file_api", { file: "repoB/src/b.ts" });
+      assert.equal(mcpChildLink.isError, true);
+      assert.match(mcpChildLink.text, /symlink/i);
+      assert.doesNotMatch(mcpChildLink.text, /betaHandler/);
+    }
   } finally {
     rmSync(p, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
