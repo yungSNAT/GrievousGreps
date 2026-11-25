@@ -169,12 +169,16 @@ function quoteFor(
 /** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`). */
 const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b)/;
 
+/** A `#` or `//` comment after whitespace, to the end of the line (an import path such as `"#utils"` follows a quote). */
+const TRAILING_COMMENT = /\s(?:#|\/\/).*$/;
+
 /** Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the lines up to the close. */
 function importLines(lines: string[]): boolean[] {
   let open = false;
   return lines.map((l) => {
     if (!open && !IMPORT_LINE.test(l)) return false;
-    open = open ? !/[)}]/.test(l) : /[({][^)}]*$/.test(l);
+    const code = l.replace(TRAILING_COMMENT, "");
+    open = open ? !/[)}]/.test(code) : /[({][^)}]*$/.test(code);
     return true;
   });
 }

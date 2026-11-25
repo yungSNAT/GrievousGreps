@@ -42,22 +42,29 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
         "py_multi.py",
         "from pkg.util import (\n    helper as hm,\n)\n\nhm(4)\n",
     );
+    write(
+        repo,
+        "py_comment.py",
+        "from pkg.util import (  # )\n    helper as hc,\n)\n\nhc(5)\n",
+    );
     let graph = r#"{
-  "meta": { "version": 1, "nodeCount": 7, "edgeCount": 5, "languages": ["python"] },
+  "meta": { "version": 1, "nodeCount": 8, "edgeCount": 6, "languages": ["python"] },
   "nodes": [
     { "id": "pkg/util.py#helper", "name": "helper", "kind": "function", "path": "pkg/util.py", "span": "L1-L2", "exported": true, "origin": "ast", "body_hash": "h1" },
     { "id": "py_alias.py", "name": "py_alias.py", "kind": "file", "path": "py_alias.py", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f1", "chars": 40 },
     { "id": "py_plain.py", "name": "py_plain.py", "kind": "file", "path": "py_plain.py", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f2", "chars": 70 },
     { "id": "pkg/py_relative.py#run", "name": "run", "kind": "function", "path": "pkg/py_relative.py", "span": "L4-L5", "exported": true, "origin": "ast", "body_hash": "h2" },
     { "id": "py_except.py#guard", "name": "guard", "kind": "function", "path": "py_except.py", "span": "L4-L7", "exported": true, "origin": "ast", "body_hash": "h3" },
-    { "id": "py_multi.py", "name": "py_multi.py", "kind": "file", "path": "py_multi.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f3", "chars": 50 }
+    { "id": "py_multi.py", "name": "py_multi.py", "kind": "file", "path": "py_multi.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f3", "chars": 50 },
+    { "id": "py_comment.py", "name": "py_comment.py", "kind": "file", "path": "py_comment.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f4", "chars": 60 }
   ],
   "edges": [
     { "source": "py_alias.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "py_plain.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "pkg/py_relative.py#run", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "py_except.py#guard", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
-    { "source": "py_multi.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" }
+    { "source": "py_multi.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
+    { "source": "py_comment.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" }
   ]
 }"#;
     let gdir = repo.join("graft").join(".graph");
@@ -82,4 +89,6 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     assert!(text.contains("guard L7: return helper(1)"), "{text}");
     // An alias bound inside a parenthesised multi-line import.
     assert!(text.contains("py_multi.py L5: hm(4)"), "{text}");
+    // A bracket in a comment does not close the import.
+    assert!(text.contains("py_comment.py L5: hc(5)"), "{text}");
 }

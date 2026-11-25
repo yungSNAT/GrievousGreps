@@ -487,6 +487,19 @@ fn aliases_in(line: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
+/// `line` without a `#` or `//` comment that follows whitespace (an import path such as `"#utils"`
+/// follows a quote). Mirrors `TRAILING_COMMENT` in `src/graph/traverse-cli.ts`.
+fn without_trailing_comment(line: &str) -> &str {
+    line.char_indices()
+        .find(|&(i, c)| {
+            c.is_whitespace() && {
+                let rest = &line[i + c.len_utf8()..];
+                rest.starts_with('#') || rest.starts_with("//")
+            }
+        })
+        .map_or(line, |(i, _)| &line[..i])
+}
+
 /// Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the
 /// lines up to the close. Mirrors `importLines` in `src/graph/traverse-cli.ts`.
 fn import_lines(lines: &[String]) -> Vec<bool> {
@@ -497,11 +510,12 @@ fn import_lines(lines: &[String]) -> Vec<bool> {
             if !open && !is_import_line(l) {
                 return false;
             }
+            let code = without_trailing_comment(l);
             open = if open {
-                !l.contains([')', '}'])
+                !code.contains([')', '}'])
             } else {
-                l.rfind(['(', '{'])
-                    .is_some_and(|i| !l[i..].contains([')', '}']))
+                code.rfind(['(', '{'])
+                    .is_some_and(|i| !code[i..].contains([')', '}']))
             };
             true
         })
