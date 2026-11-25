@@ -10,7 +10,9 @@ use serde::Deserialize;
 
 use crate::graph::{is_deploy_file, normalize_path_prefix};
 use crate::program::locate_program;
-use crate::safe_io::{RootAnchor, anchor_root, open_contained_anchored, read_contained_to_string};
+use crate::safe_io::{
+    RootAnchor, anchor_root, open_contained_anchored, read_contained_anchored_to_string,
+};
 
 use super::MAX_FILE_BYTES;
 
@@ -91,8 +93,13 @@ impl WalkContext {
     }
 }
 
-fn read_build_config(root: &Path) -> BuildConfig {
-    let Some(raw) = read_contained_to_string(root, ".graft/config.json", Some(1024 * 1024)) else {
+fn read_build_config(ctx: &WalkContext) -> BuildConfig {
+    let Some(raw) = read_contained_anchored_to_string(
+        &ctx.canon_root,
+        &ctx.anchor,
+        ".graft/config.json",
+        Some(1024 * 1024),
+    ) else {
         return BuildConfig::default();
     };
     serde_json::from_str(&raw).unwrap_or_default()
@@ -357,7 +364,7 @@ pub(super) fn list_source_files(
     only_dirs: &[String],
     extensions: &[String],
 ) -> Vec<(String, u64, f64)> {
-    let cfg = read_build_config(root);
+    let cfg = read_build_config(ctx);
     let includes: HashSet<String> = cfg.include_dirs.iter().cloned().collect();
 
     let candidates = if cfg.follow_submodules || cfg.follow_nested_repos {

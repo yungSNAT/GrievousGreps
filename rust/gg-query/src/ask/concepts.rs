@@ -125,41 +125,50 @@ fn parse_concept_markdown(text: &str, default_slug: &str) -> ConceptDoc {
     }
 }
 
-pub fn load_concepts(out_dir: &Path, in_prefix: Option<&str>) -> io::Result<Vec<ConceptDoc>> {
-    if !out_dir.is_dir() {
-        return Ok(Vec::new());
+fn collect_concept_filenames(out_dir: &Path) -> io::Result<Option<Vec<String>>> {
+    if !out_dir.is_dir() || fs::symlink_metadata(out_dir)?.file_type().is_symlink() {
+        return Ok(None);
     }
-    let meta = fs::symlink_metadata(out_dir)?;
-    if meta.file_type().is_symlink() {
-        return Ok(Vec::new());
-    }
-    let mut entries: Vec<String> = Vec::new();
+    let mut entries = Vec::new();
     for entry in fs::read_dir(out_dir)? {
         let entry = entry?;
         let fname = entry.file_name().to_string_lossy().to_string();
         if !fname.ends_with(".md") || fname == "INDEX.md" {
             continue;
         }
-        if entry.file_type()?.is_symlink() || !entry.file_type()?.is_file() {
+        let ft = entry.file_type()?;
+        if ft.is_symlink() || !ft.is_file() {
             continue;
         }
         entries.push(fname);
     }
     entries.sort();
+    Ok(Some(entries))
+}
 
+pub fn load_concepts(out_dir: &Path, in_prefix: Option<&str>) -> io::Result<Vec<ConceptDoc>> {
+    let Some(entries) = collect_concept_filenames(out_dir)? else {
+        return Ok(Vec::new());
+    };
+    let Ok((anchor, canon_out)) = crate::safe_io::anchor_root(out_dir) else {
+        return Ok(Vec::new());
+    };
     let mut out = Vec::new();
     for fname in entries {
-        let Ok(text) = fs::read_to_string(out_dir.join(&fname)) else {
+        let Some(text) = crate::safe_io::read_contained_anchored_to_string(
+            &canon_out,
+            &anchor,
+            &fname,
+            Some(1024 * 1024),
+        ) else {
             continue;
         };
-        let default_slug = fname.strip_suffix(".md").unwrap_or(&fname);
-        let doc = parse_concept_markdown(&text, default_slug);
-        if let Some(prefix) = in_prefix
-            && !doc.sources.iter().any(|p| path_under_prefix(p, prefix))
-        {
-            continue;
+        let doc = parse_concept_markdown(&text, fname.strip_suffix(".md").unwrap_or(&fname));
+        let matches_prefix =
+            in_prefix.is_none_or(|prefix| doc.sources.iter().any(|p| path_under_prefix(p, prefix)));
+        if matches_prefix {
+            out.push(doc);
         }
-        out.push(doc);
     }
     Ok(out)
 }
@@ -217,4 +226,42 @@ pub(crate) fn score_concepts(
         };
     }
     hits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_concepts;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[cfg(unix)]
+    #[test]
+    fn load_concepts_rejects_symlinked_markdown_and_keeps_regular() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempdir().expect("tmp");
+        let out_dir = tmp.path().join(".trail");
+        let outside = tmp.path().join("outside.md");
+        fs::create_dir_all(&out_dir).expect("mkdir");
+        fs::write(&outside, "# Secret\n\nsrc/a.ts\n").expect("write out");
+        fs::write(out_dir.join("real.md"), "# Real Concept\n\nBody text.\n").expect("write real");
+        symlink(&outside, out_dir.join("escape.md")).expect("symlink");
+
+        let docs = load_concepts(&out_dir, None).expect("load");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].slug, "real");
+    }
+
+    #[test]
+    fn load_concepts_reads_regular_markdown_and_skips_oversized() {
+        let tmp = tempdir().expect("tmp");
+        let out_dir = tmp.path().join(".trail");
+        fs::create_dir_all(&out_dir).expect("mkdir");
+        fs::write(out_dir.join("keep.md"), "# Kept\n\nConcise summary.\n").expect("write keep");
+        fs::write(out_dir.join("huge.md"), vec![b'a'; 1024 * 1024 + 8]).expect("write huge");
+
+        let docs = load_concepts(&out_dir, None).expect("load");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].slug, "keep");
+    }
 }

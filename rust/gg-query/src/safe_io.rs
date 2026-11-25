@@ -87,9 +87,11 @@ pub fn open_contained_file(
     open_contained_anchored(&canon_root, &anchor, rel, max_bytes)
 }
 
-/// Read a contained UTF-8 regular file inside `root`, rejecting escapes and symlinks.
-pub fn read_contained_to_string(root: &Path, rel: &str, max_bytes: Option<u64>) -> Option<String> {
-    let (file, meta) = open_contained_file(root, rel, max_bytes)?;
+fn read_bounded_to_string(
+    file: File,
+    meta: &fs::Metadata,
+    max_bytes: Option<u64>,
+) -> Option<String> {
     if let Some(limit) = max_bytes {
         if meta.len() > limit {
             return None;
@@ -106,6 +108,23 @@ pub fn read_contained_to_string(root: &Path, rel: &str, max_bytes: Option<u64>) 
     let mut out = String::new();
     io::BufReader::new(file).read_to_string(&mut out).ok()?;
     Some(out)
+}
+
+/// Read a contained UTF-8 regular file strictly below an anchored `canon_root`.
+pub fn read_contained_anchored_to_string(
+    canon_root: &Path,
+    anchor: &RootAnchor,
+    rel: &str,
+    max_bytes: Option<u64>,
+) -> Option<String> {
+    let (file, meta) = open_contained_anchored(canon_root, anchor, rel, max_bytes)?;
+    read_bounded_to_string(file, &meta, max_bytes)
+}
+
+/// Read a contained UTF-8 regular file inside `root`, rejecting escapes and symlinks.
+pub fn read_contained_to_string(root: &Path, rel: &str, max_bytes: Option<u64>) -> Option<String> {
+    let (file, meta) = open_contained_file(root, rel, max_bytes)?;
+    read_bounded_to_string(file, &meta, max_bytes)
 }
 
 #[cfg(unix)]
@@ -186,7 +205,7 @@ mod unix {
         for seg in ancestors {
             cur = step_dir(cur.as_fd(), seg).ok()?;
         }
-        let leaf_flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let leaf_flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
         let leaf_fd = openat(cur.as_fd(), *leaf, leaf_flags, Mode::empty()).ok()?;
         let file = File::from(leaf_fd);
         let meta = file.metadata().ok()?;
@@ -258,6 +277,16 @@ mod tests {
         fs::rename(&root, tmp.path().join("ws-old")).expect("mv1");
         fs::rename(&alt, &root).expect("mv2");
         assert!(open_contained_anchored(&canon_root, &anchor, "pwn.ts", None).is_none());
+
+        let fifo_root = tmp.path().join("ws-fifo");
+        fs::create_dir_all(&fifo_root).expect("fifo root");
+        let fifo_path = fifo_root.join("pipe.txt");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo_path)
+            .status()
+            .expect("mkfifo");
+        assert!(status.success());
+        assert!(read_contained_to_string(&fifo_root, "pipe.txt", None).is_none());
     }
 
     #[cfg(windows)]
