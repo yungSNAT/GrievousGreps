@@ -256,8 +256,16 @@ describe("sign-in, the rarer paths", () => {
 
   test("--code shares two repos' learnings, counted in the plural", () => {
     const dir = widgetsRepo("code-share-two");
-    const gadgets = widgetsRepo("code-share-gadgets", false);
+    // Its own first commit: Trail tells repos apart by it, and the same files in the same second would make the same one.
+    const gadgets = scratchDir("code-share-gadgets");
+    git(gadgets, "init", "--initial-branch=main");
+    git(gadgets, "config", "user.name", "Bo Fixture");
+    git(gadgets, "config", "user.email", "bo@example.invalid");
     git(gadgets, "remote", "add", "origin", "https://github.com/acme/gadgets.git");
+    mkdirSync(join(gadgets, "src"));
+    writeFileSync(join(gadgets, "src", "gear.ts"), "export function turn(n: number): number {\n  return n * 3;\n}\n");
+    git(gadgets, "add", "-A");
+    git(gadgets, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "Add gadget gear");
     const home = homeWith("code-share-two-home", []);
     for (const d of [dir, gadgets]) {
       note(d, home, "Gear turns twice", "Ada");
