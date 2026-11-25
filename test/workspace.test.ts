@@ -996,9 +996,11 @@ test("workspace skeleton & MCP graft_file_api: routes by child path prefix and r
     }
     if (childLinked) {
       assert.throws(() => federateSkeleton(p, undefined, "repoB/src/b.ts"), /symlink/i);
+      // readWorkspace drops an index naming a linked child, so the MCP tool answers from the parent's own
+      // (absent) graph: an error that reads nothing behind the link.
       const mcpChildLink = await callTool(p, "graft_file_api", { file: "repoB/src/b.ts" });
       assert.equal(mcpChildLink.isError, true);
-      assert.match(mcpChildLink.text, /symlink/i);
+      assert.match(mcpChildLink.text, /no wiring graph/);
       assert.doesNotMatch(mcpChildLink.text, /betaHandler/);
     }
   } finally {
