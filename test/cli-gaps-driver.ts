@@ -11,6 +11,7 @@
  * - detached children (upkeep, telemetry flush, background waits, the browser) are never
  *   started; `GG_DETACHED_THROWS` makes starting one fail instead.
  * - `GG_UNREF_SERVERS`: a server the command starts doesn't hold the process open.
+ * - `GG_PLATFORM`: the `process.platform` the code sees.
  * - `GG_CLOCK_STEP_MS`: every `Date.now()` is that much later than the one before, so a
  *   wait with a deadline ends at its first check.
  */
@@ -39,6 +40,9 @@ const driver = `
 
   const argv = process.argv;
   process.argv = [process.execPath, ${JSON.stringify(entry)}, ...argv.slice(1)];
+
+  // The platform the code sees, for the branches that pick a command by it. Nothing is run for real.
+  if (process.env.GG_PLATFORM) Object.defineProperty(process, "platform", { value: process.env.GG_PLATFORM, configurable: true });
 
   for (const s of (process.env.GG_TTY ?? "").split(",").filter(Boolean)) {
     Object.defineProperty(process[s], "isTTY", { value: true, configurable: true });
@@ -118,10 +122,15 @@ export interface CliResult {
   detail: string;
 }
 
+/** The caller's environment without the switches this code reads: an agent session's or a developer's own. */
+function baseEnv(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX_|AI_AGENT$|GRAFT_|TRAIL_|GG_)/.test(k)));
+}
+
 /** Offline, isolated environment: every home the code looks in points at `home`. */
 export function isolatedEnv(home: string): NodeJS.ProcessEnv {
   return {
-    ...process.env,
+    ...baseEnv(),
     HOME: home,
     USERPROFILE: home,
     APPDATA: join(home, "AppData", "Roaming"),

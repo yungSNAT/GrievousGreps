@@ -175,9 +175,10 @@ describe("build flags", () => {
   });
 
   test("an extension with no parser is named, with the supported set, and the build goes on", () => {
-    const r = cli(["build", repo, "--no-gitignore", "--no-ignore", "-e", "zzz", ".ts"]);
+    const r = cli(["build", repo, "--no-gitignore", "--no-ignore", "-e", "zzz", ".yyy", ".ts"]);
     assert.equal(r.status, 0, r.detail);
     assert.match(r.stderr, /⚠ -e "\.zzz": no parser registered for this extension, so it is ignored\./);
+    assert.match(r.stderr, /⚠ -e "\.yyy": no parser registered/);
     assert.match(r.stderr, /supported: .*\.ts/);
     assert.match(r.stdout, /✓ wiring:/);
   });
