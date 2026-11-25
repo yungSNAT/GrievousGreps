@@ -16,6 +16,8 @@ const FILES: Record<string, string> = {
   "pkg/py_relative.py": "from .util import helper as rel\n\n\ndef run():\n    return rel(6)\n",
   "py_module_init.py": "from pkg.util import helper as h2\n\nDEFAULT = {\"k\": h2(12)}\n",
   "py_comment.py": "from pkg.util import (  # )\n    helper as hc,\n)\n\nhc(5)\n",
+  "py_comment_tight.py": "from pkg.util import (# )\n    helper as hd,\n)\n\nhd(7)\n",
+  "py_comment_alias.py": "from pkg.util import helper  # helper as e\n\n\ndef scan(xs):\n    for e in xs:\n        check(e)\n    return helper(1)\n",
   "py_unused.py": "from pkg.util import helper as unused\n",
   "lib.ts": "export function helperTs(x: number): number {\n  return x + 1;\n}\n",
   "use.ts": "import { helperTs as ht } from \"./lib\";\n\nexport const y = ht(1);\n",
@@ -37,6 +39,8 @@ test("callers quotes the line that calls a name imported under an alias, at modu
     assert.match(py.stdout, /run L5: return rel\(6\)/);
     assert.match(py.stdout, /py_module_init\.py L3: DEFAULT = \{"k": h2\(12\)\}/);
     assert.match(py.stdout, /py_comment\.py L5: hc\(5\)/, "a bracket in a comment does not close the import");
+    assert.match(py.stdout, /py_comment_tight\.py L5: hd\(7\)/, "a comment straight after the bracket");
+    assert.match(py.stdout, /scan L7: return helper\(1\)/, "an `as` in a comment binds no alias");
     assert.doesNotMatch(py.stdout, /L1: from /, "an import line is not quoted where the file calls the name");
     const ts = runCli(["callers", "helperTs", dir, "--no-refresh"]);
     assert.equal(ts.status, 0, ts.describe());

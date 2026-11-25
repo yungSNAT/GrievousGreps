@@ -399,7 +399,7 @@ pub fn call_reference_line(
     let imports = import_lines(lines);
     let mut names = vec![symbol_name.to_string()];
     for (line, _) in lines.iter().zip(&imports).filter(|(_, i)| **i) {
-        for alias in aliases_in(line, symbol_name) {
+        for alias in aliases_in(without_comment(line), symbol_name) {
             if !names.contains(&alias) {
                 names.push(alias);
             }
@@ -487,17 +487,28 @@ fn aliases_in(line: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// `line` without a `#` or `//` comment that follows whitespace (an import path such as `"#utils"`
-/// follows a quote). Mirrors `TRAILING_COMMENT` in `src/graph/traverse-cli.ts`.
-fn without_trailing_comment(line: &str) -> &str {
-    line.char_indices()
-        .find(|&(i, c)| {
-            c.is_whitespace() && {
-                let rest = &line[i + c.len_utf8()..];
-                rest.starts_with('#') || rest.starts_with("//")
+/// An import line without its comment: from a `#`, `//` or `/*` outside a quoted module path to
+/// the end. Mirrors `withoutComment` in `src/graph/traverse-cli.ts`.
+fn without_comment(line: &str) -> &str {
+    let b = line.as_bytes();
+    let mut quote = 0u8;
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if quote != 0 {
+            if c == b'\\' {
+                i += 1;
+            } else if c == quote {
+                quote = 0;
             }
-        })
-        .map_or(line, |(i, _)| &line[..i])
+        } else if matches!(c, b'"' | b'\'' | b'`') {
+            quote = c;
+        } else if c == b'#' || (c == b'/' && matches!(b.get(i + 1), Some(b'/' | b'*'))) {
+            return &line[..i];
+        }
+        i += 1;
+    }
+    line
 }
 
 /// Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the
@@ -510,7 +521,7 @@ fn import_lines(lines: &[String]) -> Vec<bool> {
             if !open && !is_import_line(l) {
                 return false;
             }
-            let code = without_trailing_comment(l);
+            let code = without_comment(l);
             open = if open {
                 !code.contains([')', '}'])
             } else {

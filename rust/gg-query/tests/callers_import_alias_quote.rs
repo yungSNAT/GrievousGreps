@@ -47,8 +47,18 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
         "py_comment.py",
         "from pkg.util import (  # )\n    helper as hc,\n)\n\nhc(5)\n",
     );
+    write(
+        repo,
+        "py_comment_tight.py",
+        "from pkg.util import (# )\n    helper as hd,\n)\n\nhd(7)\n",
+    );
+    write(
+        repo,
+        "py_comment_alias.py",
+        "from pkg.util import helper  # helper as e\n\n\ndef scan(xs):\n    for e in xs:\n        check(e)\n    return helper(1)\n",
+    );
     let graph = r#"{
-  "meta": { "version": 1, "nodeCount": 8, "edgeCount": 6, "languages": ["python"] },
+  "meta": { "version": 1, "nodeCount": 10, "edgeCount": 8, "languages": ["python"] },
   "nodes": [
     { "id": "pkg/util.py#helper", "name": "helper", "kind": "function", "path": "pkg/util.py", "span": "L1-L2", "exported": true, "origin": "ast", "body_hash": "h1" },
     { "id": "py_alias.py", "name": "py_alias.py", "kind": "file", "path": "py_alias.py", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f1", "chars": 40 },
@@ -56,7 +66,9 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     { "id": "pkg/py_relative.py#run", "name": "run", "kind": "function", "path": "pkg/py_relative.py", "span": "L4-L5", "exported": true, "origin": "ast", "body_hash": "h2" },
     { "id": "py_except.py#guard", "name": "guard", "kind": "function", "path": "py_except.py", "span": "L4-L7", "exported": true, "origin": "ast", "body_hash": "h3" },
     { "id": "py_multi.py", "name": "py_multi.py", "kind": "file", "path": "py_multi.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f3", "chars": 50 },
-    { "id": "py_comment.py", "name": "py_comment.py", "kind": "file", "path": "py_comment.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f4", "chars": 60 }
+    { "id": "py_comment.py", "name": "py_comment.py", "kind": "file", "path": "py_comment.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f4", "chars": 60 },
+    { "id": "py_comment_tight.py", "name": "py_comment_tight.py", "kind": "file", "path": "py_comment_tight.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f5", "chars": 50 },
+    { "id": "py_comment_alias.py#scan", "name": "scan", "kind": "function", "path": "py_comment_alias.py", "span": "L4-L7", "exported": true, "origin": "ast", "body_hash": "h4" }
   ],
   "edges": [
     { "source": "py_alias.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
@@ -64,7 +76,9 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     { "source": "pkg/py_relative.py#run", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "py_except.py#guard", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "py_multi.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
-    { "source": "py_comment.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" }
+    { "source": "py_comment.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
+    { "source": "py_comment_tight.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
+    { "source": "py_comment_alias.py#scan", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" }
   ]
 }"#;
     let gdir = repo.join("graft").join(".graph");
@@ -91,4 +105,7 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     assert!(text.contains("py_multi.py L5: hm(4)"), "{text}");
     // A bracket in a comment does not close the import.
     assert!(text.contains("py_comment.py L5: hc(5)"), "{text}");
+    assert!(text.contains("py_comment_tight.py L5: hd(7)"), "{text}");
+    // An `as` in a comment binds no alias.
+    assert!(text.contains("scan L7: return helper(1)"), "{text}");
 }
