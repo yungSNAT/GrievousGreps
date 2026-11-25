@@ -268,7 +268,7 @@ for (const { name, text } of inputs) {
       JSON.stringify({
         name,
         ts: ts ? ts.length : "threw",
-        rust: rust ? rust.length : rs.stderr.toString().trim(),
+        rust: rust ? rust.length : (rs.stderr?.toString() ?? String(rs.error)).trim(),
         firstDiff: at,
         ...(ts && rust ? { tsLine: lineAt(ts), rustLine: lineAt(rust) } : {}),
       }),
