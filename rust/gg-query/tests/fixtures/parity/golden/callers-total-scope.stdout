@@ -1,0 +1,8 @@
+[trail] tokens saved ≈ 31 (44%) at most, against reading the 3 file(s) whole
+
+total · function · src/lib.ts:L1-L3 · calls ←
+  [internal: 1]
+  src/app.ts
+    checkout L4: return total(a, 1);
+  [test: 1]
+  test/lib.test.ts: checksTotal L3
