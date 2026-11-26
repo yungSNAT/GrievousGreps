@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use crate::brand::cmd;
 use crate::graph::{
-    Direction, EdgeHit, INFERRED_MARK, NodeV1, Quote, Savings, UnresolvedCall, is_test_path,
-    reference_line, with_savings,
+    Direction, EdgeHit, NodeV1, Quote, Savings, UnresolvedCall, is_test_path, reference_line,
+    with_savings,
 };
 
 const QUIET_SHOWN: usize = 3;
@@ -47,7 +47,7 @@ fn hit_line(direction: Direction, hit: &EdgeHit, show_depth: bool) -> String {
         Some(n) => format!("{} ({}:{})", n.name, n.path, n.span),
         None => format!("{} (unresolved import)", hit.id),
     };
-    let mark = if hit.inferred { INFERRED_MARK } else { "" };
+    let mark = hit.confidence.mark();
     format!("  {} {arrow} {label}{depth_tag}{mark}", hit.relation)
 }
 
@@ -170,7 +170,7 @@ fn hit_lines(
             let idx = groups.len();
             groups.push(HitGroup {
                 lead,
-                mark: if h.inferred { INFERRED_MARK } else { "" },
+                mark: h.confidence.mark(),
                 items: Vec::new(),
             });
             order.push(GroupEntry::Group(idx));
@@ -347,6 +347,7 @@ struct JsonHit<'a> {
     depth: usize,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     inferred: bool,
+    confidence: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -393,6 +394,7 @@ pub fn format_callers_json(
                     relation: &h.relation,
                     depth: h.depth,
                     inferred: h.inferred,
+                    confidence: h.confidence.as_str(),
                     name: h.node.as_ref().map(|n| n.name.as_str()),
                     kind: h.node.as_ref().map(|n| n.kind.as_str()),
                     path: h.node.as_ref().map(|n| n.path.as_str()),

@@ -1,0 +1,55 @@
+{
+  "query": "save",
+  "matches": [
+    {
+      "symbol": {
+        "id": "src/store.ts#Store.save",
+        "name": "save",
+        "kind": "method",
+        "path": "src/store.ts",
+        "span": "L2-L4"
+      },
+      "hits": [
+        {
+          "id": "src/app.ts#run",
+          "relation": "calls",
+          "depth": 1,
+          "inferred": true,
+          "confidence": "likely",
+          "name": "run",
+          "kind": "function",
+          "path": "src/app.ts",
+          "span": "L3-L5"
+        },
+        {
+          "id": "src/handler.ts#handle",
+          "relation": "calls",
+          "depth": 1,
+          "inferred": true,
+          "confidence": "inferred",
+          "name": "handle",
+          "kind": "function",
+          "path": "src/handler.ts",
+          "span": "L2-L4"
+        },
+        {
+          "id": "src/store.ts#direct",
+          "relation": "calls",
+          "depth": 1,
+          "confidence": "extracted",
+          "name": "direct",
+          "kind": "function",
+          "path": "src/store.ts",
+          "span": "L9-L11"
+        }
+      ]
+    }
+  ],
+  "saved": {
+    "files": 3,
+    "baselineChars": 402
+  },
+  "index": {
+    "state": "fresh"
+  }
+}

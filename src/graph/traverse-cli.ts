@@ -17,7 +17,7 @@ import { contextDirFor } from "../context/node-file.js";
 import { withSavings, savingsFor, type Savings } from "../context/savings.js";
 import { loadGraphCached } from "./load.js";
 import { resolveSymbol, edgeWalk, type Direction, type EdgeHit } from "./traverse.js";
-import { INFERRED_MARK, type GraphV1, type NodeV1 } from "./types.js";
+import { confidenceMark, type Confidence, type GraphV1, type NodeV1 } from "./types.js";
 import { cmd } from "../brand.js";
 import { isTestPath } from "../util/paths.js";
 import { queryJson } from "./query-json.js";
@@ -55,7 +55,7 @@ export function hitLine(direction: Direction, hit: EdgeHit, showDepth: boolean):
   const arrow = ARROW[direction];
   const depthTag = showDepth ? ` [depth ${hit.depth}]` : "";
   const label = hit.node ? `${hit.node.name} (${hit.node.path}:${hit.node.span})` : `${hit.id} (unresolved import)`;
-  return `  ${hit.relation} ${arrow} ${label}${depthTag}${hit.inferred ? INFERRED_MARK : ""}`;
+  return `  ${hit.relation} ${arrow} ${label}${depthTag}${confidenceMark(hit.confidence, hit.inferred)}`;
 }
 
 /** A quoted source line: where the edge actually happens. */
@@ -110,7 +110,7 @@ function hitLines(
       out.push(hitLine(direction, h, showDepth));
       continue;
     }
-    const mark = h.inferred ? INFERRED_MARK : "";
+    const mark = confidenceMark(h.confidence, h.inferred);
     const key = `${h.relation}\0${h.node.path}\0${mark}`;
     let group = groups.get(key);
     if (!group) {
@@ -290,7 +290,9 @@ interface HitJson {
   span?: string;
   relation: string;
   depth: number;
+  /** Set on every edge that is not proven (`likely` and `inferred`): check it before relying on it. */
   inferred?: true;
+  confidence: Confidence;
 }
 
 function symbolJson(n: NodeV1): SymbolJson {
@@ -298,7 +300,8 @@ function symbolJson(n: NodeV1): SymbolJson {
 }
 
 function hitJson(hit: EdgeHit): HitJson {
-  const out: HitJson = { id: hit.id, relation: hit.relation, depth: hit.depth, ...(hit.inferred ? { inferred: true as const } : {}) };
+  const out: HitJson = { id: hit.id, relation: hit.relation, depth: hit.depth, ...(hit.inferred ? { inferred: true as const } : {}),
+    confidence: hit.confidence ?? (hit.inferred ? "inferred" : "extracted") };
   if (hit.node) {
     out.name = hit.node.name;
     out.kind = hit.node.kind;

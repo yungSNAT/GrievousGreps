@@ -1,0 +1,9 @@
+[trail] tokens saved ≈ 49 (49%) at most, against reading the 3 file(s) whole
+
+save · method · src/store.ts:L2-L4 · calls ←
+  src/app.ts [likely]
+    run L4: return s.save();
+  src/handler.ts [inferred]
+    handle L3: return res.save();
+  src/store.ts
+    direct L10: return s.save();

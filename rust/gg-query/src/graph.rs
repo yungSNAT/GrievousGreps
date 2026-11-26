@@ -16,6 +16,7 @@ use crate::safe_io::read_contained_to_string;
 
 pub const WALK_RELATIONS: &[&str] = &["calls", "references", "imports", "implements", "extends"];
 pub const INFERRED_MARK: &str = " [inferred]";
+pub const LIKELY_MARK: &str = " [likely]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {

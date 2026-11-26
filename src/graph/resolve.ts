@@ -39,6 +39,10 @@ const PY_CTOR_KINDS: Kind[] = ["class"];
  * implicit-self widening) have found nothing. */
 const SWIFT_EXT = /\.swift$/i;
 const EX_EXT = /\.exs?$/i;
+/** The languages whose typed or scoped cross-file edges a precision sample measured (26 Nov 2026:
+ * 108 of 111 right, against 13 of 48 for a bare name). Their edges grade `likely`; every other
+ * language keeps `inferred` until a sample of its own says otherwise. */
+const LIKELY_LANG = /\.(pyi?|rs|[cm]?[jt]sx?)$/i;
 const SWIFT_CTOR_KINDS: Kind[] = ["class", "struct", "enum"];
 /** Kotlin is Swift's case again — `Mailer(host = "smtp")` is an ordinary call node with
  * no `new` to mark it — and it has free functions too, so it takes the same fallback
@@ -574,7 +578,8 @@ export function resolveEdges(
       const kinds: Kind[] = e.relation === "implements" ? ["interface", "trait"] : ["class", "interface"];
       const hit = resolveName(e.name!, e.file, kinds, perFileName, globalName);
       // an unresolved base is usually an external/imported type — keep the name.
-      add(e.source, hit?.id ?? e.name!, e.relation, hit?.confidence ?? "inferred");
+      const named = hit?.confidence === "inferred" && LIKELY_LANG.test(e.file) ? "likely" : hit?.confidence;
+      add(e.source, hit?.id ?? e.name!, e.relation, named ?? "inferred");
     } else if (e.relation === "references" && e.name) {
       if (e.specifier) {
         // A named import gives both halves needed for sound resolution: the module
@@ -653,7 +658,9 @@ export function resolveEdges(
       // Python imports identify the target module. A named receiver can be a
       // class or a submodule; both resolve within their explicit import path.
       if (e.rustRoot && (RUST_STD_CRATES.has(e.rustRoot) || opts.rustExternalCrates?.has(e.rustRoot))) continue;
-      const stated = (confidence: EdgeV1["confidence"]) => (e.rustTemplate ? "inferred" as const : confidence);
+      // A macro body is a template: a call in it is at best likely, and a name-only one stays inferred.
+      const stated = (confidence: EdgeV1["confidence"]): EdgeV1["confidence"] =>
+        (!e.rustTemplate || confidence === "inferred" ? confidence : "likely");
       if (e.pythonRebound && e.name) {
         const file = toPosixPath(e.file);
         const start = e.pythonReboundModule ? pythonModuleName(e.pythonReboundModule, file, pythonCtx) : followPythonName(e.pythonRebound, file, pythonCtx);
@@ -700,6 +707,15 @@ export function resolveEdges(
           continue;
         }
         const recvType = real.type;
+        // A receiver's stated type picked the target: likely, in a measured language. In TypeScript
+        // the type must be the file's own or imported, as a platform global (`Response`) can share
+        // its name with a repository type that is not the one the code means.
+        const typedGrade = (h: ReturnType<typeof resolveTypedMember>, type: string): ReturnType<typeof resolveTypedMember> => {
+          if (!h || h === "ambiguous" || h.confidence !== "inferred" || !LIKELY_LANG.test(e.file)) return h;
+          const inScope = !isJs(e.file) || (perFileName.get(e.file)?.get(type) ?? []).length > 0
+            || (tsModules.get(e.file)?.imports ?? []).some((i) => i.local === type);
+          return inScope ? { ...h, confidence: "likely" } : h;
+        };
         if (e.rustSelfInImpl) {
           const others = (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((n) => n.id !== e.source);
           const repoType = (globalName.get(recvType) ?? []).some((n) => RUST_OWNER_KINDS.has(n.kind));
@@ -712,16 +728,16 @@ export function resolveEdges(
         const crateDir = real.root ? opts.rustCrateDirs?.get(real.root) : undefined;
         const inCrate = crateDir ? (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((c) => c.path.startsWith(`${crateDir}/`)) : [];
         let hit = !recv ? null : inCrate.length === 1
-          ? { id: inCrate[0].id, confidence: "inferred" as const }
-          : resolveTypedMember(recvType, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount);
+          ? { id: inCrate[0].id, confidence: "likely" as const }
+          : typedGrade(resolveTypedMember(recvType, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount), recvType);
         // Several types of that name, none in this file: this crate's own, as the code reads.
         if (hit === "ambiguous" && e.file.endsWith(".rs") && !real.root) {
           const crate = rustCrateOf(e.file, rustPathCtx);
           const ours = crate === undefined || crate === "." ? [] : (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((c) => c.path.startsWith(`${crate}/`));
-          if (ours.length === 1) hit = { id: ours[0].id, confidence: "inferred" };
+          if (ours.length === 1) hit = { id: ours[0].id, confidence: "likely" };
         }
         for (const bound of e.rustBounds ?? []) {
-          hit ??= resolveTypedMember(bound, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount);
+          hit ??= typedGrade(resolveTypedMember(bound, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount), bound);
         }
         // A Rust `Type::f` the repo's type holds no single `f` for says so, an enum
         // variant's capital name aside: several
@@ -748,7 +764,7 @@ export function resolveEdges(
         }
         if (hit === "ambiguous") continue; // drop — never guess past an ambiguous owner
         if (hit) {
-          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "inferred" : stated(hit.confidence));
+          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "likely" : stated(hit.confidence));
           continue;
         }
         if (EX_EXT.test(e.file)) {

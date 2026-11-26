@@ -40,10 +40,18 @@ export type Kind =
  * (an exact server-confirmed target) or `lsp_dispatch` (an interface/virtual
  * candidate). Order matters: consumers that rank by provenance treat earlier
  * values as stronger. */
-export type Confidence = "lsp_resolved" | "lsp_dispatch" | "extracted" | "inferred";
+export type Confidence = "lsp_resolved" | "lsp_dispatch" | "extracted" | "likely" | "inferred";
 
 /** How every command's text output marks a hit reached through an `inferred` edge. */
 export const INFERRED_MARK = " [inferred]";
+/** The mark for a `likely` edge: a stated type, path, crate or base class picked the target. */
+export const LIKELY_MARK = " [likely]";
+
+/** The text mark for a hit of this confidence: nothing for a definite one. */
+export function confidenceMark(confidence: Confidence | undefined, inferred?: boolean): string {
+  if (confidence === "likely") return LIKELY_MARK;
+  return confidence === "inferred" || (confidence === undefined && inferred) ? INFERRED_MARK : "";
+}
 
 /** Whether the LLM meaning-layer has been computed for a node. */
 export type SummaryState = "pending" | "ready" | "stale";
