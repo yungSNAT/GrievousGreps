@@ -141,7 +141,7 @@ fn hit_lines(
     shared: Option<&str>,
     file_cache: &mut HashMap<String, Option<Vec<String>>>,
 ) -> Vec<String> {
-    let mut group_idx: HashMap<(String, String, bool), usize> = HashMap::new();
+    let mut group_idx: HashMap<(String, String, &'static str), usize> = HashMap::new();
     let mut groups: Vec<HitGroup> = Vec::new();
     let mut order: Vec<GroupEntry> = Vec::new();
 
@@ -155,7 +155,7 @@ fn hit_lines(
         } else {
             None
         };
-        let key = (h.relation.clone(), node.path.clone(), h.inferred);
+        let key = (h.relation.clone(), node.path.clone(), h.confidence.mark());
         let idx = *group_idx.entry(key).or_insert_with(|| {
             let lead = if shared.is_some() {
                 format!("  {}", group_label(&node.path))
