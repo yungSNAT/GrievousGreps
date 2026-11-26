@@ -149,6 +149,29 @@ fn collapses_dot_dot_lexically_as_typescript_does() {
     assert!(!base.join("outside").join("graft").exists());
 }
 
+#[test]
+fn refuses_a_trailing_dot_dot_as_typescript_does() {
+    // `dirname("<base>/graft/..")` is `<base>/graft`, and `.graph` resolves outside it.
+    let base = scratch("trailing-dot-dot");
+    std::fs::create_dir_all(base.join("graft")).unwrap();
+    assert!(write_wiring(&base.join("graft").join(".."), "x").is_err());
+    assert!(!base.join(".graph").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_trailing_dot_makes_the_output_directory_the_base() {
+    use std::os::unix::fs::symlink;
+    // `dirname("<base>/graft/.")` is `<base>/graft`: trusted, so TypeScript follows a link there.
+    let base = scratch("trailing-dot");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    symlink(&outside, base.join("graft")).unwrap();
+    write_wiring(&base.join("graft").join("."), "x").unwrap();
+    let leaf = outside.join(".graph").join("wiring.json");
+    assert_eq!(std::fs::read_to_string(leaf).unwrap(), "x");
+}
+
 #[cfg(windows)]
 #[test]
 fn refuses_a_junctioned_directory() {

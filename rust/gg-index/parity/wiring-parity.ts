@@ -353,7 +353,8 @@ function fsCases(): number {
   if (process.platform === "win32") return 0;
   const graph = JSON.stringify({ meta: { version: 1 }, nodes: [{ id: "b" }, { id: "a" }], edges: [] });
   // Each case plants its trap and may name its own output directory (default `<root>/graft`).
-  const plant: Record<string, (root: string, outside: string) => string | void> = {
+  type Plant = (root: string, outside: string) => string | void;
+  const plant: Record<string, Plant> = {
     "fresh": () => {},
     "parent missing": (root) => join(root, "new", "deeper", "graft"),
     "dot-dot after a symlink": (root, outside) => {
@@ -376,8 +377,15 @@ function fsCases(): number {
       symlinkSync(join(outside, "victim"), join(root, "graft", ".graph", "wiring.json"));
     },
     "leaf is a directory": (root) => mkdirSync(join(root, "graft", ".graph", "wiring.json"), { recursive: true }),
+    "trailing dot-dot": (root) => {
+      mkdirSync(join(root, "graft"));
+      return `${root}/graft/..`;
+    },
+    "trailing dot on a symlink": (root, outside) => {
+      symlinkSync(outside, join(root, "graft"));
+      return `${root}/graft/.`;
+    },
   };
-  type Plant = (root: string, outside: string) => string | void;
   const run = (index: number, setup: Plant, who: "ts" | "rust") => {
     const root = join(work, `fs-${who}-${index}`);
     const outside = join(root, "outside");
