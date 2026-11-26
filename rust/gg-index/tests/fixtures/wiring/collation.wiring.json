@@ -1,0 +1,102 @@
+{
+  "meta": {
+    "version": 1,
+    "nodeCount": 14,
+    "edgeCount": 6,
+    "languages": [
+      "typescript"
+    ]
+  },
+  "nodes": [
+    {
+      "id": "src/~x.ts"
+    },
+    {
+      "id": "src/\ud83d\ude00.ts"
+    },
+    {
+      "id": "src/a_b.ts"
+    },
+    {
+      "id": "src/a-b.ts"
+    },
+    {
+      "id": "src/a.ts"
+    },
+    {
+      "id": "src/A.ts"
+    },
+    {
+      "id": "src/\u00c4.ts"
+    },
+    {
+      "id": "src/a.ts#x"
+    },
+    {
+      "id": "src/a.ts#X"
+    },
+    {
+      "id": "src/a/b.ts"
+    },
+    {
+      "id": "src/a1.ts"
+    },
+    {
+      "id": "src/a10.ts"
+    },
+    {
+      "id": "src/a2.ts"
+    },
+    {
+      "id": "src/b.ts",
+      "kind": "file"
+    },
+    {
+      "id": "src/e\u0301.ts"
+    },
+    {
+      "id": "src/\u00e9.ts"
+    },
+    {
+      "id": "src/\u4e2d\u6587.ts#\ud55c"
+    }
+  ],
+  "edges": [
+    {
+      "source": "src/a_b.ts",
+      "relation": "contains",
+      "target": "src/a_b.ts#g",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/a.ts",
+      "relation": "calls",
+      "target": "src/a.ts#X",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/a.ts",
+      "relation": "calls",
+      "target": "src/a.ts#X",
+      "confidence": "lsp_resolved"
+    },
+    {
+      "source": "src/a.ts",
+      "relation": "calls",
+      "target": "src/b.ts#f",
+      "confidence": "inferred"
+    },
+    {
+      "source": "src/a.ts",
+      "relation": "imports",
+      "target": "b",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/A.ts",
+      "relation": "calls",
+      "target": "x",
+      "confidence": "extracted"
+    }
+  ]
+}
