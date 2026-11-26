@@ -78,11 +78,11 @@ const { pathToFileURL } = require('url');
 const dir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const USER_LEVEL = ${userLevel};
 
-// This distribution is @equitybot/grievousgreps, and it answers whenever it is
+// This distribution is @yungsnat/grievousgreps, and it answers whenever it is
 // found. Upstream ships its own code as @trailhq/trail-code and as @nanonets/graft,
 // its old name; either is the fallback, and the newer wins. @trailhq/trail is what
 // builds from source were called before the package was published.
-const PKGS = ['@equitybot/grievousgreps', '@trailhq/trail-code', '@nanonets/graft', '@trailhq/trail'];
+const PKGS = ['@yungsnat/grievousgreps', '@trailhq/trail-code', '@nanonets/graft', '@trailhq/trail'];
 const BINS = process.platform === 'win32' ? ['trail.cmd', 'graft.cmd'] : ['trail', 'graft'];
 
 // The dist/claude dir this machine's last init ran from, kept in the trail home

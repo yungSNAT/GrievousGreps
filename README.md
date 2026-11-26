@@ -11,24 +11,24 @@
 
 [![tests](https://github.com/yungSNAT/GrievousGreps/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yungSNAT/GrievousGreps/actions/workflows/ci.yml) [![Codecov](https://codecov.io/gh/yungSNAT/GrievousGreps/graph/badge.svg)](https://codecov.io/gh/yungSNAT/GrievousGreps) [![CodeQL](https://github.com/yungSNAT/GrievousGreps/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/yungSNAT/GrievousGreps/actions/workflows/codeql.yml) [![OSV-Scanner](https://github.com/yungSNAT/GrievousGreps/actions/workflows/osv-scanner.yml/badge.svg?branch=main)](https://github.com/yungSNAT/GrievousGreps/actions/workflows/osv-scanner.yml) [![SonarCloud](https://sonarcloud.io/api/project_badges/measure?project=EquityBot_GrievousGreps&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=EquityBot_GrievousGreps) [![Codacy code quality](https://app.codacy.com/project/badge/Grade/bd4014dc59804ad5af9125a492369d2c)](https://app.codacy.com/gh/yungSNAT/GrievousGreps/dashboard)<br>
 [![OpenSSF Scorecard](https://raw.githubusercontent.com/ryanduguid/.github/badges/yungSNAT/GrievousGreps.svg)](https://scorecard.dev/viewer/?uri=github.com/yungSNAT/GrievousGreps) [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16136/badge)](https://www.bestpractices.dev/projects/16136)<br>
-[![node: 20.16+ | 22.3+](.github/assets/badges/node.svg)](https://nodejs.org/) [![licence: MIT](.github/assets/badges/licence.svg)](LICENSE) [![fork of: Trail-Code](.github/assets/badges/fork-of.svg)](https://github.com/trailhq/Trail-Code)
+[![node: 22.3+](.github/assets/badges/node.svg)](https://nodejs.org/) [![licence: MIT](.github/assets/badges/licence.svg)](LICENSE) [![fork of: Trail-Code](.github/assets/badges/fork-of.svg)](https://github.com/trailhq/Trail-Code)
 
-[Install](#install) · [Use](#use) · [Docs search](#docs-search) · [Measured recall](#measured-recall) · [Against the alternatives](#against-the-alternatives) · [Compared with upstream](#compared-with-upstream) · [Limits](#limits) · [Network and privacy](#network-and-privacy) · [Development](#development) · [Credits](#credits) · [Licence](#licence)
+[Install](#install) · [Use](#use) · [Docs search](#docs-search) · [Measured recall](#measured-recall) · [Compared with upstream](#compared-with-upstream) · [Limits](#limits) · [Network and privacy](#network-and-privacy) · [Development](#development) · [Credits](#credits) · [Licence](#licence)
 
 </div>
 
 GrievousGreps is yungSNAT's distribution of [Trail-Code](https://github.com/trailhq/Trail-Code), the code graph CLI for coding agents, formerly Graft. It maps the functions it can parse in a repository and the callers it can resolve, so an agent can check what a change reaches before it edits. It misses some callers: see [Measured recall](#measured-recall) and [Limits](#limits).
 
-Use it over upstream if your agent relies on `callers`. On the 21 public repositories its fixes were tuned on, its [measured recall](#measured-recall) is 0.98, against 0.32 for upstream's npm release 0.29.0 and 0.19 for upstream `main` at `b22055d`, all 3 measured on 16 November 2026 (UTC). On 5 repositories no build had seen, it was 0.34 against 0.22 for 0.29.0 (18 November, at `4be1b3b`). Its Rust recall is partial. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences, background network requests and symlinks among them.
+On the 21 public repositories its fixes were tuned on, its [measured recall](#measured-recall) is 0.98 (16 November 2026, UTC, at `88c214e`). On 5 repositories no build had seen, it was 0.34 (18 November, at `4be1b3b`). Its Rust recall is partial. It installs both the `trail` and `graft` commands, where upstream's npm release 0.29.0 installs `trail` and its source installs `graft`, so agent configuration and most commands work as they do upstream. [Compared with upstream](#compared-with-upstream) lists the differences, background network requests and symlinks among them.
 
 ## Install
 
-GrievousGreps has no npm package, so npm builds it from this repository. You need Node 20.16 or later on the 20 line, or 22.3 or later, plus git and a C++ toolchain for the native grammars.
+GrievousGreps has no npm package, so npm builds it from this repository. You need Node 22.3 or later, plus git and a C++ toolchain for the native grammars.
 
-GrievousGreps provides `trail` and `graft`, and each upstream package provides one of them, so remove any upstream copy first:
+GrievousGreps provides `trail` and `graft`, and each upstream package provides one of them, so first remove any upstream copy, and any copy installed under this package's earlier name, `@equitybot/grievousgreps` (then run `trail init` again in each repository that uses it, so its hooks find the new name):
 
 ```bash
-npm uninstall -g @trailhq/trail-code @nanonets/graft
+npm uninstall -g @trailhq/trail-code @nanonets/graft @equitybot/grievousgreps
 ```
 
 Then install it from GitHub:
@@ -75,7 +75,7 @@ trail viz                            # an interactive viewer of the graph, serve
 
 `trail viz --export site/` writes the viewer as one self-contained `index.html` instead, with no script or style loaded from elsewhere ([measured](benchmark/README.md#install-and-use-measurements)).
 
-`trail ask` ranks files by the question's words and, by default, by its meaning, and merges the 2 rankings. Meaning comes from [potion-code-16M-v2](https://huggingface.co/minishlab/potion-code-16M-v2/tree/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b) (MIT), a static embedding model of 33.5 MB (its weights and tokenizer) in the package's `models/` folder, which runs in Node on the CPU with no account, no download and no network. `trail build` embeds each source file in chunks of whole lines into the map's `.cache/ask-vectors.bin`, and later builds embed only the files that changed. That is the first-run cost, which [benchmark/](benchmark/README.md#install-and-use-measurements) measures. On [semble's benchmark](benchmark/README.md#search-on-sembles-benchmark) this raised NDCG@10 from 0.750 by words only (with `TRAIL_SEMANTIC=0`) to 0.793, both at `ebef20c` on 19 November (UTC). Set `TRAIL_SEMANTIC=0` to rank by words only; the next build removes the vectors. A query from a folder of several repositories ranks by words only.
+`trail ask` ranks files by the question's words and, by default, by its meaning, and merges the 2 rankings. Meaning comes from [potion-code-16M-v2](https://huggingface.co/minishlab/potion-code-16M-v2/tree/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b) (MIT), a static embedding model of 33.5 MB (its weights and tokenizer) in the package's `models/` folder, which runs in Node on the CPU with no account, no download and no network. `trail build` embeds each source file in chunks of whole lines into the map's `.cache/ask-vectors.bin`, and later builds embed only the files that changed. That is the first-run cost, which [benchmark/](benchmark/README.md#install-and-use-measurements) measures. On the 1,251-query retrieval set in [benchmark/ask/](benchmark/README.md#ask-which-files-a-question-is-about), this raised NDCG@10 from 0.750 by words only (with `TRAIL_SEMANTIC=0`) to 0.793, both at `ebef20c` on 19 November (UTC). Set `TRAIL_SEMANTIC=0` to rank by words only; the next build removes the vectors. A query from a folder of several repositories ranks by words only.
 
 `trail init` writes inside the repository, with the tool's own state in `~/.trail`. Claude Code's hooks go in the repository's `.claude` settings. That has a cost: a worktree or an ignored checkout has no hooks until you run `trail init` there.
 
@@ -87,7 +87,7 @@ In a folder of separate git repositories, `trail build` builds one graph per rep
 
 **Deployment files** are in the graph too. A Dockerfile gives a node for each stage, a compose file one for each service, volume and network, and a Kubernetes manifest one for each object, linked to the source files a stage copies or a service mounts, to the stage a service builds and the services it depends on, to the ConfigMaps, Secrets, claims and service accounts a workload names, from a Service to the workloads its selector picks and from an Ingress to its Services. A workload links to the compose service that builds its image when the image names match, marked `[inferred]`; without such a compose file a Dockerfile names no image, so the link stops there. So `trail blast --depth all` on a changed function lists the stage that copies its file, the compose service and Deployment that run it and the Service and Ingress in front of it, and `trail callers app-config` lists the workloads that read that ConfigMap. Only names are kept: no environment value and no ConfigMap or Secret data reaches the graph, and source queries and `trail grep` skip its text. `trail build` reports parse failures, unsupported fields and files whose COPY or bind-mount expansion exceeds 50,000 file candidates. It lists the first 10 and counts the rest. COPY links are inferred when the build context is assumed or shared across contexts, or when a Docker ignore file or COPY exclusion can change the match. Kubernetes object and selector links prefer matches in the same folder and mark other-folder matches as inferred. Helm rendering, Kustomize rendering, environment-variable substitution in compose and remote build contexts are outside the build. With `-e`, deployment files are left out.
 
-**Kustomize** structure is in the graph too. A kustomization links to the files and folders it lists (`resources`, `bases`, `components`), to its patch files and to its generated ConfigMaps and Secrets, by name only. When a standalone leaf kustomization using only supported leaf fields (`namespace`, `namePrefix`, `nameSuffix`, `resources`, `bases`, `configMapGenerator`, `secretGenerator`) lists only complete local resource files inside its folder (no folders, `components`, escaping symlinks, reserved Kustomize annotations, generator options or `merge`/`replace` strategies, and with non-empty-named generators using valid `literals` or existing local `files` only) with no object collisions in the build, a workload in it also links to the unique generated ConfigMap or Secret of that kind, name and namespace whose generator id is not repeated; an enclosing overlay can still patch or transform references after accumulation, and an as-written link to a namesake elsewhere stays beside it. Otherwise name prefixes, suffixes, namespaces, image renames and generator hashes are not applied to references, which link objects as written; `trail build` says so for each kustomization that uses them, and reports each include it does not follow, such as a remote base, a missing path or a cycle.
+**Kustomize** structure is in the graph too. A kustomization links to the files and folders it lists (`resources`, `bases`, `components`), to its patch files and to its generated ConfigMaps and Secrets, by name only. When a standalone leaf kustomization using only supported leaf fields (`namespace`, `namePrefix`, `nameSuffix`, `resources`, `bases`, `configMapGenerator`, `secretGenerator`) lists only complete local resource files inside its folder (no folders, `components`, escaping symlinks, reserved Kustomize annotations, generator options or `merge`/`replace` strategies, and with non-empty-named generators using valid `literals` or existing local `files` only) with no object collisions in the build, a workload in it also links to the unique generated ConfigMap or Secret of that kind, name and namespace whose generator id is not repeated; so does a workload in such a leaf, or in an overlay listing such leaf folders with no prefix or suffix on either, to the overlay's own unique generator; a build above can still patch or transform references after accumulation, and an as-written link to a namesake elsewhere stays beside it. Otherwise name prefixes, suffixes, namespaces, image renames and generator hashes are not applied to references, which link objects as written; `trail build` says so for each kustomization that uses them, and reports each include it does not follow, such as a remote base, a missing path or a cycle.
 
 **Terraform** blocks are in the graph too. Each top-level `resource`, `data` and `module` block in a `.tf` file is a node named by its address, such as `aws_lambda_function.api`, linked to the blocks its expressions name in the same module (the `.tf` files in its folder), to a local module's `.tf` files, to the files a `source_dir`, `source_file` or `file()`-family path written as `"${path.module}/..."` reads and, marked `[inferred]`, to the compose service that builds an image it names as a plain string. Only references that resolve as written are linked. An indexed or splat reference, a reference to a block with `count` or `for_each`, a `dynamic` block, a module from a registry or Git, a path not written from `${path.module}`, an image named by an expression, an address declared in more than one file of a module and another state's outputs give no link, and `trail build` reports each. `.tf.json` files are not read, and attribute values are not kept.
 
@@ -116,106 +116,25 @@ cargo build --release --locked --manifest-path rust/gg-docs/Cargo.toml
 
 ## Measured recall
 
-Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each row is 10 preregistered symbols on one public repository. For 18 rows the truth was written before any build ran on the repository. For hono, radix and trpc it has been derived from the TypeScript compiler since 13 November 2026 (UTC), after builds had run, so those 3 sets were not preregistered; [benchmark/](benchmark/README.md#truth) describes the derivation. Upstream is measured twice, both on 16 November 2026 (UTC): its npm release 0.29.0 (6 November) and `main` at `b22055d` (9 November). The figures hold for those 2 versions only: upstream released 0.30.0 to 0.30.5 from 16 November, and none of them has been measured here.
+Recall is the share of real calls that `callers` found, pooled across the symbols, so a symbol or repository with many callers weighs more. Each of the 21 public repositories has 10 preregistered symbols. For 18 of them the truth was written before any build ran on the repository. For hono, radix and trpc it has been derived from the TypeScript compiler since 13 November 2026 (UTC), after builds had run, so those 3 sets were not preregistered; [benchmark/](benchmark/README.md#truth) describes the derivation.
 
-For the 18, that order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. The truth has been corrected 4 times, the last on 16 November 2026 (UTC), and now holds 4,403 calls; [benchmark/](benchmark/README.md#recall-history) lists each correction. Every column below was scored on these 4,403 calls.
+For the 18, that order rests on this statement: the truth went into a local log that is not public, so nobody outside can prove it was committed first. The truth has been corrected 4 times, the last on 16 November 2026 (UTC), and now holds 4,403 calls; [benchmark/](benchmark/README.md#recall-history) lists each correction. The figures below were scored on these 4,403 calls.
 
-**Overall, upstream 0.29.0 to patched:** recall 0.32 to 0.98 (21 repositories and 4,328 of 4,403 calls on the patched build), precision 0.94 to 0.95, silent undercounts 77 to 7. Upstream `main` scored 0.19, with precision 0.91 and 113 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule.
+**Overall, at `88c214e`:** recall 0.98 (4,328 of 4,403 calls on the 21 repositories), precision 0.95 and 7 silent undercounts. A silent undercount is a symbol with a miss whose JSON answer does not say it may be short; [benchmark/](benchmark/README.md#what-it-prints) has the rule.
 
-**On 5 repositories no build had seen, recall was 0.34.** The 5, in Python, TypeScript, Rust, Go and C#, were preregistered on 18 November 2026 (UTC) with truth that language servers derived before any build ran on them. On 18 November, at `4be1b3b`, this tool found 122 of their 357 required rows (the unit the 21-repository table calls calls), with precision 0.98 and 7 silent undercounts; upstream 0.29.0 gave recall 0.22, precision 1.00 and 8. By repository: loguru 0.71, h3 0.44, toml 0.54, zap (Go) 0.31 and FluentValidation (C#) 0.08. [benchmark/unseen-2/](benchmark/unseen-2/README.md) has the set and how its truth was derived. A first unseen set, [benchmark/unseen/](benchmark/unseen/README.md), gave 0.41 at `0df7dcc` on 17 November; its misses were then read and fixed against (Go receivers, #110), so it is tuning now: at `4be1b3b` it gave 0.48 (272 of 564 rows, logrus 0.08 to 0.36), against 0.38 for 0.29.0. The 21 repositories below shaped the fixes, so 0.98 is recall on code the build was tuned on. The 2 figures differ in more than exposure: 0.98 is at `88c214e` and 0.34 at `4be1b3b`, which has later graph fixes; the 21 hold only Python, TypeScript and Rust, and the 5 add Go and C#; and the 5's truth comes from language servers. On the 3 unseen repositories in the 21's languages, recall was 0.55 (78 of 141 rows), against 0.47 (66 of 141) for 0.29.0. The outputs are in [benchmark/results/2026-11-18/unseen-2.txt](benchmark/results/2026-11-18/unseen-2.txt).
+**On 5 repositories no build had seen, recall was 0.34.** The 5, in Python, TypeScript, Rust, Go and C#, were preregistered on 18 November 2026 (UTC) with truth that language servers derived before any build ran on them. On 18 November, at `4be1b3b`, this tool found 122 of their 357 required rows (the unit the 21-repository benchmark calls calls), with precision 0.98 and 7 silent undercounts. By repository: loguru 0.71, h3 0.44, toml 0.54, zap (Go) 0.31 and FluentValidation (C#) 0.08. [benchmark/unseen-2/](benchmark/unseen-2/README.md) has the set and how its truth was derived. A first unseen set, [benchmark/unseen/](benchmark/unseen/README.md), gave 0.41 at `0df7dcc` on 17 November; its misses were then read and fixed against (Go receivers, #110), so it is tuning now: at `4be1b3b` it gave 0.48 (272 of 564 rows, logrus 0.08 to 0.36). The 21 repositories shaped the fixes, so 0.98 is recall on code the build was tuned on. The 2 figures differ in more than exposure: 0.98 is at `88c214e` and 0.34 at `4be1b3b`, which has later graph fixes; the 21 hold only Python, TypeScript and Rust, and the 5 add Go and C#; and the 5's truth comes from language servers. On the 3 unseen repositories in the 21's languages, recall was 0.55 (78 of 141 rows). [benchmark/unseen-2/](benchmark/unseen-2/README.md) has the command to rerun it.
 
-| Repository | Language | Calls in truth | Upstream 0.29.0 | Upstream `main` | Patched |
-| --- | --- | --- | --- | --- | --- |
-| python-attrs/attrs @ c8bb9bf | Python | 282 | 0.05 | 0.05 | 1.00 |
-| tokio-rs/axum @ bebe175 | Rust | 127 | 0.48 | 0.48 | 0.99 |
-| pallets/click @ 2247b35 | Python | 401 | 0.03 | 0.03 | 1.00 |
-| pallets/flask @ d086db8 | Python | 33 | 0.33 | 0.33 | 1.00 |
-| honojs/hono @ ee88684 | TypeScript | 40 | 0.70 | 0.75 | 0.85 |
-| encode/httpx @ b5addb6 | Python | 42 | 0.52 | 0.52 | 1.00 |
-| pmndrs/jotai @ e5971ba | TypeScript | 58 | 0.90 | 0.33 | 1.00 |
-| rust-lang/mdBook @ b21095b | Rust | 51 | 0.73 | 0.73 | 1.00 |
-| TanStack/query @ 979695d | TypeScript | 73 | 0.95 | 0.49 | 1.00 |
-| radix-ui/primitives @ eb3a2b7 | TypeScript | 252 | 0.73 | 0.02 | 1.00 |
-| rayon-rs/rayon @ 599425d | Rust | 226 | 0.31 | 0.31 | 0.99 |
-| Textualize/rich @ 9d8f9a3 | Python | 132 | 0.57 | 0.80 | 1.00 |
-| BurntSushi/ripgrep @ 91f5d22 | Rust | 45 | 0.56 | 0.56 | 1.00 |
-| mwaskom/seaborn @ c1cb287 | Python | 147 | 0.24 | 0.24 | 1.00 |
-| hynek/structlog @ 19c4f21 | Python | 84 | 0.77 | 0.79 | 1.00 |
-| TanStack/table @ c14e022 | TypeScript | 397 | 0.68 | 0.21 | 1.00 |
-| tokio-rs/tokio @ 6470b5e | Rust | 894 | 0.04 | 0.04 | 0.94 |
-| tokio-rs/tracing @ 79b80a9 | Rust | 749 | 0.00 | 0.00 | 0.99 |
-| trpc/trpc @ 708753f | TypeScript | 221 | 0.94 | 0.25 | 1.00 |
-| vuejs/core @ 24c9d0b | TypeScript | 88 | 0.95 | 0.56 | 0.95 |
-| getzola/zola @ 628926f | Rust | 61 | 0.90 | 0.90 | 0.98 |
-
-Rust recall is partial. tokio is the weakest Rust row at 0.94, and tracing is at 0.99. Together they hold 1,643 of the 4,403 calls, and their symbols were chosen for names repeated across crates and types.
+Rust recall is partial. Together tokio and tracing hold 1,643 of the 4,403 calls, and their symbols were chosen for names repeated across crates and types.
 
 About 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 false, 95% interval 11% to 27%), at `e37a764` and `949d829`. An edge with that mark is a lead. `callers`, its JSON and the MCP tool show the mark, and at depth 2 or more they also show it on any hit whose every shortest path crosses such an edge. `blast` shows the mark too, counts those dependents and lists them after the definite ones at each depth. Definite edges: 2 of 80 false over the same 2 samples.
 
-Against 0.29.0, recall rose on 20 of the 21 repositories; vue did not move. Silent undercounts remain.
+The 21-repository run was on Linux with Node 26.13.1 on 16 November 2026 (UTC); [benchmark/](benchmark/README.md#recall-history) has the corrections to the truth. Silent undercounts remain.
 
-The 3 columns were run on Linux with Node 26.13.1 on 16 November 2026 (UTC); [benchmark/](benchmark/README.md#recall-history) has the records and the earlier runs.
-
-These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results; the unseen set above measures that. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the table.
-
-## Against the alternatives
-
-On this benchmark GrievousGreps has the highest overall recall of the 21 tools scored, and the fewest silent undercounts, 7, which ripwire matches. A rival's warning counts only where the harness carried it into the fields this tool writes ([limits](benchmark/README.md#limits-of-the-comparison)). It is ahead of Serena on Rust (0.97 to 0.76), of code-review-graph on TypeScript (0.99 to 0.98) and of CodeGraph on Python (1.00 to 0.98). Of the 10 tools whose answers were counted, CodeGraph (at 1.6.2) and codebase-memory-mcp give the fewest tokens; of the 4 whose memory was measured, codebase-memory-mcp uses the least. Each cell above the licence row is recall / precision / silent undercounts, scored by [benchmark/](benchmark/README.md) on the same 21 repositories, 210 symbols and 4,403 calls. The first 10 tools were run on 16 November 2026 (UTC), each at its latest release that day, with GrievousGreps at `88c214e` ([records](benchmark/results/2026-11-16/README.md)), and CodeGraph again at 1.6.3 on 18 November; the 11 under '11 more call-graph tools' ran on 16 and 17 November at the versions named. How each tool was run, their licences, the limits of these figures, their cost in time, memory and tokens, the search results and the method are in [benchmark/](benchmark/README.md#against-the-alternatives).
-
-| | GrievousGreps `88c214e` | codebase-memory-mcp v0.12.1, tests on | Serena v2.1.0, defaults | Serena v2.1.0, tuned | code-review-graph v2.4.0 |
-| --- | --- | --- | --- | --- | --- |
-| Overall | 0.98 / 0.95 / 7 | 0.62 / 0.93 / 89 | 0.54 / 0.92 / 99 | 0.70 / 0.94 / 70 | 0.62 / 0.86 / 88 |
-| Python | 1.00 / 1.00 / 0 | 0.67 / 0.98 / 22 | 0.37 / 0.95 / 30 | 0.82 / 0.98 / 8 | 0.53 / 0.96 / 35 |
-| TypeScript | 0.99 / 0.97 / 4 | 0.79 / 0.97 / 25 | 0.31 / 0.97 / 46 | 0.46 / 0.98 / 39 | 0.98 / 0.95 / 10 |
-| Rust | 0.97 / 0.91 / 3 | 0.51 / 0.87 / 42 | 0.76 / 0.89 / 23 | 0.76 / 0.89 / 23 | 0.48 / 0.70 / 43 |
-| Licence | MIT | MIT | GPL-3.0-or-later, SolidLSP MIT | GPL-3.0-or-later, SolidLSP MIT | MIT |
-
-The 6 further tools, run the same day on the same calls, with CodeGraph run again at 1.6.3 on 18 November:
-
-| | CodeGraph 1.6.3 | CodeGraphContext 0.6.13 | repowise 0.61.0 | tokensave 7.16.0 | Graphify 0.9.111 | AxiomCode Graph 0.2.3 |
-| --- | --- | --- | --- | --- | --- | --- |
-| Overall | 0.78 / 0.93 / 62 | 0.53 / 0.68 / 106 | 0.47 / 0.95 / 108 | 0.28 / 0.91 / 137 | 0.26 / 0.98 / 167 | 0.07 / 0.71 / 179 |
-| Python | 0.98 / 0.98 / 8 | 0.91 / 0.81 / 19 | 0.63 / 0.99 / 25 | 0.37 / 1.00 / 43 | 0.42 / 1.00 / 42 | 0.14 / 0.79 / 61 |
-| TypeScript | 0.89 / 0.95 / 15 | 0.69 / 0.75 / 31 | 0.73 / 0.94 / 29 | 0.29 / 0.99 / 55 | 0.55 / 0.97 / 56 | 0.14 / 0.66 / 48 |
-| Rust | 0.62 / 0.88 / 39 | 0.26 / 0.45 / 56 | 0.26 / 0.93 / 54 | 0.23 / 0.78 / 39 | 0.03 / 0.97 / 69 | 0.00 / none / 70 |
-| Licence | MIT | MIT | AGPL-3.0 | MIT | Apache-2.0 | FSL-1.1-Apache-2.0 |
-
-**11 more call-graph tools.** Between 20:43 (UTC) on 16 November 2026 and 04:53 on 17 November the first 7 of them answered the same 210 questions, each at the version installed that day, and the same scorer counted their answers at 04:53:
-
-| | codeseek 0.1.33 | grepai 1.2.0 | sem 0.30.1 | tilth 0.15.0 | ripwire 0.6.10 | codedb 0.2.5864 | Graphicle 0.1.18 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Overall | 0.73 / 0.63 / 111 | 0.73 / 0.60 / 125 | 0.65 / 0.91 / 17 | 0.62 / 0.74 / 41 | 0.38 / 0.94 / 7 | 0.35 / 0.75 / 103 | 0.32 / 0.93 / 143 |
-| Python | 0.93 / 0.82 / 24 | 0.86 / 0.75 / 32 | 0.94 / 0.99 / 5 | 0.74 / 0.85 / 9 | 0.41 / 0.97 / 0 | 0.45 / 0.77 / 28 | 0.46 / 0.99 / 41 |
-| TypeScript | 0.53 / 0.85 / 35 | 0.55 / 0.84 / 40 | 0.63 / 0.90 / 1 | 0.79 / 0.90 / 17 | 0.59 / 0.93 / 4 | 0.45 / 0.85 / 44 | 0.67 / 0.98 / 48 |
-| Rust | 0.73 / 0.51 / 52 | 0.75 / 0.48 / 53 | 0.50 / 0.85 / 11 | 0.47 / 0.58 / 15 | 0.26 / 0.94 / 3 | 0.24 / 0.61 / 31 | 0.12 / 0.78 / 54 |
-| Licence | MIT | MIT | Apache-2.0 | MIT | Apache-2.0 | BSD-3-Clause | Apache-2.0 |
-
-The other 4 ran again on 17 November 2026 (UTC), after fixes to how the harness ran them: trace-mcp from 07:37 to 07:42, Axon from 07:52 to 08:29, Auryn from 08:13 to 08:22 and gortex from 19:55 to 20:12. The same scorer, built at `fc50a01`, counted all 4 at 20:12:
-
-| | Auryn 0.1.0 | gortex v0.64.11 | Axon 1.0.1 | trace-mcp 3.44.1 |
-| --- | --- | --- | --- | --- |
-| Overall | 0.41 / 0.93 / 150 | 0.27 / 0.93 / 93 | 0.26 / 0.89 / 147 | 0.16 / 0.99 / 172 |
-| Python | 0.44 / 1.00 / 45 | 0.43 / 0.95 / 20 | 0.69 / 0.87 / 19 | 0.40 / 1.00 / 50 |
-| TypeScript | 0.25 / 0.95 / 63 | 0.38 / 0.97 / 36 | 0.32 / 0.96 / 58 | 0.25 / 0.97 / 52 |
-| Rust | 0.48 / 0.89 / 42 | 0.13 / 0.86 / 37 | 0.00 / none / 70 | 0.00 / none / 70 |
-| Licence | MIT | Apache-2.0 | MIT | MIT |
-
-**Language servers, asked directly.** On 16 November 2026 (UTC), from 21:40, `gg-bench lsp` at `8f297cb` put the same 210 questions to the servers Serena wraps, at their defaults and with each checkout's dependencies installed: Pyright 1.1.414, typescript-language-server 6.1.0 with each checkout's TypeScript, and rust-analyzer 0.3.3121. Each location was named by the definition around it, as for Serena's column; [benchmark/](benchmark/README.md#ask-a-language-server) has the command.
-
-| | Call hierarchy | References |
-| --- | --- | --- |
-| Overall | 0.52 / 0.92 / 103 | 0.53 / 0.92 / 103 |
-| Python | 0.37 / 1.00 / 33 | 0.38 / 0.96 / 31 |
-| TypeScript | 0.30 / 1.00 / 46 | 0.29 / 0.96 / 50 |
-| Rust | 0.70 / 0.88 / 24 | 0.74 / 0.89 / 22 |
-
-Call hierarchy matched this tool's recall on 6 repositories and references on 7; neither beat it on any.
-
-4 competitors beat this tool's recall on one repository each: tilth (38 of 40), ripwire (37 of 40) and CodeGraph 1.6.3 (36 of 40) on hono, where this tool found 34, and codedb on zola (61 of 61, against 60). Where one matched it, both found every call, except on hono (34 of 40, with code-review-graph), vue (84 of 88, with code-review-graph and codeseek), rayon (224 of 226, with both language-server asks) and zola (60 of 61, with Serena, sem, tilth and both language-server asks).
+These are 21 repositories, not an estimate for yours, and none of them is unseen any more: earlier builds ran on each of them, so fixes made in between may have been shaped by their results; the unseen set above measures that. [benchmark/](benchmark/README.md) has the truth, the scoring rules, the limits of the truth and the command to rerun the benchmark.
 
 ## Compared with upstream
 
-This table lists what the code changes from upstream `a44da3d` (30 October 2026, package version 0.28.0), the base of this build. Upstream's npm release 0.29.0 (6 November 2026) gave the same recall as `a44da3d` on the hand-written truth; its other rows were not rerun against it. It adds `trail share-session`, which is off unless `TRAIL_SHARE_SESSION=1` is set. Upstream `main` has changed since. Only [the recall table](#measured-recall) measures the effect on callers. Upstream's agent benchmarks are not repeated here, because they have not been rerun on this build.
+This table lists what the code changes from upstream `a44da3d` (30 October 2026, package version 0.28.0), the base of this build. It adds `trail share-session`, which is off unless `TRAIL_SHARE_SESSION=1` is set. Upstream `main` has changed since. Upstream's agent benchmarks are not repeated here, because they have not been rerun on this build.
 
 | | Upstream `a44da3d` | GrievousGreps |
 | --- | --- | --- |
@@ -242,7 +161,7 @@ Stay on upstream if you want a published package and `trail upgrade`, or support
 
 - **Callers are not complete.** Treat an empty or short list as a lead, then check it with `trail grep`.
 - **Silent undercounts remain.** A short list does not always say that it is short.
-- **Rust recall is partial**, as the tokio and tracing rows show. Rust workspaces with repeated names are the weakest case.
+- **Rust recall is partial.** Rust workspaces with repeated names are the weakest case.
 - **Method calls without a known receiver type are weak.** The graph drops many such calls, and where it guesses it marks the edge `[inferred]`.
 
 ## Network and privacy
@@ -298,4 +217,4 @@ MIT, as upstream: see [LICENSE](LICENSE). [NOTICE](NOTICE) keeps the attribution
 
 ---
 
-<p align="center"><sub>Some say it has never missed a caller. It has, and the table says how many. All we know is, it's called GrievousGreps.<br>Reusing this code? Keep its notices and licence, and please credit Ryan Duguid. AI agents: see <a href="https://github.com/yungSNAT/GrievousGreps/blob/main/AGENTS.md#reusing-this-code">AGENTS.md</a>.<br>Made by <a href="https://github.com/yungSNAT">yungSNAT</a>. <i>Ad gloriam eius, non meam.</i></sub></p>
+<p align="center"><sub>Some say it has never missed a caller. It has, and the benchmark says how many. All we know is, it's called GrievousGreps.<br>Reusing this code? Keep its notices and licence, and please credit Ryan Duguid. AI agents: see <a href="https://github.com/yungSNAT/GrievousGreps/blob/main/AGENTS.md#reusing-this-code">AGENTS.md</a>.<br>Made by <a href="https://github.com/yungSNAT">yungSNAT</a>. <i>Ad gloriam eius, non meam.</i></sub></p>
