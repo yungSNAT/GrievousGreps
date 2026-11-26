@@ -16,7 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { wiringPath, writeGraph } from "../../../src/graph/write.js";
 
 const args = process.argv.slice(2);
@@ -394,13 +394,14 @@ function fsCases(): number {
       writeFileSync(join(root, "in.json"), graph);
       ok = spawnSync(bin, ["wiring", join(root, "in.json"), "--out-dir", target]).status === 0;
     }
+    // Inspect where TypeScript's lexical resolution puts the output, not where the kernel would.
     const graphDir = join(target, ".graph");
     const leaf = join(graphDir, "wiring.json");
     const isDir = (p: string) => existsSync(p) && lstatSync(p).isDirectory();
     return JSON.stringify({
       ok,
       leaf: existsSync(leaf) && lstatSync(leaf).isFile() ? readFileSync(leaf, "utf8") : null,
-      files: isDir(graphDir) && !lstatSync(target).isSymbolicLink() ? readdirSync(graphDir).sort() : null,
+      files: isDir(graphDir) && !lstatSync(normalize(target)).isSymbolicLink() ? readdirSync(graphDir).sort() : null,
       outside: readdirSync(outside, { recursive: true, encoding: "utf8" }).sort().map((f) =>
         isDir(join(outside, f)) ? `${f}/` : `${f}=${readFileSync(join(outside, f), "utf8")}`),
     });
