@@ -116,7 +116,7 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        symbol: { type: 'string', description: 'bare name, qualified (Class.method), or package-qualified (pkg.Fn); a file path also works' },
+        symbol: { type: 'string', description: 'bare name, qualified (Class.method), package-qualified (pkg.Fn), or a node id (path#symbol, or its tail from a path segment; no fallback to the last segment); a file path also works' },
         direction: {
           type: 'string',
           enum: ['in', 'out'],
