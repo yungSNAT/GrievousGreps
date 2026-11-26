@@ -1607,7 +1607,6 @@ function withPythonLocalImports<T>(
   return out;
 }
 
-/** Binding patterns exclude type annotations, default values and attribute names. */
 /** Names a def's parameters and own statements bind. */
 function pythonDefBindings(definition: SyntaxNode): Set<string> {
   const names = new Set<string>();
@@ -1618,6 +1617,7 @@ function pythonDefBindings(definition: SyntaxNode): Set<string> {
   return names;
 }
 
+/** Binding patterns exclude type annotations, default values and attribute names. */
 function collectPythonBindingNames(node: SyntaxNode, names: Set<string>): void {
   if (node.type === "identifier") names.add(node.text);
   else if (node.type === "default_parameter" || node.type === "typed_default_parameter") {
