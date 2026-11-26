@@ -12,4 +12,5 @@ benchmark/results/**/*-files.json -diff
 # Recorded wiring.json goldens are compared byte for byte, so they keep LF everywhere.
 rust/gg-index/tests/fixtures/** -text
 # The query goldens and their fixture sources are hashed and compared byte for byte too.
-rust/gg-query/tests/fixtures/** eol=lf
+rust/gg-query/tests/fixtures/** text=auto eol=lf
+rust/gg-query/tests/fixtures/**/*.bin -text
