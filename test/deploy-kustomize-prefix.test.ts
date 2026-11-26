@@ -117,9 +117,12 @@ const RENAMED_CLASHES: Record<string, Record<string, string>> = {
 test("a leaf object's renamed name clashes as Kustomize counts it, so the overlay links nothing", () => {
   const files: Record<string, string> = {};
   for (const [c, fs] of Object.entries(RENAMED_CLASHES)) for (const [rel, text] of Object.entries(fs)) files[`${c}/${rel}`] = text;
-  const { edges } = resolveFiles(files);
+  const { edges, skipped } = resolveFiles(files);
   const links = edges.filter((e) => /#(configMap|secret)Generator:/.test(e.target) && !e.source.endsWith("#kustomization"))
     .map((e) => `${e.source} -> ${e.target}`).sort();
   // The base's own generator still links in the base's own build, as in case h.
   assert.deepEqual(links, ["p5/base/d.yaml#Deployment/default/api -> p5/base/kustomization.yaml#configMapGenerator:g"]);
+  // The refusal is reported, not silent.
+  const reasons = skipped.map((s) => `${s.path}: ${s.reason}`);
+  assert.ok(reasons.includes("p1/overlay/kustomization.yaml: ConfigMap b-x is 2 objects in this build: not linked to its generator"), reasons.join("\n"));
 });

@@ -341,7 +341,7 @@ export function linkKustomize(ctx: Context): void {
  * Given `leaves`, the build of an overlay: the same rules, except that an entry may also be a folder holding one of
  * those leaves, listed once and not holding the overlay. The overlay's `namespace`, if any, replaces each leaf object's.
  * A `namePrefix` or `nameSuffix` on either changes no link: a reference names an object as written, and Kustomize
- * matches it by the names as written, then renames both. A clash counts under a leaf object's renamed name as well as
+ * matches it by the names as written, then renames both. A clash counts under a leaf object's or generator's renamed name as well as
  * its written one (`b-x` from a leaf's `namePrefix: b-` clashes with the overlay's own `b-x`), so either refuses the
  * build. Objects that only their leaves' prefixes would tell apart are refused here too, though Kustomize builds them
  * (a false negative only).
