@@ -1117,7 +1117,7 @@ grouped(program.command("callers"), GROUP.find)
   .description(
     "Who calls/references a symbol ($0, no LLM). --direction out gives callees (what it calls); --depth N (or all) walks transitively for full blast radius",
   )
-  .argument("<symbol>", "bare name, qualified (Class.method), or package-qualified (pkg.Fn)")
+  .argument("<symbol>", "bare name, qualified (Class.method), package-qualified (pkg.Fn), or a node id (path#symbol, or its tail from a path segment; no fallback to the last segment)")
   .argument(...DIR_ARG)
   .option("--direction <in|out>", 'edge direction: "in" = callers (default), "out" = callees')
   .option("-d, --depth <n>", 'walk transitively up to N hops for blast radius, or "all" for the full connected closure (default 1)')
