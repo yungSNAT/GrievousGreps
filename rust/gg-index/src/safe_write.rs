@@ -44,45 +44,91 @@ pub fn write_atomic_inside(
     Ok(path)
 }
 
-/// `writeGraph`'s file step: `<out_dir>/.graph/wiring.json`, contained by `out_dir`'s parent,
-/// so a symlinked `out_dir` or `.graph` is refused. As TypeScript's `resolve` does, `..` in
-/// `out_dir` is collapsed lexically, and a missing parent is created: the parent is trusted.
+/// `writeGraph`'s file step: `<out_dir>/.graph/wiring.json`, contained by `dirname(out_dir)`,
+/// so a symlinked `out_dir` or `.graph` is refused. As TypeScript does, the base is the raw
+/// `dirname` before `..` is collapsed lexically, so a trailing `..` is refused and a trailing `.`
+/// makes `out_dir` the base. A missing base is created: the base is trusted.
 pub fn write_wiring(out_dir: &Path, text: &str) -> io::Result<PathBuf> {
-    let out_dir = lexical(&std::path::absolute(out_dir)?);
-    let (base, dirs) = split_out_dir(&out_dir);
-    std::fs::create_dir_all(base)
-        .and_then(|()| write_atomic_inside(base, &dirs, OsStr::new("wiring.json"), text.as_bytes()))
-        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", out_dir.display())))
+    let shown = out_dir.display();
+    split_out_dir(out_dir)
+        .and_then(|(base, dirs)| {
+            std::fs::create_dir_all(&base)?;
+            let dirs: Vec<&OsStr> = dirs.iter().map(OsString::as_os_str).collect();
+            write_atomic_inside(&base, &dirs, OsStr::new("wiring.json"), text.as_bytes())
+        })
+        .map_err(|e| io::Error::new(e.kind(), format!("{shown}: {e}")))
 }
 
-/// The trusted base and the directories below it for an absolute, lexical `out_dir`.
-/// A file-system root is its own `dirname`, so it is the base itself.
-fn split_out_dir(out_dir: &Path) -> (&Path, Vec<&OsStr>) {
-    let graph = OsStr::new(".graph");
-    match (out_dir.parent(), out_dir.file_name()) {
-        (Some(base), Some(name)) => (base, vec![name, graph]),
-        _ => (out_dir, vec![graph]),
-    }
+/// The trusted base, `resolve(dirname(out_dir))`, and the directories from it to
+/// `resolve(out_dir, ".graph")`. A file-system root is its own `dirname`.
+fn split_out_dir(out_dir: &Path) -> io::Result<(PathBuf, Vec<OsString>)> {
+    let out_dir = if out_dir.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        out_dir
+    };
+    // `Path::parent` matches `dirname` except on a trailing `.`, which `components` drops.
+    let raw_base = match out_dir.parent() {
+        Some(parent) if !ends_in_dot(out_dir) => parent,
+        _ => out_dir,
+    };
+    let resolve = |p: &Path| std::path::absolute(p).map(|p| lexical(&p));
+    let base = resolve(raw_base)?;
+    let graph = resolve(out_dir)?.join(".graph");
+    let below = graph
+        .strip_prefix(&base)
+        .map_err(|_| refuse(format!("refusing a path outside {}", base.display())))?;
+    let dirs = below.iter().map(OsStr::to_os_string).collect();
+    Ok((base, dirs))
+}
+
+/// Whether the last component of `path`, ignoring trailing separators, is `.`.
+fn ends_in_dot(path: &Path) -> bool {
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let sep = |b: &u8| std::path::is_separator(char::from(*b));
+    let end = bytes.iter().rposition(|b| !sep(b)).map_or(0, |i| i + 1);
+    let trimmed = &bytes[..end];
+    trimmed.ends_with(b".") && (end == 1 || sep(&trimmed[end - 2]))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn split(p: &Path) -> (PathBuf, Vec<OsString>) {
+        split_out_dir(p).unwrap()
+    }
+
     #[test]
     fn a_root_output_directory_is_its_own_base() {
         let root = std::path::absolute(Path::new("/")).unwrap();
-        let (base, dirs) = split_out_dir(&root);
-        assert_eq!((base, dirs), (root.as_path(), vec![OsStr::new(".graph")]));
-        let out = root.join("graft");
-        let (base, dirs) = split_out_dir(&out);
+        assert_eq!(split(&root), (root.clone(), vec![".graph".into()]));
         assert_eq!(
-            (base, dirs),
-            (
-                root.as_path(),
-                vec![OsStr::new("graft"), OsStr::new(".graph")]
-            )
+            split(&root.join("graft")),
+            (root.clone(), vec!["graft".into(), ".graph".into()])
         );
+        assert_eq!(split(&root.join("..")), (root, vec![".graph".into()]));
+    }
+
+    #[test]
+    fn the_base_is_the_raw_dirname_as_in_typescript() {
+        let r = std::path::absolute(Path::new("/r")).unwrap();
+        let graph: OsString = ".graph".into();
+        assert_eq!(
+            split(&r.join("graft").join(".")),
+            (r.join("graft"), vec![graph.clone()])
+        );
+        assert_eq!(
+            split(&r.join("graft").join(".").join("")),
+            (r.join("graft"), vec![graph.clone()])
+        );
+        assert_eq!(
+            split(&r.join("link").join("..").join("graft")),
+            (r.clone(), vec!["graft".into(), graph])
+        );
+        assert!(split_out_dir(&r.join("graft").join("..")).is_err());
+        assert!(!ends_in_dot(Path::new("a/b..")));
+        assert!(ends_in_dot(Path::new(".")));
     }
 }
 
