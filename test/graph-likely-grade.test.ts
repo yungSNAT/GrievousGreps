@@ -1,7 +1,7 @@
 /**
  * The `likely` edge grade: a cross-file edge that a stated type, path, crate or base class
  * picked, graded between `extracted` and the bare-name `inferred`. Measured on 26 Nov 2026:
- * 108 of 111 such edges right against 13 of 48 for a bare name (README, 'How precise').
+ * 96 of 99 such edges right against 13 of 48 for a bare name (README, 'How precise').
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -188,4 +188,23 @@ test("a TypeScript receiver type imported through a barrel is likely", () => {
     { source: "src/app.ts#run", relation: "calls", name: "get", viaMember: true, recvType: "Cache", file: "src/app.ts" },
   ]);
   assert.deepEqual(calls(edges).map((e) => [e.target, e.confidence]), [["src/lib/cache.ts#Cache.get", "likely"]]);
+});
+
+test("a type or base the file declares itself does not make a link to another file likely", () => {
+  const ts = resolveEdges([n("src/client/types.ts", "file"), n("src/client/types.ts#Response", "interface"), n("src/client/types.ts#Response.json", "method"),
+    n("src/h.ts#Response", "interface"), n("src/h.ts#handle", "function"), n("src/base.ts", "file"), n("src/base.ts#Base", "class"),
+    n("src/k.ts#Base", "function"), n("src/k.ts#Kid", "class")], [
+    tsFrom("src/h.ts", []),
+    { source: "src/h.ts#handle", relation: "calls", name: "json", viaMember: true, recvType: "Response", file: "src/h.ts" },
+    tsFrom("src/k.ts", []),
+    { source: "src/k.ts#Kid", relation: "extends", name: "Base", file: "src/k.ts" },
+  ]);
+  const py = resolveEdges([n("store.py", "file"), n("store.py#Store", "class"), n("store.py#Store.save", "method"),
+    n("app.py#Store", "function"), n("app.py#run", "function")], [
+    pyFrom("app.py", []),
+    { source: "app.py#run", relation: "calls", name: "save", viaMember: true, recvType: "Store", file: "app.py" },
+  ]);
+  const graded = [...ts, ...py].filter((e) => e.relation !== "contains" && !e.target.startsWith(e.source.split("#")[0]));
+  assert.ok(graded.length > 0);
+  assert.deepEqual(graded.filter((e) => e.confidence === "likely").map((e) => `${e.source} -> ${e.target}`), []);
 });

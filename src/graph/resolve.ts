@@ -519,7 +519,7 @@ export function resolveEdges(
   // type. Rust keeps the bare-name grade: 9 of 9 judged `impl Trait for X` by unique name were right.
   const likelyInScope = (file: string, name: string, targetId: string): boolean => {
     if (file.endsWith(".rs")) return true;
-    if ((perFileName.get(file)?.get(name) ?? []).length > 0) return true;
+    // A name the file declares itself is not the target's type: a same-file target is already `extracted`.
     const targetFile = byId.get(targetId)?.path;
     if (!targetFile) return false;
     if (isJs(file)) {
