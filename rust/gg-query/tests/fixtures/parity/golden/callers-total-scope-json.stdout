@@ -31,6 +31,14 @@
           "kind": "function",
           "path": "test/lib.test.ts",
           "span": "L3-L5"
+        },
+        {
+          "id": "pkg/ext#useTotal",
+          "relation": "calls",
+          "depth": 1,
+          "inferred": true,
+          "confidence": "inferred",
+          "scope": "external"
         }
       ]
     }

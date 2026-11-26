@@ -2,7 +2,7 @@
   "meta": {
     "version": 1,
     "nodeCount": 6,
-    "edgeCount": 7,
+    "edgeCount": 8,
     "languages": [
       "typescript"
     ],
@@ -145,6 +145,12 @@
       "target": "src/lib.ts#total",
       "relation": "calls",
       "confidence": "extracted"
+    },
+    {
+      "source": "pkg/ext#useTotal",
+      "target": "src/lib.ts#total",
+      "relation": "calls",
+      "confidence": "inferred"
     }
   ]
 }
