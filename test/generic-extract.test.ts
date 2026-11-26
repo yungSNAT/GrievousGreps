@@ -13,6 +13,7 @@ import {
   warmGenericGrammars,
   extractGeneric,
   genericLangOf,
+  fallbackLangOf,
   isWarm,
   loadWasmLanguage,
   parseWasm,
@@ -52,6 +53,42 @@ test("genericLangOf routes .rs to the breadth tier (and not depth-tier extension
   assert.equal(genericLangOf("src/app.ts"), null); // depth tier owns .ts
   assert.equal(genericLangOf("README.md"), null);
 });
+
+test("Java native fallback reuses the breadth grammar registered for .java", () => {
+  const java = genericLangOf("src/Main.java");
+  assert.equal(java?.name, "java");
+  assert.equal(fallbackLangOf("java"), java);
+  assert.equal(fallbackLangOf("typescript").wasm, "typescript");
+});
+
+test("Rust: distinguish blanket and slice trait impls and keep nested cfg scope", async () => {
+  await warmGenericGrammars(["rust"]);
+  const source = [
+    "trait Draw {}",
+    "impl<T: Copy> Draw for T {}",
+    "impl Draw for [u8] {}",
+    "mod platform {",
+    "  mod detail {",
+    "    #[cfg(unix)]",
+    "    // The comment still belongs to this item.",
+    "    fn open() {}",
+    "    fn always() {}",
+    "  }",
+    "}",
+  ].join("\n");
+  const { nodes, rawEdges } = extractGeneric("lib.rs", source, "rust");
+  const implementations = rawEdges.flatMap(({ rustImpl }) => rustImpl ? [rustImpl] : []);
+  assert.deepEqual(implementations, [
+    { trait: "Draw", type: "*" },
+    { trait: "Draw", type: "[]" },
+  ]);
+  const open = nodes.find((node) => node.name === "open");
+  assert.ok(open);
+  assert.deepEqual(rawEdges.flatMap(({ rustCfgItems }) => rustCfgItems ?? []), [
+    [open.id, "platform::detail"],
+  ]);
+});
+
 
 test("Rust: a path call picks its type's associated function among same-named ones, and calls inside macros count", async () => {
   await warmGenericGrammars(["rust"]);
