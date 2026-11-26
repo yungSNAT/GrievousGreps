@@ -143,8 +143,11 @@ const report = (run) =>
   spawnSync(
     process.execPath,
     [
+      // Thousands of processes write raw coverage: merge it file by file, with room to spare.
+      "--max-old-space-size=8192",
       join(repoRoot, "node_modules", "c8", "bin", "c8.js"),
       "report",
+      "--merge-async",
       `--temp-directory=${v8Dir(run)}`,
       `--reports-dir=${join(runTmp, `report-${run}`)}`,
       "--reporter=lcovonly",
