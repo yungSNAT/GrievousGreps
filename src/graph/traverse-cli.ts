@@ -208,16 +208,26 @@ function importLines(lines: string[]): boolean[] {
   return lines.map((l) => {
     if (!open && !IMPORT_LINE.test(l)) return false;
     const code = importCode(l);
-    open = open ? !/[)}]/.test(code) : /[({][^)}]*$/.test(code);
+    const opened = Math.max(code.lastIndexOf("("), code.lastIndexOf("{"));
+    open = open ? !/[)}]/.test(code) : opened >= 0 && !/[)}]/.test(code.slice(opened));
     return true;
   });
 }
 
 /** The names import lines bind `name` to (`name as alias`). */
 function aliasesOf(lines: string[], name: string): string[] {
-  const pairs = lines.flatMap((l) => [...l.matchAll(/([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)/g)]);
+  const aliases = lines.flatMap((l) => {
+    // Identifiers in order, with the text between each and the next: `name`, blank, `as`, blank, alias.
+    const ids = [...l.matchAll(/[A-Za-z_$][\w$]*/g)];
+    const gap = (k: number) => l.slice(ids[k].index + ids[k][0].length, ids[k + 1].index);
+    return ids.flatMap((m, k) =>
+      m[0] === name && ids[k + 2] && ids[k + 1][0] === "as" && /^\s+$/.test(gap(k)) && /^\s+$/.test(gap(k + 1))
+        ? [ids[k + 2][0]]
+        : [],
+    );
+  });
   // An alias holding `$` is skipped: `wordRe`'s `\b` cannot bound it, and gg-query skips it too.
-  return [...new Set(pairs.filter((m) => m[1] === name && m[2] !== name && !m[2].includes("$")).map((m) => m[2]))];
+  return [...new Set(aliases.filter((a) => a !== name && !a.includes("$")))];
 }
 
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched
