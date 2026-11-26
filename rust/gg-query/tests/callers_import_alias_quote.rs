@@ -7,88 +7,101 @@ use serde_json::json;
 use snapbox::cmd::{Command, cargo_bin};
 use tempfile::tempdir;
 
-/// Each caller of `pkg/util.py#helper`: its file, the caller node's name (the file's own path for
-/// a file node), the node's span and the file's text.
-const CALLERS: &[(&str, &str, &str, &str)] = &[
-    (
-        "py_alias.py",
-        "py_alias.py",
-        "L1-L3",
-        "from pkg.util import helper as h\n\nh(3)\n",
-    ),
-    (
-        "py_plain.py",
-        "py_plain.py",
-        "L1-L3",
-        "from pkg.util import helper\n\nVALUES = [helper(i) for i in range(2)]\n",
-    ),
-    (
-        "pkg/py_relative.py",
-        "run",
-        "L4-L5",
-        "from .util import helper as rel\n\n\ndef run():\n    return rel(6)\n",
-    ),
-    (
-        "py_except.py",
-        "guard",
-        "L4-L7",
-        "from pkg.util import helper\n\n\ndef guard(xs):\n    for e in xs:\n        check(e)\n    return helper(1)\n\n\ndef retry():\n    try:\n        guard([])\n    except helper as e:\n        log(e)\n",
-    ),
-    (
-        "py_multi.py",
-        "py_multi.py",
-        "L1-L5",
-        "from pkg.util import (\n    helper as hm,\n)\n\nhm(4)\n",
-    ),
-    (
-        "py_comment.py",
-        "py_comment.py",
-        "L1-L5",
-        "from pkg.util import (  # )\n    helper as hc,\n)\n\nhc(5)\n",
-    ),
-    (
-        "py_comment_tight.py",
-        "py_comment_tight.py",
-        "L1-L5",
-        "from pkg.util import (# )\n    helper as hd,\n)\n\nhd(7)\n",
-    ),
-    (
-        "py_comment_alias.py",
-        "scan",
-        "L4-L7",
-        "from pkg.util import helper  # helper as e\n\n\ndef scan(xs):\n    for e in xs:\n        check(e)\n    return helper(1)\n",
-    ),
-    (
-        "use_paren.js",
-        "use_paren.js",
-        "L1-L3",
-        "import { helper } from \"./lib(\";\n\nhelper();\n",
-    ),
-    (
-        "use_str.js",
-        "f",
-        "L4-L7",
-        "import \"helper as e\";\nimport { helper } from \"./util\";\n\nfunction f(xs) {\n  for (const e of xs) check(e);\n  return helper(2);\n}\n",
-    ),
-    (
-        "use_meta.js",
-        "use_meta.js",
-        "L1-L3",
-        "import { helper } from \"./util\";\n\nif (import.meta.url) helper(4);\n",
-    ),
-    (
-        "use_block.js",
-        "use_block.js",
-        "L1-L3",
-        "import { /* note */ helper as hb } from \"./util\";\n\nexport const v = hb(5);\n",
-    ),
-    (
-        "use_dollar.js",
-        "use_dollar.js",
-        "L1-L3",
-        "import { helper as h$ } from \"./util\";\n\nexport const d = h$(6);\n",
-    ),
-];
+/// Each caller of `pkg/util.py#helper`, one record per `~` line: a `path|name|span` header (the
+/// name is the path for a file node), then the file's text.
+const CALLERS: &str = "\
+py_alias.py|py_alias.py|L1-L3
+from pkg.util import helper as h
+
+h(3)
+~
+py_plain.py|py_plain.py|L1-L3
+from pkg.util import helper
+
+VALUES = [helper(i) for i in range(2)]
+~
+pkg/py_relative.py|run|L4-L5
+from .util import helper as rel
+
+
+def run():
+    return rel(6)
+~
+py_except.py|guard|L4-L7
+from pkg.util import helper
+
+
+def guard(xs):
+    for e in xs:
+        check(e)
+    return helper(1)
+
+
+def retry():
+    try:
+        guard([])
+    except helper as e:
+        log(e)
+~
+py_multi.py|py_multi.py|L1-L5
+from pkg.util import (
+    helper as hm,
+)
+
+hm(4)
+~
+py_comment.py|py_comment.py|L1-L5
+from pkg.util import (  # )
+    helper as hc,
+)
+
+hc(5)
+~
+py_comment_tight.py|py_comment_tight.py|L1-L5
+from pkg.util import (# )
+    helper as hd,
+)
+
+hd(7)
+~
+py_comment_alias.py|scan|L4-L7
+from pkg.util import helper  # helper as e
+
+
+def scan(xs):
+    for e in xs:
+        check(e)
+    return helper(1)
+~
+use_paren.js|use_paren.js|L1-L3
+import { helper } from \"./lib(\";
+
+helper();
+~
+use_str.js|f|L4-L7
+import \"helper as e\";
+import { helper } from \"./util\";
+
+function f(xs) {
+  for (const e of xs) check(e);
+  return helper(2);
+}
+~
+use_meta.js|use_meta.js|L1-L3
+import { helper } from \"./util\";
+
+if (import.meta.url) helper(4);
+~
+use_block.js|use_block.js|L1-L3
+import { /* note */ helper as hb } from \"./util\";
+
+export const v = hb(5);
+~
+use_dollar.js|use_dollar.js|L1-L3
+import { helper as h$ } from \"./util\";
+
+export const d = h$(6);
+";
 
 /// Writes the files and a graph in which each of [`CALLERS`] calls `helper`.
 fn write_repo(repo: &Path) {
@@ -102,11 +115,15 @@ fn write_repo(repo: &Path) {
     let mut nodes = vec![json!({ "id": target, "name": "helper", "kind": "function",
         "path": "pkg/util.py", "span": "L1-L2", "exported": true, "origin": "ast", "body_hash": "h0" })];
     let mut edges = Vec::new();
-    for (i, (path, name, span, text)) in CALLERS.iter().enumerate() {
+    for (i, record) in CALLERS.split("~\n").enumerate() {
+        let (head, text) = record.split_once('\n').unwrap();
+        let [path, name, span] = head.split('|').collect::<Vec<_>>()[..] else {
+            panic!("bad record {head}")
+        };
         write(path, text);
         let file = path == name;
         let id = if file {
-            (*path).to_string()
+            path.to_string()
         } else {
             format!("{path}#{name}")
         };
