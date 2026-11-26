@@ -1,34 +1,19 @@
-import { test, describe, after } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpRepo } from "./helpers.js";
-import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { cloud, connectHome, fixtureRepo, fixtureToken as token, git, runCli, scratchFolders, SERVER, workspace, type CliOptions, type Route } from "./cli-gaps-driver.js";
 import { cacheDir } from "../src/util/state.js";
 import { sessionDir } from "../src/claude/state.js";
 
 // trail team, trail check, trail status and the sign-in paths the other
 // cli-gaps files leave: teammates' branches come from this clone's branch cache.
 
-const SERVER = "http://trail.test";
 const KEY = "github.com/acme/widgets";
-const scratch: string[] = [];
-
-function scratchDir(tag: string): string {
-  const dir = tmpRepo(`cli-gaps-team-${tag}`);
-  scratch.push(dir);
-  return dir;
-}
+const scratchDir = scratchFolders("cli-gaps-team");
 
 function trail(args: string[], o: Partial<CliOptions> & { home: string }) {
   return runCli(args, { trail: true, ...o });
-}
-
-function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
-  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
-  return r.stdout;
 }
 
 function commitAll(dir: string, message: string): void {
@@ -36,37 +21,12 @@ function commitAll(dir: string, message: string): void {
   git(dir, "-c", "commit.gpgsign=false", "commit", "-q", "-m", message);
 }
 
-function widgetsRepo(tag: string, remote = true): string {
-  const dir = scratchDir(tag);
-  git(dir, "init", "--initial-branch=main");
-  git(dir, "config", "user.name", "Ada Fixture");
-  git(dir, "config", "user.email", "ada@example.invalid");
-  if (remote) git(dir, "remote", "add", "origin", "https://github.com/acme/widgets.git");
-  mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src", "gear.ts"), "export function turn(n: number): number {\n  return n * 2;\n}\n");
-  commitAll(dir, "Add gear");
-  return dir;
+function widgetsRepo(tag: string): string {
+  const code = "export function turn(n: number): number {\n  return n * 2;\n}\n";
+  return fixtureRepo(scratchDir(tag), { author: ["Ada Fixture", "ada@example.invalid"], remote: "https://github.com/acme/widgets.git", file: "gear.ts", code, message: "Add gear" });
 }
 
-function workspace(slug: string, name: string) {
-  return { id: `ws-${slug}`, name, slug, url: `${SERVER}/w/${slug}`, invite_url: `${SERVER}/join/${slug}` };
-}
-
-const token = (slug: string) => ["fixture", "token", slug].join("-");
-
-function cloud(slug: string, name: string, repos: string[], url = SERVER) {
-  return { url, token: token(slug), user: { name: "Ada", email: "ada@example.invalid" }, workspace: workspace(slug, name), repos, linkedAt: 1_700_000_000_000 };
-}
-
-function homeWith(tag: string, clouds: ReturnType<typeof cloud>[]): string {
-  const home = scratchDir(tag);
-  if (clouds.length) {
-    mkdirSync(join(home, ".trail"), { recursive: true });
-    const [first, ...others] = clouds.map((c, i) => ({ ...c, linkedAt: c.linkedAt - i }));
-    writeFileSync(join(home, ".trail", "cloud.json"), JSON.stringify(others.length ? { ...first, others } : first));
-  }
-  return home;
-}
+const homeWith = (tag: string, clouds: Array<ReturnType<typeof cloud>>) => connectHome(scratchDir(tag), clouds);
 
 /** Save a learning through the CLI, as the given author. */
 function note(dir: string, home: string, title: string, author: string, extra: string[] = []): void {
@@ -80,10 +40,6 @@ function branchCache(dir: string, branches: Array<{ ref: string; author: string;
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, JSON.stringify({ fetchedAt: Date.now(), base: "origin/main", branches: branches.map((b) => ({ at: Date.now() - 60_000, learnings: [], ...b })) }));
 }
-
-after(() => {
-  for (const dir of scratch.reverse()) rmSync(dir, { recursive: true, force: true });
-});
 
 describe("team, from this clone", () => {
   test("names who wrote learnings and where teammates' branches overlap", () => {
@@ -226,7 +182,7 @@ describe("status", () => {
       mkdirSync(join(sessionDir(dir), "s2.json"));
       const r = trail(["status", dir], { home });
       assert.equal(r.status, 0, r.detail);
-      assert.match(r.stdout, new RegExp(`^this week +~${shown} tokens saved$`, "m"));
+      assert.equal(/^this week +~(\S+) tokens saved$/m.exec(r.stdout)?.[1], shown, r.detail);
     }
   });
 });
@@ -240,7 +196,7 @@ describe("sign-in, the rarer paths", () => {
 
   test("--code with no --server goes to Trail cloud; the same workspace at a new address is said", () => {
     const dir = widgetsRepo("code-cloud");
-    const home = homeWith("code-cloud-home", [cloud("acme", "Acme", [], "http://old.trail.test")]);
+    const home = homeWith("code-cloud-home", [cloud("acme", "Acme", [], { url: "http://old.trail.test" })]);
     const r = trail(["login", dir, "--code", "TRL-ABCD"], { home, routes: [claimed] });
     assert.equal(r.status, 0, r.detail);
     assert.match(r.stderr, /· this laptop is also signed in to workspace Acme/);

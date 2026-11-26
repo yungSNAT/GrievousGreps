@@ -1,54 +1,23 @@
-import { test, describe, after } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpRepo } from "./helpers.js";
-import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { cloud, connectHome, fixtureSecret, fixtureToken as token, git, runCli, scratchFolders, SERVER, type CliOptions, type Route } from "./cli-gaps-driver.js";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
 
 // `trail share-session` paths the share-session tests leave: the prompts at a
 // terminal, signing in on the way, and the replies Trail can give.
 
-const SERVER = "http://trail.test";
 const ID = "5a1e0c2d-1111-4222-8333-944455556666";
-const scratch: string[] = [];
-
-function scratchDir(tag: string): string {
-  const dir = tmpRepo(`cli-gaps-share-${tag}`);
-  scratch.push(dir);
-  return dir;
-}
-
-function git(cwd: string, ...args: string[]): void {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
-  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
-}
-
-const token = (slug: string) => ["fixture", "token", slug].join("-");
-
-function cloud(slug: string, name: string, repos: string[], url = SERVER) {
-  return {
-    url,
-    token: token(slug),
-    user: { name: "Ada", email: "ada@example.invalid" },
-    workspace: { id: `ws-${slug}`, name, slug, url: `${url}/w/${slug}`, invite_url: `${url}/join/${slug}` },
-    repos,
-    linkedAt: 1_700_000_000_000,
-  };
-}
+const BUNDLE = "0b0b0b0b-1111-4222-8333-944455556666";
+const scratchDir = scratchFolders("cli-gaps-share");
 
 /** A home with these connections and one Claude Code session in `repo`, a git checkout of acme/widgets. */
-function setup(tag: string, clouds: ReturnType<typeof cloud>[]): { home: string; repo: string } {
-  const home = scratchDir(`${tag}-home`);
+function setup(tag: string, clouds: Array<ReturnType<typeof cloud>>): { home: string; repo: string } {
+  const home = connectHome(scratchDir(`${tag}-home`), clouds);
   const repo = scratchDir(tag);
   git(repo, "init", "--initial-branch=main");
   git(repo, "remote", "add", "origin", "https://github.com/acme/widgets.git");
-  if (clouds.length) {
-    mkdirSync(join(home, ".trail"), { recursive: true });
-    const [first, ...others] = clouds.map((c, i) => ({ ...c, linkedAt: c.linkedAt - i }));
-    writeFileSync(join(home, ".trail", "cloud.json"), JSON.stringify(others.length ? { ...first, others } : first));
-  }
   const folder = claudeProjectDir(repo, home);
   mkdirSync(folder, { recursive: true });
   const at = new Date().toISOString();
@@ -75,13 +44,9 @@ function copies(home: string): string[] {
   return existsSync(root) ? readdirSync(root).filter((n) => n !== "sync" && n !== "sync.json") : [];
 }
 
-after(() => {
-  for (const dir of scratch.reverse()) rmSync(dir, { recursive: true, force: true });
-});
-
 describe("which connection may share", () => {
   test("this repo's workspace is asked first; an error from one and a no from the other is an error", () => {
-    const { home, repo } = setup("two", [cloud("acme", "Acme", [], "http://a.trail.test"), cloud("globex", "Globex", ["github.com/acme/widgets"], "http://b.trail.test")]);
+    const { home, repo } = setup("two", [cloud("acme", "Acme", [], { url: "http://a.trail.test" }), cloud("globex", "Globex", ["github.com/acme/widgets"], { url: "http://b.trail.test" })]);
     const log = join(scratchDir("two-log"), "fetch.jsonl");
     const r = share(["--list"], {
       home,
@@ -227,7 +192,7 @@ describe("--yes on a copy just shown", () => {
 describe("--delete", () => {
   test("Trail's error is said; a deletion with no copies here, or while sending, stops the sending", () => {
     const { home, repo } = setup("delete", [cloud("acme", "Acme", [])]);
-    const code = "0b0b0b0b-1111-4222-8333-944455556666.fixturesecretpartone";
+    const code = `${BUNDLE}.${fixtureSecret}`;
     const err = share(["--delete", code], { home, cwd: repo, routes: [allowed, { on: "DELETE /api/cli/shared-sessions/bundles/", status: 500, body: { error: "Trail is busy" } }] });
     assert.equal(err.status, 1, err.detail);
     assert.match(err.stderr, /✗ couldn't delete it · Trail is busy/);
@@ -239,7 +204,7 @@ describe("--delete", () => {
 
     mkdirSync(join(home, ".trail", "share"), { recursive: true });
     const syncFile = join(home, ".trail", "share", "sync.json");
-    writeFileSync(syncFile, JSON.stringify({ bundleId: "0b0b0b0b-1111-4222-8333-944455556666", secret: "fixturesecretpartone", since: Date.now(), days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
+    writeFileSync(syncFile, JSON.stringify({ bundleId: BUNDLE, secret: fixtureSecret, since: Date.now(), days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
     const syncing = share(["--delete", code], { home, cwd: repo, routes: [allowed, deleted] });
     assert.equal(syncing.status, 0, syncing.detail);
     assert.ok(JSON.parse(readFileSync(syncFile, "utf8")).stoppedAt, "the sending stops");
@@ -251,7 +216,7 @@ describe("--delete", () => {
     const hourAgo = new Date(Date.now() - 3_600_000);
     utimesSync(join(claudeProjectDir(repo, home), `${ID}.jsonl`), hourAgo, hourAgo);
     mkdirSync(join(home, ".trail", "share"), { recursive: true });
-    writeFileSync(join(home, ".trail", "share", "sync.json"), JSON.stringify({ bundleId: "0b0b0b0b-1111-4222-8333-944455556666", secret: "fixturesecretpartone", since: Date.now() - 86_400_000, days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
+    writeFileSync(join(home, ".trail", "share", "sync.json"), JSON.stringify({ bundleId: BUNDLE, secret: fixtureSecret, since: Date.now() - 86_400_000, days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
     const log = join(home, "fetch.jsonl");
     const r = runCli(["_share-sync"], { home, cwd: repo, trail: true, routes: [posted], fetchLog: log });
     assert.equal(r.status, 0, r.detail);
@@ -263,10 +228,10 @@ describe("--delete", () => {
     const { home, repo } = setup("stop-no-hook", [cloud("acme", "Acme", [])]);
     mkdirSync(join(home, ".trail", "share"), { recursive: true });
     const syncFile = join(home, ".trail", "share", "sync.json");
-    writeFileSync(syncFile, JSON.stringify({ bundleId: "0b0b0b0b-1111-4222-8333-944455556666", secret: "fixturesecretpartone", since: Date.now(), days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
+    writeFileSync(syncFile, JSON.stringify({ bundleId: BUNDLE, secret: fixtureSecret, since: Date.now(), days: 30, url: SERVER, excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 0 }));
     const r = share(["--stop"], { home, cwd: repo });
     assert.equal(r.status, 0, r.detail);
-    assert.match(r.stderr, /^✓ stopped: nothing more is sent\n· what already went stays with the Trail team until you take it back: trail share-session --delete 0b0b0b0b-1111-4222-8333-944455556666\.fixturesecretpartone\n$/);
+    assert.equal(r.stderr, `✓ stopped: nothing more is sent\n· what already went stays with the Trail team until you take it back: trail share-session --delete ${BUNDLE}.${fixtureSecret}\n`);
     assert.ok(JSON.parse(readFileSync(syncFile, "utf8")).stoppedAt);
   });
 });

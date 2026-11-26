@@ -1,23 +1,14 @@
-import { test, describe, after } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
-import { tmpRepo } from "./helpers.js";
-import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { fixtureRepo, fixtureToken, git, runCli, scratchFolders, SERVER, workspaceRoot as twoRepos, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
 // `init`, `init --pair` and `init --connect` through the real CLI: the picker and
 // the just-me question at a terminal, a stand-in Trail, and the summary's rarer lines.
 
-const SERVER = "http://trail.test";
-const scratch: string[] = [];
-
-function scratchDir(tag: string): string {
-  const dir = tmpRepo(`cli-gaps-init-${tag}`);
-  scratch.push(dir);
-  return dir;
-}
+const scratchDir = scratchFolders("cli-gaps-init");
 
 function cli(args: string[], o: Partial<CliOptions> = {}) {
   return runCli(args, { home: o.home ?? scratchDir("home"), ...o });
@@ -27,33 +18,12 @@ function trail(args: string[], o: Partial<CliOptions> = {}) {
   return cli(args, { trail: true, ...o });
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
-  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
-  return r.stdout;
-}
-
 function codeRepo(tag: string): string {
-  const dir = scratchDir(tag);
-  git(dir, "init", "--initial-branch=main");
-  git(dir, "config", "user.name", "Ada");
-  git(dir, "config", "user.email", "ada@example.invalid");
-  mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src", "gear.ts"), "export function turn(v: number): number {\n  return v * 2;\n}\n");
-  git(dir, "add", "--", "src");
-  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", `Add gear (${tag})`);
-  return dir;
+  const code = "export function turn(v: number): number {\n  return v * 2;\n}\n";
+  return fixtureRepo(scratchDir(tag), { author: ["Ada", "ada@example.invalid"], file: "gear.ts", code, message: `Add gear (${tag})` });
 }
 
-/** A folder holding two independent repos: a workspace parent. */
-function workspaceRoot(tag: string): string {
-  const root = scratchDir(tag);
-  for (const name of ["alpha", "beta"]) {
-    mkdirSync(join(root, name, ".git"), { recursive: true });
-    writeFileSync(join(root, name, "main.ts"), `export function ${name}(): number {\n  return 1;\n}\n`);
-  }
-  return root;
-}
+const workspaceRoot = (tag: string) => twoRepos(scratchDir(tag));
 
 /** No CI and no Do Not Track, with a telemetry key: the picker offers its telemetry row. */
 const TELEMETRY_ASKS: Record<string, string | undefined> = {
@@ -63,10 +33,6 @@ const TELEMETRY_ASKS: Record<string, string | undefined> = {
 };
 
 const ok = (on: string, body: unknown = {}): Route => ({ on, status: 200, body });
-
-after(() => {
-  for (const dir of scratch.reverse()) rmSync(dir, { recursive: true, force: true });
-});
 
 describe("which agents", () => {
   test("--list-agents prints every agent id and writes nothing", () => {
@@ -331,7 +297,7 @@ describe("what init says", () => {
 });
 
 describe("--connect", () => {
-  const connected = ok("POST /api/public/cli/connect", { token: "fixture-workspace-pass", workspace: { id: "w1", name: "Acme", slug: "acme" }, user: { id: "u1", name: "Ada" } });
+  const connected = ok("POST /api/public/cli/connect", { token: fixtureToken("acme"), workspace: { id: "w1", name: "Acme", slug: "acme" }, user: { id: "u1", name: "Ada" } });
 
   test("at a terminal, the summary Trail didn't take says how to send it again", () => {
     const repo = codeRepo("connect-tty");

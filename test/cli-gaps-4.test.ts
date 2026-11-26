@@ -1,41 +1,20 @@
-import { test, describe, before, after } from "node:test";
+import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { tmpRepo } from "./helpers.js";
-import { gitEnv, runCli, type CliOptions } from "./cli-gaps-driver.js";
+import { fixtureRepo, runCli, scratchFolders, type CliOptions } from "./cli-gaps-driver.js";
 
-const scratch: string[] = [];
+const scratchDir = scratchFolders("cli-gaps-4");
 let home: string;
 let repo: string;
-
-function scratchDir(tag: string): string {
-  const dir = tmpRepo(`cli-gaps-4-${tag}`);
-  scratch.push(dir);
-  return dir;
-}
 
 function cli(args: string[], o: Partial<CliOptions> = {}) {
   return runCli(args, { home, ...o });
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
-  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
-  return r.stdout;
-}
-
 function codeRepo(tag: string): string {
-  const dir = scratchDir(tag);
-  git(dir, "init", "--initial-branch=main");
-  git(dir, "config", "user.name", "Fixture Author");
-  git(dir, "config", "user.email", "fixture@example.invalid");
-  mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src", "score.ts"), "export function score(v: number): number {\n  return v + 1;\n}\n");
-  git(dir, "add", "--", "src");
-  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", "Add score");
-  return dir;
+  const code = "export function score(v: number): number {\n  return v + 1;\n}\n";
+  return fixtureRepo(scratchDir(tag), { author: ["Fixture Author", "fixture@example.invalid"], file: "score.ts", code, message: "Add score" });
 }
 
 function build(dir: string): void {
@@ -47,10 +26,6 @@ before(() => {
   home = scratchDir("home");
   repo = codeRepo("repo");
   build(repo);
-});
-
-after(() => {
-  for (const dir of scratch.reverse()) rmSync(dir, { recursive: true, force: true });
 });
 
 describe("telemetry", () => {

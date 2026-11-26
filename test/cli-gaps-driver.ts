@@ -17,12 +17,14 @@
  * - `GG_CLOCK_STEP_MS`: every `Date.now()` is that much later than the one before, so a
  *   wait with a deadline ends at its first check.
  */
+import { after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { tmpRepo } from "./helpers.js";
 
 const entry = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 // By URL, so a command run from a folder outside the package still loads it.
@@ -245,4 +247,75 @@ export function runCli(args: string[], o: CliOptions): CliResult {
     stderr: r.stderr,
     detail: `${JSON.stringify(args)}\nstatus: ${r.status}\nstdout:\n${r.stdout}\nstderr:\n${r.stderr}`,
   };
+}
+
+/* The cli-gaps files' shared fixtures. */
+
+/** Scratch folders for one test file, named after `prefix` and removed once its tests are done. */
+export function scratchFolders(prefix: string): (tag: string) => string {
+  const made: string[] = [];
+  after(() => {
+    for (const dir of made.reverse()) rmSync(dir, { recursive: true, force: true });
+  });
+  return (tag) => {
+    const dir = tmpRepo(`${prefix}-${tag}`);
+    made.push(dir);
+    return dir;
+  };
+}
+
+/** git in `cwd`, as the CLI's git sees it: its output, or a failed assertion naming the command. */
+export function git(cwd: string, ...args: string[]): string {
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
+  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
+  return r.stdout;
+}
+
+/** A git repo in `dir` with one commit, of `src/<file>`, by `author`, with `origin` at `remote` when given. */
+export function fixtureRepo(dir: string, o: { author: [name: string, email: string]; file: string; code: string; message: string; remote?: string }): string {
+  git(dir, "init", "--initial-branch=main");
+  git(dir, "config", "user.name", o.author[0]);
+  git(dir, "config", "user.email", o.author[1]);
+  if (o.remote) git(dir, "remote", "add", "origin", o.remote);
+  mkdirSync(join(dir, "src"));
+  writeFileSync(join(dir, "src", o.file), o.code);
+  git(dir, "add", "-A");
+  git(dir, "-c", "commit.gpgsign=false", "commit", "-q", "-m", o.message);
+  return dir;
+}
+
+/** Two independent repos, alpha and beta, in `root`: a workspace parent. */
+export function workspaceRoot(root: string): string {
+  for (const name of ["alpha", "beta"]) {
+    mkdirSync(join(root, name, ".git"), { recursive: true });
+    writeFileSync(join(root, name, "main.ts"), `export function ${name}(): number {\n  return 1;\n}\n`);
+  }
+  return root;
+}
+
+/** The stand-in Trail the routes answer for. */
+export const SERVER = "http://trail.test";
+
+/** Not real credentials, made at run time: any non-empty string is one to the CLI. */
+export const fixtureToken = (slug: string): string => ["fixture", slug, process.pid].join("-");
+export const fixtureSecret = ["fixture", "secret", "part", "one"].join("");
+
+export function workspace(slug: string, name: string, url = SERVER) {
+  return { id: `ws-${slug}`, name, slug, url: `${url}/w/${slug}`, invite_url: `${url}/join/${slug}` };
+}
+
+/** A saved connection to workspace `slug`, at SERVER unless `extra.url` says otherwise. */
+export function cloud(slug: string, name: string, repos: string[], extra: { url?: string; via?: string } = {}) {
+  const url = extra.url ?? SERVER;
+  return { url, token: fixtureToken(slug), user: { name: "Ada", email: "ada@example.invalid" }, workspace: workspace(slug, name, url), repos, linkedAt: 1_700_000_000_000, ...extra };
+}
+
+/** `home`, connected to these workspaces, newest first. */
+export function connectHome(home: string, clouds: Array<ReturnType<typeof cloud>>): string {
+  if (clouds.length) {
+    mkdirSync(join(home, ".trail"), { recursive: true });
+    const [first, ...others] = clouds.map((c, i) => ({ ...c, linkedAt: c.linkedAt - i }));
+    writeFileSync(join(home, ".trail", "cloud.json"), JSON.stringify(others.length ? { ...first, others } : first));
+  }
+  return home;
 }

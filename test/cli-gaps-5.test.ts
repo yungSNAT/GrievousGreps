@@ -1,45 +1,24 @@
-import { test, describe, before, after } from "node:test";
+import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
-import { tmpRepo } from "./helpers.js";
-import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { fixtureRepo, fixtureSecret, git, runCli, scratchFolders, workspaceRoot as twoRepos, type CliOptions } from "./cli-gaps-driver.js";
 
 // Hidden helpers, the --deep build offline, queries under trail, and the
 // build's rarer lines, each through the real CLI.
 
-const scratch: string[] = [];
+const scratchDir = scratchFolders("cli-gaps-5");
 let home: string;
 let repo: string;
-
-function scratchDir(tag: string): string {
-  const dir = tmpRepo(`cli-gaps-5-${tag}`);
-  scratch.push(dir);
-  return dir;
-}
 
 function cli(args: string[], o: Partial<CliOptions> = {}) {
   return runCli(args, { home, ...o });
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
-  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
-  return r.stdout;
-}
-
 function codeRepo(tag: string): string {
-  const dir = scratchDir(tag);
-  git(dir, "init", "--initial-branch=main");
-  git(dir, "config", "user.name", "Fixture Author");
-  git(dir, "config", "user.email", "fixture@example.invalid");
-  mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src", "score.ts"), "export function score(v: number): number {\n  return bonus(v) + 1;\n}\n\nexport function bonus(v: number): number {\n  return v * 2;\n}\n");
-  git(dir, "add", "--", "src");
-  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", `Add score (${tag})`);
-  return dir;
+  const code = "export function score(v: number): number {\n  return bonus(v) + 1;\n}\n\nexport function bonus(v: number): number {\n  return v * 2;\n}\n";
+  return fixtureRepo(scratchDir(tag), { author: ["Fixture Author", "fixture@example.invalid"], file: "score.ts", code, message: `Add score (${tag})` });
 }
 
 function build(dir: string, o: Partial<CliOptions> = {}): void {
@@ -47,24 +26,12 @@ function build(dir: string, o: Partial<CliOptions> = {}): void {
   assert.equal(r.status, 0, r.detail);
 }
 
-/** A folder holding two independent repos: a workspace parent. */
-function workspaceRoot(tag: string): string {
-  const root = scratchDir(tag);
-  for (const name of ["alpha", "beta"]) {
-    mkdirSync(join(root, name, ".git"), { recursive: true });
-    writeFileSync(join(root, name, "main.ts"), `export function ${name}(): number {\n  return 1;\n}\n`);
-  }
-  return root;
-}
+const workspaceRoot = (tag: string) => twoRepos(scratchDir(tag));
 
 before(() => {
   home = scratchDir("home");
   repo = codeRepo("repo");
   build(repo);
-});
-
-after(() => {
-  for (const dir of scratch.reverse()) rmSync(dir, { recursive: true, force: true });
 });
 
 describe("hidden helpers", () => {
@@ -112,7 +79,7 @@ describe("hidden helpers", () => {
     const none = cli(["_share-sync"], { home: h });
     assert.equal(none.status, 0, none.detail);
     mkdirSync(join(h, ".trail", "share"), { recursive: true });
-    writeFileSync(join(h, ".trail", "share", "sync.json"), JSON.stringify({ bundleId: "b1", secret: "s1", since: 1, days: 30, url: "http://trail.test", excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 1 }));
+    writeFileSync(join(h, ".trail", "share", "sync.json"), JSON.stringify({ bundleId: "b1", secret: fixtureSecret, since: 1, days: 30, url: "http://trail.test", excluded: [], dirs: [], sessions: {}, sizes: {}, setupHash: "", lastRunAt: 1 }));
     const gone = cli(["_share-sync"], { home: h });
     assert.equal(gone.status, 0, gone.detail);
     assert.equal(gone.stdout + gone.stderr, "");

@@ -1,69 +1,27 @@
-import { test, describe, before, after } from "node:test";
+import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpRepo } from "./helpers.js";
-import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { cloud, connectHome, fixtureRepo, fixtureToken as token, runCli, scratchFolders, SERVER, workspace, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
 // `trail login`, `logout`, `workspace`, `team` and `status` against a stand-in
 // Trail: the driver answers each request from the routes a test gives it.
 
-const SERVER = "http://trail.test";
 const KEY = "github.com/acme/widgets";
-const scratch: string[] = [];
+const scratchDir = scratchFolders("cli-gaps-cloud");
 let repo: string;
-
-function scratchDir(tag: string): string {
-  const dir = tmpRepo(`cli-gaps-cloud-${tag}`);
-  scratch.push(dir);
-  return dir;
-}
 
 function trail(args: string[], o: Partial<CliOptions> & { home: string }) {
   return runCli(args, { trail: true, ...o });
 }
 
-function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
-  assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
-  return r.stdout;
-}
-
 function widgetsRepo(tag: string): string {
-  const dir = scratchDir(tag);
-  git(dir, "init", "--initial-branch=main");
-  git(dir, "config", "user.name", "Ada Fixture");
-  git(dir, "config", "user.email", "ada@example.invalid");
-  git(dir, "remote", "add", "origin", "https://github.com/acme/widgets.git");
-  mkdirSync(join(dir, "src"));
-  writeFileSync(join(dir, "src", "gear.ts"), "export function turn(n: number): number {\n  return n * 2;\n}\n");
-  git(dir, "add", "--", "src");
-  git(dir, "-c", "commit.gpgsign=false", "commit", "-m", "Add gear");
-  return dir;
-}
-
-function workspace(slug: string, name: string) {
-  return { id: `ws-${slug}`, name, slug, url: `${SERVER}/w/${slug}`, invite_url: `${SERVER}/join/${slug}` };
-}
-
-// Not a real token: any non-empty string is a connection's token to the CLI.
-const token = (slug: string) => ["fixture", "token", slug].join("-");
-
-function cloud(slug: string, name: string, repos: string[], extra: Record<string, unknown> = {}) {
-  return { url: SERVER, token: token(slug), user: { name: "Ada", email: "ada@example.invalid" }, workspace: workspace(slug, name), repos, linkedAt: 1_700_000_000_000, ...extra };
+  const code = "export function turn(n: number): number {\n  return n * 2;\n}\n";
+  return fixtureRepo(scratchDir(tag), { author: ["Ada Fixture", "ada@example.invalid"], remote: "https://github.com/acme/widgets.git", file: "gear.ts", code, message: "Add gear" });
 }
 
 /** A home connected to these workspaces, newest first. */
-function homeWith(tag: string, clouds: ReturnType<typeof cloud>[]): string {
-  const home = scratchDir(tag);
-  if (clouds.length) {
-    mkdirSync(join(home, ".trail"), { recursive: true });
-    const [first, ...others] = clouds.map((c, i) => ({ ...c, linkedAt: c.linkedAt - i }));
-    writeFileSync(join(home, ".trail", "cloud.json"), JSON.stringify(others.length ? { ...first, others } : first));
-  }
-  return home;
-}
+const homeWith = (tag: string, clouds: Array<ReturnType<typeof cloud>>) => connectHome(scratchDir(tag), clouds);
 
 function savedClouds(home: string): Array<{ workspace: { slug: string }; repos: string[] }> {
   const p = join(home, ".trail", "cloud.json");
@@ -85,10 +43,6 @@ const claimed = (slug: string, name: string): Route => ({
 
 before(() => {
   repo = widgetsRepo("repo");
-});
-
-after(() => {
-  for (const dir of scratch.reverse()) rmSync(dir, { recursive: true, force: true });
 });
 
 describe("login", () => {
