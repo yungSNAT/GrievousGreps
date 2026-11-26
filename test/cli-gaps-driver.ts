@@ -266,7 +266,7 @@ export function scratchFolders(prefix: string): (tag: string) => string {
 
 /** git in `cwd`, as the CLI's git sees it: its output, or a failed assertion naming the command. */
 export function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() }); // NOSONAR: test fixture; runs the git on PATH on purpose
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout;
 }
