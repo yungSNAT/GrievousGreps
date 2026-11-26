@@ -87,9 +87,21 @@ function groupedHit(hit: NodeHit, showDepth: boolean, quote: Quote | undefined):
   return `${name} ${hit.node.span.split("-")[0]}${depthTag}`;
 }
 
+/** Where a hit sits: `external` has no node (an unresolved import), `test` is in a test file, `internal` is the rest. */
+export type Scope = "internal" | "test" | "external";
+const SCOPES: readonly Scope[] = ["internal", "test", "external"];
+
+export function scopeOf(hit: EdgeHit): Scope {
+  if (!hit.node) return "external";
+  return isTestPath(hit.node.path) ? "test" : "internal";
+}
+
 /**
- * The hit lines of one definition, each path printed once a group. Hits group by relation, file and
- * inferred mark, in the order the walk found them; the mark follows the path. A group with no
+ * The hit lines of one definition, each path printed once a group. Hits are ordered internal, then
+ * test, then external ({@link scopeOf}), and when more than one scope is present each scope opens
+ * with a `[scope: hit count]` line: production callers are what an impact read needs first.
+ * Within a scope, hits group by relation, file and inferred mark, in the order the walk found
+ * them; the mark follows the path. A group with no
  * quoted call site prints on one line (`path: name L8, name L20`); a group with quotes gives each
  * hit its own line under the path.
  * The relation is left out when `shared` (the header carries it). A hit with no node (an
@@ -105,10 +117,16 @@ function hitLines(
 ): string[] {
   const groups = new Map<string, HitGroup>();
   const out: (string | HitGroup)[] = [];
-  for (const h of hits) {
+  const byScope = SCOPES.map((s) => hits.filter((h) => scopeOf(h) === s));
+  const labelled = byScope.filter((b) => b.length > 0).length > 1;
+  for (const [i, scoped] of byScope.entries()) {
+    if (labelled && scoped.length > 0) out.push(`  [${SCOPES[i]}: ${scoped.length}]`);
+    for (const h of scoped) pushHit(h);
+  }
+  function pushHit(h: EdgeHit): void {
     if (!h.node) {
       out.push(hitLine(direction, h, showDepth));
-      continue;
+      return;
     }
     const mark = confidenceMark(h.confidence, h.inferred);
     const key = `${h.relation}\0${h.node.path}\0${mark}`;
@@ -367,6 +385,7 @@ interface HitJson {
   /** Set on every edge that is not proven (`likely` and `inferred`): check it before relying on it. */
   inferred?: true;
   confidence: Confidence;
+  scope: Scope;
 }
 
 function symbolJson(n: NodeV1): SymbolJson {
@@ -375,7 +394,7 @@ function symbolJson(n: NodeV1): SymbolJson {
 
 function hitJson(hit: EdgeHit): HitJson {
   const out: HitJson = { id: hit.id, relation: hit.relation, depth: hit.depth, ...(hit.inferred ? { inferred: true as const } : {}),
-    confidence: hit.confidence ?? (hit.inferred ? "inferred" : "extracted") };
+    confidence: hit.confidence ?? (hit.inferred ? "inferred" : "extracted"), scope: scopeOf(hit) };
   if (hit.node) {
     out.name = hit.node.name;
     out.kind = hit.node.kind;
