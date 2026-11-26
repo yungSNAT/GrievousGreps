@@ -394,6 +394,7 @@ function fsCases(): number {
       mkdirSync(join(root, "graft"));
       return "graft/..";
     },
+    "relative, empty": () => "",
   };
   const run = (index: number, setup: Plant, who: "ts" | "rust") => {
     const root = join(work, `fs-${who}-${index}`);
