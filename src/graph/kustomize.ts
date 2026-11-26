@@ -4,7 +4,9 @@
  * `bases`, `components`), the objects in the patch files it lists, and a name-only node for
  * each generated ConfigMap or Secret. In a standalone leaf build (files only, with no options
  * or strategies that alter generation) a workload's reference also links to the generator it
- * names, as `kustomize build` on that folder renames it; an enclosing overlay can still patch
+ * names, as `kustomize build` on that folder renames it; so does a reference in an overlay that
+ * lists such leaf folders, or in one of those leaves, to the overlay's own generator, when neither
+ * renames by prefix or suffix. A build above can still patch
  * or transform references. Otherwise names are not
  * resolved: `namespace`, `namePrefix`, `nameSuffix`, `images`, generator names and patches are
  * not applied to references, which link objects as written; each kustomization using them says
@@ -249,13 +251,21 @@ export function linkKustomize(ctx: Context): void {
   }
   const unsafeFiles = new Set(ctx.refs.filter((r) => r.to === "leafIneligibleFile").map((r) => r.from));
   const leafFile = ctx.isLeafFile ?? ((_dir: string, local: string) => ctx.fileExists(local) && !dirs.has(local));
-  const leaves = new Map<KustomizeRef, NodeV1[]>();
+  // Leaves first: an overlay's build takes in only leaf folders.
+  const builds = new Map<KustomizeRef, Build>();
   for (const k of ks) {
-    const members = leafMembers(k, byDir, objectsIn, leafFile, unsafeFiles);
-    if (members) leaves.set(k, members);
+    const b = buildOf(k, byDir, objectsIn, leafFile, unsafeFiles);
+    if (b) builds.set(k, b);
+  }
+  const leaves = new Map(builds);
+  for (const k of ks) {
+    const b = builds.has(k) ? null : buildOf(k, byDir, objectsIn, leafFile, unsafeFiles, leaves);
+    if (b) builds.set(k, b);
+  }
+  for (const k of ks) {
     for (const f of k.unread) report(k, `${f} not read`);
     for (const f of k.unapplied) {
-      if (!(members && GENERATORS.some(([g]) => g === f))) report(k, `${f} not applied to references, which link objects as written`);
+      if (!(builds.has(k) && GENERATORS.some(([g]) => g === f))) report(k, `${f} not applied to references, which link objects as written`);
     }
   }
   /** Each path's local target: a kustomization folder, objects in a file, or a report. A local path wins over a remote reading. */
@@ -311,7 +321,7 @@ export function linkKustomize(ctx: Context): void {
     }
     if (!link(k, k.generators)) break linking;
   }
-  if (links <= MAX_LINKS) linkGenerated(ctx, leaves, report, () => ++links <= MAX_LINKS);
+  if (links <= MAX_LINKS) linkGenerated(ctx, builds, report, () => ++links <= MAX_LINKS);
   reportCycles(ks, kids, report);
   for (const [k, n] of reports) if (n > MAX_REPORTS) ctx.skipped.push({ path: fileOf(k), reason: `and ${n - MAX_REPORTS} more reports` });
 }
@@ -326,56 +336,80 @@ export function linkKustomize(ctx: Context): void {
  * regular `files` (no `options`, `envs`, or `merge`/`replace`). When built on its own, its files and generators are
  * all the build holds and only its own transforms run; an enclosing build can still rewrite references after
  * accumulation.
+ *
+ * Given `leaves`, the build of an overlay: the same rules, except that an entry may also be a folder holding one of
+ * those leaves, listed once and not holding the overlay, and neither the overlay nor any of its leaves has `namePrefix` or `nameSuffix`. The
+ * overlay's `namespace`, if any, replaces each leaf object's.
  */
-function leafMembers(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>,
-  leafFile: (dir: string, local: string) => boolean, unsafeFiles: Set<string>): NodeV1[] | null {
+function buildOf(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>,
+  leafFile: (dir: string, local: string) => boolean, unsafeFiles: Set<string>, leaves?: Map<KustomizeRef, Build>): Build | null {
   if (!k.leafEligible || k.component || k.patches.length || k.unread.length || k.unapplied.some((f) => f.startsWith("patches"))) return null;
   if (k.generatorFiles.some((f) => !leafFile(k.dir, f))) return null;
-  const members: NodeV1[] = [];
+  if (leaves && renames(k)) return null;
+  const build: Build = { members: [], bases: [] };
   const seen = new Set<string>();
+  const add = (n: NodeV1, ns: string) => {
+    const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
+    const key = `${m[1]}\0${ns}\0${m[3]}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    build.members.push({ n, ns });
+    return true;
+  };
   for (const e of k.entries) {
     if (e.field === "components") return null;
     const local = local_(k.dir, e.path);
-    // Kustomize refuses a file outside the kustomization's folder (including escaping symlinks) and an object listed twice.
-    if (local === null || seen.has(local) || !(k.dir === "." || local.startsWith(`${k.dir}/`)) || unsafeFiles.has(local) || !leafFile(k.dir, local)) {
-      return null;
-    }
-    const objs = byDir.has(local) ? undefined : objectsIn.get(local);
-    if (!objs) return null;
+    if (local === null || seen.has(local)) return null;
     seen.add(local);
-    for (const n of objs) {
-      const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
-      const key = `${m[1]}\0${k.namespace ?? m[2]}\0${m[3]}`;
-      if (seen.has(key)) return null;
-      seen.add(key);
-      members.push(n);
+    const base = byDir.get(local);
+    if (base) {
+      // Kustomize refuses a folder listed twice, as its objects are then registered twice, and a folder holding this one.
+      const held = leaves?.get(base);
+      if (!held || renames(base) || base.dir === "." || k.dir.startsWith(`${base.dir}/`)) return null;
+      build.bases.push(base);
+      for (const m of held.members) if (!add(m.n, k.namespace ?? m.ns)) return null;
+      continue;
     }
+    // Kustomize refuses a file outside the kustomization's folder (including escaping symlinks) and an object listed twice.
+    if (!(k.dir === "." || local.startsWith(`${k.dir}/`)) || unsafeFiles.has(local) || !leafFile(k.dir, local)) return null;
+    const objs = objectsIn.get(local);
+    if (!objs) return null;
+    for (const n of objs) if (!add(n, k.namespace ?? OBJECT_ID.exec(n.id.slice(n.path.length + 1))![2])) return null;
   }
-  return members;
+  return build;
 }
 
+/** The objects a build holds, each with its namespace after the build's transforms, and the leaf builds it takes in. */
+interface Build { members: Array<{ n: NodeV1; ns: string }>; bases: KustomizeRef[] }
+
+const renames = (k: KustomizeRef) => k.unapplied.includes("namePrefix") || k.unapplied.includes("nameSuffix");
+
 /**
- * Link each workload in a standalone leaf build to the generator its ConfigMap or Secret reference names. When built
- * standalone, `kustomize build` fixes references after accumulation by kind, effective namespace (the kustomization's
- * `namespace`, else the object's or generator's, else `default`) and name, so the link is made only when the leaf has
- * zero object collisions anywhere in the build, holds one such object, it is generated and its generator node id is not
- * repeated across namespaces. Enclosing overlays are out of scope and can still patch those references. Collisions
- * anywhere in the leaf abort all generator links for that leaf; shared generator node ids suppress those links.
+ * Link each workload in a build to the build's own generator its ConfigMap or Secret reference names. `kustomize build`
+ * fixes references after accumulation by kind, effective namespace (the outermost `namespace`, else the leaf's, else the
+ * object's or generator's, else `default`) and name, so the link is made only when the build has zero collisions among
+ * its generators and objects of a generated name, the reference finds one such object, it is generated by this
+ * kustomization and its generator node id is not repeated across namespaces. A build above can still patch those
+ * references. A collision aborts all generator links for that build and is reported, as Kustomize refuses that build;
+ * shared generator node ids suppress those links.
  */
-function linkGenerated(ctx: Context, leaves: Map<KustomizeRef, NodeV1[]>, report: (k: KustomizeRef, reason: string) => void, charge: () => boolean): void {
+function linkGenerated(ctx: Context, builds: Map<KustomizeRef, Build>, report: (k: KustomizeRef, reason: string) => void, charge: () => boolean): void {
   const wanted = new Map<string, Array<Extract<DeployRef, { to: "object" }>>>();
   for (const r of ctx.refs) if (r.to === "object" && GENERATORS.some(([, kind]) => kind === r.kind)) pushTo(wanted, r.from, r);
-  for (const [k, members] of leaves) {
+  for (const [k, { members, bases }] of builds) {
     if (!k.generated.length) continue;
     const repeated = new Set(k.repeated);
-    const ns = (n: string | null) => k.namespace ?? n ?? "default";
+    const own = new Set(k.generators);
     const at = (kind: string, n: string, name: string) => `${kind}\0${n}\0${name}`;
     const held = new Map<string, { generated: string[]; written: number }>();
     const entry = (key: string) => held.get(key) ?? held.set(key, { generated: [], written: 0 }).get(key)!;
-    for (const g of k.generated) entry(at(g.kind, ns(g.ns), g.name)).generated.push(g.id);
-    for (const n of members) {
+    for (const g of k.generated) entry(at(g.kind, k.namespace ?? g.ns ?? "default", g.name)).generated.push(g.id);
+    for (const b of bases) {
+      for (const g of b.generated) entry(at(g.kind, k.namespace ?? b.namespace ?? g.ns ?? "default", g.name)).generated.push(g.id);
+    }
+    for (const { n, ns } of members) {
       const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1));
-      if (m && held.has(at(m[1], ns(m[2]), m[3]))) entry(at(m[1], ns(m[2]), m[3])).written++;
+      if (m && held.has(at(m[1], ns, m[3]))) entry(at(m[1], ns, m[3])).written++;
     }
     const collisions = [...held.entries()].filter(([, c]) => c.generated.length > 1 || c.written > 0);
     if (collisions.length) {
@@ -385,10 +419,11 @@ function linkGenerated(ctx: Context, leaves: Map<KustomizeRef, NodeV1[]>, report
       }
       continue;
     }
-    for (const n of members) {
+    for (const { n, ns } of members) {
       for (const r of wanted.get(n.id) ?? []) {
-        const c = held.get(at(r.kind, ns(r.ns), r.name));
-        if (!c) continue;
+        // The workload's references carry its namespace, so after the build's transforms they carry `ns`.
+        const c = held.get(at(r.kind, ns, r.name));
+        if (!c || !own.has(c.generated[0])) continue;
         if (repeated.has(c.generated[0])) {
           report(k, `${r.kind} ${r.name} has more than one generator entry: not linked to its generator`);
         } else if (!charge()) {
