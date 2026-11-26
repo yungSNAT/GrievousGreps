@@ -79,9 +79,9 @@ test("a typed member call in a language the sample did not measure stays inferre
   assert.deepEqual(calls(edges).map((e) => e.confidence), ["inferred"]);
 });
 
-test("a bare-name call to another file's function stays inferred", () => {
-  const edges = resolveEdges([n("util.py#helper", "function"), n("app.py#run", "function")], [
-    { source: "app.py#run", relation: "calls", name: "helper", file: "app.py" },
+test("a bare-name call to another file's function stays inferred (TypeScript: Python drops that call since #193)", () => {
+  const edges = resolveEdges([n("util.ts#helper", "function"), n("app.ts#run", "function")], [
+    { source: "app.ts#run", relation: "calls", name: "helper", file: "app.ts" },
   ]);
   assert.deepEqual(calls(edges).map((e) => e.confidence), ["inferred"]);
 });
