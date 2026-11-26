@@ -70,6 +70,7 @@ test('graft callers --json: shape matches {query, matches:[{symbol,hits}]}', () 
   assert.equal(m.hits[0].name, 'sub');
   assert.equal(m.hits[0].relation, 'calls');
   assert.equal(m.hits[0].depth, 1);
+  assert.equal(m.hits[0].scope, 'internal');
 });
 
 test('graft callers: unknown symbol exits 1 with a stderr message', () => {
@@ -405,10 +406,37 @@ const layout = (hits: EdgeHit[], quote?: Parameters<typeof callerBlocks>[4]) =>
   callerBlocks({ nodes: [], edges: [] } as unknown as GraphV1, 'in', false, [{ symbol: layoutNode('src/a.ts', 'target', 'L1-L3'), hits }], quote)[0].split('\n');
 
 test('callers report: each file once, its hits on one line, the shared relation once in the header', () => {
-  assert.deepEqual(layout([layoutHit('test/a.test.ts', 'one', 'L5-L9'), layoutHit('src/b.ts', 'two', 'L7-L8'), layoutHit('test/a.test.ts', 'three', 'L12-L30')]), [
+  assert.deepEqual(layout([layoutHit('src/c.ts', 'one', 'L5-L9'), layoutHit('src/b.ts', 'two', 'L7-L8'), layoutHit('src/c.ts', 'three', 'L12-L30')]), [
     'target · function · src/a.ts:L1-L3 · calls ←',
-    '  test/a.test.ts: one L5, three L12',
+    '  src/c.ts: one L5, three L12',
     '  src/b.ts: two L7',
+  ]);
+});
+
+test('callers report: internal callers first, then test callers, then external hits, each scope labelled with its hit count when more than one is present', () => {
+  const missing = { node: null, id: 'pkg/missing', relation: 'calls', depth: 1 } as EdgeHit;
+  const hits = [
+    layoutHit('test/a.test.ts', 'one', 'L5-L9'), missing, layoutHit('src/b.ts', 'two', 'L7-L8'),
+    layoutHit('tests/c_test.py', 'three', 'L2-L3'), layoutHit('src/d.ts', 'four', 'L9-L9'), layoutHit('test/a.test.ts', 'five', 'L12-L30'),
+  ];
+  assert.deepEqual(layout(hits), [
+    'target · function · src/a.ts:L1-L3 · calls ←',
+    '  [internal: 2]',
+    '  src/b.ts: two L7',
+    '  src/d.ts: four L9',
+    '  [test: 3]',
+    '  test/a.test.ts: one L5, five L12',
+    '  tests/c_test.py: three L2',
+    '  [external: 1]',
+    '  calls ← pkg/missing (unresolved import)',
+  ]);
+});
+
+test('callers report: only test callers print no scope line', () => {
+  assert.deepEqual(layout([layoutHit('test/a.test.ts', 'one', 'L5-L9'), layoutHit('spec/b.ts', 'two', 'L7-L8')]), [
+    'target · function · src/a.ts:L1-L3 · calls ←',
+    '  test/a.test.ts: one L5',
+    '  spec/b.ts: two L7',
   ]);
 });
 
@@ -435,13 +463,15 @@ test('callers report: a path or name holding the layout separators is quoted, so
   ]);
 });
 
-test('callers report: an unresolved import among grouped hits keeps its own line, in walk order', () => {
+test('callers report: an unresolved import among grouped hits keeps its own line, after the indexed ones', () => {
   const missing = { node: null, id: 'pkg/missing', relation: 'imports', depth: 1 } as EdgeHit;
   const hits = [layoutHit('src/b.ts', 'one', 'L2-L4', 'imports'), missing, layoutHit('src/b.ts', 'two', 'L6-L7', 'imports'), layoutHit('src/c.ts', 'three', 'L9-L9', 'imports')];
   assert.deepEqual(layout(hits), [
     'target · function · src/a.ts:L1-L3 · imports ←',
+    '  [internal: 3]',
     '  src/b.ts: one L2, two L6',
-    '  imports ← pkg/missing (unresolved import)',
     '  src/c.ts: three L9',
+    '  [external: 1]',
+    '  imports ← pkg/missing (unresolved import)',
   ]);
 });
