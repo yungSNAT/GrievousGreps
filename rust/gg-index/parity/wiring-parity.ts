@@ -16,7 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, normalize } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import { wiringPath, writeGraph } from "../../../src/graph/write.js";
 
 const args = process.argv.slice(2);
@@ -385,24 +385,32 @@ function fsCases(): number {
       symlinkSync(outside, join(root, "graft"));
       return `${root}/graft/.`;
     },
+    // Relative targets resolve against the case's root, the working directory of both writers.
+    "relative, one component": () => "graft",
+    "relative, nested": () => "nested/graft",
   };
   const run = (index: number, setup: Plant, who: "ts" | "rust") => {
     const root = join(work, `fs-${who}-${index}`);
     const outside = join(root, "outside");
     mkdirSync(outside, { recursive: true });
-    const target = setup(root, outside) ?? join(root, "graft");
+    const given = setup(root, outside) ?? join(root, "graft");
     let ok: boolean;
     if (who === "ts") {
+      const here = process.cwd();
       try {
-        writeGraph(JSON.parse(graph), target);
+        process.chdir(root);
+        writeGraph(JSON.parse(graph), given);
         ok = true;
       } catch {
         ok = false;
+      } finally {
+        process.chdir(here);
       }
     } else {
       writeFileSync(join(root, "in.json"), graph);
-      ok = spawnSync(bin, ["wiring", join(root, "in.json"), "--out-dir", target]).status === 0;
+      ok = spawnSync(bin, ["wiring", join(root, "in.json"), "--out-dir", given], { cwd: root }).status === 0;
     }
+    const target = isAbsolute(given) ? given : join(root, given);
     // Inspect where TypeScript's lexical resolution puts the output, not where the kernel would.
     const graphDir = join(target, ".graph");
     const leaf = join(graphDir, "wiring.json");

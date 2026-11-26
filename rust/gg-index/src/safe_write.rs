@@ -111,6 +111,20 @@ mod tests {
     }
 
     #[test]
+    fn a_relative_output_directory_resolves_against_the_current_directory() {
+        let here = std::path::absolute(Path::new(".")).unwrap();
+        assert_eq!(
+            split(Path::new("graft")),
+            (here.clone(), vec!["graft".into(), ".graph".into()])
+        );
+        assert_eq!(
+            split(Path::new("a/graft")),
+            (here.join("a"), vec!["graft".into(), ".graph".into()])
+        );
+        assert!(split_out_dir(Path::new("..")).is_err());
+    }
+
+    #[test]
     fn the_base_is_the_raw_dirname_as_in_typescript() {
         let r = std::path::absolute(Path::new("/r")).unwrap();
         let graph: OsString = ".graph".into();
