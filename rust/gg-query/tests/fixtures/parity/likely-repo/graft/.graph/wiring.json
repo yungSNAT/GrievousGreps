@@ -1,8 +1,8 @@
 {
   "meta": {
     "version": 1,
-    "nodeCount": 9,
-    "edgeCount": 11,
+    "nodeCount": 10,
+    "edgeCount": 14,
     "languages": [
       "typescript"
     ],
@@ -49,12 +49,26 @@
       "name": "handler.ts",
       "kind": "file",
       "path": "src/handler.ts",
-      "span": "L1-L5",
+      "span": "L1-L12",
       "signature": null,
       "exported": true,
       "origin": "ast",
-      "body_hash": "d67c1bbbdf904027b7560030437f7c46f309a9feea5e14a7df0c8e0c75126c4b",
-      "chars": 138,
+      "body_hash": "f70a03d59ddf87dc968b5555b8b2601214bc8d1114e219a54a2819f0f682abdd",
+      "chars": 335,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/handler.ts#both",
+      "name": "both",
+      "kind": "function",
+      "path": "src/handler.ts",
+      "span": "L9-L11",
+      "signature": "function both(s: Store): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "81e6ba5378a2dafd4ecce24658784e48a8673260ea776924e054ff12fff3641e",
       "summary_state": "pending",
       "summary": null,
       "crux": null
@@ -64,7 +78,7 @@
       "name": "handle",
       "kind": "function",
       "path": "src/handler.ts",
-      "span": "L2-L4",
+      "span": "L4-L6",
       "signature": "function handle(res: Response): number",
       "exported": true,
       "origin": "ast",
@@ -167,9 +181,27 @@
     },
     {
       "source": "src/handler.ts",
+      "target": "src/handler.ts#both",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/handler.ts",
       "target": "src/handler.ts#handle",
       "relation": "contains",
       "confidence": "extracted"
+    },
+    {
+      "source": "src/handler.ts",
+      "target": "src/store.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/handler.ts#both",
+      "target": "src/store.ts#Store.save",
+      "relation": "calls",
+      "confidence": "likely"
     },
     {
       "source": "src/handler.ts#handle",

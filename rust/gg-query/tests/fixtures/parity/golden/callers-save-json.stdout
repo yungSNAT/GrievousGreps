@@ -22,6 +22,17 @@
           "span": "L3-L5"
         },
         {
+          "id": "src/handler.ts#both",
+          "relation": "calls",
+          "depth": 1,
+          "inferred": true,
+          "confidence": "likely",
+          "name": "both",
+          "kind": "function",
+          "path": "src/handler.ts",
+          "span": "L9-L11"
+        },
+        {
           "id": "src/handler.ts#handle",
           "relation": "calls",
           "depth": 1,
@@ -30,7 +41,7 @@
           "name": "handle",
           "kind": "function",
           "path": "src/handler.ts",
-          "span": "L2-L4"
+          "span": "L4-L6"
         },
         {
           "id": "src/store.ts#direct",
@@ -47,6 +58,6 @@
   ],
   "saved": {
     "files": 3,
-    "baselineChars": 402
+    "baselineChars": 599
   }
 }
