@@ -110,7 +110,7 @@ test("no stranded line once something can answer the hooks, or the repo already 
   writeFileSync(exe, "");
   chmodSync(exe, 0o755);
   assert.equal(strandedRepoNotice({ cwd: graftEraRepo(), tty: true, env: { ...TRAIL, PATH: bin } }), null, "graft installed");
-  assert.equal(strandedRepoNotice({ cwd: graftEraRepo("const PKGS = ['@equitybot/grievousgreps', '@nanonets/graft'];"), tty: true, env: TRAIL }), null, "a shim that looks for trail");
+  assert.equal(strandedRepoNotice({ cwd: graftEraRepo("const PKGS = ['@yungsnat/grievousgreps', '@nanonets/graft'];"), tty: true, env: TRAIL }), null, "a shim that looks for trail");
   const moved = graftEraRepo();
   writeFileSync(join(moved, ".claude", "helpers", "trail-hooks.cjs"), "");
   assert.equal(strandedRepoNotice({ cwd: moved, tty: true, env: TRAIL }), null, "already on trail");

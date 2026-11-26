@@ -1,10 +1,11 @@
 name: changelog
 
-# Fails a pull request that changes shipped code (src, viewer, the build and
-# install scripts, package.json, tsconfig.json or rust/gg-docs) without adding
-# a CHANGELOG.md line. Waive it with the skip-changelog label; Dependabot's pull requests skip
-# it. An upstream sync passes on the upstream sections it brings in, or takes
-# the label when it brings none.
+# Fails a pull request that changes shipped code (src, viewer, models, the build
+# and install scripts, package.json, tsconfig.json, rust/gg-docs or
+# rust/gg-query) without adding a CHANGELOG.md line. Waive it with the
+# skip-changelog label; Dependabot's pull requests skip it. An upstream sync
+# passes on the upstream sections it brings in, or takes the label when it
+# brings none.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, labeled, unlabeled]
@@ -26,5 +27,5 @@ jobs:
       - name: Check for a changelog line
         uses: yungSNAT/yungSNAT/.github/actions/changelog-line@5cd2765e4c78098b7602809e60830f07373fae44 # v1
         with:
-          shipped: '^(src|viewer)/|^scripts/(postinstall|build-viewer|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^tsconfig\.json$|^rust/gg-docs/(src/|Cargo\.toml$)'
+          shipped: '^(src|viewer|models)/|^scripts/(postinstall|build-viewer|vendor-grammars|stamp-commit|stamp-telemetry-key)\.mjs$|^package\.json$|^tsconfig\.json$|^rust/gg-(docs|query)/(src/|Cargo\.toml$)'
           heading: 'the top, unreleased section'
