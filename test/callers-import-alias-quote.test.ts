@@ -21,6 +21,8 @@ const FILES: Record<string, string> = {
   "py_unused.py": "from pkg.util import helper as unused\n",
   "lib.ts": "export function helperTs(x: number): number {\n  return x + 1;\n}\n",
   "use.ts": "import { helperTs as ht } from \"./lib\";\n\nexport const y = ht(1);\n",
+  "use_paren.ts": "import { helperTs } from \"./lib\"; import \"./side(\";\n\nexport const w = helperTs(3);\n",
+  "use_str.ts": "import \"./helperTs as e\";\nimport { helperTs } from \"./lib\";\n\nexport function f(xs: number[]): number {\n  for (const e of xs) void e;\n  return helperTs(2);\n}\n",
   "use_multi.ts": "import {\n  helperTs as ht2,\n} from \"./lib\";\n\nexport const z = ht2(2);\n",
 };
 
@@ -46,6 +48,8 @@ test("callers quotes the line that calls a name imported under an alias, at modu
     assert.equal(ts.status, 0, ts.describe());
     assert.match(ts.stdout, /L3: export const y = ht\(1\);/);
     assert.match(ts.stdout, /L5: export const z = ht2\(2\);/, "an alias bound inside a multi-line import");
+    assert.match(ts.stdout, /use_paren\.ts L3: export const w = helperTs\(3\);/, "a bracket in a module path does not open the import");
+    assert.match(ts.stdout, /f L6: return helperTs\(2\);/, "an `as` in a module path binds no alias");
     const err = runCli(["callers", "HelperError", dir, "--no-refresh"]);
     assert.equal(err.status, 0, err.describe());
     assert.match(err.stdout, /guard L7: raise HelperError\("empty"\)/, "an except binding is no import alias");

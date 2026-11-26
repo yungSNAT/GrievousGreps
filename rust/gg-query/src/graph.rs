@@ -399,7 +399,7 @@ pub fn call_reference_line(
     let imports = import_lines(lines);
     let mut names = vec![symbol_name.to_string()];
     for (line, _) in lines.iter().zip(&imports).filter(|(_, i)| **i) {
-        for alias in aliases_in(without_comment(line), symbol_name) {
+        for alias in aliases_in(&import_code(line), symbol_name) {
             if !names.contains(&alias) {
                 names.push(alias);
             }
@@ -487,28 +487,33 @@ fn aliases_in(line: &str, name: &str) -> Vec<String> {
         .collect()
 }
 
-/// An import line without its comment: from a `#`, `//` or `/*` outside a quoted module path to
-/// the end. Mirrors `withoutComment` in `src/graph/traverse-cli.ts`.
-fn without_comment(line: &str) -> &str {
-    let b = line.as_bytes();
-    let mut quote = 0u8;
-    let mut i = 0;
-    while i < b.len() {
-        let c = b[i];
-        if quote != 0 {
-            if c == b'\\' {
-                i += 1;
-            } else if c == quote {
-                quote = 0;
+/// An import line's code: quoted text (a module path) emptied, and a `#`, `//` or `/*` comment
+/// outside quotes dropped. Mirrors `importCode` in `src/graph/traverse-cli.ts`.
+fn import_code(line: &str) -> String {
+    let mut out = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if escaped {
+            escaped = false;
+        } else if let Some(q) = quote {
+            if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+                out.push(c);
             }
-        } else if matches!(c, b'"' | b'\'' | b'`') {
-            quote = c;
-        } else if c == b'#' || (c == b'/' && matches!(b.get(i + 1), Some(b'/' | b'*'))) {
-            return &line[..i];
+        } else if c == '#' || (c == '/' && matches!(chars.peek(), Some('/' | '*'))) {
+            break;
+        } else {
+            if matches!(c, '"' | '\'' | '`') {
+                quote = Some(c);
+            }
+            out.push(c);
         }
-        i += 1;
     }
-    line
+    out
 }
 
 /// Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the
@@ -521,7 +526,7 @@ fn import_lines(lines: &[String]) -> Vec<bool> {
             if !open && !is_import_line(l) {
                 return false;
             }
-            let code = without_comment(l);
+            let code = import_code(l);
             open = if open {
                 !code.contains([')', '}'])
             } else {

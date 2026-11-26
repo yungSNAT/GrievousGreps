@@ -160,8 +160,8 @@ function quoteFor(
   if (!lines) return undefined;
   const imports = importLines(lines);
   const calls = lines.map((l, i) => (imports[i] ? "" : l));
-  const importCode = lines.filter((_, i) => imports[i]).map(withoutComment);
-  const names = [name, ...aliasesOf(importCode, name)].map(wordRe);
+  const importText = lines.filter((_, i) => imports[i]).map(importCode);
+  const names = [name, ...aliasesOf(importText, name)].map(wordRe);
   const call = referenceLine(path, span, names, () => calls, true);
   if (call) return { n: call.n, text: lines[call.n - 1] };
   return referenceLine(path, span, [wordRe(name)], read, true) ?? undefined;
@@ -170,22 +170,27 @@ function quoteFor(
 /** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`). */
 const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b)/;
 
-/** An import line without its comment: from a `#`, `//` or `/*` outside a quoted module path to the end. */
-function withoutComment(line: string): string {
+/** An import line's code: quoted text (a module path) emptied, and a `#`, `//` or `/*` comment outside quotes dropped. */
+function importCode(line: string): string {
+  let out = "";
   let quote = "";
   let escaped = false;
   for (const [i, c] of line.split("").entries()) {
     if (escaped) escaped = false;
     else if (quote) {
       if (c === "\\") escaped = true;
-      else if (c === quote) quote = "";
-    } else if (c === '"' || c === "'" || c === "`") {
-      quote = c;
+      else if (c === quote) {
+        quote = "";
+        out += c;
+      }
     } else if (c === "#" || (c === "/" && (line[i + 1] === "/" || line[i + 1] === "*"))) {
-      return line.slice(0, i);
+      return out;
+    } else {
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      out += c;
     }
   }
-  return line;
+  return out;
 }
 
 /** Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the lines up to the close. */
@@ -193,7 +198,7 @@ function importLines(lines: string[]): boolean[] {
   let open = false;
   return lines.map((l) => {
     if (!open && !IMPORT_LINE.test(l)) return false;
-    const code = withoutComment(l);
+    const code = importCode(l);
     open = open ? !/[)}]/.test(code) : /[({][^)}]*$/.test(code);
     return true;
   });
