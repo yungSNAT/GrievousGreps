@@ -36,6 +36,25 @@ fn creates_directories_and_replaces_the_file() {
 }
 
 #[test]
+fn creates_a_missing_parent() {
+    let base = scratch("missing-parent");
+    let out = base.join("new").join("deeper").join("graft");
+    write_wiring(&out, "x").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(out.join(".graph").join("wiring.json")).unwrap(),
+        "x"
+    );
+}
+
+#[test]
+fn errors_name_the_output_directory() {
+    let base = scratch("error-path");
+    std::fs::write(base.join("graft"), "a file").unwrap();
+    let err = write_wiring(&base.join("graft"), "x").unwrap_err();
+    assert!(err.to_string().contains("graft"), "{err}");
+}
+
+#[test]
 fn refuses_bad_components() {
     let base = scratch("components");
     for bad in ["", ".", "..", "a/b"] {
@@ -109,6 +128,25 @@ fn refuses_symlinked_directories_and_replaces_a_symlink_leaf() {
             .is_symlink()
     );
     assert_eq!(std::fs::read_to_string(&leaf).unwrap(), "new");
+}
+
+#[cfg(unix)]
+#[test]
+fn collapses_dot_dot_lexically_as_typescript_does() {
+    use std::os::unix::fs::symlink;
+    let base = scratch("dot-dot");
+    let outside = base.join("outside").join("deep");
+    std::fs::create_dir_all(&outside).unwrap();
+    symlink(&outside, base.join("link")).unwrap();
+    // The kernel would resolve `link/..` to `outside`; TypeScript's `resolve` gives `base`.
+    write_wiring(&base.join("link").join("..").join("graft"), "x").unwrap();
+    assert!(
+        base.join("graft")
+            .join(".graph")
+            .join("wiring.json")
+            .is_file()
+    );
+    assert!(!base.join("outside").join("graft").exists());
 }
 
 #[cfg(windows)]

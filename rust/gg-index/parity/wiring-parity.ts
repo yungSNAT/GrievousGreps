@@ -317,7 +317,8 @@ for (const { name, text } of inputs) {
   if (ts === null && refused) tally.bothReject++;
   // TypeScript writes depth-past-cap; Rust must refuse it, so matching bytes there differ.
   else if (ts !== null && rust !== null && ts.equals(rust) && name !== "depth-past-cap") tally.equal++;
-  else if (refused && !inDomain(text)) tally.outOfDomainRejected++;  else {
+  else if (refused && !inDomain(text)) tally.outOfDomainRejected++;
+  else {
     tally.differ++;
     let at = 0;
     if (ts && rust) while (at < ts.length && ts[at] === rust[at]) at++;
@@ -351,8 +352,15 @@ for (const { name, text } of inputs) {
 function fsCases(): number {
   if (process.platform === "win32") return 0;
   const graph = JSON.stringify({ meta: { version: 1 }, nodes: [{ id: "b" }, { id: "a" }], edges: [] });
-  const plant: Record<string, (root: string, outside: string) => void> = {
+  // Each case plants its trap and may name its own output directory (default `<root>/graft`).
+  const plant: Record<string, (root: string, outside: string) => string | void> = {
     "fresh": () => {},
+    "parent missing": (root) => join(root, "new", "deeper", "graft"),
+    "dot-dot after a symlink": (root, outside) => {
+      mkdirSync(join(outside, "deep"));
+      symlinkSync(join(outside, "deep"), join(root, "link"));
+      return `${root}/link/../graft`;
+    },
     "context dir is a symlink": (root, outside) => symlinkSync(outside, join(root, "graft")),
     ".graph is a symlink": (root, outside) => {
       mkdirSync(join(root, "graft"));
@@ -373,8 +381,7 @@ function fsCases(): number {
     const root = join(work, `fs-${who}-${Object.keys(plant).indexOf(name)}`);
     const outside = join(root, "outside");
     mkdirSync(outside, { recursive: true });
-    plant[name](root, outside);
-    const target = join(root, "graft");
+    const target = plant[name](root, outside) ?? join(root, "graft");
     let ok: boolean;
     if (who === "ts") {
       try {
@@ -394,7 +401,8 @@ function fsCases(): number {
       ok,
       leaf: existsSync(leaf) && lstatSync(leaf).isFile() ? readFileSync(leaf, "utf8") : null,
       files: isDir(graphDir) && !lstatSync(target).isSymbolicLink() ? readdirSync(graphDir).sort() : null,
-      outside: readdirSync(outside).sort().map((f) => `${f}=${readFileSync(join(outside, f), "utf8")}`),
+      outside: readdirSync(outside, { recursive: true, encoding: "utf8" }).sort().map((f) =>
+        isDir(join(outside, f)) ? `${f}/` : `${f}=${readFileSync(join(outside, f), "utf8")}`),
     });
   };
   let differ = 0;

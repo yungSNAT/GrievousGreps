@@ -8,7 +8,10 @@
 //! replaced, never written through. On Unix each step opens the next directory relative
 //! to the one before (`openat` with `O_NOFOLLOW`), so a component swapped for a link
 //! mid-write is refused. On Windows each directory stays open without delete sharing
-//! until the rename, so it cannot be renamed or replaced meanwhile.
+//! until the rename, so it cannot be renamed, removed or replaced meanwhile; the temp file
+//! and the rename still go by path, so an empty leaf directory turned into a junction in
+//! place is caught only by a check just before the rename. That narrows, not closes, the
+//! check-then-use gap `writeFileInside` accepts.
 
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -42,21 +45,42 @@ pub fn write_atomic_inside(
 }
 
 /// `writeGraph`'s file step: `<out_dir>/.graph/wiring.json`, contained by `out_dir`'s parent,
-/// so a symlinked `out_dir` or `.graph` is refused.
+/// so a symlinked `out_dir` or `.graph` is refused. As TypeScript's `resolve` does, `..` in
+/// `out_dir` is collapsed lexically, and a missing parent is created: the parent is trusted.
 pub fn write_wiring(out_dir: &Path, text: &str) -> io::Result<PathBuf> {
-    let out_dir = std::path::absolute(out_dir)?;
+    let out_dir = lexical(&std::path::absolute(out_dir)?);
     let (Some(base), Some(name)) = (out_dir.parent(), out_dir.file_name()) else {
         return Err(refuse(format!(
             "refusing an output directory with no parent: {}",
             out_dir.display()
         )));
     };
-    write_atomic_inside(
-        base,
-        &[name, OsStr::new(".graph")],
-        OsStr::new("wiring.json"),
-        text.as_bytes(),
-    )
+    std::fs::create_dir_all(base)
+        .and_then(|()| {
+            write_atomic_inside(
+                base,
+                &[name, OsStr::new(".graph")],
+                OsStr::new("wiring.json"),
+                text.as_bytes(),
+            )
+        })
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", out_dir.display())))
+}
+
+/// `path` with `.` and `..` removed without consulting the file system.
+fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn refuse(msg: String) -> io::Error {
@@ -189,6 +213,7 @@ mod imp {
             .create_new(true)
             .open(&tmp)
             .and_then(|mut f| f.write_all(data))
+            .and_then(|()| pin_dir(&cur).map(drop))
             .and_then(|()| fs::rename(&tmp, cur.join(leaf)));
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
