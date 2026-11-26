@@ -53,19 +53,22 @@ export interface ResolveSymbolOptions {
  *     name or path.
  *
  * A query holding `#` is a node id (`pkg/util.py#helper`, as `callers --json`
- * prints), or its tail from a path segment on (`util.py#helper`): it matches
- * those non-file nodes' ids case-insensitively, ordinals stripped or not, or a
- * name equal to it, and takes neither fallback, so a stale id finds nothing
- * rather than every node sharing its last segment.
+ * prints), or its tail from a path segment on (`util.py#helper`, not
+ * `py#helper`): it matches those non-file nodes' ids case-insensitively, with
+ * `\` before the `#` read as `/`, all ordinals stripped or none, or a name
+ * equal to it, and takes neither fallback, so a stale id finds nothing rather
+ * than every node sharing its last segment.
  *
  * `opts.in` then filters whichever candidate set was produced, by path
  * substring. Multiple matches are not an error — every match is returned.
  */
 export function resolveSymbol(graph: GraphV1, query: string, opts: ResolveSymbolOptions = {}): NodeV1[] {
-  const lowerQuery = query.toLowerCase();
-  const looksLikeFilename = query.includes(".") && !query.includes("#");
+  const hash = query.indexOf("#");
+  const isId = hash !== -1;
+  // An id's path may be pasted with Windows separators.
+  const lowerQuery = (isId ? query.slice(0, hash).replaceAll("\\", "/") + query.slice(hash) : query).toLowerCase();
+  const looksLikeFilename = query.includes(".") && !isId;
 
-  const isId = query.includes("#");
   let matches = isId ? idMatches(graph.nodes, lowerQuery) : symbolMatches(graph.nodes, lowerQuery);
 
   if (matches.length === 0 && query.includes(".") && !isId) {

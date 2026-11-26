@@ -28,6 +28,8 @@ fn path_symbol_id_names_its_nodes_and_takes_no_fallback() {
         node("other/util.py#helper", "helper"),
         node("pkg/util.py#Cls.get", "get"),
         node("pkg/x.py#get", "get"),
+        node("pkg.v2/mod.py#run", "run"),
+        node("pkg/a.py#Cls~2.get~3", "get"),
     ];
     write_graph(
         &ctx,
@@ -72,5 +74,19 @@ fn path_symbol_id_names_its_nodes_and_takes_no_fallback() {
     // A stale or partial id finds nothing, never every node sharing its last segment.
     assert!(ids("pkg/nope.py#get", None).is_empty());
     assert!(ids("kg/util.py#helper", None).is_empty());
+    // A tail starts at a path segment, never after a dot inside one.
+    assert!(ids("py#helper", None).is_empty());
+    assert!(ids("v2/mod.py#run", None).is_empty());
+    assert_eq!(ids("pkg.v2/mod.py#run", None), ["pkg.v2/mod.py#run"]);
+    // Every ordinal or none: a partly numbered id finds nothing.
+    assert_eq!(ids("pkg/a.py#Cls~2.get~3", None), ["pkg/a.py#Cls~2.get~3"]);
+    assert_eq!(ids("pkg/a.py#Cls.get", None), ["pkg/a.py#Cls~2.get~3"]);
+    assert!(ids("pkg/a.py#Cls~2.get", None).is_empty());
+    // A path pasted with Windows separators.
+    assert_eq!(
+        ids("pkg\\util.py#helper", None),
+        ["pkg/util.py#helper", "pkg/util.py#helper~2"]
+    );
+    assert!(ids("pkg\\nope.py#get", None).is_empty());
     assert!(ids("pkg/util.py#helper", Some("other")).is_empty());
 }

@@ -415,7 +415,9 @@ test("resolveSymbol: a path#symbol id, or its tail from a path segment, names it
   const otherHelper = nodeStub({ id: "other/util.py#helper", name: "helper" });
   const clsGet = nodeStub({ id: "pkg/util.py#Cls.get", name: "get" });
   const xGet = nodeStub({ id: "pkg/x.py#get", name: "get" });
-  const g = graphOf([helper, helper2, otherHelper, clsGet, xGet], []);
+  const dottedRun = nodeStub({ id: "pkg.v2/mod.py#run", name: "run" });
+  const twoOrdinals = nodeStub({ id: "pkg/a.py#Cls~2.get~3", name: "get" });
+  const g = graphOf([helper, helper2, otherHelper, clsGet, xGet, dottedRun, twoOrdinals], []);
   const ids = (q: string) => resolveSymbol(g, q).map((n) => n.id).sort();
   assert.deepEqual(ids("pkg/util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
   assert.deepEqual(ids("pkg/util.py#helper~2"), ["pkg/util.py#helper~2"]);
@@ -425,5 +427,16 @@ test("resolveSymbol: a path#symbol id, or its tail from a path segment, names it
   // A stale or partial id finds nothing, never every node sharing its last segment.
   assert.deepEqual(ids("pkg/nope.py#get"), []);
   assert.deepEqual(ids("kg/util.py#helper"), []);
+  // A tail starts at a path segment, never after a dot inside one.
+  assert.deepEqual(ids("py#helper"), []);
+  assert.deepEqual(ids("v2/mod.py#run"), []);
+  assert.deepEqual(ids("pkg.v2/mod.py#run"), ["pkg.v2/mod.py#run"]);
+  // Every ordinal or none: a partly numbered id finds nothing.
+  assert.deepEqual(ids("pkg/a.py#Cls~2.get~3"), ["pkg/a.py#Cls~2.get~3"]);
+  assert.deepEqual(ids("pkg/a.py#Cls.get"), ["pkg/a.py#Cls~2.get~3"]);
+  assert.deepEqual(ids("pkg/a.py#Cls~2.get"), []);
+  // A path pasted with Windows separators.
+  assert.deepEqual(ids("pkg\\util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("pkg\\nope.py#get"), []);
   assert.deepEqual(resolveSymbol(g, "pkg/util.py#helper", { in: "other" }), []);
 });

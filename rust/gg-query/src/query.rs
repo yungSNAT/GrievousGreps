@@ -82,9 +82,14 @@ impl GraphStore {
         query: &str,
         in_prefix: Option<&str>,
     ) -> io::Result<Vec<NodeV1>> {
-        let lower_query = query.to_lowercase();
-        // A `path#symbol` id, or its tail from a path segment, takes no fallback.
-        let is_id = query.contains('#');
+        // A `path#symbol` id, or its tail from a path segment, takes no fallback; its path may be pasted with `\`.
+        let hash = query.find('#');
+        let is_id = hash.is_some();
+        let lower_query = match hash {
+            Some(i) => format!("{}{}", query[..i].replace('\\', "/"), &query[i..]),
+            None => query.to_owned(),
+        }
+        .to_lowercase();
         let mut matches = if is_id {
             self.query_id_matches(&lower_query)?
         } else {
