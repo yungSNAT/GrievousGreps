@@ -1532,7 +1532,7 @@ export interface SkeletonResult {
 /** Signatures-only view of one file, straight from the wiring graph — the
  * cheapest way to understand a file's API surface (~10× less than reading it).
  * `file` is matched as an exact repo-relative path, then as a basename. */
-export function skeleton(dir: string, file: string, opts: { contextDir?: string } = {}): SkeletonResult {
+export function skeleton(dir: string, file: string, opts: { contextDir?: string; matchPrefix?: string } = {}): SkeletonResult {
   const outDir = contextDirFor(resolve(dir), opts.contextDir);
   const graph = loadGraphCached(outDir);
   if (!graph) return { file, entries: [], note: `no wiring graph — run \`${cmd("graft build")}\` first` };
@@ -1542,8 +1542,10 @@ export function skeleton(dir: string, file: string, opts: { contextDir?: string 
     const matches = new Set(
       graph.nodes.filter((n) => n.path === file || n.path.endsWith(`/${file}`)).map((n) => n.path),
     );
-    if (matches.size > 1)
-      return { file, entries: [], note: `ambiguous — matches: ${[...matches].sort().join(", ")}` }; // NOSONAR: strings only, so the default code-unit order is deterministic
+    if (matches.size > 1) {
+      const paths = [...matches].sort().map((p) => (opts.matchPrefix ?? "") + p); // NOSONAR: strings only, so the default code-unit order is deterministic
+      return { file, entries: [], note: `ambiguous — matches: ${paths.join(", ")}` };
+    }
     const [path] = matches;
     if (path) defs = graph.nodes.filter((n) => n.kind !== "file" && n.path === path);
   }
