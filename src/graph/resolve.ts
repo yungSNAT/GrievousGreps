@@ -340,7 +340,8 @@ export function resolveEdges(
   // The type a Python attribute holds: what its class, else the nearest base class, states
   // for it, when every statement there names one type. A method's return annotation counts;
   // an assignment of no known type (`self.config = None`) leaves the attribute untyped.
-  const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
+  // `stated` gets the files whose statements name the type: its scope is judged there.
+  const pythonFieldType = (owner: string, attr: string, file: string, stated: Set<string>): string | undefined => {
     let ownerClass: NodeV1 | undefined;
     if (pythonNamed(owner, "class") > 1) {
       const hit = followPythonName(owner, toPosixPath(file), pythonCtx);
@@ -354,20 +355,22 @@ export function resolveEdges(
     let frontier = [owner];
     for (let depth = 0; depth <= 3 && frontier.length; depth++) {
       if (depth > 0 && frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
-      const types = new Set<string | undefined>();
+      const types = new Map<string | undefined, string[]>();
+      const note = (type: string | undefined, at: string | undefined) => types.set(type, [...(types.get(type) ?? []), ...(at ? [at] : [])]);
       for (const type of frontier) {
         for (const { classId, field } of pythonFields.get(`${type}.${attr}`) ?? []) {
           if (depth === 0 && ownerClass && classId !== ownerClass.id.replace(/~\d+$/, "")) continue;
-          if ("type" in field) types.add(field.type);
-          else if ("unknown" in field) types.add(undefined);
+          if ("type" in field) note(field.type, classId.split("#")[0]);
+          else if ("unknown" in field) note(undefined, undefined);
           else {
             const hit = resolveTypedMember(type, field.returns, file, ownerMethod, classParents, classTraits);
-            const signature = hit && hit !== "ambiguous" ? byId.get(hit.id)?.signature : undefined;
-            types.add(/->\s*['"]?(?:\w+\.)*(\w+)['"]?$/.exec(signature ?? "")?.[1]);
+            const method = hit && hit !== "ambiguous" ? byId.get(hit.id) : undefined;
+            note(/->\s*['"]?(?:\w+\.)*(\w+)['"]?$/.exec(method?.signature ?? "")?.[1], method?.path);
           }
         }
       }
-      const only = types.size === 1 ? [...types][0] : undefined;
+      const only = types.size === 1 ? [...types.keys()][0] : undefined;
+      if (only && !pythonNamed(only, "function")) for (const at of types.get(only)!) stated.add(at);
       if (types.size) return only && !pythonNamed(only, "function") ? only : undefined;
       const parents = (type: string) => (depth === 0 && ownerClass ? pythonBasesOf.get(ownerClass.id) : classParents.get(type)) ?? [];
       frontier = frontier.flatMap(parents).filter((type) => !seen.has(type) && seen.add(type));
@@ -717,7 +720,8 @@ export function resolveEdges(
           rustTraitProvides(e, e.rustChain.type ?? null);
           continue;
         }
-        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
+        const attrStated = new Set<string>();
+        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file, attrStated) : e.recvType;
         if (!recv && !e.rustForm) continue;
         // `x = factory.Store()` may hold what a function named Store returns, not a Store,
         // unless the calling file's own definitions and imports name Store as a class.
@@ -785,7 +789,10 @@ export function resolveEdges(
         }
         if (hit === "ambiguous") continue; // drop — never guess past an ambiguous owner
         if (hit) {
-          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "likely" : stated(hit.confidence));
+          // An attribute's type is named where the field is stated, not in the calling file.
+          const target = hit.id;
+          const attrGrade = attrStated.size && [...attrStated].every((at) => likelyInScope(at, recvType, target)) ? "likely" : "inferred";
+          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? attrGrade : stated(hit.confidence));
           continue;
         }
         if (EX_EXT.test(e.file)) {
