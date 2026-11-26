@@ -22,7 +22,7 @@
  * `workspace-cli.ts`; `mcp/tools.ts` calls the federate* functions directly.
  */
 import { existsSync, realpathSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { readFileInside, resolveInside, trustedBaseFor, writeFileInside } from "../util/safe-fs.js";
 import { contextDirFor } from "../context/node-file.js";
 import { checkGraph } from "./check.js";
@@ -36,9 +36,11 @@ import { wiringPath } from "./write.js";
 import type { GraphV1 } from "./types.js";
 import {
   ask,
+  skeleton,
   type AskHit,
   type AskRankingMetadata,
   type AskResult,
+  type SkeletonResult,
 } from "../ask/ask.js";
 import {
   fileFirstRoundRobin,
@@ -782,6 +784,68 @@ export function federateCallers(
   let text = blocks.join("\n\n");
   if (cov) text += `\n\n${cov}`;
   return { text, found: true, coverage: cov, json };
+}
+
+/** Resolve a workspace-relative file path (`<child>/<path>`) into its child
+ * repo root and child-relative file path, rejecting traversal, absolute paths
+ * and symlinks outside the child. */
+function resolveWorkspaceFile(
+  root: string,
+  wg: WorkspaceGraphs,
+  file: string,
+): { child: string; childRoot: string; relFile: string } {
+  const raw = file.replace(/\\/g, "/");
+  if (!raw || raw.includes("\0") || isAbsolute(file) || raw.startsWith("/") || /^[A-Za-z]:/.test(raw)) {
+    throw new Error(`refusing a path outside workspace: ${file}`);
+  }
+  if (raw.split("/").includes("..")) {
+    throw new Error(`refusing a path outside workspace: ${file}`);
+  }
+  const normalized = normalizePathPrefix(raw);
+  const { onlyChild, childIn } = resolveWorkspaceIn(wg, normalized);
+  if (!onlyChild || !childIn) {
+    throw new Error(`workspace file path must include a repository and file, e.g. ${onlyChild ?? "<repo>"}/<file>`);
+  }
+  const relParts = childIn.split("/").filter((s) => s !== "" && s !== ".");
+  if (relParts.length === 0) {
+    throw new Error(`workspace file path must include a repository and file, e.g. ${onlyChild}/<file>`);
+  }
+  const relFile = relParts.join("/");
+  const childRoot = containedIn(root, onlyChild, file);
+  containedIn(childRoot, relFile, file);
+  return { child: onlyChild, childRoot, relFile };
+}
+
+/** resolveInside, with an error that names only the path the caller gave (its own names absolute paths). */
+function containedIn(base: string, rel: string, shown: string): string {
+  try {
+    return resolveInside(base, rel);
+  } catch {
+    throw new Error(`refusing a path that leaves its repository or passes through a symlink: ${shown}`);
+  }
+}
+
+const AMBIGUOUS_PREFIX = "ambiguous — matches: ";
+
+/** Route `skeleton` from a workspace parent by leading child path prefix
+ * (`<child>/<file>`), returning paths prefixed with `<child>/`. */
+export function federateSkeleton(
+  root: string,
+  override: string | undefined,
+  file: string,
+): SkeletonResult {
+  const wg = loadWorkspaceGraphs(root, override);
+  const { child, childRoot, relFile } = resolveWorkspaceFile(root, wg, file);
+  const r = skeleton(childRoot, relFile);
+  if (r.entries.length > 0) containedIn(childRoot, r.file, `${child}/${r.file}`);
+  const note = r.note?.startsWith(AMBIGUOUS_PREFIX)
+    ? `${AMBIGUOUS_PREFIX}${r.note.slice(AMBIGUOUS_PREFIX.length).split(", ").map((p) => `${child}/${p}`).join(", ")}`
+    : r.note;
+  return {
+    ...r,
+    file: `${child}/${r.file}`,
+    ...(note !== undefined ? { note } : {}),
+  };
 }
 
 /**

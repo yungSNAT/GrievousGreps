@@ -20,7 +20,7 @@ touches:
 
 ## Decided
 - `trail upgrade` (runUpgrade in src/cli-meta.ts) keeps npm's stderr, reads its `npm error code/path/dest` lines (parseNpmError) and recovers: ENOTEMPTY removes npm's moved-aside `.<name>-<hash>` folder and retries; EEXIST removes a bin link only when it points into a trail/graft install or at nothing; EACCES prints a home-folder npm prefix fix (noSudoFix) instead of npm's stack. Never suggest sudo: a sudo install makes every later upgrade need sudo too.
-- The Node floor is 22.3, or 20.16 on Node 20 (src/node-version.ts, `engines` in package.json). That's where `process.getBuiltinModule` exists; hooks and the past-session look-back use it. On Node 18, `trail init` "works" but prints "couldn't read your past sessions this time (process.getBuiltinModule is not a function)" and saves no learnings. The bins check first and import everything else dynamically.
+- The Node floor is 22.3 (src/node-version.ts, `engines` in package.json). That's where `process.getBuiltinModule` exists; hooks and the past-session look-back use it. On Node 18, `trail init` "works" but prints "couldn't read your past sessions this time (process.getBuiltinModule is not a function)" and saves no learnings. The bins check first and import everything else dynamically.
 
 ## Tried and ruled out
 - Printing the Node warning (or any install hint) from scripts/postinstall.mjs: npm 7+ hides a successful lifecycle script's output, so nobody sees it. Even the existing "Trail installed" nudge never shows on `npm i -g`. Only the bin, README and the agent's instructions can reach the user.
