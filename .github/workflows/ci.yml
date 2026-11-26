@@ -111,20 +111,6 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true' && matrix.part == 1
         run: node --test benchmark/test/tsc-truth.test.mjs
 
-  # The ruleset requires `test (windows-latest, Node 26)`, which the 2 Windows parts
-  # replace. This job reports it, and passes only when every test job passed.
-  windows-tests:
-    name: test (windows-latest, Node 26)
-    needs: [test]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every test job to pass
-        env:
-          RESULT: ${{ needs.test.result }}
-        run: test "$RESULT" = success
-
   # rust/gg-docs, the binary behind `trail docs`: its own checks, then the docs
   # tests through both CLI entry points on the release build, which they find
   # in target/release. GG_DOCS_E2E=require turns their skip into a failure.
