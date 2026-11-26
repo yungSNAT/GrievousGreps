@@ -1,7 +1,7 @@
 /**
  * Kustomize generators across one build level with `namePrefix` and `nameSuffix` (`src/graph/kustomize.ts`, `buildOf`):
- * a prefix or suffix on the overlay or its leaf bases changes no link, as `kustomize build` matches a reference, and
- * refuses a generator clash, by the names as written before it renames. Each case's expectation is what
+ * a prefix or suffix on the overlay or its leaf bases changes no link, as `kustomize build` matches a reference by the
+ * names as written before it renames; a clash counts under a leaf object's renamed name as well. Each case's expectation is what
  * `kustomize build` v5.8.3 on the case's overlay folder renames.
  */
 import { test } from "node:test";
@@ -78,4 +78,48 @@ test("a name prefix or suffix on an overlay or its leaves changes no generator l
     assert.ok(reasons.includes(`${c}/overlay/kustomization.yaml: ConfigMap app-config is 2 objects in this build: not linked to its generator`), `${c}\n${reasons.join("\n")}`);
   }
   assert.ok(reasons.includes("oSameNamePrefixes/overlay/kustomization.yaml: configMapGenerator not applied to references, which link objects as written"), reasons.join("\n"));
+});
+
+const cm = (name: string) => `apiVersion: v1\nkind: ConfigMap\nmetadata: { name: ${name} }\n`;
+const gen = (name: string) => `configMapGenerator: [ { name: ${name}, literals: [ A=1 ] } ]\n`;
+/** Kustomize v5.8.3 refuses each overlay: a clash counts under a leaf object's renamed name as well as its written one. */
+const RENAMED_CLASHES: Record<string, Record<string, string>> = {
+  // 'merging from generator ... Name:"b-x" exists'
+  p1: {
+    "base/kustomization.yaml": "namePrefix: b-\nresources: [ cm.yaml ]\n", "base/cm.yaml": cm("x"),
+    "overlay/own.yaml": dep("own", { ref: "b-x" }), "overlay/kustomization.yaml": `resources: [ ../base, own.yaml ]\n${gen("b-x")}`,
+  },
+  p3: {
+    "base/kustomization.yaml": "nameSuffix: -s\nresources: [ cm.yaml ]\n", "base/cm.yaml": cm("app"),
+    "overlay/own.yaml": dep("own", { ref: "app-s" }), "overlay/kustomization.yaml": `resources: [ ../base, own.yaml ]\n${gen("app-s")}`,
+  },
+  p4: {
+    "b1/kustomization.yaml": "namePrefix: one-\nresources: [ cm.yaml ]\n", "b1/cm.yaml": cm("x"),
+    "b2/kustomization.yaml": BASE, "b2/d.yaml": dep("two", { ref: "one-x" }),
+    "overlay/kustomization.yaml": `resources: [ ../b1, ../b2 ]\n${gen("one-x")}`,
+  },
+  p5: {
+    "base/kustomization.yaml": `namePrefix: b-\n${BASE}${gen("g")}`, "base/d.yaml": dep("api", { ref: "g" }),
+    "overlay/own.yaml": dep("own", { ref: "b-g" }), "overlay/kustomization.yaml": `resources: [ ../base, own.yaml ]\n${gen("b-g")}`,
+  },
+  // 'may not add resource with an already registered id'
+  q1: {
+    "b1/kustomization.yaml": "namePrefix: one-\nresources: [ cm.yaml ]\n", "b1/cm.yaml": cm("x"),
+    "b2/kustomization.yaml": "resources: [ cm.yaml, d.yaml ]\n", "b2/cm.yaml": cm("one-x"), "b2/d.yaml": dep("two"),
+    "overlay/kustomization.yaml": `resources: [ ../b1, ../b2 ]\n${GEN}`,
+  },
+  q2: {
+    "base/kustomization.yaml": `namePrefix: b-\n${BASE}`, "base/d.yaml": dep("api"),
+    "overlay/own.yaml": dep("b-api"), "overlay/kustomization.yaml": `resources: [ ../base, own.yaml ]\n${GEN}`,
+  },
+};
+
+test("a leaf object's renamed name clashes as Kustomize counts it, so the overlay links nothing", () => {
+  const files: Record<string, string> = {};
+  for (const [c, fs] of Object.entries(RENAMED_CLASHES)) for (const [rel, text] of Object.entries(fs)) files[`${c}/${rel}`] = text;
+  const { edges } = resolveFiles(files);
+  const links = edges.filter((e) => /#(configMap|secret)Generator:/.test(e.target) && !e.source.endsWith("#kustomization"))
+    .map((e) => `${e.source} -> ${e.target}`).sort();
+  // The base's own generator still links in the base's own build, as in case h.
+  assert.deepEqual(links, ["p5/base/d.yaml#Deployment/default/api -> p5/base/kustomization.yaml#configMapGenerator:g"]);
 });

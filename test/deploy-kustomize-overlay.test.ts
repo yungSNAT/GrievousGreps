@@ -104,9 +104,7 @@ test("an overlay's generator links from the workloads its build renames, base an
     assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), `${k}\n${reasons.join("\n")}`);
   }
   // Outside this transform (a base listed twice): the generator stays unapplied. Prefixes and suffixes: deploy-kustomize-prefix.test.ts.
-  for (const c of ["twice"]) {
-    assert.ok(reasons.includes(`${c}/overlay/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), `${c}\n${reasons.join("\n")}`);
-  }
+  assert.ok(reasons.includes("twice/overlay/kustomization.yaml: configMapGenerator not applied to references, which link objects as written"), reasons.join("\n"));
   for (const c of ["plain", "ownfile", "twobases", "basens", "objns"]) {
     assert.ok(!reasons.some((r) => r.startsWith(`${c}/overlay/`) && r.includes("configMapGenerator")), `${c}\n${reasons.join("\n")}`);
   }
