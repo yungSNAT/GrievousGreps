@@ -136,7 +136,7 @@ describe("callerBlocks with mixed relations", () => {
     assert.equal(lines[2], "  c.ts: y L7");
   });
 
-  test("an unresolved import keeps its own line and a quoted path carries the inferred mark", () => {
+  test("an unresolved import keeps its own line, after the indexed hits, and a quoted path carries the inferred mark", () => {
     const mixed: EdgeHit[] = [
       { id: "ext.mod", relation: "imports", depth: 1 } as unknown as EdgeHit,
       { id: "p#y", relation: "calls", depth: 1, inferred: true, node: node("p#y", "y", "dir: x/c.ts", "L7-L9") } as unknown as EdgeHit,
@@ -144,8 +144,7 @@ describe("callerBlocks with mixed relations", () => {
     const blocks = callerBlocks(EMPTY_GRAPH, "out", false, [{ symbol, hits: mixed }]);
     const lines = blocks[0].split("\n");
     assert.equal(lines[0], "main · function · a.ts:L1-L5");
-    assert.equal(lines[1], "  imports → ext.mod (unresolved import)");
-    assert.equal(lines[2], `  calls → "dir: x/c.ts"${INFERRED_MARK}: y L7`);
+    assert.deepEqual(lines.slice(1), ["  [internal: 1]", `  calls → "dir: x/c.ts"${INFERRED_MARK}: y L7`, "  [external: 1]", "  imports → ext.mod (unresolved import)"]);
   });
 
   test("edgeless homonyms share one block with a count of the rest and one unresolved note", () => {
