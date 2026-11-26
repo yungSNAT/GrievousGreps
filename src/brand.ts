@@ -27,8 +27,8 @@ export const BRAND_ENV = "TRAIL_INVOKED_AS";
 
 /** This distribution's one package, which provides both names. */
 export const PACKAGE_FOR: Record<Brand, string> = {
-  trail: "@equitybot/grievousgreps",
-  graft: "@equitybot/grievousgreps",
+  trail: "@yungsnat/grievousgreps",
+  graft: "@yungsnat/grievousgreps",
 };
 
 export function brand(env: NodeJS.ProcessEnv = process.env): Brand {

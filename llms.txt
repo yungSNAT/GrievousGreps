@@ -7,7 +7,7 @@
 
 Version `0.28.0+gg`, with no npm package: build it from source with `npm ci`, `npm run build`
 and `npm link`, after removing any upstream copy, since both install the `trail` and `graft`
-commands. Node 20.16 or later on the 20 line, or 22.3 or later. MIT, as upstream.
+commands. Node 22.3 or later. MIT, as upstream.
 
 ## Start
 

@@ -172,13 +172,13 @@ function withFakeNpm(fn: () => void, folder = 'npm'): void {
 
 test('getNpmViewVersion reads the latest version from npm on PATH', () => {
   withFakeNpm(() => {
-    assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+    assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
   });
 });
 
 test('getNpmViewVersion: an npm installed under a path with spaces, & and %NAME% still answers', () => {
   withFakeNpm(() => {
-    assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+    assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
   }, 'npm & 100% %PATH% x');
 });
 
@@ -241,13 +241,13 @@ test('getNpmViewVersion (Windows) runs the npm under the configured global prefi
   const { top } = npmScene(t);
   npmAt(join(top, 'npm'), '9.9.9', { prefix: join(top, 'prefix') });
   npmAt(join(top, 'prefix'), '8.8.8');
-  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '8.8.8' });
+  assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: true, version: '8.8.8' });
 });
 
 test('getNpmViewVersion (Windows): a prefix with no npm in it leaves the npm beside npm.cmd', onWindows, (t) => {
   const { top } = npmScene(t);
   npmAt(join(top, 'npm'), '9.9.9', { prefix: join(top, 'empty') });
-  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+  assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
 });
 
 test('getNpmViewVersion (Windows): a prefix inside the working folder is never run', onWindows, (t) => {
@@ -255,7 +255,7 @@ test('getNpmViewVersion (Windows): a prefix inside the working folder is never r
   const mark = join(top, 'ran');
   npmAt(join(top, 'npm'), '9.9.9', { prefix: join(here, 'prefix') });
   npmAt(join(here, 'prefix'), '7.7.7', { mark });
-  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
+  assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: false });
   assert.equal(existsSync(mark), false, "the working folder's npm ran");
 });
 
@@ -265,7 +265,7 @@ test("getNpmViewVersion (Windows): the working folder's .npmrc does not choose t
   npmAt(join(top, 'npm'), '9.9.9', { prefix: join(top, 'empty') });
   npmAt(join(top, 'vendor'), '7.7.7', { mark }); // outside the working folder: only its .npmrc names it
   writeFileSync(join(here, '.npmrc'), `prefix=${join(top, 'vendor')}\n`);
-  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
+  assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: true, version: '9.9.9' });
   assert.equal(existsSync(mark), false, "the npm the working folder's .npmrc named ran");
 });
 
@@ -276,7 +276,7 @@ test("getNpmViewVersion (Windows): npm's files reached through a link into the w
   mkdirSync(join(top, 'npm'));
   writeFileSync(join(top, 'npm', 'npm.cmd'), '@exit /b 7\r\n');
   symlinkSync(join(here, 'pkg', 'node_modules'), join(top, 'npm', 'node_modules'), 'junction');
-  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
+  assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: false });
   assert.equal(existsSync(mark), false, "the working folder's npm-cli.js ran");
 });
 
@@ -290,7 +290,7 @@ test("getNpmViewVersion (Windows): a node.exe beside npm.cmd that links into the
     if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('this Windows account cannot make file links');
     throw e;
   }
-  assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: false });
+  assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: false });
 });
 
 test("getNpmViewVersion (Windows): a working folder that makes npm's folder its workspace does not choose the npm that runs", onWindows, (t) => {
@@ -318,7 +318,7 @@ test("getNpmViewVersion (Windows): a working folder that makes npm's folder its 
   const link = join(top, 'npm', 'node_modules', 'npm');
   symlinkSync(realNpm, link, 'junction');
   try {
-    assert.deepEqual(getNpmViewVersion('@equitybot/grievousgreps', 30_000), { ok: true, version: '8.8.8' });
+    assert.deepEqual(getNpmViewVersion('@yungsnat/grievousgreps', 30_000), { ok: true, version: '8.8.8' });
     assert.equal(existsSync(mark), false, "the npm the workspace root's .npmrc named ran");
   } finally {
     unlinkSync(link); // the link only, before the scene's folders are removed

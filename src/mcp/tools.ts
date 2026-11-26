@@ -27,6 +27,7 @@ import {
   federateCheck,
   federateGrep,
   federateMap,
+  federateSkeleton,
   readWorkspace,
 } from '../graph/workspace.js';
 import { recordLookup } from '../cloud/lookup-activity.js';
@@ -98,7 +99,7 @@ export const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        file: { type: 'string', description: 'repo-relative path (or unique basename) of the file' },
+        file: { type: 'string', description: 'repo-relative path (or unique basename) of the file; from a folder of several repositories, begin with the repository folder, e.g. api/src/index.ts' },
       },
       required: ['file'],
     },
@@ -159,10 +160,10 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
-/** When the MCP server is rooted at a workspace parent, the ask/callers/grep/
- * map/check tools federate across the children — identical to the CLI. Returns
- * null for tools that don't federate (skeleton is per-file), so the caller
- * falls through to the normal single-graph path. */
+/** When the MCP server is rooted at a workspace parent, every tool routes
+ * through the workspace — ask/callers/grep/map/check federate across children,
+ * and `graft_file_api` routes by child path prefix. Returns null for unknown
+ * tool names so the caller falls through to the normal error path. */
 async function callWorkspaceTool(
   root: string,
   dirOverride: string | undefined,
@@ -212,6 +213,12 @@ async function callWorkspaceTool(
       }
       const maxDirs = typeof args.max_dirs === 'number' && Number.isFinite(args.max_dirs) && args.max_dirs > 0 ? args.max_dirs : undefined;
       return { text: federateMap(root, dirOverride, { maxDirs }), isError: false };
+    }
+    case 'graft_file_api': {
+      const file = String(args.file ?? '');
+      if (!file) return { text: 'graft_file_api requires a file', isError: true };
+      const r = federateSkeleton(root, dirOverride, file);
+      return { text: formatSkeleton(r), isError: !r.entries.length && !!r.note };
     }
     case 'graft_check_freshness': {
       const { text } = await federateCheck(root, dirOverride);

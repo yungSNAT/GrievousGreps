@@ -218,7 +218,7 @@ test('a trail command beside the node_modules that holds it (the Windows npm lay
 test('this distribution is found through its command, under its own package name', () => {
   const root = tmpRepo('shim-path-gg');
   const npmDir = join(root, 'npm');
-  fakeInstall(join(npmDir, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(npmDir, 'node_modules', '@yungsnat'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   for (const bin of ['trail', 'trail.cmd']) writeFileSync(join(npmDir, bin), '');
   assert.equal(runShim(root, project(root), { pathDirs: [npmDir] }), '0.28.0+gg');
 });
@@ -414,7 +414,7 @@ test('this distribution wins over a newer upstream package in the same project',
   const modules = join(p, 'node_modules');
   fakeInstall(join(modules, '@trailhq'), 'trail-code', '0.99.0', '@trailhq/trail-code');
   fakeInstall(join(modules, '@nanonets'), 'graft', '0.98.0', '@nanonets/graft');
-  fakeInstall(join(modules, '@equitybot'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(modules, '@yungsnat'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p), '0.28.0+gg');
 });
 
@@ -422,15 +422,15 @@ test('this distribution wins over a newer upstream package whichever candidate f
   const root = tmpRepo('shim-prefer-gg-remembered');
   const p = project(root);
   fakeInstall(join(p, 'node_modules', '@trailhq'), 'trail-code', '0.99.0', '@trailhq/trail-code');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own }), '0.28.0+gg');
 });
 
 test('the newer of 2 copies of this distribution wins, counting the release before a build tag', () => {
   const root = tmpRepo('shim-gg-versions');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.1+gg', '@equitybot/grievousgreps');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '0.28.1+gg', '@yungsnat/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own }), '0.28.1+gg');
 });
 
@@ -449,26 +449,26 @@ test('upstream is still the fallback when this distribution is absent', () => {
 test('a user-level shim never imports the project\'s own copy, however new', () => {
   const root = tmpRepo('shim-user-level-modules');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own, userLevel: true }), '0.28.0+gg');
 });
 
 test('a user-level shim never imports the project\'s dist folder, even with nothing else found', () => {
   const root = tmpRepo('shim-user-level-dist');
   const p = project(root);
-  fakeInstall(root, 'project', '99.0.0', '@equitybot/grievousgreps');
+  fakeInstall(root, 'project', '99.0.0', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { userLevel: true }), null);
 });
 
 test('a user-level shim never follows a trail command inside the project or a node_modules/.bin', () => {
   const root = tmpRepo('shim-user-level-path');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   const bin = join(p, 'node_modules', '.bin');
   mkdirSync(bin, { recursive: true });
   for (const d of [bin, p]) for (const b of ['trail', 'trail.cmd']) writeFileSync(join(d, b), '');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [bin, p] }), '0.28.0+gg');
 });
 
@@ -477,8 +477,8 @@ test('a user-level shim never follows a trail command inside the project or a no
 test('a user-level shim stays user-level when the home folder is the project', () => {
   const root = tmpRepo('shim-user-level-home');
   const home = join(root, 'home');
-  fakeInstall(join(home, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(home, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   const shimPath = join(home, '.claude', 'helpers', 'graft-hooks.cjs');
   assert.equal(runShim(root, home, { remembered: own, userLevel: true, shimPath, cwd: home, env: { HOME: home, USERPROFILE: home } }), '0.28.0+gg');
 });
@@ -488,7 +488,7 @@ test('a user-level shim stays user-level when the home folder is the project', (
 test('a user-level shim with the home folder as the project takes nothing from its node_modules', () => {
   const root = tmpRepo('shim-user-level-home-modules');
   const home = join(root, 'home');
-  const deps = fakeInstall(join(home, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const deps = fakeInstall(join(home, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   fakeNpm(join(root, 'npm-bin'), join(home, 'node_modules'));
   const shimPath = join(home, '.claude', 'helpers', 'graft-hooks.cjs');
   assert.equal(runShim(root, home, { remembered: deps, userLevel: true, shimPath, cwd: home, env: { HOME: home, USERPROFILE: home }, pathDirs: [join(root, 'npm-bin')] }), null);
@@ -497,15 +497,15 @@ test('a user-level shim with the home folder as the project takes nothing from i
 test('a user-level shim never imports the project\'s copy through a link outside it', () => {
   const root = tmpRepo('shim-user-level-link');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
-  symlinkSync(join(p, 'node_modules', '@equitybot', 'grievousgreps'), join(root, 'alias'), 'junction');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
+  symlinkSync(join(p, 'node_modules', '@yungsnat', 'grievousgreps'), join(root, 'alias'), 'junction');
   assert.equal(runShim(root, p, { remembered: join(root, 'alias', 'dist', 'claude'), userLevel: true }), null);
 });
 
 test('a user-level shim never imports a remembered install inside the project', () => {
   const root = tmpRepo('shim-user-level-remembered');
   const p = project(root);
-  const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const inside = fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: inside, userLevel: true }), null);
 });
 
@@ -513,7 +513,7 @@ test('a user-level shim never imports a remembered install inside the project', 
  * npm layout): the folder to put on PATH. A project copy the shim wrongly took would win over it. */
 function ownOnPath(root: string): string {
   const npmDir = join(root, 'npm');
-  fakeInstall(join(npmDir, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(npmDir, 'node_modules', '@yungsnat'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   for (const bin of ['trail', 'trail.cmd']) writeFileSync(join(npmDir, bin), '');
   return npmDir;
 }
@@ -522,9 +522,9 @@ function ownOnPath(root: string): string {
 test('a user-level shim never imports the project\'s copy named through this machine\'s share', { skip: process.platform !== 'win32' }, (t) => {
   const root = tmpRepo('shim-user-level-share');
   const p = project(root);
-  const inside = fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  const inside = fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   for (const b of ['trail', 'trail.cmd']) writeFileSync(join(p, b), '');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   const npmDir = ownOnPath(root);
   const [sharedCopy, sharedProject, sharedOwn] = [inside, p, own].map(viaShare);
   if (sharedCopy === null || sharedProject === null || sharedOwn === null) return t.skip("this machine's administrative share cannot be reached");
@@ -539,7 +539,7 @@ test('a user-level shim never imports the project\'s copy named through this mac
 test('a user-level shim never imports the project\'s copy through a link to a share of its node_modules', { skip: process.platform !== 'win32' }, (t) => {
   const root = tmpRepo('shim-user-level-share-link');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   const shared = viaShare(join(p, 'node_modules'));
   if (shared === null) return t.skip("this machine's administrative share cannot be reached");
   try {
@@ -548,7 +548,7 @@ test('a user-level shim never imports the project\'s copy through a link to a sh
     if ((e as NodeJS.ErrnoException).code === 'EPERM') return t.skip('this Windows account cannot make folder links');
     throw e;
   }
-  const remembered = join(root, 'drive', '@equitybot', 'grievousgreps', 'dist', 'claude');
+  const remembered = join(root, 'drive', '@yungsnat', 'grievousgreps', 'dist', 'claude');
   assert.equal(runShim(root, p, { remembered, userLevel: true, pathDirs: [ownOnPath(root)] }), '0.28.0+gg');
 });
 
@@ -556,7 +556,7 @@ test('a user-level shim never imports the project\'s copy through a link to a sh
 test('a user-level shim takes no copy through a share when the project has no identity to read', { skip: process.platform !== 'win32' }, (t) => {
   const root = tmpRepo('shim-user-level-share-unknown');
   const gone = join(root, 'gone');
-  const newer = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.29.0+gg', '@equitybot/grievousgreps');
+  const newer = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.29.0+gg', '@yungsnat/grievousgreps');
   const shared = viaShare(newer);
   if (shared === null) return t.skip("this machine's administrative share cannot be reached");
   const pathDirs = [ownOnPath(root)];
@@ -579,7 +579,7 @@ function fakeNpm(dir: string, globalRoot: string, mark?: string): void {
 test('a user-level shim never imports from a global root inside the project', () => {
   const root = tmpRepo('shim-user-level-global');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   fakeNpm(join(root, 'npm-bin'), join(p, 'node_modules'));
   assert.equal(runShim(root, p, { userLevel: true, pathDirs: [join(root, 'npm-bin')] }), null);
 });
@@ -599,11 +599,11 @@ test('a user-level shim never follows a node_modules/.bin outside the project', 
   const root = tmpRepo('shim-user-level-outside-bin');
   const p = project(root);
   const tools = join(root, 'tools');
-  fakeInstall(join(tools, 'node_modules', '@equitybot'), 'grievousgreps', '99.0.0', '@equitybot/grievousgreps');
+  fakeInstall(join(tools, 'node_modules', '@yungsnat'), 'grievousgreps', '99.0.0', '@yungsnat/grievousgreps');
   const bin = join(tools, 'node_modules', '.bin');
   mkdirSync(bin, { recursive: true });
   for (const b of ['trail', 'trail.cmd']) writeFileSync(join(bin, b), '');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own, userLevel: true, pathDirs: [bin] }), '0.28.0+gg');
 });
 
@@ -611,7 +611,7 @@ test('the project\'s own shim still finds an install through a node_modules/.bin
   const root = tmpRepo('shim-repo-outside-bin');
   const p = project(root);
   const tools = join(root, 'tools');
-  fakeInstall(join(tools, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(tools, 'node_modules', '@yungsnat'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   const bin = join(tools, 'node_modules', '.bin');
   mkdirSync(bin, { recursive: true });
   for (const b of ['trail', 'trail.cmd']) writeFileSync(join(bin, b), '');
@@ -621,7 +621,7 @@ test('the project\'s own shim still finds an install through a node_modules/.bin
 test('the project\'s own shim still uses the project\'s own copy, as a dev dependency installs it', () => {
   const root = tmpRepo('shim-repo-copy-modules');
   const p = project(root);
-  fakeInstall(join(p, 'node_modules', '@equitybot'), 'grievousgreps', '0.28.1+gg', '@equitybot/grievousgreps');
-  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@equitybot/grievousgreps');
+  fakeInstall(join(p, 'node_modules', '@yungsnat'), 'grievousgreps', '0.28.1+gg', '@yungsnat/grievousgreps');
+  const own = fakeInstall(join(root, 'installed'), 'grievousgreps', '0.28.0+gg', '@yungsnat/grievousgreps');
   assert.equal(runShim(root, p, { remembered: own }), '0.28.1+gg');
 });
