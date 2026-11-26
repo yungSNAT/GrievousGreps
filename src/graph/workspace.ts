@@ -825,8 +825,6 @@ function containedIn(base: string, rel: string, shown: string): string {
   }
 }
 
-const AMBIGUOUS_PREFIX = "ambiguous — matches: ";
-
 /** Route `skeleton` from a workspace parent by leading child path prefix
  * (`<child>/<file>`), returning paths prefixed with `<child>/`. */
 export function federateSkeleton(
@@ -836,15 +834,11 @@ export function federateSkeleton(
 ): SkeletonResult {
   const wg = loadWorkspaceGraphs(root, override);
   const { child, childRoot, relFile } = resolveWorkspaceFile(root, wg, file);
-  const r = skeleton(childRoot, relFile);
+  const r = skeleton(childRoot, relFile, { matchPrefix: `${child}/` });
   if (r.entries.length > 0) containedIn(childRoot, r.file, `${child}/${r.file}`);
-  const note = r.note?.startsWith(AMBIGUOUS_PREFIX)
-    ? `${AMBIGUOUS_PREFIX}${r.note.slice(AMBIGUOUS_PREFIX.length).split(", ").map((p) => `${child}/${p}`).join(", ")}`
-    : r.note;
   return {
     ...r,
     file: `${child}/${r.file}`,
-    ...(note !== undefined ? { note } : {}),
   };
 }
 

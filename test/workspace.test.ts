@@ -874,7 +874,7 @@ test("workspace skeleton & MCP graft_file_api: routes by child path prefix and r
   const p = workspaceFx({
     repoA: {
       "src/a.ts": "export function alphaHandler(x: number): number { return x + 1; }\n",
-      "lib/dup.ts": "export function libDup(): number { return 1; }\n",
+      "lib, old/dup.ts": "export function libDup(): number { return 1; }\n",
       "pkg/dup.ts": "export function pkgDup(): number { return 2; }\n",
     },
     repoB: {
@@ -907,7 +907,7 @@ test("workspace skeleton & MCP graft_file_api: routes by child path prefix and r
     // Ambiguous basename within a child prefixes every candidate with `<child>/`.
     const ambig = federateSkeleton(p, undefined, "repoA/dup.ts");
     assert.equal(ambig.entries.length, 0);
-    assert.match(ambig.note ?? "", /ambiguous — matches: repoA\/lib\/dup\.ts, repoA\/pkg\/dup\.ts/);
+    assert.equal(ambig.note, "ambiguous — matches: repoA/lib, old/dup.ts, repoA/pkg/dup.ts");
 
     // MCP graft_file_api routes through the workspace instead of failing with "no wiring graph".
     const mcpOk = await callTool(p, "graft_file_api", { file: "repoA/src/a.ts" });
