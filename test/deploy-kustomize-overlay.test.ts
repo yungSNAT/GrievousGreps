@@ -51,6 +51,14 @@ const CASES: Record<string, Record<string, string>> = {
     "base/kustomization.yaml": `${BASE}configMapGenerator: [ { name: other, literals: [ B=2 ] } ]\n`, "base/d.yaml": dep("api"),
     "overlay/kustomization.yaml": OV,
   },
+  // Kustomize refuses a base folder that holds the overlay ('cycle detected: candidate root ... contains visited root').
+  ancestor: { "base/kustomization.yaml": BASE, "base/d.yaml": dep("api"), "base/overlay/kustomization.yaml": `resources: [ .. ]\n${GEN}` },
+  grandparent: { "top/kustomization.yaml": BASE, "top/d.yaml": dep("api"), "top/mid/overlay/kustomization.yaml": `resources: [ ../.. ]\n${GEN}` },
+  baseGenClash: {
+    "b1/kustomization.yaml": `${BASE}configMapGenerator: [ { name: x, literals: [ A=1 ] } ]\n`, "b1/d.yaml": dep("one"),
+    "b2/kustomization.yaml": `${BASE}configMapGenerator: [ { name: x, literals: [ B=2 ] } ]\n`, "b2/d.yaml": dep("two"),
+    "overlay/kustomization.yaml": `resources: [ ../b1, ../b2 ]\n${GEN}`,
+  },
   emptybaseOwn: { "base/kustomization.yaml": "resources: []\n", "overlay/d.yaml": dep("api"), "overlay/kustomization.yaml": `resources: [ ../base, d.yaml ]\n${GEN}` },
 };
 
@@ -91,6 +99,11 @@ test("an overlay's generator links from the workloads its build renames, base an
   // Kustomize refuses a generator whose name the build already holds; the overlay says why it links nothing.
   for (const c of ["basegen", "baseobj"]) {
     assert.ok(reasons.includes(`${c}/overlay/kustomization.yaml: ConfigMap app-config is 2 objects in this build: not linked to its generator`), `${c}\n${reasons.join("\n")}`);
+  }
+  // A clash between 2 bases' generators fails the overlay's build too, though each base builds on its own.
+  assert.ok(reasons.includes("baseGenClash/overlay/kustomization.yaml: ConfigMap x is 2 objects in this build: not linked to its generator"), reasons.join("\n"));
+  for (const k of ["ancestor/base/overlay", "grandparent/top/mid/overlay"]) {
+    assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), `${k}\n${reasons.join("\n")}`);
   }
   // Outside this transform (a prefix or suffix, a base listed twice) and a namespace mismatch: the generator stays unapplied.
   for (const c of ["ovprefix", "baseprefix", "twice"]) {
