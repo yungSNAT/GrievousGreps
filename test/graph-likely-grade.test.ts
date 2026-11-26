@@ -12,6 +12,11 @@ import { confidenceRank, parseConfidence, provenanceOf, weakestConfidence } from
 import { hitLine, matchJson } from "../src/graph/traverse-cli.js";
 import { impactOfMany, type EdgeHit } from "../src/graph/traverse.js";
 import type { GraphV1 } from "../src/graph/types.js";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
+import { buildGraph } from "../src/graph/build.js";
+import { readGraph, wiringPath } from "../src/graph/write.js";
 
 function n(id: string, kind: NodeV1["kind"]): NodeV1 {
   const post = id.includes("#") ? id.split("#")[1] : id;
@@ -207,4 +212,73 @@ test("a type or base the file declares itself does not make a link to another fi
   const graded = [...ts, ...py].filter((e) => e.relation !== "contains" && !e.target.startsWith(e.source.split("#")[0]));
   assert.ok(graded.length > 0);
   assert.deepEqual(graded.filter((e) => e.confidence === "likely").map((e) => `${e.source} -> ${e.target}`), []);
+});
+
+// An attribute's type is named in the class that states the field, not in the calling file:
+// the scope check runs there. `Response` from a package is not the repository's namesake.
+async function attrGraph(): Promise<GraphV1> {
+  const dir = mkdtempSync(join(tmpdir(), "graft-likely-attr-"));
+  const files: Record<string, string> = {
+    "pkg/__init__.py": "from .resp import Response",
+    "pkg/resp.py": `class Response:
+    def json(self):
+        return 1
+`,
+    "pkg/remote.py": `from requests import Response
+
+
+class Remote:
+    def __init__(self):
+        self.resp = Response()
+`,
+    "pkg/local.py": `from .resp import Response
+
+
+class Local:
+    def __init__(self):
+        self.resp = Response()
+`,
+    "pkg/barrel.py": `from pkg import Response
+
+
+class Barrel:
+    def __init__(self):
+        self.resp = Response()
+`,
+    "user.py": `from pkg.remote import Remote
+from pkg.local import Local
+from pkg.barrel import Barrel
+
+
+def remote():
+    x = Remote()
+    x.resp.json()
+
+
+def local():
+    x = Local()
+    x.resp.json()
+
+
+def barrel():
+    x = Barrel()
+    x.resp.json()
+`,
+  };
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(dir, dirname(path)), { recursive: true });
+    writeFileSync(join(dir, path), text);
+  }
+  await buildGraph(dir);
+  const graph = readGraph(wiringPath(join(dir, "graft")));
+  assert.ok(graph, "wiring graph should be written");
+  return graph!;
+}
+
+test("a Python attribute typed by a package's namesake stays inferred; one typed from the target's file is likely", async () => {
+  const graph = await attrGraph();
+  const grade = (source: string) => graph.edges.find((e) => e.relation === "calls" && e.source === `user.py#${source}` && e.target === "pkg/resp.py#Response.json")?.confidence;
+  assert.equal(grade("remote"), "inferred", "the field's class imports Response from requests");
+  assert.equal(grade("local"), "likely", "the field's class imports Response from the target's file");
+  assert.equal(grade("barrel"), "likely", "through the package's re-export to the target's file");
 });
