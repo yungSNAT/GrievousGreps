@@ -187,6 +187,7 @@ describe("the whole Claude, at a terminal", () => {
     assert.match(failed.stdout, /its hook is in .*, so this runs in every folder/);
     writeFileSync(syncFile, JSON.stringify({ ...s, lastRun: { at: Date.now(), sent: 0 } }));
     const quiet = share([], { home, cwd: repo, routes: [allowed] });
+    assert.equal(quiet.status, 0, quiet.detail);
     assert.match(quiet.stdout, /· last run .*: nothing new to send/);
   });
 

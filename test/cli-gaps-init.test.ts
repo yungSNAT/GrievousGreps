@@ -101,8 +101,10 @@ describe("which agents", () => {
     const repo = codeRepo("all-dry");
     const r = cli(["init", repo, "--all-agents", "--dry-run"]);
     assert.equal(r.status, 0, r.detail);
-    assert.match(r.stderr, /cursor/i);
-    assert.match(r.stderr, /claude/i);
+    assert.match(r.stderr, /^would write in this repo:$/m);
+    assert.match(r.stderr, /^ {2}\.claude[\\/]settings\.json +graft statusline \+ hook blocks$/m);
+    assert.match(r.stderr, /^ {2}\.cursor[\\/]mcp\.json +mcpServers\.graft$/m);
+    assert.match(r.stderr, /^nothing was written \(--dry-run\)$/m);
     assert.equal(existsSync(join(repo, ".cursor")), false);
   });
 
@@ -186,6 +188,7 @@ describe("--pair", () => {
     const repo = codeRepo("pair-server");
     const r = trail(["init", repo, "--pair", "PAIR-CODE-1", "--server", "trail.acme", "--agents", "claude", "--no-build"]);
     assert.equal(r.status, 1, r.detail);
+    assert.match(r.stderr, /✗ --server takes a URL, like https:\/\/dev\.trailhq\.com/);
     assert.equal(existsSync(join(repo, ".claude")), false);
   });
 
@@ -244,7 +247,8 @@ describe("what init says", () => {
       input: "I prefer tabs over spaces in TypeScript code.\n",
     });
     assert.equal(r.status, 0, r.detail);
-    assert.match(r.stderr, /Claude\.ai knows about you|found nothing in that file/);
+    assert.match(r.stderr, /✓ kept 1 thing Claude\.ai knows about you, just for you/);
+    assert.match(r.stderr, /just for you +· I prefer tabs over spaces in TypeScript code/);
   });
 
   test("--verbose on a workspace parent wires each child and names it", () => {
@@ -260,7 +264,8 @@ describe("what init says", () => {
     const repo = codeRepo("verbose-auto");
     const r = cli(["init", repo, "--agents", "auto", "--verbose", "--no-build"]);
     assert.equal(r.status, 0, r.detail);
-    assert.match(r.stderr, /^✓ /m);
+    assert.match(r.stderr, /^✓ wrote .*settings\.json$/m);
+    assert.match(r.stderr, /^✓ No coding agent found on this laptop, so nothing outside this repo changed\./m);
   });
 
   test("a built graph is counted, with its languages", () => {

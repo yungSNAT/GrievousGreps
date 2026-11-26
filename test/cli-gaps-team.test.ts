@@ -117,12 +117,13 @@ describe("team, from this clone", () => {
     assert.ok(t.overlaps.length >= 1);
   });
 
-  test("one person, one learning, outside git", () => {
+  test("outside git, over the days asked for, with nobody and nothing yet", () => {
     const dir = scratchDir("local-plain");
     const home = homeWith("local-plain-home", []);
     const r = trail(["team", dir, "--days", "3"], { home });
     assert.equal(r.status, 0, r.detail);
-    assert.match(r.stdout, /^the last 3 days in /m);
+    assert.match(r.stdout, /^the last 3 days in graft-cli-gaps-team-local-plain-[0-9a-f]+ · from this clone$/m);
+    assert.match(r.stdout, /^0 people · 0 new learnings$/m);
   });
 });
 
@@ -168,8 +169,10 @@ describe("check, on this machine", () => {
     commitAll(dir, "Turn three times");
     branchCache(dir, [{ ref: "origin/bo-gear", author: "Bo", files: ["src/gear.ts"] }]);
     const r = trail(["check", dir, "--base", "main"], { home });
+    assert.equal(r.status, 0, r.detail);
     assert.match(r.stdout, /^checking 1 changed file against 1 learning and 0 skills$/m);
-    assert.match(r.stdout, /bo-gear/);
+    assert.match(r.stdout, /^✓ no learning bears on this change$/m);
+    assert.match(r.stdout, /Bo's branch bo-gear also changes src\/gear\.ts/);
   });
 
   test("a diff over 400 KB is checked only in part, and says so", () => {
@@ -387,6 +390,7 @@ describe("counts and names, the other way round", () => {
     writeFileSync(join(dir, "src", "cog.ts"), "export const teeth = 12;\n");
     commitAll(dir, "Turn three times");
     const r = trail(["check", dir, "--base", "main"], { home });
+    assert.equal(r.status, 0, r.detail);
     assert.match(r.stdout, /^checking 2 changed files against 2 learnings and 0 skills$/m);
   });
 

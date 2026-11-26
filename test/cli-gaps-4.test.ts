@@ -220,13 +220,13 @@ describe("check", () => {
 });
 
 describe("stats", () => {
-  test("prints the session mix, or the same as JSON", () => {
+  test("with no session recorded it says so, and --json gives null", () => {
     const plain = cli(["stats", repo]);
     assert.equal(plain.status, 0, plain.detail);
-    assert.ok(plain.stdout.trim().length > 0);
+    assert.equal(plain.stdout, "graft stats: no session recorded yet. Use graft in an agent session, then look again.\n");
     const json = cli(["stats", repo, "--json"]);
     assert.equal(json.status, 0, json.detail);
-    JSON.parse(json.stdout);
+    assert.equal(JSON.parse(json.stdout), null);
   });
 });
 

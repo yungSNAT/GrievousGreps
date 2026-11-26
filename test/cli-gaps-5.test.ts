@@ -74,10 +74,12 @@ describe("hidden helpers", () => {
     assert.equal(r.stdout + r.stderr, "");
   });
 
-  test("_trail-sync sends a workspace repo's learnings, and does nothing off a workspace", () => {
-    const quiet = cli(["_trail-sync", repo]);
+  test("_trail-sync off a workspace sends nothing and says nothing", () => {
+    const log = join(scratchDir("sync-log"), "fetch.jsonl");
+    const quiet = cli(["_trail-sync", repo], { fetchLog: log });
     assert.equal(quiet.status, 0, quiet.detail);
     assert.equal(quiet.stdout + quiet.stderr, "");
+    assert.ok(!existsSync(log), "no request");
   });
 
   test("_trail-pair stops when the pair link has expired, at the Trail it was told", () => {
@@ -89,8 +91,12 @@ describe("hidden helpers", () => {
   });
 
   test("_trail-pair with no server named waits on Trail cloud until it runs out of time", () => {
-    const r = cli(["_trail-pair", "state-2", repo], { env: { GG_CLOCK_STEP_MS: String(24 * 60 * 60 * 1000) } });
+    const log = join(scratchDir("pair-cloud-log"), "fetch.jsonl");
+    const r = cli(["_trail-pair", "state-2", repo], { fetchLog: log, env: { GG_CLOCK_STEP_MS: String(24 * 60 * 60 * 1000) } });
     assert.equal(r.status, 0, r.detail);
+    assert.equal(r.stdout + r.stderr, "");
+    const calls = readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { method: string; host: string; path: string });
+    assert.deepEqual(calls.map((c) => `${c.method} ${c.host}${c.path}`), ["POST team.trailhq.com/api/cli/handoffs/claim"]);
   });
 
   test("_update-check records when it last asked", () => {
@@ -140,11 +146,14 @@ describe("build --deep, offline", () => {
 });
 
 describe("build, rarer lines", () => {
-  test("a workspace parent keeps explicit submodule and nested-repo choices", () => {
+  test("a workspace parent, with explicit submodule and nested-repo flags, builds each repo and federates them", () => {
     const root = workspaceRoot("ws-build");
     const r = cli(["build", root, "--follow-submodules", "--no-follow-nested-repos", "--no-gitignore", "--no-ignore"]);
     assert.equal(r.status, 0, r.detail);
-    assert.match(r.stdout + r.stderr, /workspace/);
+    assert.match(r.stderr, /^building 2 workspace repos: alpha, beta$/m);
+    assert.match(r.stdout, /^✓ alpha\/: \d+ nodes, \d+ edges/m);
+    assert.match(r.stdout, /^✓ beta\/: \d+ nodes, \d+ edges/m);
+    assert.match(r.stdout, /^✓ workspace: 2 repos federated → graft\/workspace\.json$/m);
   });
 
   test("a new worktree starts from the main checkout's graph and says so", () => {
@@ -182,7 +191,7 @@ describe("queries", () => {
     assert.match(text.stdout, /score/);
     const json = cli(["ask", "score bonus", repo, "--max-tokens", "400", "--json", "--no-refresh"], { trail: true });
     assert.equal(json.status, 0, json.detail);
-    JSON.parse(json.stdout);
+    assert.match(JSON.stringify(JSON.parse(json.stdout)), /bonus/);
   });
 
   test("ask under trail with learnings in the repo marks a teammate's", () => {
@@ -210,6 +219,7 @@ describe("queries", () => {
     writeFileSync(join(dir, "src", "score.ts"), "export function total(v: number): number {\n  return v;\n}\n");
     const stale = cli(["ask", "score bonus", dir, "--no-refresh"], { trail: true });
     assert.equal(stale.status, 0, stale.detail);
+    assert.match(stale.stderr, /index: stale \(refresh is off, 1 file changed since the last build\)/);
   });
 
   test("an -e extension given with its dot is still named when nothing parses it", () => {
@@ -225,7 +235,10 @@ describe("queries", () => {
     const b = cli(["build", root, "--no-gitignore", "--no-ignore"]);
     assert.equal(b.status, 0, b.detail);
     const r = cli(["check", root]);
-    assert.match(r.stdout + r.stderr, /alpha|beta|workspace/);
+    assert.equal(r.status, 0, r.detail);
+    assert.match(r.stdout, /^workspace check — 2 repo\(s\)$/m);
+    assert.match(r.stdout, /^alpha\/: OK$/m);
+    assert.match(r.stdout, /^beta\/: OK$/m);
   });
 
   test("check --json on a repo with no map has no graph", () => {
@@ -243,30 +256,59 @@ describe("queries", () => {
     assert.match(r.stderr, /✗ callers --provenance is not supported on a workspace parent; run it inside a child repository/);
   });
 
-  test("docs status and update answer, or say gg-docs is missing", () => {
+  // TRAIL_DOCS_BIN names no file, so a gg-docs built in this checkout is never run.
+  test("docs status and update name a gg-docs binary that isn't there", () => {
     const root = scratchDir("docs");
     writeFileSync(join(root, "guide.md"), "# Guide\n\nHow the score works.\n");
+    const bin = join(root, "no-gg-docs");
     for (const sub of ["status", "update"]) {
-      const r = cli(["docs", sub, "--json", "--root", root]);
-      if (r.status === 0) JSON.parse(r.stdout);
-      else assert.match(r.stderr, /gg-docs/i, r.detail);
+      const r = cli(["docs", sub, "--json", "--root", root], { env: { TRAIL_DOCS_BIN: bin } });
+      assert.equal(r.status, 1, r.detail);
+      assert.equal(r.stderr.trim(), `✗ TRAIL_DOCS_BIN names no file: ${bin}`);
+      assert.equal(r.stdout, "");
     }
   });
 });
 
 describe("viz on each platform", () => {
-  for (const platform of ["darwin", "linux", "win32"]) {
-    test(`serving on ${platform} opens the browser with that platform's opener`, () => {
-      const r = cli(["viz", repo, "--port", "0"], { env: { GG_UNREF_SERVERS: "1", GG_PLATFORM: platform } });
+  const openers: Record<string, string> = { darwin: "open", linux: "xdg-open", win32: "start" };
+  for (const [platform, opener] of Object.entries(openers)) {
+    // The opener is started only where it can be found (on this machine's PATH, or through
+    // cmd.exe for win32); where it can't, the address printed is the fallback.
+    test(`serving on ${platform} opens the address with ${opener}, or only prints it`, () => {
+      const env: Record<string, string> = { GG_UNREF_SERVERS: "1", GG_PLATFORM: platform, GG_SPAWN_LOG: join(scratchDir(`viz-${platform}`), "spawn.jsonl") };
+      // This machine's own opener is put on PATH, so its start is always seen.
+      if (platform === process.platform && platform !== "win32") {
+        const bin = scratchDir(`viz-${platform}-bin`);
+        writeFileSync(join(bin, opener), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+        env.PATH = `${bin}:${process.env.PATH}`;
+      }
+      const r = cli(["viz", repo, "--port", "0"], { env });
       assert.equal(r.status, 0, r.detail);
-      assert.match(r.stdout, /\(ctrl-c to stop\)/);
+      const url = /→ (http:\/\/\S+) {2}\(ctrl-c to stop\)/.exec(r.stdout)?.[1];
+      assert.ok(url, r.detail);
+      const started = existsSync(env.GG_SPAWN_LOG!) ? readFileSync(env.GG_SPAWN_LOG!, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { file: string; args: string[] }) : [];
+      if (platform === process.platform) assert.equal(started.length, 1, r.detail);
+      for (const s of started) {
+        assert.equal(s.file.replace(/\\/g, "/").split("/").pop(), opener);
+        assert.deepEqual(s.args, [url]);
+      }
     });
   }
 });
 
 test("mcp --brains serves only the workspace's tools and ends with its input", () => {
-  const r = cli(["mcp", "--brains"]);
+  const input = [
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cli-gaps", version: "1" } } },
+    { jsonrpc: "2.0", method: "notifications/initialized" },
+    { jsonrpc: "2.0", id: 2, method: "tools/list" },
+  ].map((m) => JSON.stringify(m) + "\n").join("");
+  const r = cli(["mcp", "--brains"], { input });
   assert.equal(r.status, 0, r.detail);
+  const replies = r.stdout.trim().split("\n").map((l) => JSON.parse(l) as { id?: number; result?: { tools?: Array<{ name: string }> } });
+  const tools = replies.find((m) => m.id === 2)?.result?.tools;
+  assert.ok(Array.isArray(tools), r.detail);
+  assert.ok(!tools.some((t) => t.name === "graft_find_code"), "the graph's tools are left out");
 });
 
 describe("note", () => {
