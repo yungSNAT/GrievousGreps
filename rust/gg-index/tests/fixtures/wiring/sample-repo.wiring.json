@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "version": 1,
+    "nodeCount": 12,
+    "edgeCount": 15,
+    "languages": [
+      "python",
+      "typescript"
+    ],
+    "scopes": [
+      {
+        "prefix": "",
+        "label": "",
+        "markers": []
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "src/checkout.ts",
+      "name": "checkout.ts",
+      "kind": "file",
+      "path": "src/checkout.ts",
+      "span": "L1-L7",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "5f6534c30ad426dd53788050eb75ebb00835811da7581f2cee1a4b5e56c5e160",
+      "chars": 175,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/checkout.ts#runCheckout",
+      "name": "runCheckout",
+      "kind": "function",
+      "path": "src/checkout.ts",
+      "span": "L3-L6",
+      "signature": "function runCheckout(items: number[]): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "369847e0afff303e12eb2f267de0e49a8ad6d72bbb51ef674d450c3de72d31c4",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/math.ts",
+      "name": "math.ts",
+      "kind": "file",
+      "path": "src/math.ts",
+      "span": "L1-L9",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "e99afcbd5cd6379ad5de4a161de7a12b6006c27abdb01833d2a8061c70138603",
+      "chars": 234,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/math.ts#computeTax",
+      "name": "computeTax",
+      "kind": "function",
+      "path": "src/math.ts",
+      "span": "L1-L3",
+      "signature": "function computeTax(amount: number, rate: number): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "9f9b958b658e86893fde66f60c0fea628805c7e4632424d9ab0d2aa6e96e2e38",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/math.ts#computeTotal",
+      "name": "computeTotal",
+      "kind": "function",
+      "path": "src/math.ts",
+      "span": "L5-L8",
+      "signature": "function computeTotal(subtotal: number, rate: number): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "e91c77d4e3bf2198ee9f56b6cfe53aa96fe322e0c6cf1677f59cfa04c4eb64d6",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/order.ts",
+      "name": "order.ts",
+      "kind": "file",
+      "path": "src/order.ts",
+      "span": "L1-L13",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "a9d1d72587067902239cce66b57a878dbb6c3ac0936837b840c1ca33f7b28dd1",
+      "chars": 298,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/order.ts#handleOrder",
+      "name": "handleOrder",
+      "kind": "function",
+      "path": "src/order.ts",
+      "span": "L9-L12",
+      "signature": "function handleOrder(subtotal: number): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "3183f39850167f392366f52911f1ff116f6bcb0c1f2fe4d45739053803c62cb4",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/order.ts#OrderService",
+      "name": "OrderService",
+      "kind": "class",
+      "path": "src/order.ts",
+      "span": "L3-L7",
+      "signature": "class OrderService",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "de9a8d238956b0219c2878bae8775c5ab2129b1eee885d3bd51415e7d3b296ad",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/order.ts#OrderService.processOrder",
+      "name": "processOrder",
+      "kind": "method",
+      "path": "src/order.ts",
+      "span": "L4-L6",
+      "signature": "processOrder(subtotal: number): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "920b86ea20e61470519084ab990d90e6507a017947d39c458d26f1f002626776",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null,
+      "owner": "OrderService"
+    },
+    {
+      "id": "src/report.py",
+      "name": "report.py",
+      "kind": "file",
+      "path": "src/report.py",
+      "span": "L1-L6",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "3c72e12a39ea44624cc0d6aa52b09a9bd36503e0b7978731bf181b6cb2e251c7",
+      "chars": 171,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/report.py#format_currency",
+      "name": "format_currency",
+      "kind": "function",
+      "path": "src/report.py",
+      "span": "L1-L2",
+      "signature": "def format_currency(amount: float) -> str",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "4288732e591ca6cf8534fd5b6eeee03af6a820efdc0d1b4e3d2bdb769335a4b3",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/report.py#render_invoice",
+      "name": "render_invoice",
+      "kind": "function",
+      "path": "src/report.py",
+      "span": "L4-L5",
+      "signature": "def render_invoice(subtotal: float, tax: float) -> str",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "8a6703fa7dd958bbc14a0b931a271526afa3c063ba63e577db63bd8d5843ebfd",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "src/checkout.ts",
+      "target": "src/checkout.ts#runCheckout",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/checkout.ts",
+      "target": "src/order.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/checkout.ts#runCheckout",
+      "target": "src/order.ts#handleOrder",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/math.ts",
+      "target": "src/math.ts#computeTax",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/math.ts",
+      "target": "src/math.ts#computeTotal",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/math.ts#computeTotal",
+      "target": "src/math.ts#computeTax",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/order.ts",
+      "target": "src/order.ts#handleOrder",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/order.ts",
+      "target": "src/order.ts#OrderService",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/order.ts",
+      "target": "src/math.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/order.ts#handleOrder",
+      "target": "src/order.ts#OrderService.processOrder",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/order.ts#OrderService",
+      "target": "src/order.ts#OrderService.processOrder",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/order.ts#OrderService.processOrder",
+      "target": "src/math.ts#computeTotal",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/report.py",
+      "target": "src/report.py#format_currency",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/report.py",
+      "target": "src/report.py#render_invoice",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/report.py#render_invoice",
+      "target": "src/report.py#format_currency",
+      "relation": "calls",
+      "confidence": "extracted"
+    }
+  ]
+}
