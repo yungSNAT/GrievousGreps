@@ -11,7 +11,7 @@
  * Enumerating the files here instead means `npm test` behaves identically in
  * cmd.exe, PowerShell, bash and CI, on any supported Node.
  */
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -119,29 +119,51 @@ const homeEnv = {
 // A graft repo moves to trail when a session opens on a machine with the trail
 // command, so a contributor who has trail installed would see test repos move.
 // Off for the run; the tests of the move turn it back on.
-const runFiles = (list, ...flags) =>
+// `npm test -- --coverage` also writes each run's coverage to coverage-<run>.lcov
+// for the Codecov upload. V8 writes raw coverage from every process, and c8 maps
+// it back to the TypeScript through tsx's source maps. Node's own
+// --experimental-test-coverage applies the offsets of tsx's output to the .ts
+// file on disk, so it marked comments as missed and executed lines as unrun.
+const coverage = process.argv.slice(2).includes("--coverage");
+const v8Dir = (run) => join(runTmp, `v8-${run}`);
+const runFiles = (list, run, ...flags) =>
   spawnSync(process.execPath, ["--import", "tsx", "--test", ...concurrencyArgs, ...flags, ...list], {
     cwd: repoRoot,
     stdio: "inherit",
-    env: { ...process.env, ...gitEnv, ...tmpEnv, ...homeEnv, GRAFT_NO_TRAIL_SWITCH: "1" },
+    env: {
+      ...process.env,
+      ...gitEnv,
+      ...tmpEnv,
+      ...homeEnv,
+      GRAFT_NO_TRAIL_SWITCH: "1",
+      ...(coverage ? { NODE_V8_COVERAGE: v8Dir(run) } : {}),
+    },
   });
-// `npm test -- --coverage` also writes each run's coverage to coverage-<run>.lcov
-// for the Codecov upload, keeping the spec report on stdout.
-const coverage = process.argv.slice(2).includes("--coverage");
-const coverageFlags = (run) =>
-  coverage
-    ? [
-        "--experimental-test-coverage",
-        "--test-reporter=spec",
-        "--test-reporter-destination=stdout",
-        "--test-reporter=lcov",
-        `--test-reporter-destination=coverage-${run}.lcov`,
-      ]
-    : [];
+const report = (run) =>
+  spawnSync(
+    process.execPath,
+    [
+      join(repoRoot, "node_modules", "c8", "bin", "c8.js"),
+      "report",
+      `--temp-directory=${v8Dir(run)}`,
+      `--reports-dir=${join(runTmp, `report-${run}`)}`,
+      "--reporter=lcovonly",
+      "--exclude-after-remap",
+    ],
+    { cwd: repoRoot, stdio: "inherit" },
+  );
 const shared = files.filter((f) => !ALONE.includes(f)).filter((_, i) => i % n === k - 1);
 const alone = k === n ? files.filter((f) => ALONE.includes(f)) : [];
-const results = [runFiles(shared, ...coverageFlags("main"))];
-if (alone.length > 0) results.push(runFiles(alone, "--test-concurrency=1", ...coverageFlags("alone")));
+const runs = [["main", shared, []]];
+if (alone.length > 0) runs.push(["alone", alone, ["--test-concurrency=1"]]);
+const results = runs.map(([run, list, flags]) => runFiles(list, run, ...flags));
+if (coverage) {
+  for (const [run] of runs) {
+    const result = report(run);
+    results.push(result);
+    if (result.status === 0) copyFileSync(join(runTmp, `report-${run}`, "lcov.info"), join(repoRoot, `coverage-${run}.lcov`));
+  }
+}
 try {
   rmSync(runTmp, { recursive: true, force: true });
 } catch {
