@@ -377,11 +377,12 @@ function fsCases(): number {
     },
     "leaf is a directory": (root) => mkdirSync(join(root, "graft", ".graph", "wiring.json"), { recursive: true }),
   };
-  const run = (name: string, who: "ts" | "rust") => {
-    const root = join(work, `fs-${who}-${Object.keys(plant).indexOf(name)}`);
+  type Plant = (root: string, outside: string) => string | void;
+  const run = (index: number, setup: Plant, who: "ts" | "rust") => {
+    const root = join(work, `fs-${who}-${index}`);
     const outside = join(root, "outside");
     mkdirSync(outside, { recursive: true });
-    const target = plant[name](root, outside) ?? join(root, "graft");
+    const target = setup(root, outside) ?? join(root, "graft");
     let ok: boolean;
     if (who === "ts") {
       try {
@@ -407,9 +408,9 @@ function fsCases(): number {
     });
   };
   let differ = 0;
-  for (const name of Object.keys(plant)) {
-    const ts = run(name, "ts");
-    const rust = run(name, "rust");
+  for (const [index, [name, setup]] of Object.entries(plant).entries()) {
+    const ts = run(index, setup, "ts");
+    const rust = run(index, setup, "rust");
     if (ts !== rust) {
       differ++;
       console.log(JSON.stringify({ fsCase: name, ts, rust }));
