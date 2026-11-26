@@ -835,7 +835,7 @@ export function resolveEdges(
       let hit = EX_EXT.test(e.file)
         ? resolveLocalName(e.name!, e.file, callKinds, perFileName)
         : PY_EXT.test(e.file)
-          ? resolvePythonName(e.name!, e.file, callKinds, perFileName, pythonCtx)
+          ? resolvePythonName(e.name!, e.file, callKinds, perFileName, pythonCtx, !!e.pythonBound)
           : resolveName(e.name!, e.file, callKinds, perFileName, globalName);
       if (!hit && SWIFT_EXT.test(e.file)) {
         hit = resolveName(e.name!, e.file, SWIFT_CTOR_KINDS, perFileName, globalName);
@@ -889,7 +889,8 @@ function resolveLocalName(
  * builtin `open()` and local aliases linked to other files' functions.
  *
  * Python is the Java case without the `new` to mark it: `Widget()` is an ordinary call node,
- * so classes are tried only once functions have found nothing in the file.
+ * so classes are tried only once functions have found nothing in the file. A name the file
+ * defines more than once (a nested namesake) or binds itself (`bound`) is not followed.
  */
 function resolvePythonName(
   name: string,
@@ -897,11 +898,14 @@ function resolvePythonName(
   kinds: Kind[],
   perFileName: Map<string, Map<string, NodeV1[]>>,
   ctx: PythonCtx,
+  bound: boolean,
 ): { id: string; confidence: EdgeV1["confidence"] } | null {
   for (const want of [kinds, PY_CTOR_KINDS]) {
     const local = (perFileName.get(file)?.get(name) ?? []).filter((n) => want.includes(n.kind));
     if (local.length === 1) return { id: local[0].id, confidence: "extracted" };
+    if (local.length > 1) return null;
   }
+  if (bound) return null;
   const found = followPythonName(name, toPosixPath(file), ctx);
   return typeof found !== "string" && "id" in found && (found.kind === "function" || found.kind === "class")
     ? { id: found.id, confidence: "extracted" }

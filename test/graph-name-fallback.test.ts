@@ -97,3 +97,49 @@ test("a Rust method call on a field of no known type does not link by name eithe
   const files = { ...RUST, "src/run.rs": "pub struct Run { inner: Thing }\n\nimpl Run {\n    pub fn go(&self) {\n        self.inner.config.duplicate();\n    }\n}\n" };
   assert.deepEqual(rustCalls(files, "src/run.rs#go"), []);
 });
+
+function pythonEdges(files: Record<string, string>, source: string): string[] {
+  const extracted = Object.entries(files).map(([path, text]) => extractFile(path, text, "python"));
+  return resolveEdges(extracted.flatMap((x) => x.nodes), extracted.flatMap((x) => x.rawEdges))
+    .filter((e) => e.source === source && e.relation === "calls")
+    .map((e) => `${e.target} ${e.confidence}`)
+    .sort();
+}
+
+const SHADOWED = {
+  "pkg/stars.py": "def starred():\n    return 1\n",
+  "pkg/other.py": "def starred():\n    return 2\n",
+  "app/use.py": `from pkg.stars import *
+
+def param(starred):
+    return starred()
+
+def alias(x):
+    starred = x
+    return starred()
+
+def outer(x):
+    starred = x
+    def inner():
+        return starred()
+    return inner
+
+def plain():
+    return starred()
+`,
+};
+
+test("a star-imported name a parameter, local or enclosing def rebinds is not followed into the star", () => {
+  for (const fn of ["param", "alias", "outer.inner"]) assert.deepEqual(pythonCalls(SHADOWED, `app/use.py#${fn}`), [], fn);
+  assert.deepEqual(pythonEdges(SHADOWED, "app/use.py#plain"), ["pkg/stars.py#starred extracted"]);
+});
+
+test("a star-imported name the module rebinds is not followed into the star", () => {
+  const files = { ...SHADOWED, "app/use.py": "from pkg.stars import *\n\nstarred = len\n\ndef g():\n    return starred()\n" };
+  assert.deepEqual(pythonCalls(files, "app/use.py#g"), []);
+});
+
+test("a Python name the file defines twice does not resolve to the top-level one", () => {
+  const files = { "app/use.py": "def helper():\n    return 1\n\ndef outer():\n    def helper():\n        return 2\n    return helper()\n" };
+  assert.deepEqual(pythonCalls(files, "app/use.py#outer"), []);
+});
