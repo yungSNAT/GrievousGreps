@@ -35,6 +35,13 @@ test("a nested relative outDir writes under the working directory, not under its
   });
 });
 
+test("an empty outDir writes under the working directory, as gg-index --out-dir \"\" does", () => {
+  inTempCwd((cwd) => {
+    writeGraph(graph, "");
+    assert.ok(existsSync(join(cwd, ".graph", "wiring.json")));
+  });
+});
+
 test("a relative outDir ending in .. is refused, as its absolute form is", () => {
   inTempCwd((cwd) => {
     mkdirSync(join(cwd, "graft"));

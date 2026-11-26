@@ -415,7 +415,9 @@ function fsCases(): number {
       }
     } else {
       writeFileSync(join(root, "in.json"), graph);
-      ok = spawnSync(bin, ["wiring", join(root, "in.json"), "--out-dir", given], { cwd: root }).status === 0;
+      const rs = spawnSync(bin, ["wiring", join(root, "in.json"), "--out-dir", given], { cwd: root });
+      if (rs.error) throw rs.error; // a binary that cannot start must not pass as a refusal
+      ok = rs.status === 0;
     }
     const target = isAbsolute(given) ? given : join(root, given);
     // Inspect where TypeScript's lexical resolution puts the output, not where the kernel would.
