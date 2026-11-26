@@ -62,17 +62,21 @@ pub fn write_wiring(out_dir: &Path, text: &str) -> io::Result<PathBuf> {
 /// The trusted base, `resolve(dirname(out_dir))`, and the directories from it to
 /// `resolve(out_dir, ".graph")`. A file-system root is its own `dirname`.
 fn split_out_dir(out_dir: &Path) -> io::Result<(PathBuf, Vec<OsString>)> {
-    let out_dir = if out_dir.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        out_dir
-    };
-    // `Path::parent` matches `dirname` except on a trailing `.`, which `components` drops.
+    // `Path::parent` matches `dirname` except on a trailing `.`, which `components` drops,
+    // and on one relative component, whose parent is `""` where `dirname` gives `.`.
     let raw_base = match out_dir.parent() {
         Some(parent) if !ends_in_dot(out_dir) => parent,
         _ => out_dir,
     };
-    let resolve = |p: &Path| std::path::absolute(p).map(|p| lexical(&p));
+    // As Node's `resolve`, an empty path is the current directory.
+    let resolve = |p: &Path| {
+        let p = if p.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            p
+        };
+        std::path::absolute(p).map(|p| lexical(&p))
+    };
     let base = resolve(raw_base)?;
     let graph = resolve(out_dir)?.join(".graph");
     let below = graph
