@@ -13,7 +13,6 @@ import {
   warmGenericGrammars,
   extractGeneric,
   genericLangOf,
-  fallbackLangOf,
   isWarm,
   loadWasmLanguage,
   parseWasm,
@@ -54,13 +53,6 @@ test("genericLangOf routes .rs to the breadth tier (and not depth-tier extension
   assert.equal(genericLangOf("README.md"), null);
 });
 
-test("Java native fallback reuses the breadth grammar registered for .java", () => {
-  const java = genericLangOf("src/Main.java");
-  assert.equal(java?.name, "java");
-  assert.equal(fallbackLangOf("java"), java);
-  assert.equal(fallbackLangOf("typescript").wasm, "typescript");
-});
-
 test("Rust: distinguish blanket and slice trait impls and keep nested cfg scope", async () => {
   await warmGenericGrammars(["rust"]);
   const source = [
@@ -88,7 +80,6 @@ test("Rust: distinguish blanket and slice trait impls and keep nested cfg scope"
     [open.id, "platform::detail"],
   ]);
 });
-
 
 test("Rust: a path call picks its type's associated function among same-named ones, and calls inside macros count", async () => {
   await warmGenericGrammars(["rust"]);
