@@ -62,7 +62,7 @@
     "smol-toml": "^1.9.1",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.18.2",
-    "web-tree-sitter": "^0.27.1",
+    "web-tree-sitter": "^0.27.2",
     "web-tree-sitter-depth": "npm:web-tree-sitter@0.22.2",
     "yaml": "^2.9.1"
   },
