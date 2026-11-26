@@ -382,6 +382,173 @@ pub fn reference_line(
     reference_line_any(root, path, span, &[symbol_name], cache)
 }
 
+/// Mirrors `quoteFor` in `src/graph/traverse-cli.ts`: a file that imports the name, or imports it as
+/// another name (`name as alias`), calls it on a later line, so that line is quoted; else the first mention.
+pub fn call_reference_line(
+    root: &Path,
+    path: &str,
+    span: &str,
+    symbol_name: &str,
+    cache: &mut HashMap<String, Option<Vec<String>>>,
+) -> Option<Quote> {
+    if is_deploy_file(path) || symbol_name.is_empty() {
+        return None;
+    }
+    // Fills the cache, so the reads below see the file.
+    let first = reference_line(root, path, span, symbol_name, cache);
+    let lines = cache.get(path)?.as_ref()?;
+    let imports = import_lines(lines);
+    let mut names = vec![symbol_name.to_string()];
+    for (line, _) in lines.iter().zip(&imports).filter(|(_, i)| **i) {
+        for alias in aliases_in(&import_code(line), symbol_name) {
+            if !names.contains(&alias) {
+                names.push(alias);
+            }
+        }
+    }
+    let (start, end) = span_range(span)?;
+    let syntax = syntax_of(path);
+    let mut open: Option<String> = None;
+    for (idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(end.min(lines.len()))
+        .skip(start.saturating_sub(1))
+    {
+        let (code, next_open) = code_of(line, syntax, open);
+        open = next_open;
+        if !imports[idx] && names.iter().any(|n| !word_positions(&code, n).is_empty()) {
+            return Some(Quote {
+                n: idx + 1,
+                text: line.clone(),
+            });
+        }
+    }
+    first
+}
+
+/// A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`),
+/// not `import.meta` or a dynamic `import(...)`.
+fn is_import_line(code: &str) -> bool {
+    let t = code.trim_start();
+    let starts_word = |s: &str, w: &str| {
+        s.starts_with(w) && !s[w.len()..].bytes().next().is_some_and(is_word_char)
+    };
+    if starts_word(t, "import") {
+        return !t["import".len()..].trim_start().starts_with(['.', '(']);
+    }
+    if starts_word(t, "from") {
+        let rest = t["from".len()..].trim_start();
+        let after = rest
+            .find(char::is_whitespace)
+            .map(|i| rest[i..].trim_start());
+        return after.is_some_and(|a| starts_word(a, "import"));
+    }
+    false
+}
+
+/// Each word-bounded occurrence of `word` in `s`, by byte offset.
+fn word_positions(s: &str, word: &str) -> Vec<usize> {
+    let b = s.as_bytes();
+    s.match_indices(word)
+        .map(|(i, _)| i)
+        .filter(|&i| {
+            (i == 0 || !is_word_char(b[i - 1]))
+                && b.get(i + word.len()).is_none_or(|&c| !is_word_char(c))
+        })
+        .collect()
+}
+
+/// The text after ` as ` when it follows `s[at..]`'s word, if any.
+fn as_follows(rest: &str) -> Option<&str> {
+    let t = rest.trim_start();
+    if t.len() == rest.len() {
+        return None;
+    }
+    let t = t.strip_prefix("as")?;
+    if t.bytes().next().is_some_and(is_word_char) || t.len() == t.trim_start().len() {
+        return None;
+    }
+    Some(t.trim_start())
+}
+
+/// The names `name as alias` binds on a line.
+fn aliases_in(line: &str, name: &str) -> Vec<String> {
+    word_positions(line, name)
+        .into_iter()
+        .filter_map(|i| as_follows(&line[i + name.len()..]))
+        .filter_map(|t| {
+            let end = t
+                .bytes()
+                .position(|c| !(is_word_char(c) || c == b'$'))
+                .unwrap_or(t.len());
+            let first = t.bytes().next()?;
+            (end > 0 && !first.is_ascii_digit()).then(|| t[..end].to_string())
+        })
+        .filter(|a| a != name && !a.contains('$'))
+        .collect()
+}
+
+/// An import line's code: quoted text (a module path) and a `/* ... */` comment emptied, and a
+/// `#`, `//` or unclosed `/*` comment outside quotes dropped. Mirrors `importCode` in
+/// `src/graph/traverse-cli.ts`.
+fn import_code(line: &str) -> String {
+    let mut out = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    let mut i = 0;
+    while let Some(c) = line[i..].chars().next() {
+        let at = i;
+        i += c.len_utf8();
+        if escaped {
+            escaped = false;
+        } else if let Some(q) = quote {
+            if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+                out.push(c);
+            }
+        } else if line[at..].starts_with("/*") {
+            let Some(close) = line[at + 2..].find("*/") else {
+                break;
+            };
+            i = at + 2 + close + 2;
+            out.push(' ');
+        } else if c == '#' || line[at..].starts_with("//") {
+            break;
+        } else {
+            if matches!(c, '"' | '\'' | '`') {
+                quote = Some(c);
+            }
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the
+/// lines up to the close. Mirrors `importLines` in `src/graph/traverse-cli.ts`.
+fn import_lines(lines: &[String]) -> Vec<bool> {
+    let mut open = false;
+    lines
+        .iter()
+        .map(|l| {
+            if !open && !is_import_line(l) {
+                return false;
+            }
+            let code = import_code(l);
+            open = if open {
+                !code.contains([')', '}'])
+            } else {
+                code.rfind(['(', '{'])
+                    .is_some_and(|i| !code[i..].contains([')', '}']))
+            };
+            true
+        })
+        .collect()
+}
+
 pub fn reference_line_any(
     root: &Path,
     path: &str,

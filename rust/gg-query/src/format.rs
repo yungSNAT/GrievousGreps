@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use crate::brand::cmd;
 use crate::graph::{
-    Direction, EdgeHit, NodeV1, Quote, Savings, UnresolvedCall, is_test_path, reference_line,
+    Direction, EdgeHit, NodeV1, Quote, Savings, UnresolvedCall, call_reference_line, is_test_path,
     with_savings,
 };
 
@@ -151,7 +151,7 @@ fn hit_lines(
             continue;
         };
         let quote = if h.depth <= 1 && !is_test_path(&node.path) {
-            reference_line(root, &node.path, &node.span, symbol_name, file_cache)
+            call_reference_line(root, &node.path, &node.span, symbol_name, file_cache)
         } else {
             None
         };
