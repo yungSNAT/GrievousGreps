@@ -23,6 +23,9 @@ const FILES: Record<string, string> = {
   "use.ts": "import { helperTs as ht } from \"./lib\";\n\nexport const y = ht(1);\n",
   "use_paren.ts": "import { helperTs } from \"./lib\"; import \"./side(\";\n\nexport const w = helperTs(3);\n",
   "use_str.ts": "import \"./helperTs as e\";\nimport { helperTs } from \"./lib\";\n\nexport function f(xs: number[]): number {\n  for (const e of xs) void e;\n  return helperTs(2);\n}\n",
+  "use_meta.ts": "import { helperTs } from \"./lib\";\n\nif (import.meta.url) helperTs(4);\n",
+  "use_block.ts": "import { /* note */ helperTs as hb } from \"./lib\";\n\nexport const v = hb(5);\n",
+  "use_dollar.ts": "import { helperTs as h$ } from \"./lib\";\n\nexport const d = h$(6);\n",
   "use_multi.ts": "import {\n  helperTs as ht2,\n} from \"./lib\";\n\nexport const z = ht2(2);\n",
 };
 
@@ -50,6 +53,9 @@ test("callers quotes the line that calls a name imported under an alias, at modu
     assert.match(ts.stdout, /L5: export const z = ht2\(2\);/, "an alias bound inside a multi-line import");
     assert.match(ts.stdout, /use_paren\.ts L3: export const w = helperTs\(3\);/, "a bracket in a module path does not open the import");
     assert.match(ts.stdout, /f L6: return helperTs\(2\);/, "an `as` in a module path binds no alias");
+    assert.match(ts.stdout, /use_meta\.ts L3: if \(import\.meta\.url\) helperTs\(4\);/, "import.meta is no import statement");
+    assert.match(ts.stdout, /use_block\.ts L3: export const v = hb\(5\);/, "an inline block comment does not end the import");
+    assert.match(ts.stdout, /use_dollar\.ts L1: import \{ helperTs as h\$ \}/, "an alias holding $ is skipped, as gg-query skips it");
     const err = runCli(["callers", "HelperError", dir, "--no-refresh"]);
     assert.equal(err.status, 0, err.describe());
     assert.match(err.stdout, /guard L7: raise HelperError\("empty"\)/, "an except binding is no import alias");

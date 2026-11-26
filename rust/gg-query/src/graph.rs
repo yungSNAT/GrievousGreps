@@ -426,14 +426,15 @@ pub fn call_reference_line(
     first
 }
 
-/// A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`).
+/// A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`),
+/// not `import.meta` or a dynamic `import(...)`.
 fn is_import_line(code: &str) -> bool {
     let t = code.trim_start();
     let starts_word = |s: &str, w: &str| {
         s.starts_with(w) && !s[w.len()..].bytes().next().is_some_and(is_word_char)
     };
     if starts_word(t, "import") {
-        return true;
+        return !t["import".len()..].trim_start().starts_with(['.', '(']);
     }
     if starts_word(t, "from") {
         let rest = t["from".len()..].trim_start();
@@ -483,18 +484,21 @@ fn aliases_in(line: &str, name: &str) -> Vec<String> {
             let first = t.bytes().next()?;
             (end > 0 && !first.is_ascii_digit()).then(|| t[..end].to_string())
         })
-        .filter(|a| a != name)
+        .filter(|a| a != name && !a.contains('$'))
         .collect()
 }
 
-/// An import line's code: quoted text (a module path) emptied, and a `#`, `//` or `/*` comment
-/// outside quotes dropped. Mirrors `importCode` in `src/graph/traverse-cli.ts`.
+/// An import line's code: quoted text (a module path) and a `/* ... */` comment emptied, and a
+/// `#`, `//` or unclosed `/*` comment outside quotes dropped. Mirrors `importCode` in
+/// `src/graph/traverse-cli.ts`.
 fn import_code(line: &str) -> String {
     let mut out = String::new();
     let mut quote = None;
     let mut escaped = false;
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
+    let mut i = 0;
+    while let Some(c) = line[i..].chars().next() {
+        let at = i;
+        i += c.len_utf8();
         if escaped {
             escaped = false;
         } else if let Some(q) = quote {
@@ -504,7 +508,13 @@ fn import_code(line: &str) -> String {
                 quote = None;
                 out.push(c);
             }
-        } else if c == '#' || (c == '/' && matches!(chars.peek(), Some('/' | '*'))) {
+        } else if line[at..].starts_with("/*") {
+            let Some(close) = line[at + 2..].find("*/") else {
+                break;
+            };
+            i = at + 2 + close + 2;
+            out.push(' ');
+        } else if c == '#' || line[at..].starts_with("//") {
             break;
         } else {
             if matches!(c, '"' | '\'' | '`') {

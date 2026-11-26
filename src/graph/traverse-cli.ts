@@ -167,15 +167,19 @@ function quoteFor(
   return referenceLine(path, span, [wordRe(name)], read, true) ?? undefined;
 }
 
-/** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`). */
-const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b)/;
+/** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`),
+ * not `import.meta` or a dynamic `import(...)`. */
+const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b(?!\s*[.(]))/;
 
-/** An import line's code: quoted text (a module path) emptied, and a `#`, `//` or `/*` comment outside quotes dropped. */
+/** An import line's code: quoted text (a module path) and a `/* ... *\/` comment emptied, and a `#`, `//` or
+ * unclosed `/*` comment outside quotes dropped. */
 function importCode(line: string): string {
   let out = "";
   let quote = "";
   let escaped = false;
+  let skipTo = 0;
   for (const [i, c] of line.split("").entries()) {
+    if (i < skipTo) continue;
     if (escaped) escaped = false;
     else if (quote) {
       if (c === "\\") escaped = true;
@@ -183,7 +187,12 @@ function importCode(line: string): string {
         quote = "";
         out += c;
       }
-    } else if (c === "#" || (c === "/" && (line[i + 1] === "/" || line[i + 1] === "*"))) {
+    } else if (c === "/" && line[i + 1] === "*") {
+      const close = line.indexOf("*/", i + 2);
+      if (close < 0) return out;
+      skipTo = close + 2;
+      out += " ";
+    } else if (c === "#" || (c === "/" && line[i + 1] === "/")) {
       return out;
     } else {
       if (c === '"' || c === "'" || c === "`") quote = c;
@@ -207,7 +216,8 @@ function importLines(lines: string[]): boolean[] {
 /** The names import lines bind `name` to (`name as alias`). */
 function aliasesOf(lines: string[], name: string): string[] {
   const pairs = lines.flatMap((l) => [...l.matchAll(/([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)/g)]);
-  return [...new Set(pairs.filter((m) => m[1] === name && m[2] !== name).map((m) => m[2]))];
+  // An alias holding `$` is skipped: `wordRe`'s `\b` cannot bound it, and gg-query skips it too.
+  return [...new Set(pairs.filter((m) => m[1] === name && m[2] !== name && !m[2].includes("$")).map((m) => m[2]))];
 }
 
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched

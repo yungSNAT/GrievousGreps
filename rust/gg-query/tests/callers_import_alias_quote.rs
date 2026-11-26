@@ -65,6 +65,21 @@ fn write_fixtures(repo: &Path) {
         "use_str.js",
         "import \"helper as e\";\nimport { helper } from \"./util\";\n\nfunction f(xs) {\n  for (const e of xs) check(e);\n  return helper(2);\n}\n",
     );
+    write(
+        repo,
+        "use_meta.js",
+        "import { helper } from \"./util\";\n\nif (import.meta.url) helper(4);\n",
+    );
+    write(
+        repo,
+        "use_block.js",
+        "import { /* note */ helper as hb } from \"./util\";\n\nexport const v = hb(5);\n",
+    );
+    write(
+        repo,
+        "use_dollar.js",
+        "import { helper as h$ } from \"./util\";\n\nexport const d = h$(6);\n",
+    );
 }
 
 #[test]
@@ -73,7 +88,7 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     let repo = tmp.path();
     write_fixtures(repo);
     let graph = r#"{
-  "meta": { "version": 1, "nodeCount": 12, "edgeCount": 10, "languages": ["python"] },
+  "meta": { "version": 1, "nodeCount": 15, "edgeCount": 13, "languages": ["python"] },
   "nodes": [
     { "id": "pkg/util.py#helper", "name": "helper", "kind": "function", "path": "pkg/util.py", "span": "L1-L2", "exported": true, "origin": "ast", "body_hash": "h1" },
     { "id": "py_alias.py", "name": "py_alias.py", "kind": "file", "path": "py_alias.py", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f1", "chars": 40 },
@@ -85,7 +100,10 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     { "id": "py_comment_tight.py", "name": "py_comment_tight.py", "kind": "file", "path": "py_comment_tight.py", "span": "L1-L5", "exported": false, "origin": "ast", "body_hash": "f5", "chars": 50 },
     { "id": "py_comment_alias.py#scan", "name": "scan", "kind": "function", "path": "py_comment_alias.py", "span": "L4-L7", "exported": true, "origin": "ast", "body_hash": "h4" },
     { "id": "use_paren.js", "name": "use_paren.js", "kind": "file", "path": "use_paren.js", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f6", "chars": 50 },
-    { "id": "use_str.js#f", "name": "f", "kind": "function", "path": "use_str.js", "span": "L4-L7", "exported": false, "origin": "ast", "body_hash": "h5" }
+    { "id": "use_str.js#f", "name": "f", "kind": "function", "path": "use_str.js", "span": "L4-L7", "exported": false, "origin": "ast", "body_hash": "h5" },
+    { "id": "use_meta.js", "name": "use_meta.js", "kind": "file", "path": "use_meta.js", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f7", "chars": 70 },
+    { "id": "use_block.js", "name": "use_block.js", "kind": "file", "path": "use_block.js", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f8", "chars": 80 },
+    { "id": "use_dollar.js", "name": "use_dollar.js", "kind": "file", "path": "use_dollar.js", "span": "L1-L3", "exported": false, "origin": "ast", "body_hash": "f9", "chars": 70 }
   ],
   "edges": [
     { "source": "py_alias.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
@@ -97,7 +115,10 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     { "source": "py_comment_tight.py", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "py_comment_alias.py#scan", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
     { "source": "use_paren.js", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
-    { "source": "use_str.js#f", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" }
+    { "source": "use_str.js#f", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
+    { "source": "use_meta.js", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
+    { "source": "use_block.js", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" },
+    { "source": "use_dollar.js", "target": "pkg/util.py#helper", "relation": "calls", "confidence": "extracted" }
   ]
 }"#;
     let gdir = repo.join("graft").join(".graph");
@@ -130,4 +151,18 @@ fn callers_quotes_the_call_of_an_imported_alias_not_the_import() {
     // A bracket or an `as` inside a quoted module path is no syntax.
     assert!(text.contains("use_paren.js L3: helper();"), "{text}");
     assert!(text.contains("f L6: return helper(2);"), "{text}");
+    // `import.meta` is no import statement; an inline block comment does not end one.
+    assert!(
+        text.contains("use_meta.js L3: if (import.meta.url) helper(4);"),
+        "{text}"
+    );
+    assert!(
+        text.contains("use_block.js L3: export const v = hb(5);"),
+        "{text}"
+    );
+    // An alias holding `$` is skipped, as `trail callers` skips it: the import is quoted.
+    assert!(
+        text.contains("use_dollar.js L1: import { helper as h$ }"),
+        "{text}"
+    );
 }
