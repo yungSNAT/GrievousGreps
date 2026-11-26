@@ -58,11 +58,11 @@
     "@anthropic-ai/sdk": "^0.133.0",
     "commander": "^15.0.0",
     "gray-matter": "^4.0.3",
-    "openai": "^7.8.0",
+    "openai": "^7.60.0",
     "smol-toml": "^1.9.1",
     "vscode-jsonrpc": "^8.2.1",
     "vscode-languageserver-protocol": "^3.18.2",
-    "web-tree-sitter": "^0.27.1",
+    "web-tree-sitter": "^0.27.2",
     "web-tree-sitter-depth": "npm:web-tree-sitter@0.22.2",
     "yaml": "^2.9.1"
   },
