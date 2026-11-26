@@ -16,7 +16,7 @@
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, normalize } from "node:path";
+import { isAbsolute, join, normalize, resolve } from "node:path";
 import { wiringPath, writeGraph } from "../../../src/graph/write.js";
 
 const args = process.argv.slice(2);
@@ -52,8 +52,10 @@ if (record) {
   process.exit(0);
 }
 
-const bin = opt("--bin");
-if (!bin) throw new Error("--bin <gg-index binary> is required");
+const binArg = opt("--bin");
+if (!binArg) throw new Error("--bin <gg-index binary> is required");
+// Absolute, as the containment cases run the binary from each case's root.
+const bin = resolve(binArg);
 let seed = Number(opt("--seed") ?? 1) >>> 0;
 const firstSeed = seed;
 const count = Number(opt("--count") ?? 200);
