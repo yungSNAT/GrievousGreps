@@ -5,7 +5,10 @@
 //! `String.prototype.localeCompare`, which is ICU collation. ICU4X's root collation
 //! matches it on hosts whose default locale is English or C/POSIX and whose Node carries
 //! ICU 78 data. TypeScript sorts differently on a host whose locale tailors collation
-//! (Swedish, for one) and may for characters an older ICU does not know; this does not.
+//! (Swedish and Danish, for two) and may for characters an older ICU does not know.
+//! Rust always sorts by root collation, so `wiring.json` is the same on every host. That
+//! is the contract, not a gap to close: the binary cannot see a TypeScript run's locale,
+//! and once the port replaces the TypeScript writer no host-dependent order remains.
 
 use std::cmp::Ordering;
 use std::sync::LazyLock;

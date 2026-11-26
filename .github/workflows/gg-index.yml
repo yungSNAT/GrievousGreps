@@ -6,9 +6,9 @@ name: gg-index
 on:
   push:
     branches: [main]
-    paths: ["rust/gg-index/**", "src/graph/write.ts", "src/util/safe-fs.ts", ".github/workflows/gg-index.yml"]
+    paths: ["rust/gg-index/**", "src/graph/write.ts", "src/util/safe-fs.ts", ".gitattributes", ".github/workflows/gg-index.yml"]
   pull_request:
-    paths: ["rust/gg-index/**", "src/graph/write.ts", "src/util/safe-fs.ts", ".github/workflows/gg-index.yml"]
+    paths: ["rust/gg-index/**", "src/graph/write.ts", "src/util/safe-fs.ts", ".gitattributes", ".github/workflows/gg-index.yml"]
   workflow_dispatch:
 
 concurrency:

@@ -86,17 +86,13 @@ fn binary_refuses_bad_input_and_usage() {
 }
 
 #[test]
-fn binary_writes_a_graph_nested_to_the_cap() {
-    // A free-form field nested to the cap: TypeScript overflows near depth 4,000; Rust must
-    // not overflow below its cap on any platform, debug builds included.
-    let depth = gg_index::json::MAX_DEPTH - 2;
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("deep-input");
+fn binary_refuses_invalid_utf8() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bad-utf8");
     fs::create_dir_all(&dir).unwrap();
-    let input = dir.join("deep.json");
-    let field = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    let input = dir.join("bad.json");
     fs::write(
         &input,
-        format!("{{\"nodes\":[{{\"id\":\"a\",\"x\":{field}}}],\"edges\":[]}}"),
+        b"{\"nodes\":[{\"id\":\"a\",\"name\":\"\xff\"}],\"edges\":[]}",
     )
     .unwrap();
     let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
@@ -104,6 +100,34 @@ fn binary_writes_a_graph_nested_to_the_cap() {
         .arg(&input)
         .output()
         .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("not UTF-8"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn binary_writes_to_the_nesting_cap_and_refuses_past_it() {
+    // A free-form field whose innermost value sits `levels` below the root. Rust must not
+    // overflow at the cap on any platform, debug builds included, and must refuse one more.
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("deep-input");
+    fs::create_dir_all(&dir).unwrap();
+    let input = dir.join("deep.json");
+    let run = |levels: usize| {
+        let field = format!("{}{}", "[".repeat(levels - 2), "]".repeat(levels - 2));
+        fs::write(
+            &input,
+            format!("{{\"nodes\":[{{\"id\":\"a\",\"x\":{field}}}],\"edges\":[]}}"),
+        )
+        .unwrap();
+        Command::new(env!("CARGO_BIN_EXE_gg-index"))
+            .arg("wiring")
+            .arg(&input)
+            .output()
+            .unwrap()
+    };
+    let cap = gg_index::json::MAX_DEPTH;
+    let out = run(cap);
     assert!(
         out.status.success(),
         "{}",
@@ -111,6 +135,10 @@ fn binary_writes_a_graph_nested_to_the_cap() {
     );
     let text = String::from_utf8(out.stdout).unwrap();
     assert!(text.ends_with("  \"edges\": []\n}\n"));
-    assert_eq!(text.matches('[').count(), depth + 2);
+    assert_eq!(text.matches('[').count(), cap);
+    let out = run(cap + 1);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("nested too deeply"));
     fs::remove_dir_all(&dir).unwrap();
 }

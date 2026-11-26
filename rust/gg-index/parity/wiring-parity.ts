@@ -154,8 +154,8 @@ function num(): Gen {
   const mantissa = point && point < digits.length ? `${digits.slice(0, point)}.${digits.slice(point)}` : digits;
   return `${rand() < 0.3 ? "-" : ""}${mantissa}${rand() < 0.7 ? `${pick(["e", "E"])}${pick(["", "+", "-"])}${int(331)}` : ""}`;
 }
-/** Nesting below V8's `JSON.stringify` limit (about 3,600 levels on Windows, 4,100 on Linux).
- * Output grows with the square of the depth, so deep fields are rare and at most 1,500 deep. */
+/** Nesting below Rust's cap, itself well below V8's `JSON.stringify` limit. Output grows
+ * with the square of the depth, so deep fields are rare and at most 1,500 deep. */
 function nested(depth: number): Gen {
   let open = "";
   let close = "";
@@ -257,7 +257,17 @@ const MALFORMED = [
   '{"nodes":[] "edges":[]}', '{"nodes":[],"edges":[],}', "\ufeff{}",
 ];
 
-const inputs: { name: string; text: string }[] = MALFORMED.map((text, i) => ({ name: `malformed-${i}`, text }));
+/** `MAX_DEPTH` in src/json.rs: no value may sit more than this many levels below the root. */
+const MAX_DEPTH = 2000;
+/** A graph with one field whose innermost value sits `levels` below the root. */
+const deepGraph = (levels: number): string =>
+  `{"nodes":[{"id":"a","x":${"[".repeat(levels - 2)}${"]".repeat(levels - 2)}}],"edges":[]}`;
+
+const inputs: { name: string; text: string }[] = [
+  ...MALFORMED.map((text, i) => ({ name: `malformed-${i}`, text })),
+  { name: "depth-at-cap", text: deepGraph(MAX_DEPTH) },
+  { name: "depth-past-cap", text: deepGraph(MAX_DEPTH + 1) },
+];
 for (const s of all("--sample")) {
   const text = readFileSync(s, "utf8");
   for (let v = 0; v < 3; v++) inputs.push({ name: `sample-${inputs.length}`, text: fromSample(text) });
@@ -267,7 +277,8 @@ for (let i = 0; i < count; i++) inputs.push({ name: `gen-${i}`, text: graph(i % 
 /** The writer's contract: nodes are objects with a string `id`; edges are objects with
  * string `source`, `relation` and `target`. Outside it, what TypeScript does depends on
  * the order V8's sort happens to compare in, and Rust refuses the input. Sort keys must
- * also be well-formed UTF-16: TypeScript never builds one that is not. */
+ * also be well-formed UTF-16 (ICU4X and V8's ICU order lone surrogates differently), and
+ * no value may nest past `MAX_DEPTH`, below which TypeScript always writes. */
 function inDomain(text: string): boolean {
   let g: unknown;
   try {
@@ -279,7 +290,10 @@ function inDomain(text: string): boolean {
   // A lone surrogate in a sort key: ICU4X compares it as U+FFFD, ICU4C by its own code point.
   const key = (v: unknown): boolean => typeof v === "string" && !/[\ud800-\udfff]/u.test(v);
   const strs = (v: unknown, keys: string[]): boolean => isObj(v) && keys.every((k) => key(v[k]));
+  const height = (v: unknown): number =>
+    typeof v === "object" && v !== null ? Object.values(v).reduce((h: number, c) => Math.max(h, 1 + height(c)), 0) : 0;
   return (
+    height(g) <= MAX_DEPTH &&
     isObj(g) &&
     Array.isArray(g.nodes) &&
     Array.isArray(g.edges) &&
@@ -296,11 +310,14 @@ for (const { name, text } of inputs) {
   const ts = tsWiring(text);
   rmSync(wiringPath(rsOut), { force: true });
   const rs = spawnSync(bin, ["wiring", inputPath, "--out-dir", rsOut], { maxBuffer: 1 << 30 });
-  const rust = rs.status === 0 && rs.stdout.length === 0 ? readFileSync(wiringPath(rsOut)) : null;
-  if (ts === null && rust === null) tally.bothReject++;
-  else if (ts !== null && rust !== null && ts.equals(rust)) tally.equal++;
-  else if (rust === null && !inDomain(text)) tally.outOfDomainRejected++;
-  else {
+  const written = existsSync(wiringPath(rsOut));
+  const rust = rs.status === 0 && rs.stdout.length === 0 && written ? readFileSync(wiringPath(rsOut)) : null;
+  // A refusal is exit 1 with a message and nothing written; a crash or partial output is not.
+  const refused = rs.status === 1 && rs.stdout.length === 0 && rs.stderr.length > 0 && !written;
+  if (ts === null && refused) tally.bothReject++;
+  // TypeScript writes depth-past-cap; Rust must refuse it, so matching bytes there differ.
+  else if (ts !== null && rust !== null && ts.equals(rust) && name !== "depth-past-cap") tally.equal++;
+  else if (refused && !inDomain(text)) tally.outOfDomainRejected++;  else {
     tally.differ++;
     let at = 0;
     if (ts && rust) while (at < ts.length && ts[at] === rust[at]) at++;

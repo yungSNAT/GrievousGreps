@@ -44,7 +44,10 @@ fn main() -> ExitCode {
 fn wiring(graph: &Path, out_dir: Option<&Path>) -> ExitCode {
     let result = std::fs::read(graph)
         .map_err(|e| format!("{}: {e}", graph.display()))
-        .and_then(|bytes| gg_index::wiring::wiring_from_text(&String::from_utf8_lossy(&bytes)))
+        .and_then(|bytes| {
+            String::from_utf8(bytes).map_err(|e| format!("{}: not UTF-8: {e}", graph.display()))
+        })
+        .and_then(|text| gg_index::wiring::wiring_from_text(&text))
         .and_then(|text| match out_dir {
             Some(dir) => gg_index::safe_write::write_wiring(dir, &text)
                 .map(drop)
