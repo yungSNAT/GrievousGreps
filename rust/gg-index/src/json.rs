@@ -12,8 +12,10 @@ use std::fmt::Write as _;
 /// Deepest value accepted, the root being depth 0. TypeScript's `JSON.stringify` overflows
 /// V8's stack at 3,657 levels on Windows and 4,150 on Linux (Node 26), and the limit moves
 /// with platform and stack size, so the cap sits well below both: TypeScript writes every
-/// graph inside it, and the parity harness checks the cap and one past it. Parsing,
-/// printing and dropping recurse once a level: run them on a thread with [`STACK_BYTES`].
+/// graph inside it, and Rust refuses deeper graphs even where TypeScript would still write
+/// them. The parity harness checks both writers at the cap and Rust's refusal one past it.
+/// Parsing, printing and dropping recurse once a level: run them on a thread with
+/// [`STACK_BYTES`].
 pub const MAX_DEPTH: usize = 2_000;
 
 /// Stack that [`MAX_DEPTH`] levels of parsing, printing and dropping fit in, debug builds

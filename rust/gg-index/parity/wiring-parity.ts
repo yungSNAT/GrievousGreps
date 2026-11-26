@@ -312,7 +312,8 @@ for (const { name, text } of inputs) {
   // A refusal is exit 1 with a message and nothing written; a crash or partial output is not.
   const refused = rs.status === 1 && rs.stdout.length === 0 && rs.stderr.length > 0;
   if (ts === null && refused) tally.bothReject++;
-  else if (ts !== null && rust !== null && ts.equals(rust)) tally.equal++;
+  // TypeScript writes depth-past-cap; Rust must refuse it, so matching bytes there differ.
+  else if (ts !== null && rust !== null && ts.equals(rust) && name !== "depth-past-cap") tally.equal++;
   else if (refused && !inDomain(text)) tally.outOfDomainRejected++;
   else {
     tally.differ++;
