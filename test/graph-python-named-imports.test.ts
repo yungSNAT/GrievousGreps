@@ -159,6 +159,22 @@ test("Python function-local imports do not become named imports in another funct
   }), []);
 });
 
+test("Python module initialisation records local calls and calls through both import aliases", () => {
+  const helpers = "def parse_value():\n    pass\ndef setup():\n    pass\n";
+  assert.deepEqual(calls({
+    "first/helpers.py": helpers,
+    "second/helpers.py": helpers,
+    "consumer.py": `from first.helpers import parse_value as parse
+import second.helpers as other
+def local():
+    pass
+local()
+parse()
+other.setup()
+`,
+  }, "consumer.py"), ["consumer.py#local", "first/helpers.py#parse_value", "second/helpers.py#setup"]);
+});
+
 test("Python calls through a def's own import resolve to the imported file", () => {
   const files = {
     "first/helpers.py": "def parse_value(value):\n    return value\n",
