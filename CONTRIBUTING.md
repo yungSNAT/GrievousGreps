@@ -12,8 +12,11 @@ issue.
 Propose changes as a pull request against `main`. A change lands on `main` only
 when these checks from [ci.yml](.github/workflows/ci.yml) pass:
 `test (ubuntu-latest, Node 22)`, `test (ubuntu-latest, Node 26)`,
-`test (windows-latest, Node 26)` and `Node 24 WASM regression`. Windows on
-Node 22 runs after the merge, on the push to `main`.
+`test (windows-latest, Node 26, part 1 of 2)`,
+`test (windows-latest, Node 26, part 2 of 2)`, `gg-docs (ubuntu-latest)`,
+`gg-docs (windows-latest)` and `Node 24 WASM regression`, with `changelog line`
+from [changelog.yml](.github/workflows/changelog.yml). Windows on Node 22 runs
+after the merge, on the push to `main`.
 
 Run what CI runs before opening one, with Node 22.3 or later:
 

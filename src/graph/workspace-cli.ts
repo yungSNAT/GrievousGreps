@@ -11,7 +11,7 @@ import { patchBuildConfig, type BuildConfig } from "../util/state.js";
 import { cmd } from "../brand.js";
 import { nativeFallbackNotice } from "./native.js";
 import type { EngineConfig } from "../ai/providers.js";
-import { formatAsk } from "../ask/ask.js";
+import { formatAsk, formatSkeleton } from "../ask/ask.js";
 import { budgetAsk } from "../ask/budget.js";
 import { errorCode, track } from "../telemetry/index.js";
 import type { Direction } from "./traverse.js";
@@ -23,6 +23,7 @@ import {
   federateGrep,
   federateMap,
   federateMapJson,
+  federateSkeleton,
   formatGrepResult,
   migrationNote,
   splitWorkspace,
@@ -219,4 +220,15 @@ export function runWorkspaceCallers(
     return;
   }
   process.stdout.write(text + "\n");
+}
+
+export function runWorkspaceSkeleton(
+  root: string,
+  override: string | undefined,
+  file: string,
+  opts: { json?: boolean },
+): void {
+  const r = federateSkeleton(root, override, file);
+  if (opts.json) console.log(queryJson(r));
+  else process.stdout.write(formatSkeleton(r));
 }
