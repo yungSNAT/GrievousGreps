@@ -55,7 +55,7 @@ export interface ResolveSymbolOptions {
  * A query holding `#` is a node id (`pkg/util.py#helper`, as `callers --json`
  * prints), or its tail from a path segment on (`util.py#helper`, not
  * `py#helper`): it matches those non-file nodes' ids case-insensitively, with
- * `\` before the `#` read as `/`, all ordinals stripped or none, or a name
+ * `\` before the last `#` read as `/` (a path may hold `#`), all ordinals stripped or none, or a name
  * equal to it, and takes neither fallback, so a stale id finds nothing rather
  * than every node sharing its last segment.
  *
@@ -63,7 +63,7 @@ export interface ResolveSymbolOptions {
  * substring. Multiple matches are not an error — every match is returned.
  */
 export function resolveSymbol(graph: GraphV1, query: string, opts: ResolveSymbolOptions = {}): NodeV1[] {
-  const hash = query.indexOf("#");
+  const hash = query.lastIndexOf("#");
   const isId = hash !== -1;
   // An id's path may be pasted with Windows separators.
   const lowerQuery = (isId ? query.slice(0, hash).replaceAll("\\", "/") + query.slice(hash) : query).toLowerCase();

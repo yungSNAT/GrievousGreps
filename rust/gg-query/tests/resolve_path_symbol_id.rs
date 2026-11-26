@@ -30,6 +30,8 @@ fn path_symbol_id_names_its_nodes_and_takes_no_fallback() {
         node("pkg/x.py#get", "get"),
         node("pkg.v2/mod.py#run", "run"),
         node("pkg/a.py#Cls~2.get~3", "get"),
+        node("docs/c#/x.cs#Foo", "Foo"),
+        node("Ünï/Модуль.py#Функция~2.Ζ~3", "Ζ"),
     ];
     write_graph(
         &ctx,
@@ -88,5 +90,17 @@ fn path_symbol_id_names_its_nodes_and_takes_no_fallback() {
         ["pkg/util.py#helper", "pkg/util.py#helper~2"]
     );
     assert!(ids("pkg\\nope.py#get", None).is_empty());
+    // A path holding `#`, pasted either way, and a tail of it.
+    assert_eq!(ids("docs\\c#\\x.cs#Foo", None), ["docs/c#/x.cs#Foo"]);
+    assert_eq!(ids("c#/x.cs#foo", None), ["docs/c#/x.cs#Foo"]);
+    // Non-ASCII case folding, with ordinals on 2 segments.
+    assert_eq!(
+        ids("ÜNÏ/модуль.py#ФУНКЦИЯ.ζ", None),
+        ["Ünï/Модуль.py#Функция~2.Ζ~3"]
+    );
+    assert_eq!(
+        ids("ünï/модуль.py#функция~2.ζ~3", None),
+        ["Ünï/Модуль.py#Функция~2.Ζ~3"]
+    );
     assert!(ids("pkg/util.py#helper", Some("other")).is_empty());
 }

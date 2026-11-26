@@ -83,7 +83,7 @@ impl GraphStore {
         in_prefix: Option<&str>,
     ) -> io::Result<Vec<NodeV1>> {
         // A `path#symbol` id, or its tail from a path segment, takes no fallback; its path may be pasted with `\`.
-        let hash = query.find('#');
+        let hash = query.rfind('#');
         let is_id = hash.is_some();
         let lower_query = match hash {
             Some(i) => format!("{}{}", query[..i].replace('\\', "/"), &query[i..]),

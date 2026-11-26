@@ -417,7 +417,9 @@ test("resolveSymbol: a path#symbol id, or its tail from a path segment, names it
   const xGet = nodeStub({ id: "pkg/x.py#get", name: "get" });
   const dottedRun = nodeStub({ id: "pkg.v2/mod.py#run", name: "run" });
   const twoOrdinals = nodeStub({ id: "pkg/a.py#Cls~2.get~3", name: "get" });
-  const g = graphOf([helper, helper2, otherHelper, clsGet, xGet, dottedRun, twoOrdinals], []);
+  const hashPath = nodeStub({ id: "docs/c#/x.cs#Foo", name: "Foo" });
+  const unicode = nodeStub({ id: "Ünï/Модуль.py#Функция~2.Ζ~3", name: "Ζ" });
+  const g = graphOf([helper, helper2, otherHelper, clsGet, xGet, dottedRun, twoOrdinals, hashPath, unicode], []);
   const ids = (q: string) => resolveSymbol(g, q).map((n) => n.id).sort();
   assert.deepEqual(ids("pkg/util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
   assert.deepEqual(ids("pkg/util.py#helper~2"), ["pkg/util.py#helper~2"]);
@@ -438,5 +440,11 @@ test("resolveSymbol: a path#symbol id, or its tail from a path segment, names it
   // A path pasted with Windows separators.
   assert.deepEqual(ids("pkg\\util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
   assert.deepEqual(ids("pkg\\nope.py#get"), []);
+  // A path holding `#`, pasted either way, and a tail of it.
+  assert.deepEqual(ids("docs\\c#\\x.cs#Foo"), ["docs/c#/x.cs#Foo"]);
+  assert.deepEqual(ids("c#/x.cs#foo"), ["docs/c#/x.cs#Foo"]);
+  // Non-ASCII case folding, with ordinals on 2 segments.
+  assert.deepEqual(ids("ÜNÏ/модуль.py#ФУНКЦИЯ.ζ"), ["Ünï/Модуль.py#Функция~2.Ζ~3"]);
+  assert.deepEqual(ids("ünï/модуль.py#функция~2.ζ~3"), ["Ünï/Модуль.py#Функция~2.Ζ~3"]);
   assert.deepEqual(resolveSymbol(g, "pkg/util.py#helper", { in: "other" }), []);
 });
