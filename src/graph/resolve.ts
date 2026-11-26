@@ -733,7 +733,7 @@ export function resolveEdges(
         const unseen = !owned && !hit && !e.rustBounds?.length && !RUST_PRELUDE_TYPES.has(recv ?? "") && !rustAliases.has(recv ?? "")
           && (recv ?? "").length > 1 && (globalName.get(e.name!) ?? []).some((n) => n.kind === "function" || n.kind === "method");
         // A method whose receiver has a type the code states: that type's or a trait's, and never
-        // another type's by name alone. A name no one can place falls through to the name.
+        // another type's by name alone. A name no one can place falls through to the file's own.
         if (e.rustForm === "method" && !hit) {
           const std = RUST_STD_TYPES.has(recvType) || RUST_PRELUDE_TYPES.has(recvType);
           const repoType = (globalName.get(recvType) ?? []).some((n) => RUST_OWNER_KINDS.has(n.kind));
@@ -822,7 +822,11 @@ export function resolveEdges(
         // Arms by name only for a call with no path: a path the follower above could not
         // settle may lead to a re-export or outside the repository, not to these arms.
         const one = (list: NodeV1[]) => (list.length === 1 || (e.rustForm === "free" && !e.rustPath && rustCfgArms(list, rustPathCtx.cfgGated)) ? list : undefined);
-        const only = one(local) ?? one(global);
+        // A method on a receiver no one could type is not the repository's one method of
+        // that name: `.clone()`, `.as_ref()` and `.and_then()` were right 1 of 10 in ripgrep.
+        // A generic parameter keeps the name, as its bound, not its name, says what it has.
+        const generic = !!e.rustChain?.type && /^[A-Z]\d?$/.test(e.rustChain.type);
+        const only = one(local) ?? (e.rustForm === "method" && !generic ? undefined : one(global));
         if (only) for (const arm of only) add(e.source, arm.id, "calls", stated(local.length ? "extracted" : "inferred"));
         else if (global.length > 1 && e.rustForm === "free") opts.unresolvedCalls?.push({ source: e.source, name: e.name!, through: e.rustPath ?? `${global.length} definitions of that name` });
         continue;
@@ -830,16 +834,9 @@ export function resolveEdges(
       // Elixir: a bare call reaches only its own file (extractElixir types the remote ones).
       let hit = EX_EXT.test(e.file)
         ? resolveLocalName(e.name!, e.file, callKinds, perFileName)
-        : resolveName(e.name!, e.file, callKinds, perFileName, globalName);
-      // Python is the Java case without the `new` to mark it: `Widget()` is an
-      // ordinary call node, so a constructor edge dies against the function-only
-      // index. Java can widen to types outright; Python has free functions, so
-      // widening would trade real function edges for type ones. Hence a fallback,
-      // not a swap — types are tried only once functions have found nothing, and
-      // resolveName's same-file-then-unique-global rule still drops the ambiguous.
-      if (!hit && PY_EXT.test(e.file)) {
-        hit = resolveName(e.name!, e.file, PY_CTOR_KINDS, perFileName, globalName);
-      }
+        : PY_EXT.test(e.file)
+          ? resolvePythonName(e.name!, e.file, callKinds, perFileName, pythonCtx)
+          : resolveName(e.name!, e.file, callKinds, perFileName, globalName);
       if (!hit && SWIFT_EXT.test(e.file)) {
         hit = resolveName(e.name!, e.file, SWIFT_CTOR_KINDS, perFileName, globalName);
       }
@@ -884,6 +881,31 @@ function resolveLocalName(
 ): { id: string; confidence: EdgeV1["confidence"] } | null {
   const local = (perFileName.get(file)?.get(name) ?? []).filter((n) => kinds.includes(n.kind));
   return local.length ? { id: local[0].id, confidence: "extracted" } : null;
+}
+
+/**
+ * A bare Python call reaches what its file defines or imports (star imports included), and
+ * nothing else: a unique name elsewhere in the repository was right 0 of 12 in rich, where
+ * builtin `open()` and local aliases linked to other files' functions.
+ *
+ * Python is the Java case without the `new` to mark it: `Widget()` is an ordinary call node,
+ * so classes are tried only once functions have found nothing in the file.
+ */
+function resolvePythonName(
+  name: string,
+  file: string,
+  kinds: Kind[],
+  perFileName: Map<string, Map<string, NodeV1[]>>,
+  ctx: PythonCtx,
+): { id: string; confidence: EdgeV1["confidence"] } | null {
+  for (const want of [kinds, PY_CTOR_KINDS]) {
+    const local = (perFileName.get(file)?.get(name) ?? []).filter((n) => want.includes(n.kind));
+    if (local.length === 1) return { id: local[0].id, confidence: "extracted" };
+  }
+  const found = followPythonName(name, toPosixPath(file), ctx);
+  return typeof found !== "string" && "id" in found && (found.kind === "function" || found.kind === "class")
+    ? { id: found.id, confidence: "extracted" }
+    : null;
 }
 
 function resolveName(
