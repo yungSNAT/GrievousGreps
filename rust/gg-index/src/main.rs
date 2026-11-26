@@ -23,7 +23,8 @@ enum Cmd {
         /// Graph JSON file
         graph: PathBuf,
         /// Write <DIR>/.graph/wiring.json atomically instead of printing
-        #[arg(long, value_name = "DIR")]
+        // An OsString parser, as clap's PathBuf parser refuses `""`, which `writeGraph` takes as `.`.
+        #[arg(long, value_name = "DIR", value_parser = clap::builder::TypedValueParser::map(clap::builder::OsStringValueParser::new(), PathBuf::from))]
         out_dir: Option<PathBuf>,
     },
 }
