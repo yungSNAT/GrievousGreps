@@ -1,5 +1,5 @@
 {
-  "name": "@equitybot/grievousgreps",
+  "name": "@yungsnat/grievousgreps",
   "private": true,
   "version": "0.28.0+gg",
   "description": "A distribution of Trail-Code: a code graph for coding agents, with caller recall measured on public repositories.",
@@ -52,7 +52,7 @@
     "postinstall": "node scripts/postinstall.mjs"
   },
   "engines": {
-    "node": "^20.16.0 || >=22.3.0"
+    "node": ">=22.3.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",

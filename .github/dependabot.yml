@@ -7,7 +7,7 @@ updates:
     cooldown:
       default-days: 7
     ignore:
-      # node-gyp 13 requires Node 22.22 or later, and CI holds Node 20.
+      # node-gyp 13 requires Node 22.22 or later, and the package supports Node 22.3.
       - dependency-name: node-gyp
         update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
