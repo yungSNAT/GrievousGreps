@@ -408,3 +408,43 @@ test("impactOf: marks never change which nodes are reached, or at what depth", (
     assert.deepEqual(reach(impactOf(graphOf(nodes, edges), nodes[0], 9)), plain);
   }
 });
+
+test("resolveSymbol: a path#symbol id, or its tail from a path segment, names its nodes and takes no fallback", () => {
+  const helper = nodeStub({ id: "pkg/util.py#helper", name: "helper" });
+  const helper2 = nodeStub({ id: "pkg/util.py#helper~2", name: "helper" });
+  const otherHelper = nodeStub({ id: "other/util.py#helper", name: "helper" });
+  const clsGet = nodeStub({ id: "pkg/util.py#Cls.get", name: "get" });
+  const xGet = nodeStub({ id: "pkg/x.py#get", name: "get" });
+  const dottedRun = nodeStub({ id: "pkg.v2/mod.py#run", name: "run" });
+  const twoOrdinals = nodeStub({ id: "pkg/a.py#Cls~2.get~3", name: "get" });
+  const hashPath = nodeStub({ id: "docs/c#/x.cs#Foo", name: "Foo" });
+  const unicode = nodeStub({ id: "Ünï/Модуль.py#Функция~2.Ζ~3", name: "Ζ" });
+  const g = graphOf([helper, helper2, otherHelper, clsGet, xGet, dottedRun, twoOrdinals, hashPath, unicode], []);
+  const ids = (q: string) => resolveSymbol(g, q).map((n) => n.id).sort();
+  assert.deepEqual(ids("pkg/util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("pkg/util.py#helper~2"), ["pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("PKG/Util.py#HELPER"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("util.py#helper"), ["other/util.py#helper", "pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("pkg/util.py#Cls.get"), ["pkg/util.py#Cls.get"]);
+  // A stale or partial id finds nothing, never every node sharing its last segment.
+  assert.deepEqual(ids("pkg/nope.py#get"), []);
+  assert.deepEqual(ids("kg/util.py#helper"), []);
+  // A tail starts at a path segment, never after a dot inside one.
+  assert.deepEqual(ids("py#helper"), []);
+  assert.deepEqual(ids("v2/mod.py#run"), []);
+  assert.deepEqual(ids("pkg.v2/mod.py#run"), ["pkg.v2/mod.py#run"]);
+  // Every ordinal or none: a partly numbered id finds nothing.
+  assert.deepEqual(ids("pkg/a.py#Cls~2.get~3"), ["pkg/a.py#Cls~2.get~3"]);
+  assert.deepEqual(ids("pkg/a.py#Cls.get"), ["pkg/a.py#Cls~2.get~3"]);
+  assert.deepEqual(ids("pkg/a.py#Cls~2.get"), []);
+  // A path pasted with Windows separators.
+  assert.deepEqual(ids("pkg\\util.py#helper"), ["pkg/util.py#helper", "pkg/util.py#helper~2"]);
+  assert.deepEqual(ids("pkg\\nope.py#get"), []);
+  // A path holding `#`, pasted either way, and a tail of it.
+  assert.deepEqual(ids("docs\\c#\\x.cs#Foo"), ["docs/c#/x.cs#Foo"]);
+  assert.deepEqual(ids("c#/x.cs#foo"), ["docs/c#/x.cs#Foo"]);
+  // Non-ASCII case folding, with ordinals on 2 segments.
+  assert.deepEqual(ids("ÜNÏ/модуль.py#ФУНКЦИЯ.ζ"), ["Ünï/Модуль.py#Функция~2.Ζ~3"]);
+  assert.deepEqual(ids("ünï/модуль.py#функция~2.ζ~3"), ["Ünï/Модуль.py#Функция~2.Ζ~3"]);
+  assert.deepEqual(resolveSymbol(g, "pkg/util.py#helper", { in: "other" }), []);
+});

@@ -245,7 +245,7 @@ test("a refresh leaves the statusline stats alone, so the Stop hook still fires"
   assert.equal(s?.syncedAt, null);
 });
 
-test("a failed rebuild still answers from the graph on disk", async (t) => {
+test("a failed rebuild preserves the graph and the next query retries the same edit", async (t) => {
   // Windows lands here too, not just root: the denial below is a directory mode, and
   // Windows ignores those outright (see the helper). Before writeGraph became atomic
   // this test denied by chmod-ing the FILE, which Windows *does* honour — so the
@@ -256,7 +256,7 @@ test("a failed rebuild still answers from the graph on disk", async (t) => {
   const d = repo();
   await buildGraph(d);
   const before = readFileSync(wiringPath(outOf(d)), "utf8");
-  writeFileSync(join(d, "src", "math.ts"), `${MATH}export const X = 1;\n`);
+  writeFileSync(join(d, "src", "math.ts"), MATH + MUL);
 
   // Make the graph write itself fail: the query must degrade to the old graph, not
   // start erroring because a rebuild couldn't happen. writeGraph is atomic (temp +
@@ -264,8 +264,7 @@ test("a failed rebuild still answers from the graph on disk", async (t) => {
   // to be the DIRECTORY — which is also the realistic "can't write here" case.
   const graphDir = dirname(wiringPath(outOf(d)));
   chmodSync(graphDir, 0o500); // r-x: the temp write fails, old wiring.json stays put
-  const r = await ensureFreshGraph(d);
-  chmodSync(graphDir, 0o700);
+  const r = await ensureFreshGraph(d).finally(() => chmodSync(graphDir, 0o700));
 
   assert.equal(r.refreshed, false);
   assert.match(r.note ?? "", /refresh skipped/);
@@ -276,6 +275,12 @@ test("a failed rebuild still answers from the graph on disk", async (t) => {
   // rebuild-in-flight that will never finish.
   assert.equal(acquireLock(d), true);
   releaseLock(d);
+
+  const retry = await callTool(d, "graft_find_code", { query: "multiply two numbers" });
+  assert.equal(retry.isError, false);
+  assert.match(retry.text, /^index: fresh\n\[graft\] refreshed the graph/);
+  assert.match(retry.text, /mul/);
+  assert.equal(hasSymbol(d, "src/math.ts#mul"), true);
 });
 
 /**
