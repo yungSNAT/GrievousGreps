@@ -514,6 +514,29 @@ export function resolveEdges(
     opts.pythonRoots,
   );
   const pythonCtx: PythonCtx = { modules: pythonModules, perFileName, exports: pythonExports, ownerMethod, classParents, classTraits };
+  // `likely` needs the name to be the file's own or imported from the target's file: a namesake
+  // imported from a package (`undici`'s `Response`) or a global (`Error`) is not the repository's
+  // type. Rust keeps the bare-name grade: 9 of 9 judged `impl Trait for X` by unique name were right.
+  const likelyInScope = (file: string, name: string, targetId: string): boolean => {
+    if (file.endsWith(".rs")) return true;
+    if ((perFileName.get(file)?.get(name) ?? []).length > 0) return true;
+    const targetFile = byId.get(targetId)?.path;
+    if (!targetFile) return false;
+    if (isJs(file)) {
+      // Through barrels and workspace packages to the definition, where the walk can see it.
+      return (tsModules.get(file)?.imports ?? []).some((i) => {
+        if (i.local !== name) return false;
+        const found = tsModuleOf(i.specifier, file, tsCtx);
+        if (typeof found === "string") return false;
+        if ("module" in found && found.module === targetFile) return true;
+        const at = i.name === "*" ? found : followTsTarget(i.name, found, tsCtx, new Set());
+        const node = typeof at === "string" ? undefined : "id" in at ? at : "scoped" in at ? at.scoped : undefined;
+        return node?.path === targetFile;
+      });
+    }
+    const named = followPythonName(name, toPosixPath(file), pythonCtx);
+    return typeof named === "object" && "id" in named && named.path === targetFile;
+  };
 
   const routeFacts = new Map<string, RouteFacts>();
   for (const e of rawEdges) if (e.routeFacts) routeFacts.set(e.file, e.routeFacts);
@@ -578,7 +601,8 @@ export function resolveEdges(
       const kinds: Kind[] = e.relation === "implements" ? ["interface", "trait"] : ["class", "interface"];
       const hit = resolveName(e.name!, e.file, kinds, perFileName, globalName);
       // an unresolved base is usually an external/imported type — keep the name.
-      const named = hit?.confidence === "inferred" && LIKELY_LANG.test(e.file) ? "likely" : hit?.confidence;
+      const named = hit?.confidence === "inferred" && LIKELY_LANG.test(e.file) && likelyInScope(e.file, e.name!, hit.id)
+        ? "likely" : hit?.confidence;
       add(e.source, hit?.id ?? e.name!, e.relation, named ?? "inferred");
     } else if (e.relation === "references" && e.name) {
       if (e.specifier) {
@@ -707,14 +731,11 @@ export function resolveEdges(
           continue;
         }
         const recvType = real.type;
-        // A receiver's stated type picked the target: likely, in a measured language. In TypeScript
-        // the type must be the file's own or imported, as a platform global (`Response`) can share
-        // its name with a repository type that is not the one the code means.
+        // A receiver's stated type picked the target: likely, in a measured language, when the
+        // type is in scope (`likelyInScope`).
         const typedGrade = (h: ReturnType<typeof resolveTypedMember>, type: string): ReturnType<typeof resolveTypedMember> => {
           if (!h || h === "ambiguous" || h.confidence !== "inferred" || !LIKELY_LANG.test(e.file)) return h;
-          const inScope = !isJs(e.file) || (perFileName.get(e.file)?.get(type) ?? []).length > 0
-            || (tsModules.get(e.file)?.imports ?? []).some((i) => i.local === type);
-          return inScope ? { ...h, confidence: "likely" } : h;
+          return likelyInScope(e.file, type, h.id) ? { ...h, confidence: "likely" } : h;
         };
         if (e.rustSelfInImpl) {
           const others = (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((n) => n.id !== e.source);

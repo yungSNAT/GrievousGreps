@@ -258,7 +258,7 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
     if (!node || node.kind === "resource") return [];
     const links = deployByPath.get(node.path);
     if (!links) return [];
-    const inferred = rank === 0;
+    const inferred = rank < confidenceRank("extracted"); // `likely` is a lead too, not a definite path
     const previous = visitedDeployPaths.get(node.path);
     if (previous) {
       const keepPrev = preferStronger

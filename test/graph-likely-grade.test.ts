@@ -6,11 +6,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveEdges } from "../src/graph/resolve.js";
-import type { RawEdge, TsModule } from "../src/graph/extract.js";
+import type { PythonExports, RawEdge, TsModule } from "../src/graph/extract.js";
 import type { NodeV1 } from "../src/graph/types.js";
 import { confidenceRank, parseConfidence, provenanceOf, weakestConfidence } from "../src/graph/provenance.js";
 import { hitLine, matchJson } from "../src/graph/traverse-cli.js";
-import type { EdgeHit } from "../src/graph/traverse.js";
+import { impactOfMany, type EdgeHit } from "../src/graph/traverse.js";
 import type { GraphV1 } from "../src/graph/types.js";
 
 function n(id: string, kind: NodeV1["kind"]): NodeV1 {
@@ -26,17 +26,31 @@ const tsModule = (imports: string[]): TsModule => ({
   reexports: [], stars: [], exports: [],
 });
 
+const tsFrom = (file: string, imports: [string, string][]): RawEdge => ({
+  source: file, relation: "contains", file,
+  tsModule: { imports: imports.map(([local, specifier]) => ({ local, name: local, specifier })), reexports: [], stars: [], exports: [] },
+}) as RawEdge;
+
+const pyFrom = (file: string, imports: [string, string][]): RawEdge => ({
+  source: file, relation: "contains", file,
+  pythonExports: {
+    imports: imports.map(([local, specifier], i) => ({ local, name: local, specifier, line: i + 1, conditional: false })),
+    stars: [], all: null, conditionalDefs: [],
+  } satisfies PythonExports,
+}) as RawEdge;
+
 const calls = (edges: ReturnType<typeof resolveEdges>) => edges.filter((e) => e.relation === "calls");
 
 test("a typed member call into another file is likely in Python", () => {
-  const edges = resolveEdges([n("store.py#Store", "class"), n("store.py#Store.save", "method"), n("app.py#run", "function")], [
+  const edges = resolveEdges([n("store.py", "file"), n("store.py#Store", "class"), n("store.py#Store.save", "method"), n("app.py#run", "function")], [
+    pyFrom("app.py", [["Store", "store"]]),
     { source: "app.py#run", relation: "calls", name: "save", viaMember: true, recvType: "Store", file: "app.py" },
   ]);
   assert.deepEqual(calls(edges).map((e) => [e.target, e.confidence]), [["store.py#Store.save", "likely"]]);
 });
 
 test("a TypeScript typed member call is likely when the file imports the receiver's type", () => {
-  const edges = resolveEdges([n("src/cache.ts#Cache", "class"), n("src/cache.ts#Cache.get", "method"), n("src/app.ts#run", "function")], [
+  const edges = resolveEdges([n("src/cache.ts", "file"), n("src/cache.ts#Cache", "class"), n("src/cache.ts#Cache.get", "method"), n("src/app.ts#run", "function")], [
     { source: "src/app.ts", relation: "contains", file: "src/app.ts", tsModule: tsModule(["Cache"]) } as RawEdge,
     { source: "src/app.ts#run", relation: "calls", name: "get", viaMember: true, recvType: "Cache", file: "src/app.ts" },
   ]);
@@ -73,7 +87,8 @@ test("a bare-name call to another file's function stays inferred", () => {
 });
 
 test("a base class found by its unique name in another file is likely; an unknown base keeps its name", () => {
-  const edges = resolveEdges([n("base.py#Base", "class"), n("app.py#Child", "class"), n("app.py#Other", "class")], [
+  const edges = resolveEdges([n("base.py", "file"), n("base.py#Base", "class"), n("app.py#Child", "class"), n("app.py#Other", "class")], [
+    pyFrom("app.py", [["Base", "base"]]),
     { source: "app.py#Child", relation: "extends", name: "Base", file: "app.py" },
     { source: "app.py#Other", relation: "extends", name: "Missing", file: "app.py" },
   ]);
@@ -103,4 +118,74 @@ test("callers marks a likely hit [likely], keeps inferred: true in --json and ad
   const json = matchJson({ nodes: [], edges: [] } as unknown as GraphV1, "in",
     { symbol: node("t"), hits: [hit("a", "likely"), hit("b", "inferred"), hit("c", "extracted")] }, 1);
   assert.deepEqual(json.hits.map((h) => [h.inferred ?? false, h.confidence]), [[true, "likely"], [true, "inferred"], [false, "extracted"]]);
+});
+
+// The grade needs the type or base to be the file's own or imported from the target's file:
+// a namesake imported from a package, or a global, is not the repository's type.
+test("a TypeScript receiver whose type is imported from a package stays inferred", () => {
+  const edges = resolveEdges([n("src/client/types.ts#Response", "interface"), n("src/client/types.ts#Response.json", "method"), n("src/h.ts#handle", "function")], [
+    tsFrom("src/h.ts", [["Response", "undici"]]),
+    { source: "src/h.ts#handle", relation: "calls", name: "json", viaMember: true, recvType: "Response", file: "src/h.ts" },
+  ]);
+  assert.deepEqual(calls(edges).map((e) => [e.target, e.confidence]), [["src/client/types.ts#Response.json", "inferred"]]);
+});
+
+test("a TypeScript class extending a global the repository reuses stays inferred", () => {
+  const edges = resolveEdges([n("src/errors/custom.ts#Error", "class"), n("src/app.ts#AppError", "class")], [
+    tsFrom("src/app.ts", []),
+    { source: "src/app.ts#AppError", relation: "extends", name: "Error", file: "src/app.ts" },
+  ]);
+  assert.deepEqual(edges.filter((e) => e.relation === "extends").map((e) => e.confidence), ["inferred"]);
+});
+
+test("a TypeScript base imported from a package stays inferred; one imported from the target's file is likely", () => {
+  const nodes = [n("src/util/EventEmitter.ts", "file"), n("src/util/EventEmitter.ts#EventEmitter", "class"), n("src/bus.ts#Bus", "class"), n("src/own.ts#Own", "class")];
+  const edges = resolveEdges(nodes, [
+    tsFrom("src/bus.ts", [["EventEmitter", "events"]]),
+    { source: "src/bus.ts#Bus", relation: "extends", name: "EventEmitter", file: "src/bus.ts" },
+    tsFrom("src/own.ts", [["EventEmitter", "./util/EventEmitter"]]),
+    { source: "src/own.ts#Own", relation: "extends", name: "EventEmitter", file: "src/own.ts" },
+  ]);
+  assert.deepEqual(edges.filter((e) => e.relation === "extends").map((e) => [e.source, e.confidence]),
+    [["src/bus.ts#Bus", "inferred"], ["src/own.ts#Own", "likely"]]);
+});
+
+test("a Python base or receiver type the file does not import stays inferred", () => {
+  const edges = resolveEdges([n("base.py", "file"), n("base.py#Base", "class"), n("base.py#Base.save", "method"), n("app.py#Child", "class"), n("app.py#run", "function")], [
+    pyFrom("app.py", []),
+    { source: "app.py#Child", relation: "extends", name: "Base", file: "app.py" },
+    { source: "app.py#run", relation: "calls", name: "save", viaMember: true, recvType: "Base", file: "app.py" },
+  ]);
+  assert.deepEqual(edges.filter((e) => e.relation !== "contains").map((e) => [e.relation, e.confidence]), [["extends", "inferred"], ["calls", "inferred"]]);
+});
+
+test("a deployment resource reached through a likely and an extracted caller in one file stays definite", () => {
+  // X's likely path reaches src/x.ts first; Y's extracted path at the same depth must still win.
+  const g = {
+    version: 1,
+    nodes: [n("src/a.ts", "file"), n("src/a.ts#S", "function"), n("src/x.ts", "file"), n("src/x.ts#X", "function"), n("src/x.ts#Y", "function"),
+      { ...n("deploy/Dockerfile#stage", "resource"), path: "deploy/Dockerfile" }],
+    edges: [
+      { source: "src/x.ts#X", target: "src/a.ts#S", relation: "calls", confidence: "likely" },
+      { source: "src/x.ts#Y", target: "src/a.ts#S", relation: "calls", confidence: "extracted" },
+      { source: "deploy/Dockerfile#stage", target: "src/x.ts", relation: "references", confidence: "extracted" },
+    ],
+  } as unknown as GraphV1;
+  const seed = g.nodes.find((x) => x.id === "src/a.ts#S")!;
+  for (const provenance of [false, true]) {
+    const hits = impactOfMany(g, [seed], 2, "in", { provenance }).filter((h) => h.id.startsWith("deploy/"));
+    assert.deepEqual(hits.map((h) => [h.id, h.depth, h.confidence, h.inferred ?? false]), [["deploy/Dockerfile#stage", 2, "extracted", false]], `provenance ${provenance}`);
+  }
+});
+
+test("a TypeScript receiver type imported through a barrel is likely", () => {
+  const nodes = [n("src/lib/index.ts", "file"), n("src/lib/cache.ts", "file"), n("src/lib/cache.ts#Cache", "class"),
+    n("src/lib/cache.ts#Cache.get", "method"), n("src/app.ts#run", "function")];
+  const edges = resolveEdges(nodes, [
+    { source: "src/lib/index.ts", relation: "contains", file: "src/lib/index.ts",
+      tsModule: { imports: [], reexports: [{ exported: "Cache", name: "Cache", specifier: "./cache" }], stars: [], exports: [] } } as RawEdge,
+    tsFrom("src/app.ts", [["Cache", "./lib/index"]]),
+    { source: "src/app.ts#run", relation: "calls", name: "get", viaMember: true, recvType: "Cache", file: "src/app.ts" },
+  ]);
+  assert.deepEqual(calls(edges).map((e) => [e.target, e.confidence]), [["src/lib/cache.ts#Cache.get", "likely"]]);
 });
