@@ -159,6 +159,8 @@ const shared = files.filter((f) => !ALONE.includes(f)).filter((_, i) => i % n ==
 const alone = k === n ? files.filter((f) => ALONE.includes(f)) : [];
 const runs = [["main", shared, []]];
 if (alone.length > 0) runs.push(["alone", alone, ["--test-concurrency=1"]]);
+// A failed report must not leave an earlier run's file to be uploaded.
+if (coverage) for (const run of ["main", "alone"]) rmSync(join(repoRoot, `coverage-${run}.lcov`), { force: true });
 const results = runs.map(([run, list, flags]) => runFiles(list, run, ...flags));
 if (coverage) {
   for (const [run] of runs) {
