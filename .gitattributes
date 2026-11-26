@@ -9,3 +9,5 @@ models/** -text
 models/**/tokenizer.json -diff
 # Ranked-file dumps of benchmark runs: data for rescoring, not for reading in a diff.
 benchmark/results/**/*-files.json -diff
+# Recorded wiring.json goldens are compared byte for byte, so they keep LF everywhere.
+rust/gg-index/tests/fixtures/** -text
