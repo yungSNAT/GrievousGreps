@@ -9,7 +9,8 @@
  *   fails as if offline; nothing reaches the network. Each request is logged to
  *   `fetchLog` (one JSON line each) when it is given.
  * - detached children (upkeep, telemetry flush, background waits, the browser) are never
- *   started; `GG_DETACHED_THROWS` makes starting one fail instead.
+ *   started; `GG_DETACHED_THROWS` makes starting one fail instead, and `GG_SPAWN_LOG` names a
+ *   file that gets each one's program and arguments (one JSON line each).
  * - `GG_UNREF_SERVERS`: a server the command starts doesn't hold the process open.
  * - `answers`: what a person types at each prompt, in order.
  * - `GG_PLATFORM`: the `process.platform` the code sees.
@@ -18,13 +19,12 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const entry = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
-const testDir = fileURLToPath(new URL(".", import.meta.url));
 // By URL, so a command run from a folder outside the package still loads it.
 const tsx = import.meta.resolve("tsx");
 
@@ -67,7 +67,7 @@ const driver = `
     const u = new URL(String(url));
     const method = init.method ?? "GET";
     if (process.env.GG_FETCH_LOG) {
-      appendFileSync(process.env.GG_FETCH_LOG, JSON.stringify({ method, path: u.pathname + u.search, body: init.body ? JSON.parse(init.body) : null }) + "\\n");
+      appendFileSync(process.env.GG_FETCH_LOG, JSON.stringify({ method, host: u.host, path: u.pathname + u.search, body: init.body ? JSON.parse(init.body) : null }) + "\\n");
     }
     const hit = routes.find((r) => (!r.host || r.host === u.host) && (method + " " + u.pathname + u.search).startsWith(r.on));
     if (!hit) throw new Error("offline in cli-gaps");
@@ -95,6 +95,7 @@ const driver = `
   const spawn = childProcess.spawn;
   mock.method(childProcess, "spawn", (file, args, options) => {
     if ((Array.isArray(args) ? options : args)?.detached) {
+      if (process.env.GG_SPAWN_LOG) appendFileSync(process.env.GG_SPAWN_LOG, JSON.stringify({ file, args: Array.isArray(args) ? args : [] }) + "\\n");
       if (process.env.GG_DETACHED_THROWS) throw new Error("no opener in cli-gaps");
       return new childProcess.ChildProcess();
     }
@@ -131,6 +132,7 @@ const driver = `
 
 export interface CliOptions {
   home: string;
+  /** Where the command runs; `home` when left out, never this checkout. */
   cwd?: string;
   input?: string;
   tty?: Array<"stdin" | "stdout" | "stderr">;
@@ -149,9 +151,17 @@ export interface CliResult {
   detail: string;
 }
 
-/** The caller's environment without the switches this code reads: an agent session's or a developer's own. */
+/**
+ * The caller's environment without the switches this code reads (an agent session's or a
+ * developer's own) and without the git variables that name a repository, which a git hook
+ * running the suite sets and which would point every fixture's git at that checkout.
+ */
 function baseEnv(): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(CLAUDE|CODEX_|AI_AGENT$|GRAFT_|TRAIL_|GG_)/.test(k)));
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !/^(CLAUDE|CODEX_|AI_AGENT$|GRAFT_|TRAIL_|GG_|GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|CEILING_DIRECTORIES|NAMESPACE|PREFIX)$)/i.test(k),
+    ),
+  );
 }
 
 /** Offline, isolated environment: every home the code looks in points at `home`. */
@@ -191,18 +201,24 @@ export function isolatedEnv(home: string): NodeJS.ProcessEnv {
   };
 }
 
-let written: string | undefined;
+let scratch: string | undefined;
 /**
- * The driver as a file, written once: a worker or a child the command starts
- * inherits node's own flags, and `--eval` with `--input-type` would break it.
+ * This file's own folder, made once: the driver as a file (a worker or a child the
+ * command starts inherits node's own flags, and `--eval` with `--input-type` would
+ * break it) and an empty home for the tests' own git commands.
  */
-function driverFile(): string {
-  if (written) return written;
+function scratchDir(): string {
+  if (scratch) return scratch;
   const dir = mkdtempSync(join(tmpdir(), "graft-cli-gaps-driver-"));
   process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
-  written = join(dir, "driver.mjs");
-  writeFileSync(written, driver);
-  return written;
+  writeFileSync(join(dir, "driver.mjs"), driver);
+  mkdirSync(join(dir, "home"));
+  return (scratch = dir);
+}
+
+/** For a test's own git commands: the environment the CLI's git sees, so the developer's git config never applies. */
+export function gitEnv(): NodeJS.ProcessEnv {
+  return isolatedEnv(join(scratchDir(), "home"));
 }
 
 export function runCli(args: string[], o: CliOptions): CliResult {
@@ -213,8 +229,8 @@ export function runCli(args: string[], o: CliOptions): CliResult {
   if (o.fetchLog) env.GG_FETCH_LOG = o.fetchLog;
   if (o.answers) env.GG_ANSWERS = JSON.stringify(o.answers);
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
-  const r = spawnSync(process.execPath, ["--import", tsx, driverFile(), ...args], {
-    cwd: o.cwd ?? testDir,
+  const r = spawnSync(process.execPath, ["--import", tsx, join(scratchDir(), "driver.mjs"), ...args], {
+    cwd: o.cwd ?? o.home,
     encoding: "utf8",
     input: o.input ?? "",
     timeout: 90_000,

@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpRepo } from "./helpers.js";
-import { runCli, type CliOptions } from "./cli-gaps-driver.js";
+import { gitEnv, runCli, type CliOptions } from "./cli-gaps-driver.js";
 
 const scratch: string[] = [];
 let home: string;
@@ -21,7 +21,7 @@ function cli(args: string[], o: Partial<CliOptions> = {}) {
 }
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout;
 }

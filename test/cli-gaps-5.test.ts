@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { join } from "node:path";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
 import { tmpRepo } from "./helpers.js";
-import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
 // Hidden helpers, the --deep build offline, queries under trail, and the
 // build's rarer lines, each through the real CLI.
@@ -25,7 +25,7 @@ function cli(args: string[], o: Partial<CliOptions> = {}) {
 }
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout;
 }

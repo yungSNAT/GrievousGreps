@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo } from "./helpers.js";
-import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
 
 // `trail share-session` paths the share-session tests leave: the prompts at a
@@ -21,7 +21,7 @@ function scratchDir(tag: string): string {
 }
 
 function git(cwd: string, ...args: string[]): void {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
 }
 

@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, 
 import { join } from "node:path";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
 import { tmpRepo } from "./helpers.js";
-import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
 // `init`, `init --pair` and `init --connect` through the real CLI: the picker and
 // the just-me question at a terminal, a stand-in Trail, and the summary's rarer lines.
@@ -28,7 +28,7 @@ function trail(args: string[], o: Partial<CliOptions> = {}) {
 }
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout;
 }

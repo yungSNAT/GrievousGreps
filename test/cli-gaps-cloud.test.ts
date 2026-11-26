@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo } from "./helpers.js";
-import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
 // `trail login`, `logout`, `workspace`, `team` and `status` against a stand-in
 // Trail: the driver answers each request from the routes a test gives it.
@@ -25,7 +25,7 @@ function trail(args: string[], o: Partial<CliOptions> & { home: string }) {
 }
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout;
 }

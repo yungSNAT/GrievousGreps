@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpRepo } from "./helpers.js";
-import { runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { gitEnv, runCli, type CliOptions, type Route } from "./cli-gaps-driver.js";
 import { cacheDir } from "../src/util/state.js";
 import { sessionDir } from "../src/claude/state.js";
 
@@ -26,7 +26,7 @@ function trail(args: string[], o: Partial<CliOptions> & { home: string }) {
 }
 
 function git(cwd: string, ...args: string[]): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
+  const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, env: gitEnv() });
   assert.equal(r.status, 0, `git ${args.join(" ")}\n${r.stderr}`);
   return r.stdout;
 }
