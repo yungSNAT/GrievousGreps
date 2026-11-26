@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeProjectDir } from "../src/notes/session-cost.js";
-import { fixtureRepo, fixtureToken, git, runCli, scratchFolders, SERVER, workspaceRoot as twoRepos, type CliOptions, type Route } from "./cli-gaps-driver.js";
+import { fixtureRepo, fixtureToken, git, NOT_CI, runCli, scratchFolders, SERVER, workspaceRoot as twoRepos, type CliOptions, type Route } from "./cli-gaps-driver.js";
 
 // `init`, `init --pair` and `init --connect` through the real CLI: the picker and
 // the just-me question at a terminal, a stand-in Trail, and the summary's rarer lines.
@@ -27,8 +27,7 @@ const workspaceRoot = (tag: string) => twoRepos(scratchDir(tag));
 
 /** No CI and no Do Not Track, with a telemetry key: the picker offers its telemetry row. */
 const TELEMETRY_ASKS: Record<string, string | undefined> = {
-  CI: undefined, GITHUB_ACTIONS: undefined, GITLAB_CI: undefined, BUILDKITE: undefined, CIRCLECI: undefined,
-  TEAMCITY_VERSION: undefined, JENKINS_URL: undefined, TF_BUILD: undefined, BUILD_NUMBER: undefined,
+  ...NOT_CI,
   DO_NOT_TRACK: undefined, GRAFT_POSTHOG_KEY: ["fixture", "key"].join("-"),
 };
 

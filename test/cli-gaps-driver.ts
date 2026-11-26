@@ -24,6 +24,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { CI_ENV_VARS } from "../src/telemetry/gate.js";
 import { tmpRepo } from "./helpers.js";
 
 const entry = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -294,6 +295,9 @@ export function workspaceRoot(root: string): string {
 }
 
 /** The stand-in Trail the routes answer for. */
+/** Every variable the telemetry gate reads as "in CI", unset: for a test that needs telemetry able to run. */
+export const NOT_CI: Record<string, undefined> = Object.fromEntries(CI_ENV_VARS.map((name) => [name, undefined]));
+
 export const SERVER = "http://trail.test";
 
 /** Not real credentials, made at run time: any non-empty string is one to the CLI. */

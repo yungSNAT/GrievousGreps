@@ -2,7 +2,7 @@ import { test, describe, before } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fixtureRepo, runCli, scratchFolders, type CliOptions } from "./cli-gaps-driver.js";
+import { fixtureRepo, NOT_CI, runCli, scratchFolders, type CliOptions } from "./cli-gaps-driver.js";
 
 const scratchDir = scratchFolders("cli-gaps-4");
 let home: string;
@@ -112,7 +112,7 @@ describe("notices before a command", () => {
 
   test("the first command where telemetry can run discloses it, once", () => {
     const h = scratchDir("first-run-home");
-    const env = { CI: undefined, DO_NOT_TRACK: undefined, GRAFT_TELEMETRY: "1", GRAFT_POSTHOG_KEY: ["fixture", "key"].join("-") };
+    const env = { ...NOT_CI, DO_NOT_TRACK: undefined, GRAFT_TELEMETRY: "1", GRAFT_POSTHOG_KEY: ["fixture", "key"].join("-") };
     const first = cli(["summary"], { home: h, env });
     assert.equal(first.status, 0, first.detail);
     assert.match(first.stderr, /no code, no file paths, no queries/);
