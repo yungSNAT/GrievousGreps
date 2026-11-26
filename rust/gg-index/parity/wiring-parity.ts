@@ -388,6 +388,10 @@ function fsCases(): number {
     // Relative targets resolve against the case's root, the working directory of both writers.
     "relative, one component": () => "graft",
     "relative, nested": () => "nested/graft",
+    "relative, trailing dot-dot": (root) => {
+      mkdirSync(join(root, "graft"));
+      return "graft/..";
+    },
   };
   const run = (index: number, setup: Plant, who: "ts" | "rust") => {
     const root = join(work, `fs-${who}-${index}`);

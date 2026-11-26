@@ -126,6 +126,7 @@ mod tests {
             (here.join("a"), vec!["graft".into(), ".graph".into()])
         );
         assert!(split_out_dir(Path::new("..")).is_err());
+        assert!(split_out_dir(Path::new("graft/..")).is_err());
     }
 
     #[test]
