@@ -49,22 +49,41 @@ pub fn write_atomic_inside(
 /// `out_dir` is collapsed lexically, and a missing parent is created: the parent is trusted.
 pub fn write_wiring(out_dir: &Path, text: &str) -> io::Result<PathBuf> {
     let out_dir = lexical(&std::path::absolute(out_dir)?);
-    let (Some(base), Some(name)) = (out_dir.parent(), out_dir.file_name()) else {
-        return Err(refuse(format!(
-            "refusing an output directory with no parent: {}",
-            out_dir.display()
-        )));
-    };
+    let (base, dirs) = split_out_dir(&out_dir);
     std::fs::create_dir_all(base)
-        .and_then(|()| {
-            write_atomic_inside(
-                base,
-                &[name, OsStr::new(".graph")],
-                OsStr::new("wiring.json"),
-                text.as_bytes(),
-            )
-        })
+        .and_then(|()| write_atomic_inside(base, &dirs, OsStr::new("wiring.json"), text.as_bytes()))
         .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", out_dir.display())))
+}
+
+/// The trusted base and the directories below it for an absolute, lexical `out_dir`.
+/// A file-system root is its own `dirname`, so it is the base itself.
+fn split_out_dir(out_dir: &Path) -> (&Path, Vec<&OsStr>) {
+    let graph = OsStr::new(".graph");
+    match (out_dir.parent(), out_dir.file_name()) {
+        (Some(base), Some(name)) => (base, vec![name, graph]),
+        _ => (out_dir, vec![graph]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_root_output_directory_is_its_own_base() {
+        let root = std::path::absolute(Path::new("/")).unwrap();
+        let (base, dirs) = split_out_dir(&root);
+        assert_eq!((base, dirs), (root.as_path(), vec![OsStr::new(".graph")]));
+        let out = root.join("graft");
+        let (base, dirs) = split_out_dir(&out);
+        assert_eq!(
+            (base, dirs),
+            (
+                root.as_path(),
+                vec![OsStr::new("graft"), OsStr::new(".graph")]
+            )
+        );
+    }
 }
 
 /// `path` with `.` and `..` removed without consulting the file system.
