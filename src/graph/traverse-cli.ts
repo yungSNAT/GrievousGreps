@@ -153,7 +153,81 @@ function quoteFor(
   read: (path: string) => string[] | null,
 ): Quote | undefined {
   if (!hit.node || hit.depth > 1 || isTestPath(hit.node.path)) return undefined;
-  return referenceLine(hit.node.path, hit.node.span, [wordRe(name)], read, true) ?? undefined;
+  const { path, span } = hit.node;
+  // A file that imports the name, or imports it as another name, calls it on a later line: quote that line.
+  // Import statements are blanked first, so none is quoted as the call.
+  const lines = read(path);
+  if (!lines) return undefined;
+  const imports = importLines(lines);
+  const calls = lines.map((l, i) => (imports[i] ? "" : l));
+  const importText = lines.filter((_, i) => imports[i]).map(importCode);
+  const names = [name, ...aliasesOf(importText, name)].map(wordRe);
+  const call = referenceLine(path, span, names, () => calls, true);
+  if (call) return { n: call.n, text: lines[call.n - 1] };
+  return referenceLine(path, span, [wordRe(name)], read, true) ?? undefined;
+}
+
+/** A line that starts an import, in Python (`import x`, `from x import y`) or JavaScript (`import { y } from`),
+ * not `import.meta` or a dynamic `import(...)`. */
+const IMPORT_LINE = /^\s*(?:from\s+\S+\s+import\b|import\b(?!\s*[.(]))/;
+
+/** An import line's code: quoted text (a module path) and a `/* ... *\/` comment emptied, and a `#`, `//` or
+ * unclosed `/*` comment outside quotes dropped. */
+function importCode(line: string): string {
+  let out = "";
+  let quote = "";
+  let escaped = false;
+  let skipTo = 0;
+  for (const [i, c] of line.split("").entries()) {
+    if (i < skipTo) continue;
+    if (escaped) escaped = false;
+    else if (quote) {
+      if (c === "\\") escaped = true;
+      else if (c === quote) {
+        quote = "";
+        out += c;
+      }
+    } else if (c === "/" && line[i + 1] === "*") {
+      const close = line.indexOf("*/", i + 2);
+      if (close < 0) return out;
+      skipTo = close + 2;
+      out += " ";
+    } else if (c === "#" || (c === "/" && line[i + 1] === "/")) {
+      return out;
+    } else {
+      if (c === '"' || c === "'" || c === "`") quote = c;
+      out += c;
+    }
+  }
+  return out;
+}
+
+/** Which lines belong to an import statement: its first line and, when it opens `{` or `(`, the lines up to the close. */
+function importLines(lines: string[]): boolean[] {
+  let open = false;
+  return lines.map((l) => {
+    if (!open && !IMPORT_LINE.test(l)) return false;
+    const code = importCode(l);
+    const opened = Math.max(code.lastIndexOf("("), code.lastIndexOf("{"));
+    open = open ? !/[)}]/.test(code) : opened >= 0 && !/[)}]/.test(code.slice(opened));
+    return true;
+  });
+}
+
+/** The names import lines bind `name` to (`name as alias`). */
+function aliasesOf(lines: string[], name: string): string[] {
+  const aliases = lines.flatMap((l) => {
+    // Identifiers in order, with the text between each and the next: `name`, blank, `as`, blank, alias.
+    const ids = [...l.matchAll(/[A-Za-z_$][\w$]*/g)];
+    const gap = (k: number) => l.slice(ids[k].index + ids[k][0].length, ids[k + 1].index);
+    return ids.flatMap((m, k) =>
+      m[0] === name && ids[k + 2] && ids[k + 1][0] === "as" && /^\s+$/.test(gap(k)) && /^\s+$/.test(gap(k + 1))
+        ? [ids[k + 2][0]]
+        : [],
+    );
+  });
+  // An alias holding `$` is skipped: `wordRe`'s `\b` cannot bound it, and gg-query skips it too.
+  return [...new Set(aliases.filter((a) => a !== name && !a.includes("$")))];
 }
 
 /** Tokens-saved baseline for a callers/callees walk: the files of the matched
