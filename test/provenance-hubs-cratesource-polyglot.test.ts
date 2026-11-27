@@ -8,9 +8,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { buildGraph } from "../src/graph/build.js";
 import { resolveCrateSource } from "../src/graph/crate-source.js";
 import { computeHubs, formatHubsText, parseHubLimit } from "../src/graph/hubs.js";
@@ -205,6 +205,74 @@ test("crate-source: resolves exact registry, git and path crates and fails close
   assert.equal(uncJson.matches[0].status, "not_cached");
 
   assert.throws(() => resolveCrateSource({ crateName: "../serde", repo, cargoHome }), /invalid crate name/);
+});
+
+test("crate-source: detached metadata resolves the pinned ref and reports duplicate checkouts", (t) => {
+  const base = mkdtempSync(join(tmpdir(), "gg-crate-git-ref-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const repo = join(base, "repo");
+  const cargoHome = join(base, "cargo-home");
+  const origin = "https://example.com/render";
+  const sha = "abcdef1234567890abcdef1234567890abcdef12";
+  mkdirSync(repo);
+  writeFileSync(join(repo, "Cargo.lock"), [
+    "version = 4", "[[package]]", 'name = "render-core"', 'version = "0.1.0"',
+    `source = "git+${origin}?branch=main#${sha}"`,
+  ].join("\n"));
+
+  function cacheCheckout(id: string): string {
+    const checkout = join(cargoHome, "git", "checkouts", `render-${id}`, sha.slice(0, 7));
+    const metadata = join(cargoHome, "git", "db", `render-${id}`);
+    const ref = join(metadata, "refs", "heads", "main");
+    mkdirSync(join(metadata, "refs", "heads"), { recursive: true });
+    mkdirSync(checkout, { recursive: true });
+    writeFileSync(join(checkout, ".git"), `gitdir: ${relative(checkout, metadata)}\n`);
+    writeFileSync(join(checkout, "Cargo.toml"), '[package]\nname = "render-core"\nversion = "0.1.0"\n');
+    writeFileSync(join(metadata, "HEAD"), "ref: refs/heads/main\n");
+    writeFileSync(join(metadata, "config"), `[remote "origin"]\n\turl = ${origin}.git/\n`);
+    writeFileSync(ref, `${sha}\n`);
+    return ref;
+  }
+
+  const opts = { crateName: "render-core", repo, cargoHome };
+  cacheCheckout("primary");
+  assert.equal(resolveCrateSource(opts).matches[0].status, "found");
+  const duplicate = cacheCheckout("duplicate");
+  assert.equal(resolveCrateSource(opts).matches[0].status, "ambiguous");
+  writeFileSync(duplicate, `${sha.slice(0, -1)}3\n`);
+  assert.equal(resolveCrateSource(opts).matches[0].status, "found");
+});
+
+test("crate-source: an alternate registry requires the cached index origin", (t) => {
+  const base = mkdtempSync(join(tmpdir(), "gg-alternate-registry-"));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const repo = join(base, "repo");
+  const cargoHome = join(base, "cargo-home");
+  const origin = "https://[2001:db8::1]:8443/index";
+  mkdirSync(repo);
+  writeFileSync(join(repo, "Cargo.lock"), [
+    "version = 4",
+    "[[package]]",
+    'name = "policy"',
+    'version = "1.0.0"',
+    `source = "registry+${origin}"`,
+  ].join("\n"));
+  const cachedCrate = join(cargoHome, "registry/src/policy-catalog/policy-1.0.0");
+  mkdirSync(cachedCrate, { recursive: true });
+  writeFileSync(join(cachedCrate, "Cargo.toml"), '[package]\nname = "policy"\nversion = "1.0.0"\n');
+
+  const opts = { crateName: "policy", repo, cargoHome };
+  assert.equal(resolveCrateSource(opts).matches[0].status, "unresolved");
+
+  const gitDir = join(cargoHome, "registry/index/policy-catalog/.git");
+  mkdirSync(gitDir, { recursive: true });
+  writeFileSync(join(gitDir, "config"), '[remote "origin"]\n\turl = https://catalog.example/other\n');
+  assert.equal(resolveCrateSource(opts).matches[0].status, "not_cached");
+
+  writeFileSync(join(gitDir, "config"), `[remote "origin"]\n\turl = ${origin}.git/\n`);
+  const verified = resolveCrateSource(opts).matches[0];
+  assert.equal(verified.status, "found");
+  assert.ok(verified.path?.endsWith("policy-1.0.0"));
 });
 
 test("polyglot-audit: detects indexed languages and warns on unsupported and filtered source extensions", async () => {
