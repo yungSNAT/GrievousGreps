@@ -203,6 +203,7 @@ mod tests {
             find_in("tool", &path, &working, None),
             Some(sys.join("tool"))
         );
+        std::fs::remove_dir_all(&base).expect("clean up");
     }
 
     #[cfg(unix)]

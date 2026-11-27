@@ -695,5 +695,8 @@ S 160000 bb 0\tsub\0M 100644 cc 2\ta.ts\0M 160000 dd 3\ta.ts\0? new.py\0";
     fn extensions_are_normalised() {
         assert_eq!(norm_ext(" PY "), ".py");
         assert_eq!(norm_ext("\u{feff}.Go"), ".go");
+        assert_eq!(norm_ext("\u{2028}.ts\u{a0}"), ".ts");
+        // NEL is Unicode White_Space but not JavaScript's: `trim` keeps it.
+        assert_eq!(norm_ext("\u{85}.ts"), ".\u{85}.ts");
     }
 }

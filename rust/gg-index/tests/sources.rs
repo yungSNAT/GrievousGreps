@@ -9,14 +9,36 @@ use std::process::{Command, Output};
 use gg_index::json::{self, Json};
 
 /// A folder outside any Git checkout (the build's own target folder is inside this
-/// repository, where `git ls-files` would answer for the enclosing tree).
-fn scratch(name: &str) -> PathBuf {
+/// repository, where `git ls-files` would answer for the enclosing tree), removed when the
+/// test ends.
+struct Scratch(PathBuf);
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        drop(fs::remove_dir_all(&self.0));
+    }
+}
+
+fn scratch(name: &str) -> Scratch {
     let dir = std::env::temp_dir()
-        .join(format!("gg-index-sources-{}", std::process::id()))
-        .join(name);
+        .join("gg-index-sources")
+        .join(format!("{name}-{}", std::process::id()));
     drop(fs::remove_dir_all(&dir));
     fs::create_dir_all(&dir).expect("scratch");
-    dir
+    Scratch(dir)
 }
 
 fn write(root: &Path, rel: &str, bytes: usize) {
@@ -117,11 +139,8 @@ fn lists_parsed_files_in_walk_order_with_posix_paths() {
     write(&root, "src/.eslintrc.js", 1);
     write(&root, "graft/out.ts", 1);
     write(&root, "Dockerfile", 1);
-    let got = rels(&root, &[]);
-    let want = ["Dockerfile", "src/a.py", "src/b.ts"];
-    let mut sorted = got.clone();
-    sorted.sort();
-    assert_eq!(sorted, want, "{got:?}");
+    // Byte order on POSIX (libuv sorts) and NTFS's order on Windows agree here.
+    assert_eq!(rels(&root, &[]), ["Dockerfile", "src/a.py", "src/b.ts"]);
 }
 
 #[test]
@@ -244,12 +263,14 @@ fn an_unreadable_folder_fails_the_walk() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("locked"));
 }
 
-/// Names that are not UTF-8 (Linux file systems allow any bytes): Node decodes them lossily,
-/// so a file's stat fails and it is dropped, and a folder's `readdirSync` fails the walk.
-/// The port drops such a file and fails on such a folder, naming it.
+/// Names that are not UTF-8 (Linux file systems allow any bytes): Node decodes them lossily
+/// (U+FFFD) and uses that spelling as the path, and so does the port. A file whose lossy
+/// spelling names no file is dropped; one whose lossy spelling is a sibling's name lists the
+/// sibling again (once in deep mode, which deduplicates); a folder whose lossy spelling names
+/// no folder fails the walk with that path, and one that names a sibling walks it again.
 #[cfg(target_os = "linux")]
 #[test]
-fn names_that_are_not_utf8() {
+fn names_that_are_not_utf8_are_read_by_their_lossy_spelling() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
     let root = scratch("bytes");
@@ -258,12 +279,32 @@ fn names_that_are_not_utf8() {
     assert_eq!(rels(&root, &[]), ["a.ts"]);
     git(&root, &["init", "-q"]);
     assert_eq!(rels(&root, &[]), ["a.ts"], "through git ls-files");
+    let twin = scratch("bytes-twin");
+    fs::write(twin.join(OsStr::from_bytes(b"a\xff.ts")), b"x").expect("write");
+    write(&twin, "a\u{fffd}.ts", 1);
+    let both = ["a\u{fffd}.ts", "a\u{fffd}.ts"];
+    assert_eq!(rels(&twin, &[]), both);
+    git(&twin, &["init", "-q"]);
+    assert_eq!(rels(&twin, &[]), both, "through git ls-files");
+    assert_eq!(
+        rels(&twin, &["--follow-submodules"]),
+        ["a\u{fffd}.ts"],
+        "deep mode"
+    );
     let plain = scratch("bytes-dir");
     write(&plain, "a.ts", 1);
     fs::create_dir(plain.join(OsStr::from_bytes(b"d\xff"))).expect("mkdir");
     let out = exec(&plain, &[]);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("not UTF-8"));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("d\u{fffd}") && err.contains("os error 2"),
+        "{err}"
+    );
+    let dirs = scratch("bytes-dirs");
+    fs::create_dir(dirs.join(OsStr::from_bytes(b"d\xff"))).expect("mkdir");
+    write(&dirs, "d\u{fffd}/x.ts", 1);
+    assert_eq!(rels(&dirs, &[]), ["d\u{fffd}/x.ts", "d\u{fffd}/x.ts"]);
     // A folder whose lossy name is skipped is passed over, as in TypeScript.
     let skipped = scratch("bytes-skipped");
     write(&skipped, "a.ts", 1);
