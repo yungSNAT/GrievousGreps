@@ -10,6 +10,32 @@ updates:
       # node-gyp 13 requires Node 22.22 or later, and the package supports Node 22.3.
       - dependency-name: node-gyp
         update-types: ["version-update:semver-major"]
+      # The native addon and its grammars move together. tree-sitter-java 0.23.5,
+      # tree-sitter-kotlin 0.3.8, tree-sitter-typescript 0.23.2 and
+      # @davisvaughan/tree-sitter-r 1.3.0, each the latest release, still want
+      # tree-sitter ^0.21, so npm ci fails on a newer core (ERESOLVE), and
+      # tree-sitter-go 0.25, tree-sitter-python 0.23 and later and tree-sitter-php
+      # 0.24 want a newer core than 0.21. tree-sitter-go 0.25's .wasm is also built
+      # for language version 15, which the depth tier's pinned web-tree-sitter
+      # 0.22.2 cannot load (range 13 to 14; src/graph/wasm-runtime.ts says why it
+      # is pinned). Remove these once every depth grammar has a release accepting
+      # the newer core and the depth runtime moves with it, test/depth-parity.ts
+      # passing. An ignore also stops security updates in these ranges; the
+      # OSV-Scanner workflows still report an advisory against them.
+      - dependency-name: tree-sitter
+        versions: [">=0.22.0"]
+      - dependency-name: tree-sitter-go
+        versions: [">=0.25.0"]
+      - dependency-name: tree-sitter-python
+        versions: [">=0.22.0"]
+      - dependency-name: tree-sitter-php
+        versions: [">=0.24.0"]
+      # TypeScript 7's package exports no compiler API at its root (only
+      # typescript/unstable/*), and 6 test files parse source with it
+      # (ts.createSourceFile, ts.transpileModule). Remove this once 7.x exports
+      # that API or those tests stop using it; 8.x is not held.
+      - dependency-name: typescript
+        versions: ["7.x"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
