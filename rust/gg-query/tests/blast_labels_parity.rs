@@ -37,11 +37,19 @@ fn short_label_matches_typescript() {
 fn dir_label_and_parent_dir_match_typescript() {
     for row in rows("dir") {
         let path = row[0].as_str().unwrap();
-        assert_eq!(dir_label(path), row[1].as_str().unwrap(), "dirLabel({path:?})");
+        assert_eq!(
+            dir_label(path),
+            row[1].as_str().unwrap(),
+            "dirLabel({path:?})"
+        );
     }
     for row in rows("parent") {
         let dir = row[0].as_str().unwrap();
-        assert_eq!(parent_dir(dir), row[1].as_str().unwrap(), "parentDir({dir:?})");
+        assert_eq!(
+            parent_dir(dir),
+            row[1].as_str().unwrap(),
+            "parentDir({dir:?})"
+        );
     }
 }
 
