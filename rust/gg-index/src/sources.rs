@@ -22,10 +22,11 @@
 //!
 //! Known Windows gaps (deferred to the Windows pass; CI parity tests Linux source
 //! discovery against TypeScript; `program.rs` handles `node_modules/.bin` case folding):
-//! - Reparse points: outside Git, `DirEntry::file_type` treats only name-surrogate reparse
-//!   tags as links, so non-link reparse points (execution aliases, cloud-file placeholders,
-//!   deduplicated files) are walked where Node/libuv skips every
-//!   `FILE_ATTRIBUTE_REPARSE_POINT` entry as a link.
+//! - Reparse points: both `DirEntry::file_type` (file-system walk) and
+//!   `fs::symlink_metadata` (`small_file` on Git's listing and `canonical_walk_root`) treat
+//!   only name-surrogate reparse tags as links, so non-link reparse points (execution
+//!   aliases, cloud-file placeholders, deduplicated files) are not treated as links where
+//!   Node/libuv marks every `FILE_ATTRIBUTE_REPARSE_POINT` entry a link.
 //! - Verbatim-path dots: `resolve` keeps `.` segments inside a `\\?\` verbatim path.
 //! - `ELOOP` mapping: `is_loop` is always `false` off Unix, whereas libuv maps
 //!   `ERROR_CANT_RESOLVE_FILENAME` (1921) to `ELOOP`, so a looping root link reports
@@ -716,5 +717,27 @@ S 160000 bb 0\tsub\0M 100644 cc 2\ta.ts\0M 160000 dd 3\ta.ts\0? new.py\0";
         assert_eq!(norm_ext("\u{2028}.ts\u{a0}"), ".ts");
         // NEL is Unicode White_Space but not JavaScript's: `trim` keeps it.
         assert_eq!(norm_ext("\u{85}.ts"), ".\u{85}.ts");
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn is_loop_is_false_off_unix() {
+        let err = std::io::Error::from_raw_os_error(1921);
+        assert!(!is_loop(&err));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pre_epoch_mtime_with_subsecond_ticks_normalises_nanoseconds() {
+        use std::time::{Duration, SystemTime};
+        let path = std::env::temp_dir().join(format!("gg-index-mtime-{}.tmp", std::process::id()));
+        let file = fs::File::create(&path).expect("create");
+        file.set_modified(SystemTime::UNIX_EPOCH - Duration::new(1, 500_000_000))
+            .expect("set_modified");
+        drop(file);
+        let meta = fs::metadata(&path).expect("stat");
+        let got = mtime_ms(&meta);
+        fs::remove_file(&path).expect("clean up");
+        assert_eq!(got, -1500.0);
     }
 }

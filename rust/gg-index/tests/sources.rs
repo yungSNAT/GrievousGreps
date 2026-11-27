@@ -204,11 +204,24 @@ fn oversized_git_output_falls_back_to_the_file_system() {
         fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).expect("chmod");
         bin
     };
-    // Control: a fake `git` within the bound is run and returns only what it prints.
+    // Controls: a fake `git` within the bound is run in both shallow and deep modes and
+    // returns only what it prints (so unconditional fallback cannot pass).
     let ok_bin = make_git("git-ok-bin", "#!/bin/sh\nprintf 'a.ts\\0'\n");
     let mut ok_cmd = command(&root, &[]);
     ok_cmd.env("PATH", &*ok_bin);
-    assert_eq!(parse_rows(ok_cmd.output().expect("spawn")), ["a.ts"]);
+    assert_eq!(
+        parse_rows(ok_cmd.output().expect("spawn")),
+        ["a.ts"],
+        "shallow control"
+    );
+    let deep_ok_bin = make_git("git-deep-ok-bin", "#!/bin/sh\nprintf '? a.ts\\0'\n");
+    let mut deep_ok_cmd = command(&root, &["--follow-submodules"]);
+    deep_ok_cmd.env("PATH", &*deep_ok_bin);
+    assert_eq!(
+        parse_rows(deep_ok_cmd.output().expect("spawn")),
+        ["a.ts"],
+        "deep control"
+    );
     // Past 64 MiB, Git is stopped and the command falls back to the file system walk.
     let over = gg_index::sources::MAX_GIT_OUTPUT + 1;
     let over_bin = make_git(
@@ -289,7 +302,7 @@ fn a_linked_root_keeps_its_paths() {
 }
 
 /// Containment: a linked root still leaves out its output folder when `--out-dir`
-/// names the folder through the target's real path.
+/// names the folder through the target's real path, while keeping siblings sharing its prefix.
 #[cfg(unix)]
 #[test]
 fn a_linked_root_excludes_an_output_folder_by_its_real_path() {
@@ -297,9 +310,13 @@ fn a_linked_root_excludes_an_output_folder_by_its_real_path() {
     let real = base.join("real");
     write(&real, "src/a.ts", 1);
     write(&real, "graft/gen.ts", 1);
+    write(&real, "graft-other/keep.ts", 1);
     let link = base.join("link");
     std::os::unix::fs::symlink(&real, &link).expect("link");
-    assert_eq!(rels(&link, &[]), ["src/a.ts"], "through the link");
+    let want = ["graft-other/keep.ts", "src/a.ts"];
+    let mut via_link = rels(&link, &[]);
+    via_link.sort();
+    assert_eq!(via_link, want, "through the link");
     let out_dir = fs::canonicalize(real.join("graft")).expect("real graft");
     let run = || {
         let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
@@ -309,11 +326,13 @@ fn a_linked_root_excludes_an_output_folder_by_its_real_path() {
             .arg(&out_dir)
             .output()
             .expect("spawn");
-        parse_rows(out)
+        let mut rows = parse_rows(out);
+        rows.sort();
+        rows
     };
-    assert_eq!(run(), ["src/a.ts"], "through the real path");
+    assert_eq!(run(), want, "through the real path");
     git(&real, &["init", "-q"]);
-    assert_eq!(run(), ["src/a.ts"], "through git ls-files");
+    assert_eq!(run(), want, "through git ls-files");
 }
 
 /// An unreadable folder fails the walk outside Git, as `readdirSync` throws in TypeScript.
@@ -407,6 +426,23 @@ fn with_no_path_git_is_found_in_the_system_folders() {
     let mut cmd = command(&root, &[]);
     cmd.env_remove("PATH");
     assert_eq!(parse_rows(cmd.output().expect("spawn")), ["a.ts"]);
+}
+
+/// With no PATH at all on Windows, `default_path` is empty, so Git is not found and
+/// the file system is walked.
+#[cfg(windows)]
+#[test]
+fn with_no_path_on_windows_the_file_system_is_walked() {
+    let root = scratch("nopath-win");
+    write(&root, "a.ts", 1);
+    write(&root, "lib/l.ts", 1);
+    fs::write(root.join(".gitignore"), "lib/\n").expect("ignore");
+    git(&root, &["init", "-q"]);
+    let mut cmd = command(&root, &[]);
+    cmd.env_remove("PATH");
+    let mut got = parse_rows(cmd.output().expect("spawn"));
+    got.sort();
+    assert_eq!(got, ["a.ts", "lib/l.ts"]);
 }
 
 /// A working folder that is the file system's root or the home folder holds every folder
