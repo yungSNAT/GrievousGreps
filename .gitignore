@@ -37,3 +37,6 @@ transcripts/
 
 # Coverage reports from `npm test -- --coverage`, uploaded to Codecov by CI.
 coverage-*.lcov
+
+# Module copies the Rust parity recorders load; deleted after each run.
+src/blast/.parity-*

@@ -4,6 +4,11 @@
 //! (`syntaxOf`, `opensQuote`, `codeOf`) and `src/blast/blast.ts` (`codeLines`) give for them,
 //! recorded by `parity/evidence-parity.ts`. To add a row, put it in the file with a `null`
 //! answer and rerun that script; it rewrites every answer.
+//!
+//! Parity holds for these rows, which are ASCII or BMP letters. It does not hold beyond them:
+//! TypeScript counts UTF-16 units where Rust counts chars or bytes (a quoted astral character,
+//! the width of a blanked comment, and the `opens` offsets, which are bytes here), and `\s`
+//! and `char::is_whitespace` differ on U+FEFF and U+0085 before a `#`.
 
 use std::fs;
 use std::path::PathBuf;

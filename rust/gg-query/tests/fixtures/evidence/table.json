@@ -285,6 +285,227 @@
         "jsx": false,
         "ts": false
       }
+    ],
+    [
+      "a.rb",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.bash",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.zsh",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.pl",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.pm",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.r",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.ex",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.exs",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.jl",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.nim",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.cr",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.coffee",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.tcl",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.elm",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.ada",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.adb",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.ads",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
     ]
   ],
   "opens": [
@@ -1549,6 +1770,266 @@
         ],
         [
           "y",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "throw /a/"
+      ],
+      [
+        [
+          "throw  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "yield /a/"
+      ],
+      [
+        [
+          "yield  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "await /a/"
+      ],
+      [
+        [
+          "await  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "void /a/"
+      ],
+      [
+        [
+          "void  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "delete /a/"
+      ],
+      [
+        [
+          "delete  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "new /a/"
+      ],
+      [
+        [
+          "new  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "for (x of /a/)"
+      ],
+      [
+        [
+          "for (x of  )",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "else /a/"
+      ],
+      [
+        [
+          "else  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "do /a/"
+      ],
+      [
+        [
+          "do  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "for (a) { b } /re/"
+      ],
+      [
+        [
+          "for (a) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "switch (a) { b } /re/"
+      ],
+      [
+        [
+          "switch (a) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "catch (e) { b } /re/"
+      ],
+      [
+        [
+          "catch (e) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "with (a) { b } /re/"
+      ],
+      [
+        [
+          "with (a) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<div>if (a) { b } /c/"
+      ],
+      [
+        [
+          "<div>if (a) { b } /c/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.jsx",
+      null,
+      [
+        "x = a in />/g"
+      ],
+      [
+        [
+          "x = a in />/g",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "/>/x/"
+      ],
+      [
+        [
+          "/> ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "</b> x/"
+      ],
+      [
+        [
+          "</b> x/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<A b={a>b} in />/g"
+      ],
+      [
+        [
+          "<A b={a>b} in />/g",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "xif (a) { b } /re/"
+      ],
+      [
+        [
+          "xif (a) { b } /re/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.c",
+      null,
+      [
+        "x = /\\/*$/ y"
+      ],
+      [
+        [
+          "x = /\\/*$/ y",
           null
         ]
       ]
