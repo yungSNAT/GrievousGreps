@@ -1,0 +1,1018 @@
+{
+  "basis": "main...HEAD",
+  "depth": 2,
+  "changed": [
+    {
+      "path": "src/math.ts",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    },
+    {
+      "path": "src/order.ts",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    },
+    {
+      "path": "lib/a.b.ts",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    }
+  ],
+  "unindexed": [
+    "notes/plan.xyz",
+    "notes/other.xyz"
+  ],
+  "deleted": [
+    "old/a.ts",
+    "old/b.ts",
+    "old/c.ts",
+    "old/d.ts",
+    "old/e.ts",
+    "old/f.ts"
+  ],
+  "seeds": [
+    {
+      "id": "src/math.ts#computeTotal",
+      "name": "computeTotal",
+      "kind": "function",
+      "path": "src/math.ts",
+      "span": "L1-L3",
+      "wholeFile": false
+    },
+    {
+      "id": "src/math.ts#compute",
+      "name": "compute",
+      "kind": "function",
+      "path": "src/math.ts",
+      "span": "L1-L3",
+      "wholeFile": false
+    },
+    {
+      "id": "src/order.ts#order",
+      "name": "order",
+      "kind": "function",
+      "path": "src/order.ts",
+      "span": "L1-L3",
+      "wholeFile": true
+    }
+  ],
+  "impacted": [
+    {
+      "id": "src/user.ts#useTotal",
+      "name": "useTotal",
+      "kind": "function",
+      "path": "src/user.ts",
+      "span": "L1-L4",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/view.ts#View",
+      "name": "View",
+      "kind": "function",
+      "path": "src/view.ts",
+      "span": "L1-L3",
+      "relation": "calls",
+      "depth": 1,
+      "inferred": true
+    },
+    {
+      "id": "deploy/Dockerfile#Deploy",
+      "name": "Deploy",
+      "kind": "function",
+      "path": "deploy/Dockerfile",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/view.ts#Header",
+      "name": "Header",
+      "kind": "function",
+      "path": "src/view.ts",
+      "span": "L0-L1",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/missing.ts#Gone",
+      "name": "Gone",
+      "kind": "function",
+      "path": "src/missing.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/plain.ts#Plain",
+      "name": "Plain",
+      "kind": "function",
+      "path": "src/plain.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/api.ts#route",
+      "name": "route",
+      "kind": "function",
+      "path": "src/api.ts",
+      "span": "L3-L9",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/report.ts#monthly",
+      "name": "monthly",
+      "kind": "function",
+      "path": "src/report.ts",
+      "span": "L2-L5",
+      "relation": "calls",
+      "depth": 2,
+      "inferred": true
+    },
+    {
+      "id": "src/report.ts#weekly",
+      "name": "weekly",
+      "kind": "function",
+      "path": "src/report.ts",
+      "span": "L6-L9",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/search.ts#find",
+      "name": "find",
+      "kind": "function",
+      "path": "src/search.ts",
+      "span": "L1",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/tax.ts#gst",
+      "name": "gst",
+      "kind": "function",
+      "path": "src/tax.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/zed.ts#zed",
+      "name": "zed",
+      "kind": "function",
+      "path": "src/zed.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/yak.ts#yak",
+      "name": "yak",
+      "kind": "function",
+      "path": "src/yak.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/xen.ts#xen",
+      "name": "xen",
+      "kind": "function",
+      "path": "src/xen.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    },
+    {
+      "id": "src/wren.ts#wren",
+      "name": "wren",
+      "kind": "function",
+      "path": "src/wren.ts",
+      "span": "L1-L2",
+      "relation": "calls",
+      "depth": 2
+    }
+  ],
+  "modules": [
+    {
+      "label": "Checkout <ui>",
+      "labelSource": "symbol",
+      "key": "checkout <ui>",
+      "files": [
+        "src/user.ts",
+        "src/view.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/user.ts#useTotal",
+          "name": "useTotal",
+          "kind": "function",
+          "path": "src/user.ts",
+          "span": "L1-L4",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/view.ts#View",
+          "name": "View",
+          "kind": "function",
+          "path": "src/view.ts",
+          "span": "L1-L3",
+          "relation": "calls",
+          "depth": 1,
+          "inferred": true
+        },
+        {
+          "id": "deploy/Dockerfile#Deploy",
+          "name": "Deploy",
+          "kind": "function",
+          "path": "deploy/Dockerfile",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        },
+        {
+          "id": "src/view.ts#Header",
+          "name": "Header",
+          "kind": "function",
+          "path": "src/view.ts",
+          "span": "L0-L1",
+          "relation": "calls",
+          "depth": 2
+        },
+        {
+          "id": "src/missing.ts#Gone",
+          "name": "Gone",
+          "kind": "function",
+          "path": "src/missing.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        },
+        {
+          "id": "src/plain.ts#Plain",
+          "name": "Plain",
+          "kind": "function",
+          "path": "src/plain.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": [
+        "src/math.ts",
+        "src/x.ts",
+        "src/y.ts",
+        "src/z.ts"
+      ],
+      "owners": [
+        {
+          "name": "Ada Lovelace",
+          "handle": "ada",
+          "commits": 1,
+          "score": 0.5,
+          "last": 40000000000000
+        },
+        {
+          "name": "Cyd Charisse",
+          "handle": "cyd",
+          "commits": 2,
+          "score": 1,
+          "last": 40000000000000
+        }
+      ]
+    },
+    {
+      "label": "API \"v2\"",
+      "labelSource": "symbol",
+      "key": "api \"v2\"",
+      "files": [
+        "src/api.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/api.ts#route",
+          "name": "route",
+          "kind": "function",
+          "path": "src/api.ts",
+          "span": "L3-L9",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": [
+        "src/order.ts",
+        "src/y.ts"
+      ]
+    },
+    {
+      "label": "Empty",
+      "labelSource": "symbol",
+      "key": "empty",
+      "files": [
+        "src/empty.ts"
+      ],
+      "symbols": [],
+      "from": [],
+      "owners": []
+    },
+    {
+      "label": "Reports",
+      "labelSource": "symbol",
+      "key": "reports",
+      "files": [
+        "src/report.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/report.ts#monthly",
+          "name": "monthly",
+          "kind": "function",
+          "path": "src/report.ts",
+          "span": "L2-L5",
+          "relation": "calls",
+          "depth": 2,
+          "inferred": true
+        },
+        {
+          "id": "src/report.ts#weekly",
+          "name": "weekly",
+          "kind": "function",
+          "path": "src/report.ts",
+          "span": "L6-L9",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": [
+        "src/math.ts"
+      ],
+      "owners": [
+        {
+          "name": "Bob Builder",
+          "commits": 4,
+          "score": 2,
+          "last": 40000000000000
+        }
+      ]
+    },
+    {
+      "label": "Search",
+      "labelSource": "symbol",
+      "key": "search",
+      "files": [
+        "src/search.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/search.ts#find",
+          "name": "find",
+          "kind": "function",
+          "path": "src/search.ts",
+          "span": "L1",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": [
+        "lib/a.b.ts"
+      ]
+    },
+    {
+      "label": "Tax",
+      "labelSource": "symbol",
+      "key": "tax",
+      "files": [
+        "src/tax.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/tax.ts#gst",
+          "name": "gst",
+          "kind": "function",
+          "path": "src/tax.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": [
+        "src/math.ts"
+      ]
+    },
+    {
+      "label": "Zed",
+      "labelSource": "symbol",
+      "key": "zed",
+      "files": [
+        "src/zed.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/zed.ts#zed",
+          "name": "zed",
+          "kind": "function",
+          "path": "src/zed.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": []
+    },
+    {
+      "label": "Yak",
+      "labelSource": "symbol",
+      "key": "yak",
+      "files": [
+        "src/yak.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/yak.ts#yak",
+          "name": "yak",
+          "kind": "function",
+          "path": "src/yak.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": []
+    },
+    {
+      "label": "Xen",
+      "labelSource": "symbol",
+      "key": "xen",
+      "files": [
+        "src/xen.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/xen.ts#xen",
+          "name": "xen",
+          "kind": "function",
+          "path": "src/xen.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": []
+    },
+    {
+      "label": "Wren",
+      "labelSource": "symbol",
+      "key": "wren",
+      "files": [
+        "src/wren.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/wren.ts#wren",
+          "name": "wren",
+          "kind": "function",
+          "path": "src/wren.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": []
+    }
+  ],
+  "testModules": [
+    {
+      "label": "Tests 0",
+      "labelSource": "symbol",
+      "key": "tests 0",
+      "files": [
+        "test/t0.test.ts",
+        "test/t1.test.ts",
+        "test/t2.test.ts",
+        "test/t3.test.ts",
+        "test/t4.test.ts",
+        "test/t5.test.ts",
+        "test/t6.test.ts",
+        "test/t7.test.ts",
+        "test/t8.test.ts"
+      ],
+      "symbols": [
+        {
+          "id": "test/t0.test.ts#it",
+          "name": "it",
+          "kind": "function",
+          "path": "test/t0.test.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": []
+    },
+    {
+      "label": "Tests 1",
+      "labelSource": "symbol",
+      "key": "tests 1",
+      "files": [
+        "test/t8.test.ts",
+        "test/t9.test.ts",
+        "test/t10.test.ts",
+        "test/t11.test.ts",
+        "test/t12.test.ts",
+        "test/t13.test.ts",
+        "test/t14.test.ts",
+        "test/t15.test.ts",
+        "test/t16.test.ts"
+      ],
+      "symbols": [
+        {
+          "id": "test/t8.test.ts#it",
+          "name": "it",
+          "kind": "function",
+          "path": "test/t8.test.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": []
+    },
+    {
+      "label": "Tests 2",
+      "labelSource": "symbol",
+      "key": "tests 2",
+      "files": [
+        "test/t16.test.ts",
+        "test/t17.test.ts",
+        "test/t18.test.ts",
+        "test/t19.test.ts",
+        "test/t20.test.ts",
+        "test/t21.test.ts",
+        "test/t22.test.ts",
+        "test/t23.test.ts",
+        "test/t24.test.ts"
+      ],
+      "symbols": [
+        {
+          "id": "test/t16.test.ts#it",
+          "name": "it",
+          "kind": "function",
+          "path": "test/t16.test.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": []
+    }
+  ],
+  "areas": [
+    {
+      "label": "Math",
+      "labelSource": "concept",
+      "key": "math",
+      "files": [
+        "src/math.ts",
+        "src/x.ts"
+      ],
+      "seeds": 1,
+      "tests": "changed",
+      "testFiles": [
+        "test/math.test.ts"
+      ],
+      "changedTestFiles": [
+        "test/math.test.ts",
+        "test/sum.test.ts"
+      ],
+      "reached": 1,
+      "behavioural": 2,
+      "unreached": [
+        "u1",
+        "u2",
+        "u3",
+        "u4",
+        "u5",
+        "u6",
+        "u7",
+        "u8",
+        "u9",
+        "u10"
+      ],
+      "seedNames": [],
+      "owners": [
+        {
+          "name": "Ada Lovelace",
+          "handle": "ada",
+          "commits": 1,
+          "score": 0.5,
+          "last": 40000000000000
+        },
+        {
+          "name": "Bob Builder",
+          "commits": 4,
+          "score": 2,
+          "last": 40000000000000
+        }
+      ]
+    },
+    {
+      "label": "Orders",
+      "labelSource": "concept",
+      "key": "orders",
+      "files": [
+        "src/order.ts"
+      ],
+      "seeds": 1,
+      "tests": "stale",
+      "testFiles": [
+        "test/order.test.ts",
+        "test/cart.test.ts"
+      ],
+      "changedTestFiles": [],
+      "reached": 1,
+      "behavioural": 1,
+      "unreached": [
+        "late"
+      ],
+      "seedNames": []
+    },
+    {
+      "label": "Lib",
+      "labelSource": "concept",
+      "key": "lib",
+      "files": [
+        "lib/a.b.ts"
+      ],
+      "seeds": 1,
+      "tests": "stale",
+      "testFiles": [
+        "test/lib.test.ts"
+      ],
+      "changedTestFiles": [],
+      "reached": 0,
+      "behavioural": 0,
+      "unreached": [],
+      "seedNames": [],
+      "owners": []
+    },
+    {
+      "label": "Billing",
+      "labelSource": "concept",
+      "key": "billing",
+      "files": [
+        "src/bill.ts"
+      ],
+      "seeds": 1,
+      "tests": "none",
+      "testFiles": [],
+      "changedTestFiles": [],
+      "reached": 0,
+      "behavioural": 3,
+      "unreached": [],
+      "seedNames": [],
+      "owners": [
+        {
+          "name": "Cyd Charisse",
+          "handle": "cyd",
+          "commits": 2,
+          "score": 1,
+          "last": 40000000000000
+        }
+      ]
+    },
+    {
+      "label": "Docs",
+      "labelSource": "concept",
+      "key": "docs",
+      "files": [
+        "src/types.ts"
+      ],
+      "seeds": 1,
+      "tests": "na",
+      "testFiles": [],
+      "changedTestFiles": [],
+      "reached": 0,
+      "behavioural": 0,
+      "unreached": [],
+      "seedNames": []
+    }
+  ],
+  "unresolved": [
+    {
+      "name": "name1",
+      "calls": 1
+    },
+    {
+      "name": "name2",
+      "calls": 2
+    },
+    {
+      "name": "name3",
+      "calls": 3
+    },
+    {
+      "name": "name4",
+      "calls": 4
+    },
+    {
+      "name": "name5",
+      "calls": 5
+    },
+    {
+      "name": "name6",
+      "calls": 6
+    }
+  ],
+  "leftBehind": [
+    {
+      "seed": {
+        "id": "src/math.ts#compute",
+        "name": "compute"
+      },
+      "id": "src/use.ts#useA",
+      "name": "useA",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9",
+      "line": 5
+    },
+    {
+      "seed": {
+        "id": "src/math.ts#compute",
+        "name": "compute"
+      },
+      "id": "src/use.ts#useB",
+      "name": "useB",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9",
+      "inferred": true
+    },
+    {
+      "seed": {
+        "id": "src/math.ts#compute",
+        "name": "compute"
+      },
+      "id": "src/use.ts#useC",
+      "name": "useC",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9",
+      "line": 7
+    },
+    {
+      "seed": {
+        "id": "src/math.ts#computeTotal",
+        "name": "computeTotal"
+      },
+      "id": "src/use.ts#useD",
+      "name": "useD",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9",
+      "line": 8
+    },
+    {
+      "seed": {
+        "id": "src/math.ts#computeTotal",
+        "name": "computeTotal"
+      },
+      "id": "src/use.ts#useE",
+      "name": "useE",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9"
+    },
+    {
+      "seed": {
+        "id": "src/math.ts#computeTotal",
+        "name": "computeTotal"
+      },
+      "id": "src/use.ts#useF",
+      "name": "useF",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9",
+      "line": 9
+    }
+  ],
+  "tests": [
+    {
+      "path": "test/math.test.ts",
+      "depth": 1,
+      "changed": true,
+      "symbols": [
+        "a"
+      ]
+    },
+    {
+      "path": "test/a.test.ts",
+      "depth": 2,
+      "inferred": true,
+      "symbols": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ]
+    },
+    {
+      "path": "test/b.test.ts",
+      "depth": 3,
+      "symbols": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "path": "test/c.test.ts",
+      "depth": 1,
+      "symbols": []
+    },
+    {
+      "path": "test/n0.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n1.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n2.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n3.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n4.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n5.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n6.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n7.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n8.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n9.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n10.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n11.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n12.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n13.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n14.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n15.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n16.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n17.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    },
+    {
+      "path": "test/n18.test.ts",
+      "depth": 2,
+      "symbols": [
+        "x"
+      ]
+    }
+  ],
+  "reviewers": [
+    {
+      "name": "Ada Lovelace",
+      "handle": "ada",
+      "commits": 3,
+      "score": 3,
+      "last": 40000000000000,
+      "areas": [
+        "Math",
+        "Checkout <ui>",
+        "Reports"
+      ]
+    },
+    {
+      "name": "Bob Builder",
+      "commits": 1,
+      "score": 1,
+      "last": 40000000000000,
+      "areas": [
+        "Reports"
+      ]
+    },
+    {
+      "name": "Cyd Charisse",
+      "handle": "cyd",
+      "commits": 2,
+      "score": 2,
+      "last": 40000000000000,
+      "areas": [
+        "Billing",
+        "Checkout <ui>"
+      ]
+    },
+    {
+      "name": "Dee Dee",
+      "handle": "dee",
+      "commits": 1,
+      "score": 1,
+      "last": 40000000000000,
+      "areas": [
+        "Math"
+      ]
+    }
+  ]
+}

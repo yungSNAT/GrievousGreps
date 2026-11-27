@@ -1,0 +1,2 @@
+FROM compute
+RUN compute

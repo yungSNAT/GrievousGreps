@@ -1,0 +1,714 @@
+{
+  "basis": "main...HEAD",
+  "depth": 3,
+  "changed": [
+    {
+      "path": "src/math.ts",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    },
+    {
+      "path": "src/tax.ts",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    }
+  ],
+  "unindexed": [],
+  "deleted": [],
+  "seeds": [
+    {
+      "id": "src/math.ts#compute",
+      "name": "compute",
+      "kind": "function",
+      "path": "src/math.ts",
+      "span": "L1-L3",
+      "wholeFile": false
+    }
+  ],
+  "impacted": [
+    {
+      "id": "src/long.ts#f1",
+      "name": "f1",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L1",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f2",
+      "name": "f2",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L2",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f3",
+      "name": "f3",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L3",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f4",
+      "name": "f4",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L4",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f5",
+      "name": "f5",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L5",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f6",
+      "name": "f6",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L6",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f7",
+      "name": "f7",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L7",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f8",
+      "name": "f8",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L8",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f9",
+      "name": "f9",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L9",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f10",
+      "name": "f10",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L10",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f11",
+      "name": "f11",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L11",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f12",
+      "name": "f12",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L12",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f13",
+      "name": "f13",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L13",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f14",
+      "name": "f14",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L14",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f15",
+      "name": "f15",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L15",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f16",
+      "name": "f16",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L16",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f17",
+      "name": "f17",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L17",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f18",
+      "name": "f18",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L18",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f19",
+      "name": "f19",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L19",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f20",
+      "name": "f20",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L20",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f21",
+      "name": "f21",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L21",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f22",
+      "name": "f22",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L22",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f23",
+      "name": "f23",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L23",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f24",
+      "name": "f24",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L24",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f25",
+      "name": "f25",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L25",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f26",
+      "name": "f26",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L26",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/long.ts#f27",
+      "name": "f27",
+      "kind": "function",
+      "path": "src/long.ts",
+      "span": "L27",
+      "relation": "calls",
+      "depth": 1
+    },
+    {
+      "id": "src/short.ts#g",
+      "name": "g",
+      "kind": "function",
+      "path": "src/short.ts",
+      "span": "L1",
+      "relation": "calls",
+      "depth": 2
+    }
+  ],
+  "modules": [
+    {
+      "label": "Long",
+      "labelSource": "symbol",
+      "key": "long",
+      "files": [
+        "src/long.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/long.ts#f1",
+          "name": "f1",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L1",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f2",
+          "name": "f2",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L2",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f3",
+          "name": "f3",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L3",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f4",
+          "name": "f4",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L4",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f5",
+          "name": "f5",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L5",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f6",
+          "name": "f6",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L6",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f7",
+          "name": "f7",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L7",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f8",
+          "name": "f8",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L8",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f9",
+          "name": "f9",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L9",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f10",
+          "name": "f10",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L10",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f11",
+          "name": "f11",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L11",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f12",
+          "name": "f12",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L12",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f13",
+          "name": "f13",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L13",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f14",
+          "name": "f14",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L14",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f15",
+          "name": "f15",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L15",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f16",
+          "name": "f16",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L16",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f17",
+          "name": "f17",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L17",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f18",
+          "name": "f18",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L18",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f19",
+          "name": "f19",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L19",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f20",
+          "name": "f20",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L20",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f21",
+          "name": "f21",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L21",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f22",
+          "name": "f22",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L22",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f23",
+          "name": "f23",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L23",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f24",
+          "name": "f24",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L24",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f25",
+          "name": "f25",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L25",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f26",
+          "name": "f26",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L26",
+          "relation": "calls",
+          "depth": 1
+        },
+        {
+          "id": "src/long.ts#f27",
+          "name": "f27",
+          "kind": "function",
+          "path": "src/long.ts",
+          "span": "L27",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": [
+        "src/math.ts",
+        "src/tax.ts"
+      ]
+    },
+    {
+      "label": "Short",
+      "labelSource": "symbol",
+      "key": "short",
+      "files": [
+        "src/short.ts"
+      ],
+      "symbols": [
+        {
+          "id": "src/short.ts#g",
+          "name": "g",
+          "kind": "function",
+          "path": "src/short.ts",
+          "span": "L1",
+          "relation": "calls",
+          "depth": 2
+        }
+      ],
+      "from": [
+        "src/tax.ts"
+      ]
+    }
+  ],
+  "testModules": [
+    {
+      "label": "T1",
+      "labelSource": "symbol",
+      "key": "t1",
+      "files": [
+        "test/a.test.ts"
+      ],
+      "symbols": [],
+      "from": []
+    },
+    {
+      "label": "T2",
+      "labelSource": "symbol",
+      "key": "t2",
+      "files": [
+        "test/b.test.ts"
+      ],
+      "symbols": [],
+      "from": []
+    }
+  ],
+  "areas": [
+    {
+      "label": "Math",
+      "labelSource": "concept",
+      "key": "math",
+      "files": [
+        "src/math.ts"
+      ],
+      "seeds": 1,
+      "tests": "changed",
+      "testFiles": [],
+      "changedTestFiles": [
+        "test/m.test.ts"
+      ],
+      "reached": 1,
+      "behavioural": 1,
+      "unreached": [],
+      "seedNames": [],
+      "owners": [
+        {
+          "name": "Ada Lovelace",
+          "handle": "ada",
+          "commits": 2,
+          "score": 1,
+          "last": 40000000000000
+        }
+      ]
+    },
+    {
+      "label": "Tax",
+      "labelSource": "concept",
+      "key": "tax",
+      "files": [
+        "src/math.ts"
+      ],
+      "seeds": 1,
+      "tests": "changed",
+      "testFiles": [],
+      "changedTestFiles": [
+        "test/m.test.ts"
+      ],
+      "reached": 1,
+      "behavioural": 1,
+      "unreached": [],
+      "seedNames": []
+    },
+    {
+      "label": "Ledger",
+      "labelSource": "concept",
+      "key": "ledger",
+      "files": [
+        "src/tax.ts"
+      ],
+      "seeds": 1,
+      "tests": "stale",
+      "testFiles": [
+        "test/t.test.ts"
+      ],
+      "changedTestFiles": [],
+      "reached": 1,
+      "behavioural": 1,
+      "unreached": [],
+      "seedNames": []
+    },
+    {
+      "label": "Rates",
+      "labelSource": "concept",
+      "key": "rates",
+      "files": [
+        "src/tax.ts"
+      ],
+      "seeds": 1,
+      "tests": "stale",
+      "testFiles": [
+        "test/t.test.ts"
+      ],
+      "changedTestFiles": [],
+      "reached": 1,
+      "behavioural": 1,
+      "unreached": [],
+      "seedNames": []
+    }
+  ],
+  "unresolved": [
+    {
+      "name": "a",
+      "calls": 2
+    },
+    {
+      "name": "b",
+      "calls": 1
+    }
+  ],
+  "leftBehind": [
+    {
+      "seed": {
+        "id": "src/math.ts#compute",
+        "name": "compute"
+      },
+      "id": "src/use.ts#useA",
+      "name": "useA",
+      "kind": "function",
+      "path": "src/use.ts",
+      "span": "L4-L9",
+      "line": 5
+    }
+  ],
+  "tests": [
+    {
+      "path": "test/m.test.ts",
+      "depth": 1,
+      "changed": true,
+      "symbols": []
+    }
+  ],
+  "reviewers": [
+    {
+      "name": "Ada Lovelace",
+      "handle": "ada",
+      "commits": 1,
+      "score": 1,
+      "last": 40000000000000,
+      "areas": [
+        "Math"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+blast radius — main...HEAD (depth 3)
+  changed: 2 files in 4 areas, 1 seed symbol
+  impacted: 28 symbols in 2 areas
+
+✓ Math — 1 changed file, 1/1 reached by a test
+✓ Tax — 1 changed file, 1/1 reached by a test
+⚠ Ledger — 1 changed file, 1/1 reached by a test
+⚠ Rates — 1 changed file, 1/1 reached by a test
+
+⚠ 1 caller left behind: it calls a symbol whose declaration changed, and the diff did not edit the call
+  compute ← useA (src/use.ts:5)
+
+Long — 27 symbols in 1 file
+  calls ← f1 (src/long.ts:L1) [depth 1]
+  calls ← f2 (src/long.ts:L2) [depth 1]
+  calls ← f3 (src/long.ts:L3) [depth 1]
+  calls ← f4 (src/long.ts:L4) [depth 1]
+  calls ← f5 (src/long.ts:L5) [depth 1]
+  calls ← f6 (src/long.ts:L6) [depth 1]
+  calls ← f7 (src/long.ts:L7) [depth 1]
+  calls ← f8 (src/long.ts:L8) [depth 1]
+  calls ← f9 (src/long.ts:L9) [depth 1]
+  calls ← f10 (src/long.ts:L10) [depth 1]
+  calls ← f11 (src/long.ts:L11) [depth 1]
+  calls ← f12 (src/long.ts:L12) [depth 1]
+  calls ← f13 (src/long.ts:L13) [depth 1]
+  calls ← f14 (src/long.ts:L14) [depth 1]
+  calls ← f15 (src/long.ts:L15) [depth 1]
+  calls ← f16 (src/long.ts:L16) [depth 1]
+  calls ← f17 (src/long.ts:L17) [depth 1]
+  calls ← f18 (src/long.ts:L18) [depth 1]
+  calls ← f19 (src/long.ts:L19) [depth 1]
+  calls ← f20 (src/long.ts:L20) [depth 1]
+  calls ← f21 (src/long.ts:L21) [depth 1]
+  calls ← f22 (src/long.ts:L22) [depth 1]
+  calls ← f23 (src/long.ts:L23) [depth 1]
+  calls ← f24 (src/long.ts:L24) [depth 1]
+  calls ← f25 (src/long.ts:L25) [depth 1]
+  …2 more symbols
+
+Short — 1 symbol in 1 file
+  calls ← g (src/short.ts:L1) [depth 2]
+
+2 test suites also reference this code (not listed)
+
+tests reaching this change (full closure): 1 file
+  test/m.test.ts — changed in this diff
+
+who to tag
+  @ada — Math · 1 commit, last today
+
+⚠ 3 calls naming a changed symbol (a (2), b (1)) did not resolve to one definition — their callers are not counted above, so this may undercount. `trail callers <name>` lists them.

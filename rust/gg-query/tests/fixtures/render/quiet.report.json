@@ -1,0 +1,40 @@
+{
+  "basis": "HEAD~1",
+  "depth": 1,
+  "changed": [
+    {
+      "path": "Makefile",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    }
+  ],
+  "unindexed": [],
+  "deleted": [],
+  "seeds": [],
+  "impacted": [],
+  "modules": [],
+  "testModules": [],
+  "areas": [
+    {
+      "label": "Build",
+      "labelSource": "concept",
+      "key": "build",
+      "files": [
+        "Makefile"
+      ],
+      "seeds": 1,
+      "tests": "changed",
+      "testFiles": [],
+      "changedTestFiles": [
+        "test/build.test.ts"
+      ],
+      "reached": 0,
+      "behavioural": 0,
+      "unreached": [],
+      "seedNames": []
+    }
+  ],
+  "unresolved": [],
+  "leftBehind": []
+}
