@@ -83,3 +83,27 @@ fn callers_marks_likely_and_reports_confidence_as_node_does() {
             .stderr_eq("");
     }
 }
+
+/// `tests/fixtures/parity/scope-repo/` has one caller in `src/` and one in `test/`: the report
+/// lists the internal one first, each under a `[scope: count]` line, and `--json` gives each
+/// hit its `scope`. Graph and goldens `callers-total-scope*.stdout` were written by the Node CLI.
+#[test]
+fn callers_groups_internal_then_test_callers_as_node_does() {
+    let tmp = tempdir().unwrap();
+    copy_dir(&fixtures_dir().join("scope-repo"), tmp.path());
+    for (args, name) in [
+        (&["callers", "total"][..], "callers-total-scope.stdout"),
+        (
+            &["callers", "total", "--json"][..],
+            "callers-total-scope-json.stdout",
+        ),
+    ] {
+        Command::new(cargo_bin!("gg-query"))
+            .args(args)
+            .arg(tmp.path())
+            .assert()
+            .success()
+            .stdout_eq(golden(name))
+            .stderr_eq("");
+    }
+}

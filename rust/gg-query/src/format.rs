@@ -132,6 +132,20 @@ enum GroupEntry {
     Group(usize),
 }
 
+/// Where a hit sits, as Node's `scopeOf`: `external` has no node (an unresolved import), `test`
+/// is in a test file, `internal` is the rest. The order is the report's.
+const SCOPES: [&str; 3] = ["internal", "test", "external"];
+
+fn scope_of(hit: &EdgeHit) -> &'static str {
+    match &hit.node {
+        None => SCOPES[2],
+        Some(n) if is_test_path(&n.path) => SCOPES[1],
+        Some(_) => SCOPES[0],
+    }
+}
+
+/// Internal hits first, then test, then external; when more than one scope is present each opens
+/// with a `[scope: hit count]` line, as Node's `hitLines`.
 fn hit_lines(
     root: &Path,
     symbol_name: &str,
@@ -145,38 +159,49 @@ fn hit_lines(
     let mut groups: Vec<HitGroup> = Vec::new();
     let mut order: Vec<GroupEntry> = Vec::new();
 
-    for h in hits {
-        let Some(ref node) = h.node else {
-            order.push(GroupEntry::Raw(hit_line(direction, h, show_depth)));
-            continue;
-        };
-        let quote = if h.depth <= 1 && !is_test_path(&node.path) {
-            call_reference_line(root, &node.path, &node.span, symbol_name, file_cache)
-        } else {
-            None
-        };
-        let key = (h.relation.clone(), node.path.clone(), h.confidence.mark());
-        let idx = *group_idx.entry(key).or_insert_with(|| {
-            let lead = if shared.is_some() {
-                format!("  {}", group_label(&node.path))
-            } else {
-                format!(
-                    "  {} {} {}",
-                    h.relation,
-                    direction.arrow(),
-                    group_label(&node.path)
-                )
+    let by_scope: Vec<Vec<&EdgeHit>> = SCOPES
+        .iter()
+        .map(|s| hits.iter().filter(|h| scope_of(h) == *s).collect())
+        .collect();
+    let labelled = by_scope.iter().filter(|b| !b.is_empty()).count() > 1;
+
+    for (scope, scoped) in SCOPES.iter().zip(&by_scope) {
+        if labelled && !scoped.is_empty() {
+            order.push(GroupEntry::Raw(format!("  [{scope}: {}]", scoped.len())));
+        }
+        for h in scoped.iter().copied() {
+            let Some(ref node) = h.node else {
+                order.push(GroupEntry::Raw(hit_line(direction, h, show_depth)));
+                continue;
             };
-            let idx = groups.len();
-            groups.push(HitGroup {
-                lead,
-                mark: h.confidence.mark(),
-                items: Vec::new(),
+            let quote = if h.depth <= 1 && !is_test_path(&node.path) {
+                call_reference_line(root, &node.path, &node.span, symbol_name, file_cache)
+            } else {
+                None
+            };
+            let key = (h.relation.clone(), node.path.clone(), h.confidence.mark());
+            let idx = *group_idx.entry(key).or_insert_with(|| {
+                let lead = if shared.is_some() {
+                    format!("  {}", group_label(&node.path))
+                } else {
+                    format!(
+                        "  {} {} {}",
+                        h.relation,
+                        direction.arrow(),
+                        group_label(&node.path)
+                    )
+                };
+                let idx = groups.len();
+                groups.push(HitGroup {
+                    lead,
+                    mark: h.confidence.mark(),
+                    items: Vec::new(),
+                });
+                order.push(GroupEntry::Group(idx));
+                idx
             });
-            order.push(GroupEntry::Group(idx));
-            idx
-        });
-        groups[idx].items.push((node.clone(), h.depth, quote));
+            groups[idx].items.push((node.clone(), h.depth, quote));
+        }
     }
 
     order
@@ -348,6 +373,7 @@ struct JsonHit<'a> {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     inferred: bool,
     confidence: &'static str,
+    scope: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,6 +421,7 @@ pub fn format_callers_json(
                     depth: h.depth,
                     inferred: h.inferred,
                     confidence: h.confidence.as_str(),
+                    scope: scope_of(h),
                     name: h.node.as_ref().map(|n| n.name.as_str()),
                     kind: h.node.as_ref().map(|n| n.kind.as_str()),
                     path: h.node.as_ref().map(|n| n.path.as_str()),
