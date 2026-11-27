@@ -164,7 +164,7 @@ function directHit(
     id: other,
     relation,
     depth: 1,
-    ...(confidence === "inferred" ? { inferred: true as const } : {}),
+    ...(provenanceOf(confidence) === "INFERRED" ? { inferred: true as const } : {}),
     confidence,
     weakestHop: { from, to, relation, confidence, provenance: provenanceOf(confidence), depth: 1 },
   };
@@ -258,7 +258,7 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
     if (!node || node.kind === "resource") return [];
     const links = deployByPath.get(node.path);
     if (!links) return [];
-    const inferred = rank === 0;
+    const inferred = rank < confidenceRank("extracted"); // `likely` is a lead too, not a definite path
     const previous = visitedDeployPaths.get(node.path);
     if (previous) {
       const keepPrev = preferStronger
@@ -303,10 +303,10 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
         const prev = reached.get(other);
         if (prev) {
           const prevRank = confidenceRank(prev.confidence ?? (prev.inferred ? "inferred" : "extracted"));
-          const pathInferred = pathConf === "inferred";
+          // A stronger path replaces a lead found at the same depth.
           const keepPrev = preferStronger
             ? prev.depth < depth || confidenceRank(pathConf) <= prevRank
-            : prev.depth < depth || !prev.inferred || pathInferred;
+            : prev.depth < depth || !prev.inferred || confidenceRank(pathConf) <= prevRank;
           if (keepPrev) continue;
         }
         if (!prev) next.push(other);
@@ -315,7 +315,7 @@ export function impactOfMany(graph: GraphV1, seeds: NodeV1[], maxDepth = 2, dire
           id: other,
           relation,
           depth,
-          ...(pathConf === "inferred" ? { inferred: true as const } : {}),
+          ...(provenanceOf(pathConf) === "INFERRED" ? { inferred: true as const } : {}),
           confidence: pathConf,
           ...(weakestHop ? { weakestHop } : {}),
         });
