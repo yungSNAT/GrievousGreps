@@ -15,6 +15,7 @@
           "relation": "calls",
           "depth": 1,
           "confidence": "extracted",
+          "scope": "internal",
           "name": "processOrder",
           "kind": "method",
           "path": "src/order.ts",

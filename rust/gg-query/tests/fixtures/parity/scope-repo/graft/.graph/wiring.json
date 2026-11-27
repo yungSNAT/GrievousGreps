@@ -1,0 +1,156 @@
+{
+  "meta": {
+    "version": 1,
+    "nodeCount": 6,
+    "edgeCount": 8,
+    "languages": [
+      "typescript"
+    ],
+    "scopes": [
+      {
+        "prefix": "",
+        "label": "",
+        "markers": []
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "src/app.ts",
+      "name": "app.ts",
+      "kind": "file",
+      "path": "src/app.ts",
+      "span": "L1-L6",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "24811a2547615a2da363c02a379d0eec094af2f616e96fc8b10b2f02e133d69f",
+      "chars": 102,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/app.ts#checkout",
+      "name": "checkout",
+      "kind": "function",
+      "path": "src/app.ts",
+      "span": "L3-L5",
+      "signature": "function checkout(a: number): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "b5b563bc7a8ca13e3ff1589d3ac55cc1b4306b73bb838d484a8cb199a19cd1da",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/lib.ts",
+      "name": "lib.ts",
+      "kind": "file",
+      "path": "src/lib.ts",
+      "span": "L1-L4",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "1869597459ddde35f59b6583e18378fa874f08f0807e6c7f212314081a2fcde3",
+      "chars": 72,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/lib.ts#total",
+      "name": "total",
+      "kind": "function",
+      "path": "src/lib.ts",
+      "span": "L1-L3",
+      "signature": "function total(a: number, b: number): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "8bd36aca7ba090a17811f2c927b153637884cf0b996143279044bafe16703e16",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "test/lib.test.ts",
+      "name": "lib.test.ts",
+      "kind": "file",
+      "path": "test/lib.test.ts",
+      "span": "L1-L6",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "6b3f0cb595482b69b1a65f25a2f9ab3c4ad9d1eefc721e6a1a00944d6cec705b",
+      "chars": 108,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "test/lib.test.ts#checksTotal",
+      "name": "checksTotal",
+      "kind": "function",
+      "path": "test/lib.test.ts",
+      "span": "L3-L5",
+      "signature": "function checksTotal(): boolean",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "942379831b47b4f435ce31a9d3f2c3de91c8da67728a34c2748f022517855558",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "src/app.ts",
+      "target": "src/app.ts#checkout",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/app.ts",
+      "target": "src/lib.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/app.ts#checkout",
+      "target": "src/lib.ts#total",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/lib.ts",
+      "target": "src/lib.ts#total",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "test/lib.test.ts",
+      "target": "test/lib.test.ts#checksTotal",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "test/lib.test.ts",
+      "target": "src/lib.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "test/lib.test.ts#checksTotal",
+      "target": "src/lib.ts#total",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "pkg/ext#useTotal",
+      "target": "src/lib.ts#total",
+      "relation": "calls",
+      "confidence": "inferred"
+    }
+  ]
+}
