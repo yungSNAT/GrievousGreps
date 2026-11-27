@@ -70,6 +70,7 @@ trail callers <symbol> --direction out   # what it calls
 trail map                            # directory clusters, hubs and hotspots
 trail grep <pattern>                 # every occurrence, grouped by enclosing symbol
 trail ask "<question>"               # the files and symbols that answer it, ranked
+trail gate                           # check architecture rules in trail.gate.json against the graph
 trail viz                            # an interactive viewer of the graph, served on localhost
 ```
 
@@ -151,6 +152,7 @@ This table lists what the code changes from upstream `a44da3d` (30 October 2026,
 | Markdown and text search | None | `trail docs`, files ranked by their best section, through the `gg-docs` binary |
 | Dockerfiles, compose and Kubernetes | Not read | Stages, services and objects linked to the code they ship, so `blast` and `callers` reach them ([Use](#use)) |
 | `trail blast` | Lists what depends on the changed lines | Also names the callers a declaration change left unedited and, with `--tests`, the test files the change reaches |
+| Architecture gate | None | `trail gate`, path-glob rules in `trail.gate.json` with a symbol-keyed baseline and `--ratchet` |
 | Distribution | Published on npm, with `trail upgrade` | From source |
 
 Learnings (`trail note`, `check` and `team`), `blast` apart from its row above, the viewer, the MCP server and agent wiring are inherited from upstream. [docs/upstream-guide.md](docs/upstream-guide.md) has the commands, the supported languages and what a node holds.
