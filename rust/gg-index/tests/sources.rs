@@ -243,5 +243,7 @@ fn names_that_are_not_utf8() {
 #[test]
 fn a_missing_root_fails() {
     let root = scratch("missing").join("nothing-here");
-    assert!(!exec(&root, &[]).status.success());
+    let out = exec(&root, &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("nothing-here"));
 }
