@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn a_program_inside_a_working_folder_or_a_package_bin_is_passed_over() {
         use std::os::unix::fs::PermissionsExt;
-        let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("find-program");
+        let base = env::temp_dir().join(format!("gg-index-find-program-{}", std::process::id()));
         drop(std::fs::remove_dir_all(&base));
         let make = |dir: &str| {
             let d = base.join(dir);
