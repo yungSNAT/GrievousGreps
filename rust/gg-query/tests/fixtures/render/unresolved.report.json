@@ -1,0 +1,49 @@
+{
+  "basis": "working tree",
+  "depth": null,
+  "changed": [
+    {
+      "path": "src/math.ts",
+      "status": "modified",
+      "ranges": [],
+      "hunks": []
+    }
+  ],
+  "unindexed": [],
+  "deleted": [],
+  "seeds": [],
+  "impacted": [],
+  "modules": [],
+  "testModules": [
+    {
+      "label": "Tests",
+      "labelSource": "symbol",
+      "key": "tests",
+      "files": [
+        "test/one.test.ts"
+      ],
+      "symbols": [
+        {
+          "id": "test/one.test.ts#it",
+          "name": "it",
+          "kind": "function",
+          "path": "test/one.test.ts",
+          "span": "L1-L2",
+          "relation": "calls",
+          "depth": 1
+        }
+      ],
+      "from": []
+    }
+  ],
+  "areas": [],
+  "unresolved": [
+    {
+      "name": "compute",
+      "calls": 1
+    }
+  ],
+  "leftBehind": [],
+  "tests": [],
+  "reviewers": []
+}

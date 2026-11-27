@@ -1,0 +1,11 @@
+blast radius — working tree (full closure)
+  changed: 1 file in 0 areas, 0 seed symbols
+  impacted: 0 symbols in 0 areas
+
+no indexed dependents outside the changed files themselves
+
+1 test suite also references this code (not listed)
+
+tests reaching this change (full closure): none found (a test that runs the code through a CLI or a spawned process has no edge, so it is not listed)
+
+⚠ 1 call naming a changed symbol (compute (1)) did not resolve to one definition — their callers are not counted above, so this may undercount. `trail callers <name>` lists them.
