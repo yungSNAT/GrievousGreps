@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -27,10 +27,28 @@ enum Cmd {
         #[arg(long, value_name = "DIR", value_parser = clap::builder::TypedValueParser::map(clap::builder::OsStringValueParser::new(), PathBuf::from))]
         out_dir: Option<PathBuf>,
     },
+    /// Print `supportedExtensions()` as JSON (a test interface)
+    Extensions,
+    /// Read NUL-separated paths on stdin; print `[parser claims it, deployFormatOf]` for each (a test interface)
+    Classify,
 }
 
+/// The most `classify` reads from stdin; more is refused rather than buffered.
+const MAX_CLASSIFY_INPUT: u64 = 64 << 20;
+
 fn main() -> ExitCode {
-    let Cmd::Wiring { graph, out_dir } = Cli::parse().command;
+    let (graph, out_dir) = match Cli::parse().command {
+        Cmd::Wiring { graph, out_dir } => (graph, out_dir),
+        Cmd::Extensions => return report(print(&extensions())),
+        Cmd::Classify => {
+            return report(read_stdin().and_then(|text| {
+                let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+                classify(&text, &mut out)
+                    .and_then(|()| out.flush())
+                    .map_err(|e| e.to_string())
+            }));
+        }
+    };
     // Deeply nested graphs recurse once a level; give them the stack they need.
     std::thread::Builder::new()
         .stack_size(gg_index::json::STACK_BYTES)
@@ -40,6 +58,59 @@ fn main() -> ExitCode {
             eprintln!("gg-index: cannot start the worker thread: {e}");
             ExitCode::FAILURE
         })
+}
+
+fn extensions() -> String {
+    let quoted: Vec<String> = gg_index::source_files::supported_extensions()
+        .iter()
+        .map(|e| format!("\"{e}\""))
+        .collect();
+    format!("[{}]\n", quoted.join(","))
+}
+
+fn read_stdin() -> Result<String, String> {
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .lock()
+        .take(MAX_CLASSIFY_INPUT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("stdin: {e}"))?;
+    if bytes.len() as u64 > MAX_CLASSIFY_INPUT {
+        return Err(format!("stdin: more than {MAX_CLASSIFY_INPUT} bytes"));
+    }
+    String::from_utf8(bytes).map_err(|e| format!("stdin: not UTF-8: {e}"))
+}
+
+/// One `[claims, format]` pair a path, split as JavaScript's `split("\0")` splits.
+/// Rows stream to `out`: NUL-only input makes a row per byte, about 13 bytes each.
+fn classify(text: &str, out: &mut impl Write) -> std::io::Result<()> {
+    out.write_all(b"[")?;
+    for (i, p) in text.split('\0').enumerate() {
+        let claims = gg_index::source_files::parser_claims(p);
+        let sep = if i > 0 { "," } else { "" };
+        match gg_index::deploy::deploy_format_of(p) {
+            Some(f) => write!(out, "{sep}[{claims},\"{f}\"]")?,
+            None => write!(out, "{sep}[{claims},null]")?,
+        }
+    }
+    out.write_all(b"]\n")
+}
+
+fn print(text: &str) -> Result<(), String> {
+    std::io::stdout()
+        .lock()
+        .write_all(text.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+fn report(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("gg-index: {e}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn wiring(graph: &Path, out_dir: Option<&Path>) -> ExitCode {
@@ -53,16 +124,7 @@ fn wiring(graph: &Path, out_dir: Option<&Path>) -> ExitCode {
             Some(dir) => gg_index::safe_write::write_wiring(dir, &text)
                 .map(drop)
                 .map_err(|e| e.to_string()),
-            None => std::io::stdout()
-                .lock()
-                .write_all(text.as_bytes())
-                .map_err(|e| e.to_string()),
+            None => print(&text),
         });
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("gg-index: {e}");
-            ExitCode::FAILURE
-        }
-    }
+    report(result)
 }
