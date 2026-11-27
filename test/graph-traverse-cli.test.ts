@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { contextDirFor } from '../src/context/node-file.js';
 import { wiringPath } from '../src/graph/write.js';
-import { callerBlocks } from '../src/graph/traverse-cli.js';
+import { callerBlocks, matchJson } from '../src/graph/traverse-cli.js';
 import { impactedEvidence, referenceLine, wordRe } from '../src/blast/evidence.js';
 import type { GraphV1, NodeV1 } from '../src/graph/types.js';
 import type { EdgeHit } from '../src/graph/traverse.js';
@@ -437,6 +437,16 @@ test('callers report: only test callers print no scope line', () => {
     'target · function · src/a.ts:L1-L3 · calls ←',
     '  test/a.test.ts: one L5',
     '  spec/b.ts: two L7',
+  ]);
+});
+
+test('callers --json: a hit with no confidence takes inferred or extracted from its mark, and each hit names its scope', () => {
+  const missing = { node: null, id: 'pkg/missing', relation: 'calls', depth: 1, inferred: true } as EdgeHit;
+  const json = matchJson({ nodes: [], edges: [] } as unknown as GraphV1, 'in',
+    { symbol: layoutNode('src/a.ts', 'target', 'L1-L3'), hits: [layoutHit('test/a.test.ts', 'one', 'L5-L9'), missing] }, 1);
+  assert.deepEqual(json.hits.map((h) => [h.id, h.confidence, h.scope]), [
+    ['test/a.test.ts#one', 'extracted', 'test'],
+    ['pkg/missing', 'inferred', 'external'],
   ]);
 });
 
