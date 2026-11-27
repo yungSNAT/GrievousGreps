@@ -77,7 +77,8 @@ fn both_ways(dir: &Path) -> Vec<PathBuf> {
         dir.to_path_buf()
     };
     out.push(abs.clone());
-    if let Ok(real) = fs::canonicalize(&abs)
+    // The real path of the folder as written: `..` after a link climbs from the link's target.
+    if let Ok(real) = fs::canonicalize(dir)
         && real != abs
     {
         out.push(real);
@@ -222,13 +223,15 @@ impl LookupRules {
         let mut trees = Vec::new();
         let mut tree_ids = Vec::new();
         for dir in &work {
-            for p in both_ways(dir) {
-                trees.push(p);
-            }
-            if let Some(id) = file_identity(dir) {
-                let root_id = fs::canonicalize(dir)
-                    .ok()
-                    .and_then(|r| r.ancestors().last().and_then(file_identity));
+            let ways = both_ways(dir);
+            // Identity of the folder cleaned as text, as the reference takes it, and of the folder
+            // the system opens: a bind mount of that one shows it by neither path in `trees`.
+            let ids = [file_identity(&ways[0]), file_identity(dir)];
+            trees.extend(ways);
+            let root_id = fs::canonicalize(dir)
+                .ok()
+                .and_then(|r| r.ancestors().last().and_then(file_identity));
+            for id in ids.into_iter().flatten() {
                 let holds_all = Some(id) == home_id || (root_id.is_some() && Some(id) == root_id);
                 tree_ids.push((id, holds_all));
             }
@@ -431,4 +434,37 @@ pub fn locate_program(name: &str, cwd: &Path) -> Result<PathBuf, String> {
     Err(format!(
         "{name} was not found on PATH outside the working folder and its subfolders"
     ))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{LookupRules, file_identity};
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_both_identities() {
+        // `lk/../wk` opens `deep/wk` (`lk` is `deep/x`) but is `wk`, a link to `w2`, cleaned as
+        // text. A bind mount of `deep/wk` shows it by no path in `trees`, so its identity must
+        // be kept beside the cleaned folder's; a test cannot mount, so it reads the rules.
+        let r = tempfile::tempdir().expect("tempdir");
+        let r = fs::canonicalize(r.path()).expect("real tempdir");
+        for d in ["deep/x", "deep/wk", "w2"] {
+            fs::create_dir_all(r.join(d)).expect("folder");
+        }
+        symlink(r.join("deep/x"), r.join("lk")).expect("lk");
+        symlink(r.join("w2"), r.join("wk")).expect("wk");
+        let ids: Vec<_> = LookupRules::new(&r.join("lk/../wk"))
+            .tree_ids
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        for d in ["deep/wk", "w2"] {
+            let id = file_identity(&r.join(d)).expect("identity");
+            assert!(
+                ids.contains(&id),
+                "{d} is not among the working folder's identities"
+            );
+        }
+    }
 }
