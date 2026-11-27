@@ -115,9 +115,16 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
-/// Parse ISO-8601 `%aI` timestamps (`YYYY-MM-DDTHH:MM:SS(.sss)?(Z|+HH:MM|-HH:MM)`).
-pub fn parse_iso_ms(raw: &str) -> Option<f64> {
-    let s = raw.trim();
+/// Two ASCII digits as a number; `Date.parse` takes no sign, space or other width.
+fn two_digits(s: &str) -> Option<i64> {
+    let b = s.as_bytes();
+    (b.len() == 2 && b.iter().all(u8::is_ascii_digit))
+        .then(|| i64::from(b[0] - b'0') * 10 + i64::from(b[1] - b'0'))
+}
+
+/// Parse the ISO-8601 shape git's `%aI` prints (`YYYY-MM-DDTHH:MM:SS(.f+)?(Z|+HH:MM|-HH:MM|+HHMM)`)
+/// as `Date.parse` does for those shapes. A date without its time is refused.
+pub fn parse_iso_ms(s: &str) -> Option<f64> {
     if s.len() < 19 || !s.is_ascii() {
         return None;
     }
@@ -127,20 +134,22 @@ pub fn parse_iso_ms(raw: &str) -> Option<f64> {
         || !matches!(b[10], b'T' | b't' | b' ')
         || b[13] != b':'
         || b[16] != b':'
+        || !b[..4].iter().all(u8::is_ascii_digit)
     {
         return None;
     }
     let y: i64 = s[0..4].parse().ok()?;
-    let mo: i64 = s[5..7].parse().ok()?;
-    let d: i64 = s[8..10].parse().ok()?;
-    let hh: i64 = s[11..13].parse().ok()?;
-    let mm: i64 = s[14..16].parse().ok()?;
-    let ss: i64 = s[17..19].parse().ok()?;
-    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || hh > 23 || mm > 59 || ss > 60 {
+    let mo = two_digits(&s[5..7])?;
+    let d = two_digits(&s[8..10])?;
+    let hh = two_digits(&s[11..13])?;
+    let mm = two_digits(&s[14..16])?;
+    let ss = two_digits(&s[17..19])?;
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || hh > 24 || mm > 59 || ss > 59 {
         return None;
     }
     let mut idx = 19;
     let mut millis = 0_i64;
+    let mut frac_zero = true;
     if b.get(idx) == Some(&b'.') {
         idx += 1;
         let frac_start = idx;
@@ -151,35 +160,40 @@ pub fn parse_iso_ms(raw: &str) -> Option<f64> {
         if idx == frac_start {
             return None;
         }
-        let frac = &s[frac_start..idx];
-        let mut padded = [b'0'; 3];
-        for (slot, ch) in padded.iter_mut().zip(frac.bytes().take(3)) {
-            *slot = ch;
-        }
-        millis = std::str::from_utf8(&padded).ok()?.parse().ok()?;
+        let frac = &b[frac_start..idx];
+        frac_zero = frac.iter().all(|&c| c == b'0');
+        millis = frac
+            .iter()
+            .chain(b"00")
+            .take(3)
+            .fold(0, |acc, &c| acc * 10 + i64::from(c - b'0'));
     }
-    let mut offset_secs = 0_i64;
-    if let Some(tz) = s.get(idx..)
-        && !tz.is_empty()
-        && !tz.eq_ignore_ascii_case("z")
-    {
+    // 24:00 is the end of the day, and only exactly so.
+    if hh == 24 && (mm != 0 || ss != 0 || !frac_zero) {
+        return None;
+    }
+    let tz = &s[idx..];
+    // No offset reads as UTC; `Date.parse` would read local time, but `%aI` always prints one.
+    let offset_secs = if tz.is_empty() || tz.eq_ignore_ascii_case("z") {
+        0
+    } else {
         let sign = match tz.as_bytes().first() {
             Some(b'+') => 1,
             Some(b'-') => -1,
             _ => return None,
         };
         let rest = &tz[1..];
-        let (tzh, tzm) = if let Some((h, m)) = rest.split_once(':') {
-            (h, m)
-        } else if rest.len() == 4 {
-            (&rest[0..2], &rest[2..4])
-        } else {
-            return None;
+        let (tzh, tzm) = match rest.len() {
+            5 if rest.as_bytes()[2] == b':' => (&rest[0..2], &rest[3..5]),
+            4 => (&rest[0..2], &rest[2..4]),
+            _ => return None,
         };
-        let th: i64 = tzh.parse().ok()?;
-        let tm: i64 = tzm.parse().ok()?;
-        offset_secs = sign * (th * 3600 + tm * 60);
-    }
+        let (th, tm) = (two_digits(tzh)?, two_digits(tzm)?);
+        if th > 23 || tm > 59 {
+            return None;
+        }
+        sign * (th * 3600 + tm * 60)
+    };
     let days = days_from_civil(y, mo, d);
     let secs = days * 86_400 + hh * 3_600 + mm * 60 + ss - offset_secs;
     Some((secs as f64) * 1000.0 + (millis as f64))
