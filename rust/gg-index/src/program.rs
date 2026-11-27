@@ -4,9 +4,20 @@
 //! is started by its absolute path. A checkout's own `git` therefore never runs in place
 //! of the person's.
 //!
-//! This is the subset of that rule the port needs. The TypeScript also tests each folder by
-//! volume and file identity (shares and bind mounts that spell a working folder another
-//! way); here a folder is judged by its real path alone.
+//! A working folder that is a file system root or the home folder (`holdsAll`) passes over
+//! only itself.
+//!
+//! This is the subset of that rule the port needs. Left out of the TypeScript's rule:
+//! - identity: each folder is also tested by volume and file identity (shares and bind
+//!   mounts that spell a working folder another way); here a folder is judged by its real
+//!   path alone;
+//! - `linkFolders` and `stands`: a program whose path passes through a link inside a
+//!   working folder is refused even when the file itself is outside; here only the real
+//!   file's folder is judged;
+//! - `bothWays`: working folders and `BERRY_BIN_FOLDER` are taken in their real spelling
+//!   only (the home folder in both);
+//! - the home folder comes from `HOME` (`USERPROFILE` on Windows) alone, without
+//!   `os.homedir()`'s fallback to the password database.
 
 use std::env;
 use std::ffi::OsString;
@@ -16,10 +27,24 @@ use std::path::{Path, PathBuf};
 /// besides this process's current folder.
 #[must_use]
 pub fn find_program(name: &str, trees: &[&Path]) -> Option<PathBuf> {
+    // Node's `os.homedir()` from the environment, in its given and real spellings.
+    let home = env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let homes: Vec<PathBuf> = home
+        .iter()
+        .flat_map(|h| [Some(h.clone()), real(h)])
+        .flatten()
+        .collect();
     let mut working: Vec<PathBuf> = trees.iter().filter_map(|t| real(t)).collect();
     if let Some(cwd) = env::current_dir().ok().and_then(|c| real(&c)) {
         working.push(cwd);
     }
+    let working: Vec<(PathBuf, bool)> = working
+        .into_iter()
+        .map(|w| {
+            let all = holds_all(&w, &homes);
+            (w, all)
+        })
+        .collect();
     let path = env::var_os("PATH").unwrap_or_else(default_path);
     let berry = env::var_os("BERRY_BIN_FOLDER")
         .map(PathBuf::from)
@@ -28,12 +53,25 @@ pub fn find_program(name: &str, trees: &[&Path]) -> Option<PathBuf> {
     find_in(name, &path, &working, berry.as_deref())
 }
 
-/// [`find_program`] over a given PATH value, working folders (real paths) and Yarn's
-/// `BERRY_BIN_FOLDER` (a real path).
+/// `holdsAll`: a file system root or the home folder holds every folder the person installs
+/// to, so as a working folder only the folder itself is passed over.
+fn holds_all(tree: &Path, homes: &[PathBuf]) -> bool {
+    tree.parent().is_none() || homes.iter().any(|h| same(h, tree))
+}
+
+/// Whether `dir` is in one of the working folders `(real path, holds all)`.
+fn in_tree(dir: &Path, working: &[(PathBuf, bool)]) -> bool {
+    working
+        .iter()
+        .any(|(w, all)| if *all { same(dir, w) } else { under(dir, w) })
+}
+
+/// [`find_program`] over a given PATH value, working folders (real paths, with
+/// [`holds_all`]) and Yarn's `BERRY_BIN_FOLDER` (a real path).
 fn find_in(
     name: &str,
     path: &OsString,
-    working: &[PathBuf],
+    working: &[(PathBuf, bool)],
     berry: Option<&Path>,
 ) -> Option<PathBuf> {
     let passed_over = |dir: &Path| {
@@ -42,7 +80,7 @@ fn find_in(
                 .parent()
                 .and_then(Path::file_name)
                 .is_some_and(|n| n == "node_modules");
-        package_bin || berry.is_some_and(|b| same(b, dir)) || working.iter().any(|w| under(dir, w))
+        package_bin || berry.is_some_and(|b| same(b, dir)) || in_tree(dir, working)
     };
     for entry in env::split_paths(path) {
         if !entry.is_absolute() || passed_over(&entry) {
@@ -54,10 +92,8 @@ fn find_in(
         }
         for file in candidates(&dir, name) {
             let Some(found) = real(&file) else { continue };
-            let in_tree = found
-                .parent()
-                .is_some_and(|p| working.iter().any(|w| under(p, w)));
-            if !in_tree && runnable(&found) {
+            let inside = found.parent().is_some_and(|p| in_tree(p, working));
+            if !inside && runnable(&found) {
                 return Some(file);
             }
         }
@@ -154,7 +190,7 @@ mod tests {
         let home = env::temp_dir().join("gg-index-home");
         assert!(holds_all(Path::new("/"), &[]));
         assert!(holds_all(&home, std::slice::from_ref(&home)));
-        assert!(!holds_all(&home.join("sub"), &[home.clone()]));
+        assert!(!holds_all(&home.join("sub"), std::slice::from_ref(&home)));
         assert!(!holds_all(&home, &[]));
     }
 
@@ -188,13 +224,16 @@ mod tests {
             real(&d).expect("real")
         };
         let (tree, bin, sys) = (make("tree/bin"), make("p/node_modules/.bin"), make("sys"));
-        let working = [real(&base.join("tree")).expect("real")];
+        let working = [(real(&base.join("tree")).expect("real"), false)];
         let path =
             env::join_paths(["relative".into(), tree.clone(), bin, sys.clone()]).expect("join");
         assert_eq!(
             find_in("tool", &path, &working, None),
             Some(sys.join("tool"))
         );
+        // A working folder that holds all passes over only itself.
+        let all = [(real(&base).expect("real"), true)];
+        assert_eq!(find_in("tool", &path, &all, None), Some(tree.join("tool")));
         let only_tree = env::join_paths([&tree]).expect("join");
         assert_eq!(find_in("tool", &only_tree, &working, None), None);
         assert_eq!(find_in("absent", &path, &working, None), None);
