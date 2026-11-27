@@ -1,26 +1,11 @@
-import { test, describe, before, after, mock } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { extractFile, type ExtractResult } from "../src/graph/extract.js";
-import { parseDepth, warmDepthGrammars } from "../src/graph/depth-parser.js";
+import { parseDepth } from "../src/graph/depth-parser.js";
 import { contentHash } from "../src/util/id.js";
+import { offlineDepthGrammars, symbol } from "./extract-helpers.js";
 
-let restoreFetch: (() => void) | undefined;
-
-before(async () => {
-  const fetchMock = mock.method(globalThis, "fetch", async () => {
-    assert.fail("Graph extraction must work offline");
-  });
-  restoreFetch = () => fetchMock.mock.restore();
-  await warmDepthGrammars(["typescript", "python", "java", "php", "go", "kotlin"]);
-});
-
-after(() => restoreFetch?.());
-
-function symbol(result: ExtractResult, id: string) {
-  const node = result.nodes.find((n) => n.id === id);
-  assert.ok(node, `Missing node ${id}`);
-  return node;
-}
+offlineDepthGrammars(["typescript", "python", "java", "php", "go", "kotlin"]);
 
 function callsFrom(result: ExtractResult, source: string) {
   return result.rawEdges.filter((e) => e.relation === "calls" && e.source === source);
