@@ -1,0 +1,249 @@
+{
+  "meta": {
+    "version": 1,
+    "nodeCount": 10,
+    "edgeCount": 14,
+    "languages": [
+      "typescript"
+    ],
+    "scopes": [
+      {
+        "prefix": "",
+        "label": "",
+        "markers": []
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "id": "src/app.ts",
+      "name": "app.ts",
+      "kind": "file",
+      "path": "src/app.ts",
+      "span": "L1-L6",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "5d8c36d33ff3a109a9ddf5174aec9fac06dfcc5f78f85b19a7c3a757f6aefc84",
+      "chars": 95,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/app.ts#run",
+      "name": "run",
+      "kind": "function",
+      "path": "src/app.ts",
+      "span": "L3-L5",
+      "signature": "function run(s: Store): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "11ef47d531ac30c454acd6d253b44643cbf8d4ed827ff60e0849d777f869ae4e",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/handler.ts",
+      "name": "handler.ts",
+      "kind": "file",
+      "path": "src/handler.ts",
+      "span": "L1-L12",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "f70a03d59ddf87dc968b5555b8b2601214bc8d1114e219a54a2819f0f682abdd",
+      "chars": 335,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/handler.ts#both",
+      "name": "both",
+      "kind": "function",
+      "path": "src/handler.ts",
+      "span": "L9-L11",
+      "signature": "function both(s: Store): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "81e6ba5378a2dafd4ecce24658784e48a8673260ea776924e054ff12fff3641e",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/handler.ts#handle",
+      "name": "handle",
+      "kind": "function",
+      "path": "src/handler.ts",
+      "span": "L4-L6",
+      "signature": "function handle(res: Response): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "0ed7a9de3537013aa0dbe9fd20e6d0976e8d8b2737cd7c532dd9f74b27a257d1",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/store.ts",
+      "name": "store.ts",
+      "kind": "file",
+      "path": "src/store.ts",
+      "span": "L1-L12",
+      "signature": null,
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "7d2a9893aa90cf9832d2e78defb89f660056ccdee75c80414eded9ace54b4af8",
+      "chars": 169,
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/store.ts#direct",
+      "name": "direct",
+      "kind": "function",
+      "path": "src/store.ts",
+      "span": "L9-L11",
+      "signature": "function direct(s: Store): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "8fb57b931652e3b2e115cd36c2937590a6e7d28ae3fa18b3faab2ddf85ac9d31",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/store.ts#Response",
+      "name": "Response",
+      "kind": "interface",
+      "path": "src/store.ts",
+      "span": "L7-L7",
+      "signature": "interface Response extends Store",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "35f7f8822b812f616c34a5919266c3a2ee31bbd36962678c35dfc07590b72833",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/store.ts#Store",
+      "name": "Store",
+      "kind": "class",
+      "path": "src/store.ts",
+      "span": "L1-L5",
+      "signature": "class Store",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "a25935d0dee9b86d509ed135fb84728fdcbba20de400cc1a2f3c349adc3163e8",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null
+    },
+    {
+      "id": "src/store.ts#Store.save",
+      "name": "save",
+      "kind": "method",
+      "path": "src/store.ts",
+      "span": "L2-L4",
+      "signature": "save(): number",
+      "exported": true,
+      "origin": "ast",
+      "body_hash": "2ac30ba9b49b5d1cca9900b22e42f59ee69b0c511f38cb725fb8211eac6e8208",
+      "summary_state": "pending",
+      "summary": null,
+      "crux": null,
+      "owner": "Store"
+    }
+  ],
+  "edges": [
+    {
+      "source": "src/app.ts",
+      "target": "src/app.ts#run",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/app.ts",
+      "target": "src/store.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/app.ts#run",
+      "target": "src/store.ts#Store.save",
+      "relation": "calls",
+      "confidence": "likely"
+    },
+    {
+      "source": "src/handler.ts",
+      "target": "src/handler.ts#both",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/handler.ts",
+      "target": "src/handler.ts#handle",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/handler.ts",
+      "target": "src/store.ts",
+      "relation": "imports",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/handler.ts#both",
+      "target": "src/store.ts#Store.save",
+      "relation": "calls",
+      "confidence": "likely"
+    },
+    {
+      "source": "src/handler.ts#handle",
+      "target": "src/store.ts#Store.save",
+      "relation": "calls",
+      "confidence": "inferred"
+    },
+    {
+      "source": "src/store.ts",
+      "target": "src/store.ts#direct",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/store.ts",
+      "target": "src/store.ts#Response",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/store.ts",
+      "target": "src/store.ts#Store",
+      "relation": "contains",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/store.ts#direct",
+      "target": "src/store.ts#Store.save",
+      "relation": "calls",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/store.ts#Response",
+      "target": "src/store.ts#Store",
+      "relation": "extends",
+      "confidence": "extracted"
+    },
+    {
+      "source": "src/store.ts#Store",
+      "target": "src/store.ts#Store.save",
+      "relation": "contains",
+      "confidence": "extracted"
+    }
+  ]
+}
