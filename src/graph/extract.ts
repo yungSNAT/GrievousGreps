@@ -198,6 +198,9 @@ export interface RawEdge {
    * `pythonChain`, resolve.ts walks it from this module's export table; without, an
    * assignment rebinds it and there is no target to walk to. */
   pythonRebound?: string;
+  /** calls: a bare Python name something in scope other than an import binds, so a star
+   * import cannot be what it reaches. */
+  pythonBound?: boolean;
   /** TS and JS: the module-level import a call's first name reads, and the names between
    * it and `name`. Empty for a bare call. */
   tsPath?: string[];
@@ -483,6 +486,10 @@ export interface WalkCtx {
   /** Names a module-level import binds outside the plain one-import case → whether an
    * assignment also rebinds them, which leaves no single target to look for. */
   pythonReboundNames: ReadonlyMap<string, boolean>;
+  /** Python only: the names the module's assignments and each enclosing def's parameters
+   * and statements bind, one set a scope. A bare call through one is never followed
+   * into a star import, whose name it shadows. */
+  pythonLocalNames: readonly ReadonlySet<string>[];
   /** TS and JS: the names a module-level import binds. */
   tsImported: ReadonlySet<string>;
   /** Python only: names an import binds in scope, from module-level imports
@@ -614,6 +621,7 @@ function extractTree(rel: string, source: string, lang: Language, root: SyntaxNo
     pythonReboundNames,
     tsImported: new Set(tsModule?.imports.map((i) => i.local)),
     pythonLocalRebound: new Map(),
+    pythonLocalNames: [pythonModuleAssigned],
     goImports,
     goLocals: new Map(),
     goLiterals: [],
@@ -871,6 +879,10 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
         ctx.lang === "python" && (desc.kind === "function" || desc.kind === "method")
           ? withPythonLocalRebound(ctx.pythonLocalRebound, node)
           : ctx.pythonLocalRebound,
+      pythonLocalNames:
+        ctx.lang === "python" && (desc.kind === "function" || desc.kind === "method")
+          ? [...ctx.pythonLocalNames, pythonDefBindings(node)]
+          : ctx.pythonLocalNames,
       // Reset on every new definition — this is a purely local marker for "we're
       // still inside THIS class-defining call's own public=/private=/active=
       // argument chain," not something that should leak into a nested definition
@@ -903,6 +915,7 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
         pythonReboundNames: ctx.pythonReboundNames,
         tsImported: ctx.tsImported,
         pythonLocalRebound: ctx.pythonLocalRebound,
+        pythonLocalNames: ctx.pythonLocalNames,
       };
       walkNamedChildren(node.namedChildren.filter(inHeader), headerCtx, out, edges, minted);
       walkNamedChildren(node.namedChildren.filter((c) => !inHeader(c)), childCtx, out, edges, minted);
@@ -1048,6 +1061,8 @@ function walk(node: SyntaxNode, ctx: WalkCtx, out: NodeV1[], edges: RawEdge[], m
           const held = ctx.lang === "go" && bound ? goHeld(bound, ctx) : undefined;
           const recvType = held === undefined ? bound : undefined;
           const recvAttr = recvType || ctx.lang !== "python" ? undefined : pythonAttrReceiver(callee.receiver, ctx);
+          if (ctx.lang === "python" && !callee.receiver && (ctx.pythonLocalNames.some((s) => s.has(callee.name))
+            || pythonCallHasLocalBinding(node, callee.name))) callEdge.pythonBound = true;
           edges.push(
             goPackage ? { ...callEdge, specifier: goPackage }
               : recvType ? { ...callEdge, recvType }
@@ -1590,6 +1605,16 @@ function withPythonLocalImports<T>(
     else out.set(name, value);
   }
   return out;
+}
+
+/** Names a def's parameters and own statements bind. */
+function pythonDefBindings(definition: SyntaxNode): Set<string> {
+  const names = new Set<string>();
+  const params = definition.childForFieldName("parameters");
+  if (params) collectPythonBindingNames(params, names);
+  const body = definition.childForFieldName("body");
+  if (body) collectPythonScopeBindings(body, names);
+  return names;
 }
 
 /** Binding patterns exclude type annotations, default values and attribute names. */
