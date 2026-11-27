@@ -440,6 +440,13 @@ test('callers report: only test callers print no scope line', () => {
   ]);
 });
 
+test('callers report: only unresolved imports print no scope line', () => {
+  assert.deepEqual(layout([{ node: null, id: 'pkg/missing', relation: 'calls', depth: 1 } as EdgeHit]), [
+    'target · function · src/a.ts:L1-L3 · calls ←',
+    '  calls ← pkg/missing (unresolved import)',
+  ]);
+});
+
 test('callers --json: a hit with no confidence takes inferred or extracted from its mark, and each hit names its scope', () => {
   const missing = { node: null, id: 'pkg/missing', relation: 'calls', depth: 1, inferred: true } as EdgeHit;
   const json = matchJson({ nodes: [], edges: [] } as unknown as GraphV1, 'in',
