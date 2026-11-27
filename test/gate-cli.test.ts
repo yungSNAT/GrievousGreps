@@ -1,7 +1,7 @@
 import { test, describe, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildGraph } from "../src/graph/build.js";
@@ -130,6 +130,12 @@ describe("trail gate CLI and filesystem integration", () => {
     const badNodes = await captureRun(dir, {});
     assert.equal(badNodes.code, 2);
     assert.match(badNodes.stderr, /invalid wiring graph/);
+
+    // 7. Syntactically invalid JSON in wiring.json -> exit 2 (G1)
+    writeFileSync(join(built.contextDir, ".graph", "wiring.json"), "{not json");
+    const badJsonGraph = await captureRun(dir, {});
+    assert.equal(badJsonGraph.code, 2);
+    assert.match(badJsonGraph.stderr, /no graph found/);
   });
 
   test("end-to-end build, violation detection, --update-baseline, --ratchet, and CLI process", async () => {
@@ -272,10 +278,36 @@ describe("trail gate CLI and filesystem integration", () => {
     assert.equal(outsideCfg.code, 2);
     assert.match(outsideCfg.stderr, /outside/);
 
+    // G2(c): attempted baseline write outside repo exits 2 and creates no external file
+    const escapeBase = join(scratch("gate-escape-parent"), "escape.json");
+    const outsideWrite = await captureRun(dir, { baseline: escapeBase, updateBaseline: true });
+    assert.equal(outsideWrite.code, 2);
+    assert.match(outsideWrite.stderr, /outside/);
+    assert.equal(existsSync(escapeBase), false);
+
+    // G2(b): symlinked parent directory under repo root rejected on read & --update-baseline write
+    const outsideTarget = scratch("gate-symlink-target");
+    writeFileSync(join(outsideTarget, "cfg.json"), JSON.stringify({ rules: [] }));
+    writeFileSync(join(outsideTarget, "base.json"), JSON.stringify({ version: 1, violations: [] }));
+    symlinkSync(outsideTarget, join(dir, "symdir"), process.platform === "win32" ? "junction" : "dir");
+    const symDirCfg = await captureRun(dir, { config: "symdir/cfg.json" });
+    assert.equal(symDirCfg.code, 2);
+    assert.match(symDirCfg.stderr, /symlink/);
+    const symDirBase = await captureRun(dir, { baseline: "symdir/base.json" });
+    assert.equal(symDirBase.code, 2);
+    assert.match(symDirBase.stderr, /symlink/);
+    const symDirWrite = await captureRun(dir, { baseline: "symdir/new.json", updateBaseline: true });
+    assert.equal(symDirWrite.code, 2);
+    assert.match(symDirWrite.stderr, /symlink/);
+    assert.equal(existsSync(join(outsideTarget, "new.json")), false);
+
+    // G2(a): symlinked config and baseline leaf rejected on read
     writeFileSync(join(dir, "real.json"), JSON.stringify({ rules: [] }));
+    writeFileSync(join(dir, "real-base.json"), JSON.stringify({ version: 1, violations: [] }));
     let symlinkCreated = false;
     try {
-      symlinkSync(join(dir, "real.json"), join(dir, "linked.json"));
+      symlinkSync(join(dir, "real.json"), join(dir, "linked.json"), "file");
+      symlinkSync(join(dir, "real-base.json"), join(dir, "linked-base.json"), "file");
       symlinkCreated = true;
     } catch {
       symlinkCreated = false;
@@ -284,6 +316,9 @@ describe("trail gate CLI and filesystem integration", () => {
       const symRes = await captureRun(dir, { config: "linked.json" });
       assert.equal(symRes.code, 2);
       assert.match(symRes.stderr, /symlink/);
+      const symBase = await captureRun(dir, { baseline: "linked-base.json" });
+      assert.equal(symBase.code, 2);
+      assert.match(symBase.stderr, /symlink/);
     }
   });
 });

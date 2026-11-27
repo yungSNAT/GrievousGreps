@@ -73,6 +73,12 @@ export interface GateViolation {
   status: ViolationStatus;
 }
 
+export interface UnmatchedPattern {
+  rule: string;
+  side: "from" | "to";
+  pattern: string;
+}
+
 export interface GateResult {
   ok: boolean;
   rules: number;
@@ -80,6 +86,7 @@ export interface GateResult {
   accepted: GateViolation[];
   warnings: GateViolation[];
   resolved: BaselineEntry[];
+  unmatchedPatterns: UnmatchedPattern[];
   baselineUpdated?: boolean;
   prunedFromBaseline?: number;
 }
@@ -272,6 +279,39 @@ function normalizeNodePath(path: string): string {
   return out;
 }
 
+function compareUnmatchedPattern(a: UnmatchedPattern, b: UnmatchedPattern): number {
+  return cmpStr(a.rule, b.rule) || cmpStr(a.side, b.side) || cmpStr(a.pattern, b.pattern);
+}
+
+function findUnmatchedPatterns(rules: readonly GateRule[], nodePaths: ReadonlySet<string>): UnmatchedPattern[] {
+  const unmatched: UnmatchedPattern[] = [];
+  for (const rule of rules) {
+    for (let i = 0; i < rule.from.length; i++) {
+      const compiled = rule.fromCompiled[i]!;
+      let matched = false;
+      for (const path of nodePaths) {
+        if (matchesCompiledGlob(compiled, path)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) unmatched.push({ rule: rule.name, side: "from", pattern: rule.from[i]! });
+    }
+    for (let i = 0; i < rule.to.length; i++) {
+      const compiled = rule.toCompiled[i]!;
+      let matched = false;
+      for (const path of nodePaths) {
+        if (matchesCompiledGlob(compiled, path)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) unmatched.push({ rule: rule.name, side: "to", pattern: rule.to[i]! });
+    }
+  }
+  return unmatched.sort(compareUnmatchedPattern);
+}
+
 /** Evaluate architecture rules against a wiring graph and optional baseline. */
 export function evaluateGate(
   graph: GraphV1,
@@ -279,6 +319,10 @@ export function evaluateGate(
   baseline: GateBaseline | null = null,
 ): GateResult {
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
+  const nodePaths = new Set<string>();
+  for (const n of graph.nodes) {
+    nodePaths.add(normalizeNodePath(n.path));
+  }
   const acceptedMap = new Map<string, BaselineEntry>();
   for (const entry of baseline?.violations ?? []) {
     acceptedMap.set(baselineKey(entry.rule, entry.sourceId, entry.targetId), entry);
@@ -344,6 +388,7 @@ export function evaluateGate(
   const accepted = [...acceptedViolations.values()].sort(compareViolation);
   const warnings = [...warningMap.values()].sort(compareViolation);
   resolved.sort(compareBaselineEntry);
+  const unmatchedPatterns = findUnmatchedPatterns(config.rules, nodePaths);
 
   return {
     ok: violations.length === 0,
@@ -352,6 +397,7 @@ export function evaluateGate(
     accepted,
     warnings,
     resolved,
+    unmatchedPatterns,
   };
 }
 

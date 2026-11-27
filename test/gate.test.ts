@@ -153,7 +153,11 @@ describe("parseGateConfig and parseGateBaseline", () => {
 describe("evaluateGate, confidence categories, baseline, and ratchet", () => {
   test("clean graph passes with zero violations and zero warnings", () => {
     const g = graphOf(
-      [node("src/domain/a.ts#fn", "src/domain/a.ts"), node("src/domain/b.ts#fn", "src/domain/b.ts")],
+      [
+        node("src/domain/a.ts#fn", "src/domain/a.ts"),
+        node("src/domain/b.ts#fn", "src/domain/b.ts"),
+        node("src/infra/c.ts#db", "src/infra/c.ts"),
+      ],
       [edge("src/domain/a.ts#fn", "src/domain/b.ts#fn", "calls", "extracted")],
     );
     const cfg = parseGateConfig({
@@ -163,6 +167,25 @@ describe("evaluateGate, confidence categories, baseline, and ratchet", () => {
     assert.equal(res.ok, true);
     assert.equal(res.violations.length, 0);
     assert.equal(res.warnings.length, 0);
+    assert.deepEqual(res.unmatchedPatterns, []);
+  });
+
+  test("reports unmatched rule patterns without failing the gate", () => {
+    const g = graphOf([node("src/domain/a.ts#fn", "src/domain/a.ts"), node("src/infra/b.ts#db", "src/infra/b.ts")], []);
+    const cfg = parseGateConfig({
+      rules: [{ name: "typo-rule", from: ["src/domian/**"], to: ["src/infra/**"] }],
+    });
+    const res = evaluateGate(g, cfg);
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.unmatchedPatterns, [{ rule: "typo-rule", side: "from", pattern: "src/domian/**" }]);
+    assert.match(formatGateText(res), /Unmatched rule patterns \(1, matched 0 graph nodes\)/);
+    assert.match(formatGateText(res), /\[typo-rule\] from: src\/domian\/\*\*/);
+    assert.match(formatGateMarkdown(res), /### Unmatched rule patterns \(1\)/);
+    assert.match(formatGateMarkdown(res), /Unmatched patterns: 1/);
+    const json = JSON.parse(formatGateJson(res));
+    assert.equal(json.ok, true);
+    assert.equal(json.summary.unmatchedPatterns, 1);
+    assert.deepEqual(json.unmatchedPatterns, [{ rule: "typo-rule", side: "from", pattern: "src/domian/**" }]);
   });
 
   test("tracks multiple violating symbols between the same file pair independently and detects renames", () => {
@@ -457,8 +480,9 @@ describe("compilePosixGlob and matchesCompiledGlob", () => {
     }
   });
 
-  test("rejects unmatched braces and brace-expansion explosion", () => {
+  test("rejects unmatched braces, descending ranges, and brace-expansion explosion", () => {
     assert.throws(() => compilePosixGlob("src/a}.ts"), /unmatched "}"/);
+    assert.throws(() => compilePosixGlob("src/[z-a].ts"), /descending character range/);
     assert.throws(() => compilePosixGlob("{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}"), /more than 64/);
   });
 });

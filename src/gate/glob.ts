@@ -121,7 +121,12 @@ function compileSegment(part: string, fullPattern: string): CompiledSegment {
       const ranges: Array<[string, string]> = [];
       for (let j = 0; j < body.length; j++) {
         if (body[j + 1] === "-" && j + 2 < body.length) {
-          ranges.push([body[j]!, body[j + 2]!]);
+          const lo = body[j]!;
+          const hi = body[j + 2]!;
+          if (lo > hi) {
+            throw new Error(`invalid descending character range "${lo}-${hi}" in glob "${fullPattern}"`);
+          }
+          ranges.push([lo, hi]);
           j += 2;
         } else {
           ranges.push([body[j]!, body[j]!]);

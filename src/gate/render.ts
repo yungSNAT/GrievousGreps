@@ -17,6 +17,9 @@ function countSummaryParts(r: GateResult): string[] {
   if (r.accepted.length > 0) parts.push(`${r.accepted.length} accepted`);
   if (r.warnings.length > 0) parts.push(`${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}`);
   if (r.resolved.length > 0) parts.push(`${r.resolved.length} resolved`);
+  if (r.unmatchedPatterns.length > 0) {
+    parts.push(`${r.unmatchedPatterns.length} unmatched pattern${r.unmatchedPatterns.length === 1 ? "" : "s"}`);
+  }
   if (r.prunedFromBaseline && r.prunedFromBaseline > 0) {
     parts.push(`${r.prunedFromBaseline} pruned from baseline`);
   }
@@ -50,6 +53,10 @@ export function formatGateText(result: GateResult): string {
     lines.push("", `Resolved baseline entries (${result.resolved.length}):`);
     for (const r of result.resolved) lines.push(`  [${r.rule}] ${r.sourceId} -> ${r.targetId}`);
   }
+  if (result.unmatchedPatterns.length > 0) {
+    lines.push("", `Unmatched rule patterns (${result.unmatchedPatterns.length}, matched 0 graph nodes):`);
+    for (const u of result.unmatchedPatterns) lines.push(`  [${u.rule}] ${u.side}: ${u.pattern}`);
+  }
   return lines.join("\n") + "\n";
 }
 
@@ -82,6 +89,7 @@ function renderMarkdownTable(items: readonly GateViolation[]): string[] {
 
 export function formatGateMarkdown(result: GateResult): string {
   let summary = `Rules: ${result.rules} · New: ${result.violations.length} · Accepted: ${result.accepted.length} · Warnings: ${result.warnings.length} · Resolved: ${result.resolved.length}`;
+  if (result.unmatchedPatterns.length > 0) summary += ` · Unmatched patterns: ${result.unmatchedPatterns.length}`;
   if (result.baselineUpdated) summary += " · Baseline updated";
   if (result.prunedFromBaseline !== undefined && result.prunedFromBaseline > 0) {
     summary += ` · Pruned: ${result.prunedFromBaseline}`;
@@ -103,6 +111,12 @@ export function formatGateMarkdown(result: GateResult): string {
       lines.push(`- ${mdCode(r.rule)}: ${mdCode(r.sourceId)} -> ${mdCode(r.targetId)}`);
     }
   }
+  if (result.unmatchedPatterns.length > 0) {
+    lines.push("", `### Unmatched rule patterns (${result.unmatchedPatterns.length})`, "");
+    for (const u of result.unmatchedPatterns) {
+      lines.push(`- ${mdCode(u.rule)} ${u.side}: ${mdCode(u.pattern)}`);
+    }
+  }
   return lines.join("\n") + "\n";
 }
 
@@ -115,12 +129,14 @@ export function formatGateJson(result: GateResult): string {
       accepted: result.accepted.length,
       warnings: result.warnings.length,
       resolved: result.resolved.length,
+      unmatchedPatterns: result.unmatchedPatterns.length,
       ...(result.prunedFromBaseline !== undefined && { prunedFromBaseline: result.prunedFromBaseline }),
     },
     violations: result.violations,
     accepted: result.accepted,
     warnings: result.warnings,
     resolved: result.resolved,
+    unmatchedPatterns: result.unmatchedPatterns,
     ...(result.baselineUpdated !== undefined && { baselineUpdated: result.baselineUpdated }),
   };
   return JSON.stringify(payload, null, 2) + "\n";
