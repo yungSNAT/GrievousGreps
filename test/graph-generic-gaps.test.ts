@@ -30,6 +30,8 @@ describe("registry lookups", () => {
     assert.equal(java.name, "java");
     assert.ok(java.exts.includes(".java"));
     assert.equal(java, GENERIC_LANGS.find((l) => l.name === "java"));
+    assert.equal(java, genericLangOf("src/Main.java"), "the .java breadth row is the native fallback");
+    assert.equal(fallbackLangOf("typescript").wasm, "typescript");
 
     const go = fallbackLangOf("go" as never);
     assert.deepEqual(go, { name: "go", exts: [], wasm: "go", bundledTags: ["go"] });
