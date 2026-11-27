@@ -59,15 +59,16 @@ export interface ProvenanceMatchJson {
 }
 
 const CONFIDENCE_RANK: Record<Confidence, number> = {
-  lsp_resolved: 3,
-  lsp_dispatch: 2,
-  extracted: 1,
+  lsp_resolved: 4,
+  lsp_dispatch: 3,
+  extracted: 2,
+  likely: 1,
   inferred: 0,
 };
 
 /** Parse an edge confidence string, failing closed to `"inferred"` on unknown values. */
 export function parseConfidence(raw: string | undefined): Confidence {
-  if (raw === "lsp_resolved" || raw === "lsp_dispatch" || raw === "extracted" || raw === "inferred") {
+  if (raw === "lsp_resolved" || raw === "lsp_dispatch" || raw === "extracted" || raw === "likely" || raw === "inferred") {
     return raw;
   }
   return "inferred";
@@ -78,7 +79,7 @@ export function confidenceRank(confidence: Confidence): number {
 }
 
 export function provenanceOf(confidence: Confidence): EdgeProvenance {
-  return confidence === "inferred" ? "INFERRED" : "EXTRACTED";
+  return confidence === "inferred" || confidence === "likely" ? "INFERRED" : "EXTRACTED";
 }
 
 export function weakestConfidence(a: Confidence, b: Confidence): Confidence {
@@ -117,7 +118,7 @@ function provenanceTag(hit: ProvenanceHitView): string {
     }
     return ` [${prov} · weakest: ${conf}]`;
   }
-  if (conf === "lsp_resolved" || conf === "lsp_dispatch") {
+  if (conf === "lsp_resolved" || conf === "lsp_dispatch" || conf === "likely") {
     return ` [${prov} · ${conf}]`;
   }
   return ` [${prov}]`;

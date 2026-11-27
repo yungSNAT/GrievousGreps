@@ -142,3 +142,26 @@ fn binary_writes_to_the_nesting_cap_and_refuses_past_it() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("nested too deeply"));
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn an_empty_out_dir_writes_under_the_working_directory_as_typescript_does() {
+    // `writeGraph(graph, "")` writes `./.graph/wiring.json`: `dirname("")` and `resolve("")` are `.`.
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("empty-out-dir");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let (input, golden) = fixtures().remove(0);
+    let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
+        .current_dir(&dir)
+        .arg("wiring")
+        .arg(&input)
+        .args(["--out-dir", ""])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let written = fs::read(dir.join(".graph").join("wiring.json")).unwrap();
+    assert_eq!(written, fs::read(golden).unwrap());
+}

@@ -1,6 +1,6 @@
 import { basename, sep } from 'node:path';
 import type { Stats, SessionState } from './state.js';
-import { INFERRED_MARK, type GraphV1, type EdgeV1 } from '../graph/types.js';
+import { confidenceMark, type GraphV1, type EdgeV1 } from '../graph/types.js';
 // The injection gate reuses the federation floors rather than inventing its own:
 // "did we hit a real name, or match broadly enough to trust anyway" is the same
 // question in both places, and one set of calibrated numbers beats two.
@@ -99,7 +99,7 @@ export function formatBlastRadius(w: GraphV1, filePath: string, cap = 8, view: S
   const lines = edges.slice(0, cap).map((e) => {
     const n = byId.get(e.source);
     const label = n ? `${n.name} (${basename(n.path)})` : e.source;
-    return ` • ${e.relation} ← ${label}${e.confidence === 'inferred' ? INFERRED_MARK : ''}`;
+    return ` • ${e.relation} ← ${label}${confidenceMark(e.confidence)}`;
   });
   if (edges.length > cap) lines.push(` • +${edges.length - cap} more`);
   if (unresolved > 0) lines.push(` • +${unresolved} unresolved call${unresolved === 1 ? '' : 's'} to names defined here, not listed: ${cmd('graft callers')} <name> shows them`);

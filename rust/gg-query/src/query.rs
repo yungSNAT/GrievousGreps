@@ -10,7 +10,7 @@ use crate::graph::{
     looks_like_filename, normalize_path_prefix, path_under_prefix, strip_ordinals,
     symbol_matches_node,
 };
-use crate::provenance::{Confidence, WeakestHop};
+use crate::provenance::{Confidence, EdgeProvenance, WeakestHop};
 use crate::store::{GraphStore, sql_err};
 
 pub(crate) const NODE_SELECT: &str = "SELECT id, name, kind, owner, path, span, signature, exported, origin, body_hash, chars, summary, body_text, crux_code FROM nodes";
@@ -276,7 +276,7 @@ impl GraphStore {
                     id: other,
                     relation: relation.clone(),
                     depth: 1,
-                    inferred: confidence == Confidence::Inferred,
+                    inferred: confidence.provenance() == EdgeProvenance::Inferred,
                     confidence,
                     weakest_hop: Some(WeakestHop {
                         from,
@@ -358,12 +358,14 @@ impl GraphStore {
                         }
                         _ => (edge_conf, Some(hop)),
                     };
-                    let path_inferred = path_conf == Confidence::Inferred;
                     if let Some(prev) = reached.get(&other) {
                         let keep_prev = if prefer_stronger_confidence {
                             prev.depth < depth || path_conf.rank() <= prev.confidence.rank()
                         } else {
-                            prev.depth < depth || !prev.inferred || path_inferred
+                            // A stronger path replaces a lead found at the same depth.
+                            prev.depth < depth
+                                || !prev.inferred
+                                || path_conf.rank() <= prev.confidence.rank()
                         };
                         if keep_prev {
                             continue;
@@ -382,7 +384,7 @@ impl GraphStore {
                             id: other,
                             relation,
                             depth,
-                            inferred: path_conf == Confidence::Inferred,
+                            inferred: path_conf.provenance() == EdgeProvenance::Inferred,
                             confidence: path_conf,
                             weakest_hop,
                         },
