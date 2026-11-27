@@ -185,7 +185,7 @@ mod tests {
             find_in("tool", &path, &working, None),
             Some(sys.join("tool"))
         );
-        let only_tree = env::join_paths([tree]).expect("join");
+        let only_tree = env::join_paths([&tree]).expect("join");
         assert_eq!(find_in("tool", &only_tree, &working, None), None);
         assert_eq!(find_in("absent", &path, &working, None), None);
         // Yarn's bin folder is passed over like a package bin.
