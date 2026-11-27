@@ -214,7 +214,7 @@ fn a_path_folder_under_the_processs_own_working_folder_is_passed_over() {
 
 #[test]
 fn a_link_to_the_working_folder_is_judged_by_its_real_path() {
-    // `under_by_id` would refuse this too; the next test is the one it alone decides.
+    // `under_by_id` would refuse this too.
     let f = Fixture::new();
     f.tool("work");
     f.link(&f.work.display().to_string(), "out/alias");
@@ -222,9 +222,9 @@ fn a_link_to_the_working_folder_is_judged_by_its_real_path() {
 }
 
 #[test]
-fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_identity() {
+fn a_working_folder_spelt_with_dot_dot_after_a_link_is_its_real_folder() {
     // `lk/../work` is `deep/work` to the system (`lk` is `deep/x`) but `work` when cleaned
-    // as text: the path rules hold the wrong folder, and only its identity catches it.
+    // as text. Its real path as written is a tree, so this holds without identity.
     let f = Fixture::new();
     fs::create_dir_all(f.at("deep/x")).expect("x");
     f.link(&f.s("deep/x"), "lk");
@@ -236,6 +236,20 @@ fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_identity() {
         None,
         None,
     );
+    assert_eq!(got, Err(NOT_FOUND.to_string()));
+}
+
+#[test]
+fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_the_identity_of_its_cleaned_path() {
+    // `lk/../wk` is `deep/wk` to the system but `wk`, a link to `w2`, cleaned as text. Neither
+    // spelling's path holds `w2/bin`; only the cleaned folder's identity, `w2`, catches it.
+    let f = Fixture::new();
+    fs::create_dir_all(f.at("deep/x")).expect("x");
+    fs::create_dir_all(f.at("deep/wk")).expect("deep/wk");
+    f.link(&f.s("deep/x"), "lk");
+    f.tool("w2/bin");
+    f.link(&f.s("w2"), "wk");
+    let got = lookup("tool", &f.at("lk/../wk"), Some(&f.s("w2/bin")), None, None);
     assert_eq!(got, Err(NOT_FOUND.to_string()));
 }
 
@@ -295,6 +309,25 @@ fn yarns_own_bin_folder_is_passed_over_and_a_relative_one_is_ignored() {
             Some(&f.spelt_from_process("out/berry"))
         ),
         Ok(berry)
+    );
+}
+
+#[test]
+fn yarns_own_bin_folder_is_known_by_its_real_path_as_written() {
+    // `lk/../bin` is `deep/bin` to the system (`lk` is `deep/x`) but `bin` cleaned as text.
+    let f = Fixture::new();
+    fs::create_dir_all(f.at("deep/x")).expect("x");
+    f.link(&f.s("deep/x"), "lk");
+    f.tool("deep/bin");
+    assert_eq!(
+        lookup(
+            "tool",
+            &f.work,
+            Some(&f.s("deep/bin")),
+            None,
+            Some(&f.s("lk/../bin"))
+        ),
+        Err(NOT_FOUND.to_string())
     );
 }
 
