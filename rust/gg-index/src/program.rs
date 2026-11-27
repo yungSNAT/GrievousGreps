@@ -21,24 +21,28 @@ pub fn find_program(name: &str, trees: &[&Path]) -> Option<PathBuf> {
         working.push(cwd);
     }
     let path = env::var_os("PATH").unwrap_or_else(default_path);
-    find_in(name, &path, &working)
-}
-
-/// [`find_program`] over a given PATH value and working folders (real paths).
-fn find_in(name: &str, path: &OsString, working: &[PathBuf]) -> Option<PathBuf> {
     let berry = env::var_os("BERRY_BIN_FOLDER")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .and_then(|p| real(&p));
+    find_in(name, &path, &working, berry.as_deref())
+}
+
+/// [`find_program`] over a given PATH value, working folders (real paths) and Yarn's
+/// `BERRY_BIN_FOLDER` (a real path).
+fn find_in(
+    name: &str,
+    path: &OsString,
+    working: &[PathBuf],
+    berry: Option<&Path>,
+) -> Option<PathBuf> {
     let passed_over = |dir: &Path| {
         let package_bin = dir.file_name().is_some_and(|n| n == ".bin")
             && dir
                 .parent()
                 .and_then(Path::file_name)
                 .is_some_and(|n| n == "node_modules");
-        package_bin
-            || berry.as_deref().is_some_and(|b| same(b, dir))
-            || working.iter().any(|w| under(dir, w))
+        package_bin || berry.is_some_and(|b| same(b, dir)) || working.iter().any(|w| under(dir, w))
     };
     for entry in env::split_paths(path) {
         if !entry.is_absolute() || passed_over(&entry) {
@@ -62,19 +66,25 @@ fn find_in(name: &str, path: &OsString, working: &[PathBuf]) -> Option<PathBuf> 
 }
 
 /// With no PATH at all, POSIX looks in /usr/bin and /bin, as libuv does.
+#[cfg(not(windows))]
 fn default_path() -> OsString {
-    if cfg!(windows) {
-        OsString::new()
-    } else {
-        OsString::from("/usr/bin:/bin")
-    }
+    OsString::from("/usr/bin:/bin")
 }
 
-/// The names Node can start without a shell: on Windows `.com` and `.exe` in PATHEXT's order.
+#[cfg(windows)]
+fn default_path() -> OsString {
+    OsString::new()
+}
+
+/// The names Node can start without a shell: the name itself off Windows.
+#[cfg(not(windows))]
 fn candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
-    if !cfg!(windows) {
-        return vec![dir.join(name)];
-    }
+    vec![dir.join(name)]
+}
+
+/// On Windows, `.com` and `.exe` in PATHEXT's order.
+#[cfg(windows)]
+fn candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
     let pathext = env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
     pathext
         .split(';')
@@ -113,13 +123,15 @@ pub(crate) fn unverbatim(path: &Path) -> PathBuf {
     }
 }
 
-fn fold(path: &Path) -> String {
-    let s = path.to_string_lossy();
-    if cfg!(windows) {
-        s.to_lowercase()
-    } else {
-        s.into_owned()
-    }
+/// A path as compared: letter case ignored on Windows.
+#[cfg(windows)]
+pub(crate) fn fold(path: &Path) -> String {
+    path.to_string_lossy().to_lowercase()
+}
+
+#[cfg(not(windows))]
+pub(crate) fn fold(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn same(a: &Path, b: &Path) -> bool {
@@ -169,9 +181,32 @@ mod tests {
         let working = [real(&base.join("tree")).expect("real")];
         let path =
             env::join_paths(["relative".into(), tree.clone(), bin, sys.clone()]).expect("join");
-        assert_eq!(find_in("tool", &path, &working), Some(sys.join("tool")));
+        assert_eq!(
+            find_in("tool", &path, &working, None),
+            Some(sys.join("tool"))
+        );
         let only_tree = env::join_paths([tree]).expect("join");
-        assert_eq!(find_in("tool", &only_tree, &working), None);
-        assert_eq!(find_in("absent", &path, &working), None);
+        assert_eq!(find_in("tool", &only_tree, &working, None), None);
+        assert_eq!(find_in("absent", &path, &working, None), None);
+        // Yarn's bin folder is passed over like a package bin.
+        assert_eq!(find_in("tool", &path, &working, Some(&sys)), None);
+        // A folder that does not exist is passed over; a file without the execute bit is not run.
+        let plain = base.join("plain");
+        std::fs::create_dir_all(&plain).expect("mkdir");
+        std::fs::write(plain.join("tool"), "").expect("write");
+        let gone = base.join("gone");
+        let path = env::join_paths([gone, plain, sys.clone()]).expect("join");
+        assert_eq!(
+            find_in("tool", &path, &working, None),
+            Some(sys.join("tool"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_is_not_utf8_is_kept_as_it_is() {
+        use std::os::unix::ffi::OsStrExt;
+        let p = Path::new(std::ffi::OsStr::from_bytes(b"/x/\xff"));
+        assert_eq!(unverbatim(p), p);
     }
 }

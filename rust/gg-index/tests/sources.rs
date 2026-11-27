@@ -8,9 +8,11 @@ use std::process::{Command, Output};
 
 use gg_index::json::{self, Json};
 
+/// A folder outside any Git checkout (the build's own target folder is inside this
+/// repository, where `git ls-files` would answer for the enclosing tree).
 fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-        .join("sources")
+    let dir = std::env::temp_dir()
+        .join(format!("gg-index-sources-{}", std::process::id()))
         .join(name);
     drop(fs::remove_dir_all(&dir));
     fs::create_dir_all(&dir).expect("scratch");
@@ -23,17 +25,41 @@ fn write(root: &Path, rel: &str, bytes: usize) {
     fs::write(path, vec![b'x'; bytes]).expect("write");
 }
 
-fn exec(root: &Path, extra: &[&str]) -> Output {
-    let out_dir = root.join("graft");
-    Command::new(env!("CARGO_BIN_EXE_gg-index"))
-        .arg("sources")
+fn command(root: &Path, extra: &[&str]) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_gg-index"));
+    cmd.arg("sources")
         .arg("--root")
         .arg(root)
         .arg("--out-dir")
-        .arg(&out_dir)
-        .args(extra)
-        .output()
-        .expect("spawn gg-index")
+        .arg(root.join("graft"))
+        .args(extra);
+    cmd
+}
+
+fn exec(root: &Path, extra: &[&str]) -> Output {
+    command(root, extra).output().expect("spawn gg-index")
+}
+
+fn parse_rows(out: Output) -> Vec<String> {
+    assert!(
+        out.status.success(),
+        "sources failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).expect("utf-8 output");
+    let Json::Arr(items) = json::parse(&text).expect("json") else {
+        panic!("not an array: {text}")
+    };
+    items
+        .into_iter()
+        .map(|row| match row {
+            Json::Arr(v) => match v.first() {
+                Some(Json::Str(rel)) => String::from_utf16(rel).expect("rel"),
+                other => panic!("bad row {other:?}"),
+            },
+            other => panic!("bad row {other:?}"),
+        })
+        .collect()
 }
 
 /// The `[rel, size, mtimeMs]` rows, failing the test on a non-zero exit.
@@ -238,6 +264,101 @@ fn names_that_are_not_utf8() {
     let out = exec(&plain, &[]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("not UTF-8"));
+    // A folder whose lossy name is skipped is passed over, as in TypeScript.
+    let skipped = scratch("bytes-skipped");
+    write(&skipped, "a.ts", 1);
+    fs::create_dir(skipped.join(OsStr::from_bytes(b".d\xff"))).expect("mkdir");
+    assert_eq!(rels(&skipped, &[]), ["a.ts"]);
+}
+
+/// Without Git on PATH the walk reads the file system, so an ignored file is listed.
+#[test]
+fn without_git_the_file_system_is_walked() {
+    let root = scratch("nogit");
+    write(&root, "a.ts", 1);
+    write(&root, "lib/l.ts", 1);
+    fs::write(root.join(".gitignore"), "lib/\n").expect("ignore");
+    git(&root, &["init", "-q"]);
+    let mut cmd = command(&root, &[]);
+    cmd.env("PATH", "");
+    let mut got = parse_rows(cmd.output().expect("spawn"));
+    got.sort();
+    assert_eq!(got, ["a.ts", "lib/l.ts"]);
+}
+
+/// With no PATH at all Git is looked for in /usr/bin and /bin, as libuv does.
+#[cfg(unix)]
+#[test]
+fn with_no_path_git_is_found_in_the_system_folders() {
+    let root = scratch("nopath");
+    write(&root, "a.ts", 1);
+    write(&root, "lib/l.ts", 1);
+    fs::write(root.join(".gitignore"), "lib/\n").expect("ignore");
+    git(&root, &["init", "-q"]);
+    let mut cmd = command(&root, &[]);
+    cmd.env_remove("PATH");
+    assert_eq!(parse_rows(cmd.output().expect("spawn")), ["a.ts"]);
+}
+
+/// Following repositories: a tree Git does not list is walked on the file system; tracked
+/// files under a skipped folder stay out; a submodule with no checkout is left out; one whose
+/// `.git` Git cannot read is walked on the file system.
+#[test]
+fn followed_repositories_fall_back_and_skip_as_typescript_does() {
+    let plain = scratch("follow-plain");
+    write(&plain, "a.ts", 1);
+    assert_eq!(rels(&plain, &["--follow-submodules"]), ["a.ts"]);
+
+    let root = scratch("follow");
+    write(&root, "a.ts", 1);
+    write(&root, "node_modules/p/i.ts", 1);
+    write(&root, "broken/b.ts", 1);
+    git(&root, &["init", "-q"]);
+    git(&root, &["add", "-f", "--", "a.ts", "node_modules/p/i.ts"]);
+    let sha = "1111111111111111111111111111111111111111";
+    for sub in ["absent", "broken"] {
+        let info = format!("160000,{sha},{sub}");
+        git(&root, &["update-index", "--add", "--cacheinfo", &info]);
+    }
+    fs::write(root.join("broken/.git"), "gitdir: /nonexistent\n").expect("write");
+    let got = rels(&root, &["--follow-submodules", "--follow-nested-repos"]);
+    assert_eq!(got, ["a.ts", "broken/b.ts"]);
+}
+
+/// An output folder at the file system's root leaves every file out.
+#[cfg(unix)]
+#[test]
+fn an_output_folder_at_the_top_leaves_everything_out() {
+    let root = scratch("top");
+    write(&root, "a.ts", 1);
+    let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
+        .args(["sources", "--out-dir", "/", "--root"])
+        .arg(&root)
+        .output()
+        .expect("spawn");
+    assert!(parse_rows(out).is_empty());
+}
+
+/// A root that is a link: a loop, a broken link and a link to a file are each refused or
+/// kept as TypeScript's `canonicalWalkRoot` does.
+#[cfg(unix)]
+#[test]
+fn a_root_link_that_loops_or_breaks_fails() {
+    use std::os::unix::fs::symlink;
+    let base = scratch("rootlinks");
+    symlink(base.join("loop"), base.join("loop")).expect("link");
+    let out = exec(&base.join("loop"), &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("symbolic link loop"));
+    symlink(base.join("nowhere"), base.join("broken")).expect("link");
+    let out = exec(&base.join("broken"), &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("broken symbolic link"));
+    write(&base, "file.ts", 1);
+    symlink(base.join("file.ts"), base.join("tofile")).expect("link");
+    let out = exec(&base.join("tofile"), &[]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("tofile"));
 }
 
 #[test]

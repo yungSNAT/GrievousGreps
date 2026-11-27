@@ -26,7 +26,7 @@ use std::process::{Command, Stdio};
 
 use crate::deploy::deploy_format_of;
 use crate::json::js_number;
-use crate::program::{find_program, unverbatim};
+use crate::program::{find_program, fold, unverbatim};
 use crate::source_files::parser_claims;
 
 /// `SKIP_DIRS`: dependency and build output, never source.
@@ -157,11 +157,9 @@ fn canonical_walk_root(abs: &Path) -> Result<PathBuf, String> {
         }
     })?;
     let real = unverbatim(&real);
-    match fs::metadata(&real) {
-        Ok(m) if m.is_dir() => Ok(real),
-        Ok(_) => Ok(abs.to_path_buf()),
-        Err(_) => Err(format!("broken symbolic link: {}", abs.display())),
-    }
+    let broken = |_| format!("broken symbolic link: {}", abs.display());
+    let is_dir = fs::metadata(&real).map_err(broken)?.is_dir();
+    Ok(if is_dir { real } else { abs.to_path_buf() })
 }
 
 #[cfg(unix)]
@@ -297,40 +295,10 @@ impl Git {
             active.remove(&key);
             return Ok(None);
         };
-        // A path has several stage records during a merge: collapse them, in first-seen order.
-        let mut order: Vec<&str> = Vec::new();
-        let mut kinds: HashMap<&str, (bool, bool)> = HashMap::new();
-        for record in records(&out) {
-            let b = record.as_bytes();
-            if b.len() < 2 || b[1] != b' ' {
-                continue;
-            }
-            let body = &record[2..];
-            let (rel, gitlink, nested) = if b[0] == b'?' {
-                body.strip_suffix('/')
-                    .map_or((body, false, false), |r| (r, false, true))
-            } else {
-                let Some(tab) = body.find('\t') else { continue };
-                (&body[tab + 1..], body.starts_with("160000 "), false)
-            };
-            if rel.is_empty() {
-                continue;
-            }
-            let e = kinds.entry(rel).or_insert_with(|| {
-                order.push(rel);
-                (false, false)
-            });
-            e.0 |= gitlink;
-            e.1 |= nested;
-        }
         let mut files = Vec::new();
-        for rel in order {
-            let (gitlink, nested) = kinds[rel];
+        for (rel, gitlink, nested) in stage_records(&out) {
             let abs = join(root, rel);
-            let from_top = abs.strip_prefix(top).map_or_else(
-                |_| abs.to_string_lossy().into_owned(),
-                |r| r.to_string_lossy().into_owned(),
-            );
+            let from_top = abs.strip_prefix(top).unwrap_or(&abs).to_string_lossy();
             if skipped_path(&from_top, includes) {
                 continue;
             }
@@ -361,6 +329,37 @@ impl Git {
     }
 }
 
+/// `git ls-files -t --stage` records as `(path, gitlink, nested repository)`. A path has
+/// several stage records during a merge: they collapse, in first-seen order.
+fn stage_records(out: &[u8]) -> Vec<(&str, bool, bool)> {
+    let mut order: Vec<(&str, bool, bool)> = Vec::new();
+    let mut at: HashMap<&str, usize> = HashMap::new();
+    for record in records(out) {
+        let Some((tag, body)) = record.split_at_checked(2).filter(|(t, _)| t.ends_with(' ')) else {
+            continue;
+        };
+        let (rel, gitlink, nested) = if tag == "? " {
+            body.strip_suffix('/')
+                .map_or((body, false, false), |r| (r, false, true))
+        } else {
+            let Some((head, rel)) = body.split_once('\t') else {
+                continue;
+            };
+            (rel, head.starts_with("160000 "), false)
+        };
+        if rel.is_empty() {
+            continue;
+        }
+        let i = *at.entry(rel).or_insert_with(|| {
+            order.push((rel, false, false));
+            order.len() - 1
+        });
+        order[i].1 |= gitlink;
+        order[i].2 |= nested;
+    }
+    order
+}
+
 /// NUL-separated records that are UTF-8; others name no file Node could stat.
 fn records(out: &[u8]) -> impl Iterator<Item = &str> {
     out.split(|&b| b == 0)
@@ -386,15 +385,6 @@ fn join(root: &Path, rel: &str) -> PathBuf {
 /// A regular file (not a link) of at most [`MAX_FILE_BYTES`].
 fn small_file(abs: &Path) -> bool {
     fs::symlink_metadata(abs).is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE_BYTES)
-}
-
-fn fold(path: &Path) -> String {
-    let s = path.to_string_lossy();
-    if cfg!(windows) {
-        s.to_lowercase()
-    } else {
-        s.into_owned()
-    }
 }
 
 /// `walkFilesystem`: depth first, each folder in Node's `readdirSync` order (byte order on
@@ -492,47 +482,43 @@ pub fn list_source_stats(
     } else {
         format!("{abs_out}{sep}")
     };
-    let mut stats = Vec::new();
-    for abs in files {
-        let Some(text) = abs.to_str() else { continue };
+    let stat = |abs: PathBuf| -> Option<SourceStat> {
+        let text = abs.to_str()?;
         if text == abs_out || text.starts_with(&out_prefix) {
-            continue;
+            return None;
         }
         let base = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if let Some(sel) = &selected
             && !sel.contains(&extname(base).to_lowercase())
         {
-            continue;
+            return None;
         }
         if !(parser_claims(text) || (selected.is_none() && deploy_format_of(text).is_some())) {
-            continue;
+            return None;
         }
-        let Ok(rel) = abs.strip_prefix(&root) else {
-            continue;
-        };
-        let rel: Vec<&str> = rel
+        let rel: Vec<&str> = abs
+            .strip_prefix(&root)
+            .ok()?
             .components()
             .filter_map(|c| c.as_os_str().to_str())
             .collect();
         let rel = rel.join("/");
-        if !opts.only_dirs.is_empty()
-            && !opts
-                .only_dirs
+        let only = &opts.only_dirs;
+        if !only.is_empty()
+            && !only
                 .iter()
                 .any(|d| rel == *d || rel.starts_with(&format!("{d}/")))
         {
-            continue;
+            return None;
         }
-        let Ok(meta) = fs::metadata(&abs) else {
-            continue;
-        };
-        stats.push(SourceStat {
+        let meta = fs::metadata(&abs).ok()?;
+        Some(SourceStat {
             rel,
             size: meta.len(),
             mtime_ms: mtime_ms(&meta),
-        });
-    }
-    Ok(stats)
+        })
+    };
+    Ok(files.into_iter().filter_map(stat).collect())
 }
 
 /// Node's `mtimeMs`: `sec * 1e3 + nsec / 1e6`, from the time as libuv gives it.
@@ -631,6 +617,78 @@ mod tests {
             mtime_ms: 1.5,
         }];
         assert_eq!(to_json(&s), "[[\"a\\\"\\\\\\u0001ü😀\",3,1.5]]\n");
+        let c = [SourceStat {
+            rel: "\u{8}\u{c}\n\r\t".into(),
+            size: 0,
+            mtime_ms: 0.0,
+        }];
+        assert_eq!(to_json(&c), "[[\"\\b\\f\\n\\r\\t\",0,0]]\n");
+    }
+
+    #[test]
+    fn never_included_folders_stay_skipped() {
+        let all: HashSet<&str> = [".git", ".trail", "dist"].into();
+        assert!(should_skip_dir(".git", &all));
+        assert!(should_skip_dir(".trail", &all));
+        assert!(!should_skip_dir("dist", &all));
+    }
+
+    #[test]
+    fn paths_resolve_lexically_as_node_does() {
+        let cwd = std::env::current_dir().expect("cwd");
+        assert_eq!(
+            resolve(Path::new("./a/../b")).expect("resolve"),
+            cwd.join("b")
+        );
+        let root = cwd.join("r");
+        assert_eq!(join(&root, "a/./../b.ts"), root.join("b.ts"));
+    }
+
+    #[test]
+    fn stage_records_collapse_and_skip_what_is_not_a_record() {
+        let out = b"H 100644 aa 1\ta.ts\0x\0Hx\0H 100644 no-tab\0? \0? nested/\0\
+S 160000 bb 0\tsub\0M 100644 cc 2\ta.ts\0M 160000 dd 3\ta.ts\0? new.py\0";
+        assert_eq!(
+            stage_records(out),
+            [
+                ("a.ts", true, false),
+                ("nested", false, true),
+                ("sub", true, false),
+                ("new.py", false, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_root_already_being_listed_yields_nothing() {
+        let git = Git(PathBuf::from("/nonexistent/git"));
+        let root = Path::new("/r");
+        let mut active: HashSet<String> = [fold(root)].into();
+        let got = git
+            .recursive(
+                root,
+                root,
+                &HashSet::new(),
+                &Options::default(),
+                &mut active,
+            )
+            .expect("ok");
+        assert_eq!(got, Some(Vec::new()));
+    }
+
+    /// Bounded reads: past 64 MiB Git's listing is dropped and the program stopped.
+    #[cfg(unix)]
+    #[test]
+    fn git_output_over_the_bound_is_refused() {
+        let head = Git(PathBuf::from("/usr/bin/head"));
+        let over = (MAX_GIT_OUTPUT + 1).to_string();
+        assert!(
+            head.list(Path::new("/"), &["-c", &over, "/dev/zero"])
+                .is_none()
+        );
+        let at = MAX_GIT_OUTPUT.to_string();
+        let got = head.list(Path::new("/"), &["-c", &at, "/dev/zero"]);
+        assert_eq!(got.map(|v| v.len()), Some(MAX_GIT_OUTPUT));
     }
 
     #[test]
