@@ -38,10 +38,10 @@ pub fn is_blast_test_path(path: &str) -> bool {
         }
     }
     if let Some((stem, ext)) = lower.rsplit_once('.') {
-        if matches!(
-            ext,
-            "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "mts" | "cts"
-        ) && (stem.ends_with(".test") || stem.ends_with(".spec"))
+        // `\.(test|spec)\.[cm]?[jt]sx?$`
+        let script = ext.strip_prefix(['c', 'm']).unwrap_or(ext);
+        if matches!(script, "js" | "jsx" | "ts" | "tsx")
+            && (stem.ends_with(".test") || stem.ends_with(".spec"))
         {
             return true;
         }
@@ -89,78 +89,82 @@ pub fn dir_label(path: &str) -> String {
 }
 
 pub fn parent_dir(dir: &str) -> String {
-    let trimmed = dir.trim_end_matches('/');
+    let trimmed = dir.strip_suffix('/').unwrap_or(dir);
     match trimmed.rfind('/') {
         None => String::new(),
         Some(idx) => format!("{}/", &trimmed[..idx]),
     }
 }
 
+/// JavaScript's whitespace (`\s`, `trim`): Unicode `White_Space` without U+0085, plus U+FEFF.
+fn js_space(c: char) -> bool {
+    c == '\u{feff}' || (c != '\u{85}' && c.is_whitespace())
+}
+
+fn js_space_unit(u: u16) -> bool {
+    char::from_u32(u32::from(u)).is_some_and(js_space)
+}
+
+/// `label.replace(/^concepts?:\s*/i, "").trim()`.
 fn strip_concept_prefix(label: &str) -> &str {
-    let trimmed = label.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    for pat in ["concepts:", "concept:"] {
-        if lower.starts_with(pat) {
-            return trimmed[pat.len()..].trim();
-        }
-    }
-    trimmed
-}
-
-fn find_clause_break(s: &str) -> Option<usize> {
-    let lower = s.to_ascii_lowercase();
-    let mut best: Option<usize> = None;
-    let mut consider = |idx: usize| {
-        if (8..=MAX_LABEL).contains(&idx) && best.is_none_or(|b| idx < b) {
-            best = Some(idx);
-        }
+    let head = |pat: &str| {
+        label
+            .get(..pat.len())
+            .filter(|h| h.eq_ignore_ascii_case(pat))
+            .map(|_| &label[pat.len()..])
     };
-    for pat in [" (", " —", " - ", ": "] {
-        if let Some(pos) = s.find(pat) {
-            consider(pos);
-        }
-    }
-    for kw in [
-        " via ", " and ", " for ", " with ", " using ", " in ", " across ", " over ", " from ",
-        " of ", " by ", " to ",
-    ] {
-        if let Some(pos) = lower.find(kw) {
-            consider(pos);
-        }
-    }
-    best
+    let rest = head("concepts:")
+        .or_else(|| head("concept:"))
+        .unwrap_or(label);
+    rest.trim_matches(js_space)
 }
 
+/// The UTF-16 index of the first `CLAUSE_BREAK` match in `modules.ts`:
+/// `/\s(?:\(|—|-\s)|:\s|\s(?:via|and|for|with|using|in|across|over|from|of|by|to)\s/i`.
+fn clause_break(units: &[u16]) -> Option<usize> {
+    const WORDS: [&str; 12] = [
+        "via", "and", "for", "with", "using", "in", "across", "over", "from", "of", "by", "to",
+    ];
+    let space_at = |i: usize| units.get(i).copied().is_some_and(js_space_unit);
+    let word_at = |i: usize, w: &str| {
+        units.get(i..i + w.len()).is_some_and(|got| {
+            got.iter()
+                .zip(w.bytes())
+                .all(|(&g, b)| u8::try_from(g).is_ok_and(|g| g.eq_ignore_ascii_case(&b)))
+        }) && space_at(i + w.len())
+    };
+    (0..units.len()).find(|&i| {
+        let next = units.get(i + 1).copied();
+        (space_at(i)
+            && (next == Some(u16::from(b'('))
+                || next == Some(0x2014)
+                || (next == Some(u16::from(b'-')) && space_at(i + 2))
+                || WORDS.iter().any(|w| word_at(i + 1, w))))
+            || (units[i] == u16::from(b':') && space_at(i + 1))
+    })
+}
+
+/// `shortLabel` in `modules.ts`, counted in UTF-16 units as JavaScript does.
 pub fn short_label(label: &str) -> String {
     let bare = strip_concept_prefix(label);
-    if bare.encode_utf16().count() <= MAX_LABEL {
+    let units: Vec<u16> = bare.encode_utf16().collect();
+    if units.len() <= MAX_LABEL {
         return bare.to_string();
     }
-    if let Some(at) = find_clause_break(bare) {
-        return bare[..at].trim_end().to_string();
+    let text = |end: usize| String::from_utf16_lossy(&units[..end]);
+    if let Some(at) = clause_break(&units).filter(|at| (8..=MAX_LABEL).contains(at)) {
+        return text(at).trim_end_matches(js_space).to_string();
     }
-    let mut boundary = bare.len();
-    let mut utf16 = 0_usize;
-    let mut last_space = None;
-    for (idx, ch) in bare.char_indices() {
-        let len16 = ch.len_utf16();
-        if utf16 + len16 > MAX_LABEL {
-            boundary = idx;
-            break;
-        }
-        if ch == ' ' {
-            last_space = Some(idx);
-        }
-        utf16 += len16;
-    }
-    let cut = match last_space {
-        Some(sp) if sp > MAX_LABEL / 2 => sp,
-        _ => boundary,
-    };
-    format!("{}…", bare[..cut].trim_end())
+    let cut = units[..=MAX_LABEL]
+        .iter()
+        .rposition(|&u| u == u16::from(b' '))
+        .filter(|&sp| sp > MAX_LABEL / 2)
+        .unwrap_or(MAX_LABEL);
+    format!("{}…", text(cut).trim_end_matches(js_space))
 }
 
-fn hub_label(names: &[String], fallback: &str) -> String {
+/// The first non-empty name, shortened, or `fallback` (`hubLabel` in `src/blast/blast.ts`).
+pub fn hub_label(names: &[String], fallback: &str) -> String {
     for n in names {
         if !n.is_empty() {
             return short_label(n);
