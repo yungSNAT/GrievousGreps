@@ -165,12 +165,15 @@ pub fn markdown_report(r: &BlastReport, root: Option<&Path>) -> String {
         out.push(tg);
     }
     if symbols > 0 {
-        if let Some(diagram) = mermaid_diagram(r) {
-            out.push(String::new());
-            out.push("```mermaid".to_string());
-            out.push(diagram);
-            out.push("```".to_string());
-        }
+        // Never None here: symbols > 0 means at least one module to draw.
+        out.extend(mermaid_diagram(r).into_iter().flat_map(|diagram| {
+            [
+                String::new(),
+                "```mermaid".to_string(),
+                diagram,
+                "```".to_string(),
+            ]
+        }));
         out.push(String::new());
         out.extend(impact_table(r));
     }
