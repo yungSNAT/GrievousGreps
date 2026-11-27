@@ -6,12 +6,12 @@
  * `likely` and `inferred` edges as warnings unless opted in, and supports a
  * symbol-keyed baseline `(rule, sourceId, targetId)` with ratcheted adoption.
  */
-import { posix } from "node:path";
 import { spanRange } from "../blast/evidence.js";
 import { confidenceRank, parseConfidence } from "../graph/provenance.js";
 import { WALK_RELATIONS } from "../graph/relations.js";
 import type { Confidence, GraphV1, Relation } from "../graph/types.js";
 import { toPosixPath } from "../util/paths.js";
+import { compilePosixGlob, matchesCompiledGlob, type CompiledGlob } from "./glob.js";
 
 export type GateFormat = "text" | "json" | "markdown";
 export type GateConfidenceThreshold = "extracted" | "likely" | "inferred";
@@ -19,14 +19,7 @@ export type GateConfidenceThreshold = "extracted" | "likely" | "inferred";
 export const DEFAULT_GATE_CONFIG_FILE = "trail.gate.json";
 export const DEFAULT_GATE_BASELINE_FILE = "trail.gate.baseline.json";
 
-const ALL_RELATIONS: ReadonlySet<Relation> = new Set<Relation>([
-  "contains",
-  "calls",
-  "imports",
-  "references",
-  "implements",
-  "extends",
-]);
+const ALL_RELATIONS: ReadonlySet<Relation> = new Set<Relation>(["contains", ...WALK_RELATIONS]);
 
 const ALLOWED_CONFIDENCE_THRESHOLDS: ReadonlySet<string> = new Set<string>([
   "extracted",
@@ -34,10 +27,17 @@ const ALLOWED_CONFIDENCE_THRESHOLDS: ReadonlySet<string> = new Set<string>([
   "inferred",
 ]);
 
+const CONFIG_ROOT_KEYS = new Set(["rules"]);
+const RULE_KEYS = new Set(["name", "from", "to", "relations", "allowConfidence"]);
+const BASELINE_ROOT_KEYS = new Set(["version", "violations"]);
+const BASELINE_ENTRY_KEYS = new Set(["rule", "sourceId", "targetId"]);
+
 export interface GateRule {
   name: string;
   from: string[];
   to: string[];
+  fromCompiled: CompiledGlob[];
+  toCompiled: CompiledGlob[];
   relations: ReadonlySet<Relation>;
   allowConfidence: GateConfidenceThreshold;
 }
@@ -92,71 +92,60 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Normalize a path glob to posix separators with leading `./` stripped. */
+function assertAllowedKeys(obj: Record<string, unknown>, allowed: ReadonlySet<string>, context: string): void {
+  for (const key of Object.keys(obj)) {
+    if (!allowed.has(key)) {
+      throw new Error(`unknown key "${key}" in ${context}`);
+    }
+  }
+}
+
+/** Normalize a user-supplied glob pattern to POSIX separators with leading `./` stripped. */
 export function normalizeGlob(raw: string): string {
-  let out = toPosixPath(raw).replaceAll("\\", "/");
+  let out = raw.replaceAll("\\", "/");
   while (out.startsWith("./")) out = out.slice(2);
   return out;
 }
 
-/** Linear-time check for balanced character classes and braces in a glob pattern. */
-function validateGlobSyntax(pattern: string, field: string, ruleName: string): void {
-  let inClass = false;
-  let classStart = -1;
-  let braceDepth = 0;
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i]!;
-    if (ch === "\\") {
-      i++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === "]") {
-        const body = pattern.slice(classStart + 1, i);
-        if (body === "" || body === "^" || body === "!") {
-          throw new Error(`invalid empty character class in ${ruleName}.${field}: "${pattern}"`);
-        }
-        inClass = false;
-      }
-      continue;
-    }
-    if (ch === "[") {
-      inClass = true;
-      classStart = i;
-    } else if (ch === "{") {
-      braceDepth++;
-    } else if (ch === "}") {
-      if (braceDepth === 0) {
-        throw new Error(`unmatched "}" in ${ruleName}.${field}: "${pattern}"`);
-      }
-      braceDepth--;
-    }
-  }
-  if (inClass) {
-    throw new Error(`unclosed "[" in ${ruleName}.${field}: "${pattern}"`);
-  }
-  if (braceDepth !== 0) {
-    throw new Error(`unclosed "{" in ${ruleName}.${field}: "${pattern}"`);
-  }
-}
-
-function parseGlobList(raw: unknown, field: "from" | "to", ruleName: string): string[] {
+function parseGlobList(
+  raw: unknown,
+  field: "from" | "to",
+  ruleName: string,
+): { globs: string[]; compiled: CompiledGlob[] } {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new Error(`rule "${ruleName}" field "${field}" must be a non-empty array of globs`);
   }
   const globs: string[] = [];
+  const compiled: CompiledGlob[] = [];
   for (const item of raw) {
     if (typeof item !== "string" || item.trim() === "") {
       throw new Error(`rule "${ruleName}" field "${field}" entries must be non-empty strings`);
     }
-    const norm = normalizeGlob(item.trim());
+    const trimmed = item.trim();
+    const norm = normalizeGlob(trimmed);
     if (!norm) {
       throw new Error(`rule "${ruleName}" field "${field}" contains an empty glob "${item}"`);
     }
-    validateGlobSyntax(norm, field, ruleName);
+    if (norm.startsWith("/")) {
+      throw new Error(
+        `rule "${ruleName}" field "${field}" glob "${item}" must be repo-relative (remove leading "/")`,
+      );
+    }
+    if (norm.endsWith("/")) {
+      throw new Error(
+        `rule "${ruleName}" field "${field}" glob "${item}" must not end with "/" (use "${norm}**" to match files inside the directory)`,
+      );
+    }
+    const parts = norm.split("/");
+    if (parts.some((p) => p === "" || p === "." || p === "..")) {
+      throw new Error(
+        `rule "${ruleName}" field "${field}" glob "${item}" must be a clean repo-relative path without empty, ".", or ".." segments`,
+      );
+    }
+    compiled.push(compilePosixGlob(norm));
     globs.push(norm);
   }
-  return globs;
+  return { globs, compiled };
 }
 
 function parseRelations(raw: unknown, ruleName: string): ReadonlySet<Relation> {
@@ -191,6 +180,7 @@ export function parseGateConfig(raw: unknown): GateConfig {
   if (!isPlainObject(raw)) {
     throw new Error("gate config must be a JSON object");
   }
+  assertAllowedKeys(raw, CONFIG_ROOT_KEYS, "gate config");
   if (!Array.isArray(raw.rules)) {
     throw new Error('gate config must contain a "rules" array');
   }
@@ -205,14 +195,19 @@ export function parseGateConfig(raw: unknown): GateConfig {
       throw new Error(`rules[${i}].name must be a non-empty string`);
     }
     const name = item.name.trim();
+    assertAllowedKeys(item, RULE_KEYS, `rule "${name}"`);
     if (seenNames.has(name)) {
       throw new Error(`duplicate rule name "${name}"`);
     }
     seenNames.add(name);
+    const fromParsed = parseGlobList(item.from, "from", name);
+    const toParsed = parseGlobList(item.to, "to", name);
     rules.push({
       name,
-      from: parseGlobList(item.from, "from", name),
-      to: parseGlobList(item.to, "to", name),
+      from: fromParsed.globs,
+      to: toParsed.globs,
+      fromCompiled: fromParsed.compiled,
+      toCompiled: toParsed.compiled,
       relations: parseRelations(item.relations, name),
       allowConfidence: parseAllowConfidence(item.allowConfidence, name),
     });
@@ -225,6 +220,7 @@ export function parseGateBaseline(raw: unknown): GateBaseline {
   if (!isPlainObject(raw)) {
     throw new Error("gate baseline must be a JSON object");
   }
+  assertAllowedKeys(raw, BASELINE_ROOT_KEYS, "gate baseline");
   if (raw.version !== 1) {
     throw new Error(`unsupported baseline version ${JSON.stringify(raw.version)}; expected 1`);
   }
@@ -237,6 +233,7 @@ export function parseGateBaseline(raw: unknown): GateBaseline {
     if (!isPlainObject(item)) {
       throw new Error(`violations[${i}] must be an object`);
     }
+    assertAllowedKeys(item, BASELINE_ENTRY_KEYS, `violations[${i}]`);
     if (typeof item.rule !== "string" || item.rule.trim() === "") {
       throw new Error(`violations[${i}].rule must be a non-empty string`);
     }
@@ -281,12 +278,14 @@ function violationDedupKey(v: GateViolation): string {
   return `${v.rule}\0${v.sourceId}\0${v.targetId}\0${v.relation}\0${v.confidence}`;
 }
 
-function matchesAny(path: string, globs: readonly string[]): boolean {
-  return globs.some((g) => posix.matchesGlob(path, g));
+function matchesAny(path: string, globs: readonly CompiledGlob[]): boolean {
+  return globs.some((g) => matchesCompiledGlob(g, path));
 }
 
 function normalizeNodePath(path: string): string {
-  return normalizeGlob(path);
+  let out = toPosixPath(path);
+  while (out.startsWith("./")) out = out.slice(2);
+  return out;
 }
 
 /** Evaluate architecture rules against a wiring graph and optional baseline. */
@@ -318,7 +317,7 @@ export function evaluateGate(
 
     for (const rule of config.rules) {
       if (!rule.relations.has(edge.relation)) continue;
-      if (!matchesAny(sourcePath, rule.from) || !matchesAny(targetPath, rule.to)) continue;
+      if (!matchesAny(sourcePath, rule.fromCompiled) || !matchesAny(targetPath, rule.toCompiled)) continue;
 
       const fails = confRank >= confidenceRank(rule.allowConfidence);
       const bKey = baselineKey(rule.name, edge.source, edge.target);
@@ -399,110 +398,4 @@ export function buildBaseline(
   };
 }
 
-function formatLocation(path: string, line: number | null): string {
-  return line !== null ? `${path}:${line}` : path;
-}
-
-function formatViolationLine(v: GateViolation): string {
-  const loc = formatLocation(v.sourcePath, v.sourceLine);
-  return `  [${v.rule}] ${loc} (${v.sourceId}) -(${v.relation}, ${v.confidence})-> ${v.targetId}`;
-}
-
-function countSummaryParts(r: GateResult): string[] {
-  const parts: string[] = [];
-  if (r.accepted.length > 0) parts.push(`${r.accepted.length} accepted`);
-  if (r.warnings.length > 0) parts.push(`${r.warnings.length} warning${r.warnings.length === 1 ? "" : "s"}`);
-  if (r.resolved.length > 0) parts.push(`${r.resolved.length} resolved`);
-  if (r.prunedFromBaseline && r.prunedFromBaseline > 0) {
-    parts.push(`${r.prunedFromBaseline} pruned from baseline`);
-  }
-  return parts;
-}
-
-export function formatGateText(result: GateResult): string {
-  const lines: string[] = [];
-  const extras = countSummaryParts(result);
-  const extraSuffix = extras.length > 0 ? ` (${extras.join(", ")})` : "";
-  if (result.ok) {
-    lines.push(
-      `gate: PASS — 0 new violations across ${result.rules} rule${result.rules === 1 ? "" : "s"}${extraSuffix}`,
-    );
-  } else {
-    lines.push(
-      `gate: FAIL — ${result.violations.length} new violation${result.violations.length === 1 ? "" : "s"}${extraSuffix}`,
-    );
-  }
-
-  if (result.violations.length > 0) {
-    lines.push("", `New violations (${result.violations.length}):`);
-    for (const v of result.violations) lines.push(formatViolationLine(v));
-  }
-  if (result.warnings.length > 0) {
-    lines.push("", `Warnings (${result.warnings.length}, non-failing confidence):`);
-    for (const w of result.warnings) lines.push(formatViolationLine(w));
-  }
-  if (result.resolved.length > 0) {
-    lines.push("", `Resolved baseline entries (${result.resolved.length}):`);
-    for (const r of result.resolved) lines.push(`  [${r.rule}] ${r.sourceId} -> ${r.targetId}`);
-  }
-  return lines.join("\n") + "\n";
-}
-
-function escapeMdCell(s: string): string {
-  return s.replaceAll("|", "\\|");
-}
-
-function renderMarkdownTable(items: readonly GateViolation[]): string[] {
-  const lines = [
-    "| Rule | Source | Edge | Target | Confidence |",
-    "| --- | --- | --- | --- | --- |",
-  ];
-  for (const v of items) {
-    const src = `${formatLocation(v.sourcePath, v.sourceLine)} (\`${v.sourceId}\`)`;
-    lines.push(
-      `| ${escapeMdCell(v.rule)} | ${escapeMdCell(src)} | ${v.relation} | \`${escapeMdCell(v.targetId)}\` | ${v.confidence} |`,
-    );
-  }
-  return lines;
-}
-
-export function formatGateMarkdown(result: GateResult): string {
-  const lines: string[] = [
-    `## Architecture Gate: ${result.ok ? "PASS" : "FAIL"}`,
-    "",
-    `Rules: ${result.rules} · New: ${result.violations.length} · Accepted: ${result.accepted.length} · Warnings: ${result.warnings.length} · Resolved: ${result.resolved.length}`,
-  ];
-  if (result.violations.length > 0) {
-    lines.push("", `### New violations (${result.violations.length})`, "", ...renderMarkdownTable(result.violations));
-  }
-  if (result.warnings.length > 0) {
-    lines.push("", `### Warnings (${result.warnings.length})`, "", ...renderMarkdownTable(result.warnings));
-  }
-  if (result.resolved.length > 0) {
-    lines.push("", `### Resolved baseline entries (${result.resolved.length})`, "");
-    for (const r of result.resolved) {
-      lines.push(`- \`${r.rule}\`: \`${r.sourceId}\` -> \`${r.targetId}\``);
-    }
-  }
-  return lines.join("\n") + "\n";
-}
-
-export function formatGateJson(result: GateResult): string {
-  const payload = {
-    ok: result.ok,
-    rules: result.rules,
-    summary: {
-      new: result.violations.length,
-      accepted: result.accepted.length,
-      warnings: result.warnings.length,
-      resolved: result.resolved.length,
-      ...(result.prunedFromBaseline !== undefined && { prunedFromBaseline: result.prunedFromBaseline }),
-    },
-    violations: result.violations,
-    accepted: result.accepted,
-    warnings: result.warnings,
-    resolved: result.resolved,
-    ...(result.baselineUpdated !== undefined && { baselineUpdated: result.baselineUpdated }),
-  };
-  return JSON.stringify(payload, null, 2) + "\n";
-}
+export { formatGateJson, formatGateMarkdown, formatGateText } from "./render.js";

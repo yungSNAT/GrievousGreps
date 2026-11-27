@@ -97,9 +97,19 @@ describe("parseGateConfig and parseGateBaseline", () => {
     );
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: [], to: ["b"] }] }), /non-empty array/);
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["./"], to: ["b"] }] }), /empty glob/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/domain/"], to: ["b"] }] }), /must not end with "\/"/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["/src/domain/**"], to: ["b"] }] }), /repo-relative/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["../other/**"], to: ["b"] }] }), /".." segments/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/../other/**"], to: ["b"] }] }), /".." segments/);
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/[abc"], to: ["b"] }] }), /unclosed "\["/);
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/[]"], to: ["b"] }] }), /empty character class/);
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{a,b"], to: ["b"] }] }), /unclosed "\{"/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{}"], to: ["b"] }] }), /empty brace group/);
+    assert.throws(() => parseGateConfig({ rules: [], layers: [] }), /unknown key "layers"/);
+    assert.throws(
+      () => parseGateConfig({ rules: [{ name: "r", from: ["a"], to: ["b"], allow_confidence: "likely" }] }),
+      /unknown key "allow_confidence"/,
+    );
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["a"], to: ["b"], relations: [] }] }), /non-empty array/);
     assert.throws(
       () => parseGateConfig({ rules: [{ name: "r", from: ["a"], to: ["b"], relations: ["bogus"] }] }),
@@ -125,8 +135,13 @@ describe("parseGateConfig and parseGateBaseline", () => {
       { rule: "z", sourceId: "b#x", targetId: "c#y" },
     ]);
     assert.throws(() => parseGateBaseline({ version: 2, violations: [] }), /unsupported baseline version/);
+    assert.throws(() => parseGateBaseline({ version: 1, violations: [], extra: 1 }), /unknown key "extra"/);
     assert.throws(() => parseGateBaseline({ version: 1, violations: "bad" }), /"violations" array/);
     assert.throws(() => parseGateBaseline({ version: 1, violations: [{ rule: "r", sourceId: "", targetId: "t" }] }), /sourceId/);
+    assert.throws(
+      () => parseGateBaseline({ version: 1, violations: [{ rule: "r", sourceId: "s", targetId: "t", line: 10 }] }),
+      /unknown key "line"/,
+    );
   });
 });
 
@@ -374,10 +389,24 @@ describe("evaluateGate, confidence categories, baseline, and ratchet", () => {
     assert.match(text, /Warnings \(1, non-failing confidence\)/);
     assert.match(text, /Resolved baseline entries \(1\)/);
 
-    const md = formatGateMarkdown(res);
+    const md = formatGateMarkdown({ ...res, baselineUpdated: true, prunedFromBaseline: 2 });
     assert.match(md, /^## Architecture Gate: FAIL/m);
+    assert.match(md, /Baseline updated/);
+    assert.match(md, /Pruned: 2/);
     assert.match(md, /r\\\|1/);
     assert.match(md, /### Warnings \(1\)/);
+
+    const specialRes = evaluateGate(
+      graphOf(
+        [node("src/a.ts#fn`x", "./src/a.ts", "L1-L2"), node("src/b.ts#t\ny", "src/b.ts", "L1-L2")],
+        [edge("src/a.ts#fn`x", "src/b.ts#t\ny", "calls", "extracted")],
+      ),
+      parseGateConfig({ rules: [{ name: "glob-brace", from: ["src/**/*.{ts,js}"], to: ["src/[a-c].ts"] }] }),
+    );
+    assert.equal(specialRes.violations.length, 1);
+    const specialMd = formatGateMarkdown(specialRes);
+    assert.match(specialMd, /``src\/a\.ts#fn`x``/);
+    assert.doesNotMatch(specialMd, /t\ny/);
 
     const parsed = JSON.parse(formatGateJson(res));
     assert.equal(parsed.ok, false);

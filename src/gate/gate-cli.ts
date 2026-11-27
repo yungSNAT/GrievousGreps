@@ -1,14 +1,16 @@
 /**
  * CLI wiring for `trail gate`: loads the wiring graph, rejects missing or stale
- * graphs, validates config and baseline safely inside the repo, runs rule
+ * graphs, validates config and baseline inside the repository root, runs rule
  * evaluation, and writes baseline updates/ratchets atomically.
  */
+import { lstatSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { cmd } from "../brand.js";
 import { assertRealContextDir, contextDirFor } from "../context/node-file.js";
 import { driftCount, isClean, probeDrift, type Drift } from "../graph/fingerprint.js";
+import type { GraphV1 } from "../graph/types.js";
 import { readGraph, wiringPath } from "../graph/write.js";
-import { readFileInside, resolveInside, trustedBaseFor, writeFileInside } from "../util/safe-fs.js";
+import { readFileInside, resolveInside, writeFileInside } from "../util/safe-fs.js";
 import {
   buildBaseline,
   DEFAULT_GATE_BASELINE_FILE,
@@ -49,16 +51,42 @@ function staleSample(drift: Drift): string {
   return files.length > 3 ? `${shown}, … (+${files.length - 3} more)` : shown;
 }
 
-function readCheckedText(root: string, filePath: string): string | null {
-  const base = trustedBaseFor(root, filePath);
-  resolveInside(base, filePath);
-  return readFileInside(base, filePath);
+function isValidGraph(graph: unknown): graph is GraphV1 {
+  if (typeof graph !== "object" || graph === null) return false;
+  const g = graph as Partial<GraphV1>;
+  return (
+    typeof g.meta === "object" &&
+    g.meta !== null &&
+    g.meta.version === 1 &&
+    Array.isArray(g.nodes) &&
+    Array.isArray(g.edges)
+  );
+}
+
+function readConfinedFile(root: string, filePath: string, label: string): string | null {
+  const abs = resolveInside(root, filePath);
+  let st;
+  try {
+    st = lstatSync(abs);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
+  }
+  if (!st.isFile()) {
+    throw new Error(`${label} at ${abs} is not a regular file`);
+  }
+  return readFileInside(root, abs);
 }
 
 export async function runGateCommand(dir: string, opts: GateCliOptions = {}): Promise<number> {
   const format = resolveFormat(opts.format);
   if (!format) {
     console.error(`✗ --format must be text, markdown, or json, got "${opts.format}"`);
+    return 2;
+  }
+
+  if (opts.ratchet && !opts.updateBaseline) {
+    console.error("✗ --ratchet requires --update-baseline");
     return 2;
   }
 
@@ -77,8 +105,18 @@ export async function runGateCommand(dir: string, opts: GateCliOptions = {}): Pr
     console.error(`✗ no graph found at ${contextDir} — run \`${cmd("graft build")}\` first`);
     return 2;
   }
+  if (!isValidGraph(graph)) {
+    console.error(`✗ invalid wiring graph at ${wiringPath(contextDir)} — run \`${cmd("graft build")}\` first`);
+    return 2;
+  }
 
-  const drift = probeDrift(root, contextDir);
+  let drift: Drift | null;
+  try {
+    drift = probeDrift(root, contextDir);
+  } catch (err) {
+    console.error(`✗ failed to check graph freshness: ${errorMessage(err)} — run \`${cmd("graft build")}\` first`);
+    return 2;
+  }
   if (drift === null) {
     console.error(`✗ graph at ${contextDir} has no build fingerprint (stale) — run \`${cmd("graft build")}\` first`);
     return 2;
@@ -94,7 +132,7 @@ export async function runGateCommand(dir: string, opts: GateCliOptions = {}): Pr
   const configPath = resolve(root, opts.config ?? DEFAULT_GATE_CONFIG_FILE);
   let config: GateConfig;
   try {
-    const rawText = readCheckedText(root, configPath);
+    const rawText = readConfinedFile(root, configPath, "gate config");
     if (rawText === null) {
       console.error(`✗ no gate config found at ${configPath}`);
       return 2;
@@ -108,8 +146,13 @@ export async function runGateCommand(dir: string, opts: GateCliOptions = {}): Pr
   const baselinePath = resolve(root, opts.baseline ?? DEFAULT_GATE_BASELINE_FILE);
   let existingBaseline: GateBaseline | null = null;
   try {
-    const rawBaseline = readCheckedText(root, baselinePath);
-    if (rawBaseline !== null) {
+    const rawBaseline = readConfinedFile(root, baselinePath, "gate baseline");
+    if (rawBaseline === null) {
+      if (opts.baseline !== undefined && !opts.updateBaseline) {
+        console.error(`✗ gate baseline not found at ${baselinePath}`);
+        return 2;
+      }
+    } else {
       existingBaseline = parseGateBaseline(JSON.parse(rawBaseline));
     }
   } catch (err) {
@@ -119,22 +162,18 @@ export async function runGateCommand(dir: string, opts: GateCliOptions = {}): Pr
 
   let result = evaluateGate(graph, config, existingBaseline);
 
-  if (opts.updateBaseline || opts.ratchet) {
+  if (opts.updateBaseline) {
     const ratchet = Boolean(opts.ratchet);
     const nextBaseline = buildBaseline(result, existingBaseline, { ratchet });
-    const shouldWrite = Boolean(opts.updateBaseline) || (existingBaseline !== null && result.resolved.length > 0);
     const pruned = ratchet ? result.resolved.length : 0;
-    if (shouldWrite) {
-      try {
-        const base = trustedBaseFor(root, baselinePath);
-        writeFileInside(base, baselinePath, JSON.stringify(nextBaseline, null, 2) + "\n", { atomic: true });
-      } catch (err) {
-        console.error(`✗ failed to write baseline (${baselinePath}): ${errorMessage(err)}`);
-        return 2;
-      }
+    try {
+      writeFileInside(root, baselinePath, JSON.stringify(nextBaseline, null, 2) + "\n", { atomic: true });
+    } catch (err) {
+      console.error(`✗ failed to write baseline (${baselinePath}): ${errorMessage(err)}`);
+      return 2;
     }
     result = evaluateGate(graph, config, nextBaseline);
-    result.baselineUpdated = shouldWrite;
+    result.baselineUpdated = true;
     if (pruned > 0) result.prunedFromBaseline = pruned;
   }
 

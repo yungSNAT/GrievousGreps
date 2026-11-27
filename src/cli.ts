@@ -1214,11 +1214,13 @@ grouped(program.command("gate"), GROUP.ci)
       dirArg: string | undefined,
       opts: { config?: string; baseline?: string; updateBaseline?: boolean; ratchet?: boolean; format?: string },
     ) => {
+      const explicitDir = dirArg !== undefined;
       const dir = noteQuery(queryRoot(dirArg));
+      const fromCwd = (p: string | undefined) => (p === undefined || explicitDir ? p : resolve(process.cwd(), p));
       const { runGateCommand } = await import("./gate/gate-cli.js");
       const code = await runGateCommand(dir, {
-        config: opts.config,
-        baseline: opts.baseline,
+        config: fromCwd(opts.config),
+        baseline: fromCwd(opts.baseline),
         updateBaseline: opts.updateBaseline,
         ratchet: opts.ratchet,
         format: opts.format,

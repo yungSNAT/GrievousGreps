@@ -92,6 +92,26 @@ describe("trail gate CLI and filesystem integration", () => {
     assert.match(stale.stderr, /stale/);
 
     await buildGraph(dir, { reuse: false });
+
+    // 3. Deleted source file -> stale -> exit 2
+    unlinkSync(join(dir, "src", "domain", "svc.ts"));
+    const deleted = await captureRun(dir, {});
+    assert.equal(deleted.code, 2);
+    assert.match(deleted.stderr, /stale/);
+
+    // 4. Rebuild + untracked source file -> stale -> exit 2
+    writeFileSync(
+      join(dir, "src", "domain", "svc.ts"),
+      "import { query } from '../infra/db.js';\nexport function run(): number { return query(); }\n",
+    );
+    await buildGraph(dir, { reuse: false });
+    writeFileSync(join(dir, "src", "domain", "extra.ts"), "export const extra = 1;\n");
+    const untracked = await captureRun(dir, {});
+    assert.equal(untracked.code, 2);
+    assert.match(untracked.stderr, /stale/);
+
+    // 5. Rebuild -> fresh, missing fingerprint -> stale -> exit 2
+    await buildGraph(dir, { reuse: false });
     const cacheDir = join(built.contextDir, ".cache");
     for (const f of readdirSync(cacheDir)) {
       if (f.startsWith("fingerprint.")) unlinkSync(join(cacheDir, f));
@@ -99,6 +119,12 @@ describe("trail gate CLI and filesystem integration", () => {
     const noFp = await captureRun(dir, {});
     assert.equal(noFp.code, 2);
     assert.match(noFp.stderr, /no build fingerprint/);
+
+    // 6. Corrupt `{}` wiring.json -> exit 2
+    writeFileSync(join(built.contextDir, ".graph", "wiring.json"), "{}");
+    const corrupt = await captureRun(dir, {});
+    assert.equal(corrupt.code, 2);
+    assert.match(corrupt.stderr, /invalid wiring graph/);
   });
 
   test("end-to-end build, violation detection, --update-baseline, --ratchet, and CLI process", async () => {
@@ -172,6 +198,23 @@ describe("trail gate CLI and filesystem integration", () => {
     );
     await buildGraph(dir, { reuse: false });
 
+    // Standalone --ratchet without --update-baseline exits 2 and leaves baseline untouched
+    const beforeStandalone = readFileSync(join(dir, "trail.gate.baseline.json"), "utf8");
+    const standaloneRatchet = await captureRun(dir, { ratchet: true });
+    assert.equal(standaloneRatchet.code, 2);
+    assert.match(standaloneRatchet.stderr, /--ratchet requires --update-baseline/);
+    assert.equal(readFileSync(join(dir, "trail.gate.baseline.json"), "utf8"), beforeStandalone);
+
+    // CLI --format markdown and subdirectory cwd resolution for --config
+    mkdirSync(join(dir, "sub"), { recursive: true });
+    writeFileSync(
+      join(dir, "sub", "local.gate.json"),
+      JSON.stringify({ rules: [{ name: "domain-no-infra", from: ["src/domain/**"], to: ["src/infra/**"] }] }),
+    );
+    const mdCli = runTrailCli(["gate", "--config", "./local.gate.json", "--format", "markdown"], join(dir, "sub"), home);
+    assert.equal(mdCli.status, 1, mdCli.stderr);
+    assert.match(mdCli.stdout, /^## Architecture Gate: FAIL/m);
+
     const ratchetRes = await captureRun(dir, { updateBaseline: true, ratchet: true, format: "json" });
     assert.equal(ratchetRes.code, 1);
     const ratchetJson = JSON.parse(ratchetRes.stdout);
@@ -210,6 +253,19 @@ describe("trail gate CLI and filesystem integration", () => {
     const badBase = await captureRun(dir, {});
     assert.equal(badBase.code, 2);
     assert.match(badBase.stderr, /invalid gate baseline/);
+
+    const missingExplicitBase = await captureRun(dir, { baseline: "missing.baseline.json" });
+    assert.equal(missingExplicitBase.code, 2);
+    assert.match(missingExplicitBase.stderr, /not found/);
+
+    mkdirSync(join(dir, "subdir"), { recursive: true });
+    const dirConfig = await captureRun(dir, { config: "subdir" });
+    assert.equal(dirConfig.code, 2);
+    assert.match(dirConfig.stderr, /not a regular file/);
+
+    const outsideCfg = await captureRun(dir, { config: "../outside.json" });
+    assert.equal(outsideCfg.code, 2);
+    assert.match(outsideCfg.stderr, /outside/);
 
     writeFileSync(join(dir, "real.json"), JSON.stringify({ rules: [] }));
     let symlinkCreated = false;
