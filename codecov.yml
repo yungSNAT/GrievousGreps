@@ -1,10 +1,8 @@
 # Codecov gates merges: every changed coverable line must be covered (patch 100%)
-# and the project figure must not fall below the base. Both statuses wait for the
-# 2 uploads of the tests workflow, TypeScript and the Rust crates (flag rust), so
-# neither is posted on half a report. Codecov posts no comments.
-codecov:
-  notify:
-    after_n_builds: 2
+# and the project figure must not fall below the base. The tests workflow sends
+# the TypeScript and Rust reports in one upload, so each status is scored on the
+# whole report. The rust component gives the Rust crates' own figure. Codecov
+# posts no comments.
 coverage:
   status:
     project:
@@ -17,4 +15,10 @@ coverage:
         target: 100%
         threshold: 0%
         informational: false
+component_management:
+  individual_components:
+    - component_id: rust
+      name: rust
+      paths:
+        - rust/**
 comment: false
