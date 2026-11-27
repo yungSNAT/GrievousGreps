@@ -94,6 +94,26 @@ fn classify_refuses_input_past_its_bound() {
     assert!(String::from_utf8_lossy(&past.stderr).contains("more than 67108864 bytes"));
 }
 
+/// NUL-only input is one empty path a byte; the rows stream out rather than being held
+/// as one string each (the peak-memory measure is in the PR, as it is not portable).
+#[test]
+fn classify_writes_a_row_for_each_nul_separated_path() {
+    let n = 4 << 20;
+    let out = exec(
+        &["classify"],
+        vec![0; n],
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    );
+    assert!(out.status.success());
+    let rows = n + 1;
+    assert_eq!(
+        out.stdout.len(),
+        3 + rows * "[false,null]".len() + (rows - 1)
+    );
+    assert!(out.stdout.starts_with(b"[[false,null],[false,null]"));
+    assert!(out.stdout.ends_with(b"[false,null]]\n"));
+}
+
 /// Input that is not UTF-8 is outside the contract (TypeScript paths are strings): refused.
 #[test]
 fn classify_refuses_input_that_is_not_utf8() {

@@ -70,8 +70,8 @@ const DEPLOY_NAMES = [
 const OTHER_NAMES = ["README.md", "notes.txt", "App.vue", "x", ".eslintrc.js", ".env", "LICENSE", "a.b.c"];
 // Edges of the name rules, for classify only: case, line terminators, a trailing slash,
 // characters that lower-case to ASCII (U+212A) or to 2 code points (U+0130).
-const PREFIXES = ["docker-", "Docker-", "api.", "compose.", "dockerfile.", ".", "K", "İ", "\n", "x "];
-const SUFFIXES = ["/", "//", ".bak", "\n", "\r", " ", ".yml", ".YAML", ".Kt", ".tf", ".json", "_", "-"];
+const PREFIXES = ["docker-", "Docker-", "api.", "compose.", "dockerfile.", ".", "\u212A", "\u0130", "\u03A3", "\n", "x\u2028", "x\u2029"];
+const SUFFIXES = ["/", "//", ".bak", "\n", "\r", "\u2028", "\u2029", "\u03A3", ".yml", ".YAML", ".\u212At", ".tf", ".json", "_", "-"];
 
 // Which comparisons run beyond extensions and classify, as each lands in Rust (3B1b sources, 3B1c cache).
 const kinds = new Set(["extensions", "classify", ...(opt("--kinds") ?? "sources,cache").split(",").filter(Boolean)]);
@@ -110,6 +110,9 @@ function run(argv: string[], input = "", cwd?: string): { out: string; status: n
   if (r.error) throw r.error; // a binary that cannot start is a harness failure, never a match
   return { out: r.stdout, status: r.status };
 }
+
+/** Output of a run that exited 0, else its exit status, so a failing binary reads as such. */
+const checked = (r: { out: string; status: number | null }): string => (r.status === 0 ? r.out.trim() : `exit ${r.status}`);
 
 const git = (cwd: string, ...a: string[]) => {
   const r = spawnSync("git", ["-c", "user.name=p", "-c", "user.email=p@example.invalid", "-c", "protocol.file.allow=always", ...a], { cwd, stdio: "ignore" });
@@ -272,9 +275,9 @@ if (record) {
 
 const work = mkdtempSync(join(tmpdir(), "gg-index-discovery-"));
 try {
-  compare("extensions", 0, JSON.stringify(EXTS), run(["extensions"]).out.trim(), "supportedExtensions");
+  compare("extensions", 0, JSON.stringify(EXTS), checked(run(["extensions"])), "supportedExtensions");
   const paths = Array.from({ length: 2000 }, () => `${pick(["", "a/", "a\\b\\", "deep/x/", "x/"])}${pick(["", ...PREFIXES])}${fileName()}${pick(["", "", "", ...SUFFIXES])}`);
-  compare("classify", 0, JSON.stringify(paths.map(tsClassify)), run(["classify"], paths.join("\0")).out.trim(), "per path");
+  compare("classify", 0, JSON.stringify(paths.map(tsClassify)), checked(run(["classify"], paths.join("\0"))), "per path");
   if (kinds.has("sources")) {
     const cases = [submoduleCase(work)];
     for (let i = 0; i < count; i++) cases.push(makeTree(work, i));

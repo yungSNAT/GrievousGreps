@@ -41,11 +41,12 @@ fn main() -> ExitCode {
         Cmd::Wiring { graph, out_dir } => (graph, out_dir),
         Cmd::Extensions => return report(print(&extensions())),
         Cmd::Classify => {
-            return report(
-                read_stdin()
-                    .map(|text| classify(&text))
-                    .and_then(|o| print(&o)),
-            );
+            return report(read_stdin().and_then(|text| {
+                let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+                classify(&text, &mut out)
+                    .and_then(|()| out.flush())
+                    .map_err(|e| e.to_string())
+            }));
         }
     };
     // Deeply nested graphs recurse once a level; give them the stack they need.
@@ -81,16 +82,18 @@ fn read_stdin() -> Result<String, String> {
 }
 
 /// One `[claims, format]` pair a path, split as JavaScript's `split("\0")` splits.
-fn classify(text: &str) -> String {
-    let rows: Vec<String> = text
-        .split('\0')
-        .map(|p| {
-            let format = gg_index::deploy::deploy_format_of(p)
-                .map_or_else(|| "null".to_owned(), |f| format!("\"{f}\""));
-            format!("[{},{format}]", gg_index::source_files::parser_claims(p))
-        })
-        .collect();
-    format!("[{}]\n", rows.join(","))
+/// Rows stream to `out`: NUL-only input makes a row per byte, about 13 bytes each.
+fn classify(text: &str, out: &mut impl Write) -> std::io::Result<()> {
+    out.write_all(b"[")?;
+    for (i, p) in text.split('\0').enumerate() {
+        let claims = gg_index::source_files::parser_claims(p);
+        let sep = if i > 0 { "," } else { "" };
+        match gg_index::deploy::deploy_format_of(p) {
+            Some(f) => write!(out, "{sep}[{claims},\"{f}\"]")?,
+            None => write!(out, "{sep}[{claims},null]")?,
+        }
+    }
+    out.write_all(b"]\n")
 }
 
 fn print(text: &str) -> Result<(), String> {
