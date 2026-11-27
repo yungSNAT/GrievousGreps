@@ -4,6 +4,8 @@
 
 pub mod deploy;
 pub mod json;
+pub mod program;
 pub mod safe_write;
 pub mod source_files;
+pub mod sources;
 pub mod wiring;

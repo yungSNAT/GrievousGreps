@@ -31,6 +31,26 @@ enum Cmd {
     Extensions,
     /// Read NUL-separated paths on stdin; print `[parser claims it, deployFormatOf]` for each (a test interface)
     Classify,
+    /// Print `[rel, size, mtimeMs]` for each file `listSourceStats` lists (a test interface)
+    Sources {
+        #[arg(long)]
+        root: String,
+        #[arg(long)]
+        out_dir: String,
+        /// A name `--include-dir` un-skips (repeatable)
+        #[arg(long = "include-dir")]
+        include_dir: Vec<String>,
+        #[arg(long)]
+        follow_submodules: bool,
+        #[arg(long)]
+        follow_nested_repos: bool,
+        /// Keep only files at or under this repository-relative folder (repeatable)
+        #[arg(long = "only-dir")]
+        only_dir: Vec<String>,
+        /// Keep only files with this extension (repeatable)
+        #[arg(long = "ext", allow_hyphen_values = true)]
+        ext: Vec<String>,
+    },
 }
 
 /// The most `classify` reads from stdin; more is refused rather than buffered.
@@ -40,6 +60,27 @@ fn main() -> ExitCode {
     let (graph, out_dir) = match Cli::parse().command {
         Cmd::Wiring { graph, out_dir } => (graph, out_dir),
         Cmd::Extensions => return report(print(&extensions())),
+        Cmd::Sources {
+            root,
+            out_dir,
+            include_dir,
+            follow_submodules,
+            follow_nested_repos,
+            only_dir,
+            ext,
+        } => {
+            let opts = gg_index::sources::Options {
+                includes: include_dir,
+                follow_submodules,
+                follow_nested_repos,
+                only_dirs: only_dir,
+                extensions: ext,
+            };
+            return report(
+                gg_index::sources::list_source_stats(Path::new(&root), Path::new(&out_dir), &opts)
+                    .and_then(|rows| print(&gg_index::sources::to_json(&rows))),
+            );
+        }
         Cmd::Classify => {
             return report(read_stdin().and_then(|text| {
                 let mut out = std::io::BufWriter::new(std::io::stdout().lock());
