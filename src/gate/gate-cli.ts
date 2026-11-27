@@ -59,7 +59,23 @@ function isValidGraph(graph: unknown): graph is GraphV1 {
     g.meta !== null &&
     g.meta.version === 1 &&
     Array.isArray(g.nodes) &&
-    Array.isArray(g.edges)
+    Array.isArray(g.edges) &&
+    g.nodes.every(
+      (n) =>
+        typeof n === "object" &&
+        n !== null &&
+        typeof n.id === "string" &&
+        typeof n.path === "string" &&
+        typeof n.span === "string",
+    ) &&
+    g.edges.every(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        typeof e.source === "string" &&
+        typeof e.target === "string" &&
+        typeof e.relation === "string",
+    )
   );
 }
 

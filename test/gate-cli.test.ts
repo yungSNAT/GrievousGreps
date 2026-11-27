@@ -120,11 +120,16 @@ describe("trail gate CLI and filesystem integration", () => {
     assert.equal(noFp.code, 2);
     assert.match(noFp.stderr, /no build fingerprint/);
 
-    // 6. Corrupt `{}` wiring.json -> exit 2
+    // 6. Corrupt `{}` wiring.json and malformed node elements -> exit 2
     writeFileSync(join(built.contextDir, ".graph", "wiring.json"), "{}");
     const corrupt = await captureRun(dir, {});
     assert.equal(corrupt.code, 2);
     assert.match(corrupt.stderr, /invalid wiring graph/);
+
+    writeFileSync(join(built.contextDir, ".graph", "wiring.json"), JSON.stringify({ meta: { version: 1 }, nodes: [null], edges: [] }));
+    const badNodes = await captureRun(dir, {});
+    assert.equal(badNodes.code, 2);
+    assert.match(badNodes.stderr, /invalid wiring graph/);
   });
 
   test("end-to-end build, violation detection, --update-baseline, --ratchet, and CLI process", async () => {

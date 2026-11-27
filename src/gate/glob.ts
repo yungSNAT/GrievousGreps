@@ -14,14 +14,42 @@ export interface CompiledGlob {
 
 const MAX_BRACE_EXPANSIONS = 64;
 
+/** Verify a glob is a clean repo-relative path without leading/trailing `/` or `.`/`..` segments. */
+export function assertRepoRelativeGlob(pattern: string, original = pattern): void {
+  if (!pattern) {
+    throw new Error(`glob "${original}" expands to an empty pattern`);
+  }
+  if (pattern.startsWith("/")) {
+    throw new Error(`glob "${original}" must be repo-relative (remove leading "/")`);
+  }
+  if (pattern.endsWith("/")) {
+    throw new Error(
+      `glob "${original}" must not end with "/" (use "${pattern}**" to match files inside the directory)`,
+    );
+  }
+  const parts = pattern.split("/");
+  if (parts.some((p) => p === "" || p === "." || p === "..")) {
+    throw new Error(
+      `glob "${original}" must be a clean repo-relative path without empty, ".", or ".." segments`,
+    );
+  }
+}
+
 function findBracePair(pattern: string): { open: number; close: number; parts: string[] } | null {
   let depth = 0;
+  let inClass = false;
   let open = -1;
   const parts: string[] = [];
   let partStart = 0;
   for (let i = 0; i < pattern.length; i++) {
     const ch = pattern[i]!;
-    if (ch === "{") {
+    if (inClass) {
+      if (ch === "]") inClass = false;
+      continue;
+    }
+    if (ch === "[") {
+      inClass = true;
+    } else if (ch === "{") {
       if (depth === 0) {
         open = i;
         partStart = i + 1;
@@ -110,6 +138,7 @@ function compileSegment(part: string, fullPattern: string): CompiledSegment {
 }
 
 function compileAlternative(alt: string, original: string): CompiledSegment[] {
+  assertRepoRelativeGlob(alt, original);
   const out: CompiledSegment[] = [];
   for (const part of alt.split("/")) {
     const seg = compileSegment(part, original);
@@ -121,6 +150,7 @@ function compileAlternative(alt: string, original: string): CompiledSegment[] {
 
 /** Validate and compile a normalized repo-relative POSIX glob pattern. */
 export function compilePosixGlob(pattern: string): CompiledGlob {
+  assertRepoRelativeGlob(pattern, pattern);
   const expanded = expandBraces(pattern);
   return {
     alternatives: expanded.map((alt) => compileAlternative(alt, pattern)),
@@ -171,7 +201,8 @@ function matchSegments(segments: CompiledSegment[], pathParts: string[]): boolea
       return false;
     }
   }
-  while (segments[p] === "globstar") p++;
+  // A standalone "**" matches any path, whereas a trailing "/**" requires >=1 segment.
+  if (segments.length === 1 && segments[0] === "globstar") return true;
   return p === segments.length;
 }
 

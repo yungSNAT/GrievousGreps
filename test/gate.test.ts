@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import type { Confidence, EdgeV1, GraphV1, NodeV1, Relation } from "../src/graph/types.js";
+import { compilePosixGlob, matchesCompiledGlob } from "../src/gate/glob.js";
 import {
   buildBaseline,
   evaluateGate,
@@ -105,6 +106,10 @@ describe("parseGateConfig and parseGateBaseline", () => {
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/[]"], to: ["b"] }] }), /empty character class/);
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{a,b"], to: ["b"] }] }), /unclosed "\{"/);
     assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{}"], to: ["b"] }] }), /empty brace group/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{domain/,infra/}"], to: ["b"] }] }), /must not end with "\/"/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["{/src,lib}/**"], to: ["b"] }] }), /repo-relative/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{.,..}/a.ts"], to: ["b"] }] }), /".." segments/);
+    assert.throws(() => parseGateConfig({ rules: [{ name: "r", from: ["src/{a,}/b.ts"], to: ["b"] }] }), /empty/);
     assert.throws(() => parseGateConfig({ rules: [], layers: [] }), /unknown key "layers"/);
     assert.throws(
       () => parseGateConfig({ rules: [{ name: "r", from: ["a"], to: ["b"], allow_confidence: "likely" }] }),
@@ -413,5 +418,47 @@ describe("evaluateGate, confidence categories, baseline, and ratchet", () => {
     assert.equal(parsed.summary.new, 1);
     assert.equal(parsed.summary.warnings, 1);
     assert.equal(parsed.summary.resolved, 1);
+  });
+});
+
+describe("compilePosixGlob and matchesCompiledGlob", () => {
+  test("handles wildcards, classes, globstars, braces, and separator boundaries", () => {
+    const cases: Array<[string, string, boolean]> = [
+      ["src/?.ts", "src/a.ts", true],
+      ["src/?.ts", "src/ab.ts", false],
+      ["src/?.ts", "src//.ts", false],
+      ["src/[abc].ts", "src/b.ts", true],
+      ["src/[!a-z].ts", "src/1.ts", true],
+      ["src/[!a-z].ts", "src/m.ts", false],
+      ["src/[^a-z].ts", "src/Z.ts", true],
+      ["src/[a-].ts", "src/-.ts", true],
+      ["src/[-a].ts", "src/a.ts", true],
+      ["src/[!a].ts", "src/x/y.ts", false],
+      ["src/*.ts", "src/a/b.ts", false],
+      ["a/**/b", "a/b", true],
+      ["a/**/b", "a/x/y/b", true],
+      ["**/b", "b", true],
+      ["**/b", "x/y/b", true],
+      ["src/**", "src", false],
+      ["src/**", "src/a.ts", true],
+      ["**", "a.ts", true],
+      ["a/**/**/b", "a/x/b", true],
+      ["src/**/**/**", "src", false],
+      ["src/**/**/**", "src/a/b.ts", true],
+      ["src/{,sub/}a.ts", "src/a.ts", true],
+      ["src/{,sub/}a.ts", "src/sub/a.ts", true],
+      ["src/{a,{b,c}}.ts", "src/c.ts", true],
+      ["src/[{].ts", "src/{.ts", true],
+      ["src/[}].ts", "src/}.ts", true],
+      ["src/{a,[,]}.ts", "src/,.ts", true],
+    ];
+    for (const [pattern, path, expected] of cases) {
+      assert.equal(matchesCompiledGlob(compilePosixGlob(pattern), path), expected, `${pattern} vs ${path}`);
+    }
+  });
+
+  test("rejects unmatched braces and brace-expansion explosion", () => {
+    assert.throws(() => compilePosixGlob("src/a}.ts"), /unmatched "}"/);
+    assert.throws(() => compilePosixGlob("{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}"), /more than 64/);
   });
 });

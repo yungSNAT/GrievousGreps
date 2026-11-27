@@ -126,22 +126,6 @@ function parseGlobList(
     if (!norm) {
       throw new Error(`rule "${ruleName}" field "${field}" contains an empty glob "${item}"`);
     }
-    if (norm.startsWith("/")) {
-      throw new Error(
-        `rule "${ruleName}" field "${field}" glob "${item}" must be repo-relative (remove leading "/")`,
-      );
-    }
-    if (norm.endsWith("/")) {
-      throw new Error(
-        `rule "${ruleName}" field "${field}" glob "${item}" must not end with "/" (use "${norm}**" to match files inside the directory)`,
-      );
-    }
-    const parts = norm.split("/");
-    if (parts.some((p) => p === "" || p === "." || p === "..")) {
-      throw new Error(
-        `rule "${ruleName}" field "${field}" glob "${item}" must be a clean repo-relative path without empty, ".", or ".." segments`,
-      );
-    }
     compiled.push(compilePosixGlob(norm));
     globs.push(norm);
   }
