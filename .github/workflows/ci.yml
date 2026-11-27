@@ -1,8 +1,11 @@
 name: tests
 
 on:
+  # The Rust coverage integration branch also uploads on push, so pull requests
+  # aimed at it have a base report for their patch figure. Remove it when the
+  # branch merges into main.
   push:
-    branches: [main]
+    branches: [main, ryan/yb17-rust-coverage-2026-11-27]
   pull_request:
   workflow_dispatch:
 
