@@ -23,7 +23,7 @@
  *
  * Exit 1 when any case differs, and throw when the binary cannot start.
  */
-import { spawnSync } from "node:child_process";
+import { findProgram, notFound, spawnSync } from "../../../src/util/program.js";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -116,8 +116,12 @@ function run(argv: string[], input = "", cwd?: string): { out: string; status: n
 /** Output of a run that exited 0, else its exit status, so a failing binary reads as such. */
 const checked = (r: { out: string; status: number | null }): string => (r.status === 0 ? r.out.trim() : `exit ${r.status}`);
 
+/** Git by its absolute path, found once by trail's own rule (src/util/program.ts): the first
+ * match in PATH's absolute folders outside the working folder and node_modules/.bin. */
+const gitPath = findProgram("git");
 const git = (cwd: string, ...a: string[]) => {
-  const r = spawnSync("git", ["-c", "user.name=p", "-c", "user.email=p@example.invalid", "-c", "protocol.file.allow=always", ...a], { cwd, stdio: "ignore" });
+  if (gitPath === null) throw new Error(notFound("git"));
+  const r = spawnSync(gitPath, ["-c", "user.name=p", "-c", "user.email=p@example.invalid", "-c", "protocol.file.allow=always", ...a], { cwd, stdio: "ignore" });
   if (r.status !== 0) throw new Error(`git ${a.join(" ")} failed in ${cwd}`);
 };
 
