@@ -3,4 +3,5 @@
 //! Each stage matches the TypeScript output byte for byte before it is wired in.
 
 pub mod json;
+pub mod safe_write;
 pub mod wiring;
