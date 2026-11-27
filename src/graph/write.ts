@@ -8,7 +8,7 @@
  * timestamps, so rebuilding an unchanged repo produces a byte-identical file and
  * git diffs stay minimal.
  */
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { readFileInside, writeFileInside } from "../util/safe-fs.js";
 import type { EdgeV1, GraphV1, NodeV1 } from "./types.js";
 
@@ -29,7 +29,7 @@ export function readGraph(path: string, base = dirname(path)): GraphV1 | null {
   try {
     // Pass `dirname(outDir)` as `base` so a symlinked `graft/` or `.graph/` is never
     // read through; a symlinked leaf is treated as absent either way.
-    const text = readFileInside(base, path);
+    const text = readFileInside(base, resolve(path));
     return text === null ? null : (JSON.parse(text) as GraphV1);
   } catch {
     return null;
@@ -65,7 +65,9 @@ export function writeGraph(graph: GraphV1, outDir: string): string {
   // file and hand the loser a corrupt graph, and a failed rename would otherwise
   // leave a full-size orphan behind that nothing ever cleans up. `dirname(outDir)`
   // is the base so a symlinked `graft/` or `.graph/` is refused, never followed.
-  writeFileInside(dirname(outDir), path, asciiJson(JSON.stringify(sorted, null, 2)) + "\n", { atomic: true });
+  // `resolve(path)`: a relative `path` would resolve against that base, doubling a
+  // nested relative `outDir` (`a/graft` writing `a/a/graft/.graph`).
+  writeFileInside(dirname(outDir), resolve(path), asciiJson(JSON.stringify(sorted, null, 2)) + "\n", { atomic: true });
   return path;
 }
 
