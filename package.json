@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
-    "commander": "^15.0.0",
+    "commander": "^15.1.0",
     "gray-matter": "^4.0.3",
     "openai": "^7.62.0",
     "smol-toml": "^1.9.1",
