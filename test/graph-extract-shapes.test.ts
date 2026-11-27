@@ -4,28 +4,12 @@
  * R's S3 and S4 registration idioms and roxygen export tags, Java's scoped
  * annotations and PHP 8 attributes.
  */
-import { test, describe, before, after, mock } from "node:test";
+import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { extractFile, type ExtractResult } from "../src/graph/extract.js";
-import { warmDepthGrammars } from "../src/graph/depth-parser.js";
+import { offlineDepthGrammars, symbol } from "./extract-helpers.js";
 
-let restoreFetch: (() => void) | undefined;
-
-before(async () => {
-  const fetchMock = mock.method(globalThis, "fetch", async () => {
-    assert.fail("Graph extraction must work offline");
-  });
-  restoreFetch = () => fetchMock.mock.restore();
-  await warmDepthGrammars(["kotlin", "r", "java", "php", "go", "typescript"]);
-});
-
-after(() => restoreFetch?.());
-
-function symbol(result: ExtractResult, id: string) {
-  const node = result.nodes.find((n) => n.id === id);
-  assert.ok(node, `Missing node ${id}; have ${result.nodes.map((n) => n.id).join(", ")}`);
-  return node;
-}
+offlineDepthGrammars(["kotlin", "r", "java", "php", "go", "typescript"]);
 
 function ids(result: ExtractResult): string[] {
   return result.nodes.map((n) => n.id).sort();
