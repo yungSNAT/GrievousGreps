@@ -341,6 +341,39 @@ fn with_no_path_git_is_found_in_the_system_folders() {
     assert_eq!(parse_rows(cmd.output().expect("spawn")), ["a.ts"]);
 }
 
+/// A working folder that is the file system's root or the home folder holds every folder
+/// the person installs to, so only that folder itself is passed over (`holdsAll` in
+/// src/util/program.ts): Git is still found from `/`, and a Git in `~/bin` still runs when
+/// the process folder is the home folder.
+#[cfg(unix)]
+#[test]
+fn a_process_folder_at_the_root_or_home_still_finds_git() {
+    let root = scratch("holds-all");
+    write(&root, "a.ts", 1);
+    write(&root, "lib/l.ts", 1);
+    fs::write(root.join(".gitignore"), "lib/\n").expect("ignore");
+    git(&root, &["init", "-q"]);
+    let mut cmd = command(&root, &[]);
+    cmd.current_dir("/").env("PATH", "/usr/bin:/bin");
+    assert_eq!(parse_rows(cmd.output().expect("spawn")), ["a.ts"], "from /");
+    let home = scratch("holds-all-home");
+    fs::create_dir(home.join("bin")).expect("mkdir");
+    std::os::unix::fs::symlink("/usr/bin/git", home.join("bin/git")).expect("link");
+    let mut cmd = command(&root, &[]);
+    cmd.current_dir(&*home)
+        .env("HOME", &*home)
+        .env("PATH", home.join("bin"));
+    assert_eq!(parse_rows(cmd.output().expect("spawn")), ["a.ts"], "from ~");
+    // A process folder that is neither still passes over the folders under it.
+    let mut cmd = command(&root, &[]);
+    cmd.current_dir(&*home)
+        .env("HOME", "/nonexistent")
+        .env("PATH", home.join("bin"));
+    let mut got = parse_rows(cmd.output().expect("spawn"));
+    got.sort();
+    assert_eq!(got, ["a.ts", "lib/l.ts"], "from a plain folder");
+}
+
 /// Following repositories: a tree Git does not list is walked on the file system; tracked
 /// files under a skipped folder stay out; a submodule with no checkout is left out; one whose
 /// `.git` Git cannot read is walked on the file system.

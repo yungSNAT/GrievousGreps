@@ -150,6 +150,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_root_or_home_folder_holds_all() {
+        let home = env::temp_dir().join("gg-index-home");
+        assert!(holds_all(Path::new("/"), &[]));
+        assert!(holds_all(&home, std::slice::from_ref(&home)));
+        assert!(!holds_all(&home.join("sub"), &[home.clone()]));
+        assert!(!holds_all(&home, &[]));
+    }
+
+    #[test]
     fn verbatim_prefixes_are_removed() {
         assert_eq!(unverbatim(Path::new(r"\\?\C:\x")), PathBuf::from(r"C:\x"));
         assert_eq!(
