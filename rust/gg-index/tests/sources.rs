@@ -374,7 +374,7 @@ fn an_output_folder_at_the_top_leaves_everything_out() {
     write(&root, "a.ts", 1);
     let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
         .args(["sources", "--out-dir", "/", "--root"])
-        .arg(&root)
+        .arg(&*root)
         .output()
         .expect("spawn");
     assert!(parse_rows(out).is_empty());
