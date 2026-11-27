@@ -224,8 +224,7 @@ fn a_link_to_the_working_folder_is_judged_by_its_real_path() {
 #[test]
 fn a_working_folder_spelt_with_dot_dot_after_a_link_is_its_real_folder() {
     // `lk/../work` is `deep/work` to the system (`lk` is `deep/x`) but `work` when cleaned
-    // as text. The real path and the identity both catch it; on POSIX only a bind mount
-    // shows a folder by identity that its real path hides, so no test here pins identity alone.
+    // as text. Its real path as written is a tree, so this holds without identity.
     let f = Fixture::new();
     fs::create_dir_all(f.at("deep/x")).expect("x");
     f.link(&f.s("deep/x"), "lk");
@@ -237,6 +236,20 @@ fn a_working_folder_spelt_with_dot_dot_after_a_link_is_its_real_folder() {
         None,
         None,
     );
+    assert_eq!(got, Err(NOT_FOUND.to_string()));
+}
+
+#[test]
+fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_the_identity_of_its_cleaned_path() {
+    // `lk/../wk` is `deep/wk` to the system but `wk`, a link to `w2`, cleaned as text. Neither
+    // spelling's path holds `w2/bin`; only the cleaned folder's identity, `w2`, catches it.
+    let f = Fixture::new();
+    fs::create_dir_all(f.at("deep/x")).expect("x");
+    fs::create_dir_all(f.at("deep/wk")).expect("deep/wk");
+    f.link(&f.s("deep/x"), "lk");
+    f.tool("w2/bin");
+    f.link(&f.s("w2"), "wk");
+    let got = lookup("tool", &f.at("lk/../wk"), Some(&f.s("w2/bin")), None, None);
     assert_eq!(got, Err(NOT_FOUND.to_string()));
 }
 

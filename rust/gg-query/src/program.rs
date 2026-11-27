@@ -223,10 +223,12 @@ impl LookupRules {
         let mut trees = Vec::new();
         let mut tree_ids = Vec::new();
         for dir in &work {
-            for p in both_ways(dir) {
-                trees.push(p);
-            }
-            if let Some(id) = file_identity(dir) {
+            let ways = both_ways(dir);
+            // Identity of the folder cleaned as text, as the reference takes it; its real path
+            // as written is already a tree.
+            let id = file_identity(&ways[0]);
+            trees.extend(ways);
+            if let Some(id) = id {
                 let root_id = fs::canonicalize(dir)
                     .ok()
                     .and_then(|r| r.ancestors().last().and_then(file_identity));
