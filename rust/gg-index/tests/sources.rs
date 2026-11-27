@@ -248,6 +248,34 @@ fn a_linked_root_keeps_its_paths() {
     assert_eq!(rels(&link, &[]), ["src/a.ts"]);
 }
 
+/// Containment: a linked root still leaves out its output folder when `--out-dir`
+/// names the folder through the target's real path.
+#[cfg(unix)]
+#[test]
+fn a_linked_root_excludes_an_output_folder_by_its_real_path() {
+    let base = scratch("rootlink-out");
+    let real = base.join("real");
+    write(&real, "src/a.ts", 1);
+    write(&real, "graft/gen.ts", 1);
+    let link = base.join("link");
+    std::os::unix::fs::symlink(&real, &link).expect("link");
+    assert_eq!(rels(&link, &[]), ["src/a.ts"], "through the link");
+    let out_dir = fs::canonicalize(real.join("graft")).expect("real graft");
+    let run = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_gg-index"))
+            .args(["sources", "--root"])
+            .arg(&link)
+            .arg("--out-dir")
+            .arg(&out_dir)
+            .output()
+            .expect("spawn");
+        parse_rows(out)
+    };
+    assert_eq!(run(), ["src/a.ts"], "through the real path");
+    git(&real, &["init", "-q"]);
+    assert_eq!(run(), ["src/a.ts"], "through git ls-files");
+}
+
 /// An unreadable folder fails the walk outside Git, as `readdirSync` throws in TypeScript.
 #[cfg(unix)]
 #[test]

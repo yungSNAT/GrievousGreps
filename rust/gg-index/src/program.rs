@@ -255,6 +255,29 @@ mod tests {
         std::fs::remove_dir_all(&base).expect("clean up");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_case_variant_package_bin_is_passed_over() {
+        let base = env::temp_dir().join(format!("gg-index-find-program-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&base));
+        let make = |dir: &str| {
+            let d = base.join(dir);
+            std::fs::create_dir_all(&d).expect("mkdir");
+            std::fs::write(d.join("tool.exe"), "").expect("write");
+            real(&d).expect("real")
+        };
+        let (upper, mixed_parent, mixed_child, sys) = (
+            make(r"p1\NODE_MODULES\.BIN"),
+            make(r"p2\Node_Modules\.bin"),
+            make(r"p3\node_modules\.BIN"),
+            make("sys"),
+        );
+        let path = env::join_paths([upper, mixed_parent, mixed_child, sys.clone()]).expect("join");
+        let got = find_in("tool", &path, &[], None);
+        std::fs::remove_dir_all(&base).expect("clean up");
+        assert_eq!(got, Some(sys.join("tool.exe")));
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_name_that_is_not_utf8_is_kept_as_it_is() {
