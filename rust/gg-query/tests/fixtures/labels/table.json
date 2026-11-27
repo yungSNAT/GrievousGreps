@@ -1,0 +1,456 @@
+{
+  "short": [
+    [
+      "",
+      ""
+    ],
+    [
+      "Graph Store",
+      "Graph Store"
+    ],
+    [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    [
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+    ],
+    [
+      "Concept: Graph Store",
+      "Graph Store"
+    ],
+    [
+      "concepts:   Graph Store",
+      "Graph Store"
+    ],
+    [
+      "CONCEPT:Graph",
+      "Graph"
+    ],
+    [
+      "  Concept: Graph Store",
+      "Concept: Graph Store"
+    ],
+    [
+      "Concept:",
+      ""
+    ],
+    [
+      "Conceptual design notes",
+      "Conceptual design notes"
+    ],
+    [
+      "Concept:﻿Graph Store",
+      "Graph Store"
+    ],
+    [
+      "Concept: Graph Store",
+      "Graph Store"
+    ],
+    [
+      " Graph Store ",
+      "Graph Store"
+    ],
+    [
+      "Reciprocal-Rank Fusion for Workspace Federation",
+      "Reciprocal-Rank Fusion"
+    ],
+    [
+      "Incremental Build via the watcher and the hook chain",
+      "Incremental Build"
+    ],
+    [
+      "Ab and a much longer tail of words that runs past thirty",
+      "Ab and a much longer tail of…"
+    ],
+    [
+      "Abcdefg: colon at seven then a long remainder of words",
+      "Abcdefg: colon at seven then a…"
+    ],
+    [
+      "Abcdefgh: colon at eight then a long remainder of words",
+      "Abcdefgh"
+    ],
+    [
+      "Abcdefghij (with a parenthetical aside that is long)",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij — dash elaboration of a long name here",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij - spaced hyphen elaboration long name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij -unspaced after hyphen elaboration long name",
+      "Abcdefghij -unspaced after…"
+    ],
+    [
+      "Abcdefghij-unspaced-hyphen-elaboration-long-name-here",
+      "Abcdefghij-unspaced-hyphen-ela…"
+    ],
+    [
+      "Supercalifragilisticexpialidocious and more",
+      "Supercalifragilisticexpialidoc…"
+    ],
+    [
+      "Abcdefghijklmnopqrstuvwxyzabcdefgh and then more words",
+      "Abcdefghijklmnopqrstuvwxyzabcd…"
+    ],
+    [
+      "Abcdefghij VIA the uppercase keyword long name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij\tvia\tthe tab separated long concept name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij and more words for a long concept name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij　and　more words for a long concept name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij: colon then a no-break space and more",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghij and more words for a long concept name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghijklmnopqrstuvwxyzabcd efgh ijkl",
+      "Abcdefghijklmnopqrstuvwxyzabcd…"
+    ],
+    [
+      "Abcdefghijklmno pqrstuvwxyzabcdefghijklmn",
+      "Abcdefghijklmno pqrstuvwxyzabc…"
+    ],
+    [
+      "Abcdefghijklmnop qrstuvwxyzabcdefghijklmn",
+      "Abcdefghijklmnop…"
+    ],
+    [
+      "Abcdefghijklmnopqrstuvwxyzab    d long tail",
+      "Abcdefghijklmnopqrstuvwxyzab…"
+    ],
+    [
+      "Word word word word word word wordy tail end",
+      "Word word word word word word…"
+    ],
+    [
+      "éééééééééééééééééééé via long tail words that run on",
+      "éééééééééééééééééééé"
+    ],
+    [
+      "ééééééééé via something long enough to cut here",
+      "ééééééééé"
+    ],
+    [
+      "éééééééééééééééééééééééééééééééééééééééé",
+      "éééééééééééééééééééééééééééééé…"
+    ],
+    [
+      "éééééééééééééé éééééééééééééééééééé",
+      "éééééééééééééé ééééééééééééééé…"
+    ],
+    [
+      "🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀 crab",
+      "🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀🦀…"
+    ],
+    [
+      "Abcdefghij﻿and﻿more words for a long concept name",
+      "Abcdefghij"
+    ],
+    [
+      "Abcdefghijandmore words for a long concept name",
+      "Abcdefghijandmore words"
+    ],
+    [
+      "Graph Store  ",
+      "Graph Store  "
+    ],
+    [
+      "Graph Store ﻿",
+      "Graph Store"
+    ]
+  ],
+  "dir": [
+    [
+      "a/b/c.ts",
+      "a/b/"
+    ],
+    [
+      "c.ts",
+      "(root)"
+    ],
+    [
+      "/x",
+      "/"
+    ],
+    [
+      "a//b",
+      "a//"
+    ],
+    [
+      "",
+      "(root)"
+    ],
+    [
+      "a/",
+      "a/"
+    ],
+    [
+      "é/é.ts",
+      "é/"
+    ]
+  ],
+  "parent": [
+    [
+      "a/b/",
+      "a/"
+    ],
+    [
+      "a/",
+      ""
+    ],
+    [
+      "a",
+      ""
+    ],
+    [
+      "a//",
+      "a/"
+    ],
+    [
+      "",
+      ""
+    ],
+    [
+      "/",
+      ""
+    ],
+    [
+      "a/b",
+      "a/"
+    ],
+    [
+      "a/b//",
+      "a/b/"
+    ],
+    [
+      "//",
+      "/"
+    ]
+  ],
+  "hub": [
+    [
+      [
+        "",
+        "Graph Store"
+      ],
+      "fb",
+      "Graph Store"
+    ],
+    [
+      [],
+      "fb",
+      "fb"
+    ],
+    [
+      [
+        "",
+        ""
+      ],
+      "fb",
+      "fb"
+    ],
+    [
+      [
+        "Concept: Long name of a hub via something else"
+      ],
+      "fb",
+      "Long name"
+    ],
+    [
+      [
+        "writeGraph",
+        "readGraph"
+      ],
+      "fb",
+      "writeGraph"
+    ]
+  ],
+  "test_path": [
+    [
+      "test/a.ts",
+      true
+    ],
+    [
+      "tests/a.ts",
+      true
+    ],
+    [
+      "spec/a.ts",
+      true
+    ],
+    [
+      "specs/a.ts",
+      true
+    ],
+    [
+      "__tests__/a.ts",
+      true
+    ],
+    [
+      "src/test/a.ts",
+      true
+    ],
+    [
+      "src/tests/x/a.py",
+      true
+    ],
+    [
+      "TESTS/a.ts",
+      true
+    ],
+    [
+      "src/Spec/a.rb",
+      true
+    ],
+    [
+      "testing/a.ts",
+      false
+    ],
+    [
+      "src/contest/a.ts",
+      false
+    ],
+    [
+      "test",
+      false
+    ],
+    [
+      "a.test.ts",
+      true
+    ],
+    [
+      "a.spec.tsx",
+      true
+    ],
+    [
+      "a.test.js",
+      true
+    ],
+    [
+      "a.test.jsx",
+      true
+    ],
+    [
+      "a.test.mjs",
+      true
+    ],
+    [
+      "a.test.cjs",
+      true
+    ],
+    [
+      "a.test.mts",
+      true
+    ],
+    [
+      "a.test.cts",
+      true
+    ],
+    [
+      "a.test.mjsx",
+      true
+    ],
+    [
+      "a.test.ctsx",
+      true
+    ],
+    [
+      "a.test.mtsx",
+      true
+    ],
+    [
+      "a.test.cjsx",
+      true
+    ],
+    [
+      "a.test.rs",
+      false
+    ],
+    [
+      "a.test.d.ts",
+      false
+    ],
+    [
+      "a.TEST.TS",
+      true
+    ],
+    [
+      ".test.ts",
+      true
+    ],
+    [
+      "a.tests.ts",
+      false
+    ],
+    [
+      "a.test.ts.map",
+      false
+    ],
+    [
+      "a_test.go",
+      true
+    ],
+    [
+      "a_test.py",
+      true
+    ],
+    [
+      "a_test.rb",
+      true
+    ],
+    [
+      "a_TEST.GO",
+      true
+    ],
+    [
+      "a_test.ts",
+      false
+    ],
+    [
+      "_test.go",
+      true
+    ],
+    [
+      "a-test.go",
+      false
+    ],
+    [
+      "atest.go",
+      false
+    ],
+    [
+      "src/a.ts",
+      false
+    ],
+    [
+      "",
+      false
+    ],
+    [
+      "a.test",
+      false
+    ]
+  ]
+}

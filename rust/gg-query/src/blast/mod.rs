@@ -160,7 +160,8 @@ pub fn short_label(label: &str) -> String {
     format!("{}…", bare[..cut].trim_end())
 }
 
-fn hub_label(names: &[String], fallback: &str) -> String {
+/// The first non-empty name, shortened, or `fallback` (`hubLabel` in `src/blast/blast.ts`).
+pub fn hub_label(names: &[String], fallback: &str) -> String {
     for n in names {
         if !n.is_empty() {
             return short_label(n);
