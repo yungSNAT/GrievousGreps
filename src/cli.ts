@@ -1199,6 +1199,37 @@ grouped(program.command("blast"), GROUP.ci)
     });
   });
 
+grouped(program.command("gate"), GROUP.ci)
+  .description(
+    "Check architecture rules in trail.gate.json against the wiring graph, with a baseline ratchet ($0, no LLM)",
+  )
+  .argument(...DIR_ARG)
+  .option("--config <file>", "architecture rules config file (default: trail.gate.json)")
+  .option("--baseline <file>", "accepted violations baseline file (default: trail.gate.baseline.json)")
+  .option("--update-baseline", "write current failing violations to the baseline file")
+  .option("--ratchet", "with --update-baseline, only remove resolved violations; never add new ones")
+  .option("--format <fmt>", "text (default) | json | markdown")
+  .action(
+    async (
+      dirArg: string | undefined,
+      opts: { config?: string; baseline?: string; updateBaseline?: boolean; ratchet?: boolean; format?: string },
+    ) => {
+      const explicitDir = dirArg !== undefined;
+      const dir = noteQuery(queryRoot(dirArg));
+      const fromCwd = (p: string | undefined) => (p === undefined || explicitDir ? p : resolve(process.cwd(), p));
+      const { runGateCommand } = await import("./gate/gate-cli.js");
+      const code = await runGateCommand(dir, {
+        config: fromCwd(opts.config),
+        baseline: fromCwd(opts.baseline),
+        updateBaseline: opts.updateBaseline,
+        ratchet: opts.ratchet,
+        format: opts.format,
+        globalDir: program.opts<GlobalOpts>().dir,
+      });
+      if (code !== 0) process.exitCode = code;
+    },
+  );
+
 grouped(program.command("grep"), GROUP.find)
   .description("Regex search over indexed files, hits grouped by enclosing symbol and ranked by coupling ($0, no LLM)")
   .argument("<pattern>", "regex pattern (or literal string with --fixed)")
@@ -3568,7 +3599,7 @@ if (TRAIL) {
   program.addCommand(statusCommand().helpGroup(GROUP.setup));
 
   // Help lists the groups in this order, and the commands within each.
-  const order = ["ask", "grep", "skeleton", "callers", "map", "docs", "note", "check", "team", "skills", "init", "build", "status", "upgrade", "uninstall", "telemetry", "workspace", "login", "logout", "blast"];
+  const order = ["ask", "grep", "skeleton", "callers", "map", "docs", "note", "check", "team", "skills", "init", "build", "status", "upgrade", "uninstall", "telemetry", "workspace", "login", "logout", "blast", "gate"];
   const rank = (c: Command) => {
     const i = order.indexOf(c.name());
     return i === -1 ? order.length : i;
@@ -3597,6 +3628,7 @@ if (TRAIL) {
     login: "sign this laptop in to your Trail workspace, in the browser",
     logout: "disconnect this machine from its workspace",
     blast: "what depends on the lines this diff touched",
+    gate: "check architecture rules against the wiring graph, with a baseline ratchet",
   };
   for (const c of program.commands) if (summaries[c.name()]) c.summary(summaries[c.name()]!);
   program.addHelpText("after", "\ntrail <command> --help for flags · every graft command still works");

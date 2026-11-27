@@ -7,8 +7,8 @@ use serde::Serialize;
 
 use crate::brand::cmd;
 use crate::graph::{
-    Direction, EdgeHit, INFERRED_MARK, NodeV1, Quote, Savings, UnresolvedCall, call_reference_line,
-    is_test_path, with_savings,
+    Direction, EdgeHit, NodeV1, Quote, Savings, UnresolvedCall, call_reference_line, is_test_path,
+    with_savings,
 };
 
 const QUIET_SHOWN: usize = 3;
@@ -47,7 +47,7 @@ fn hit_line(direction: Direction, hit: &EdgeHit, show_depth: bool) -> String {
         Some(n) => format!("{} ({}:{})", n.name, n.path, n.span),
         None => format!("{} (unresolved import)", hit.id),
     };
-    let mark = if hit.inferred { INFERRED_MARK } else { "" };
+    let mark = hit.confidence.mark();
     format!("  {} {arrow} {label}{depth_tag}{mark}", hit.relation)
 }
 
@@ -141,7 +141,7 @@ fn hit_lines(
     shared: Option<&str>,
     file_cache: &mut HashMap<String, Option<Vec<String>>>,
 ) -> Vec<String> {
-    let mut group_idx: HashMap<(String, String, bool), usize> = HashMap::new();
+    let mut group_idx: HashMap<(String, String, &'static str), usize> = HashMap::new();
     let mut groups: Vec<HitGroup> = Vec::new();
     let mut order: Vec<GroupEntry> = Vec::new();
 
@@ -155,7 +155,7 @@ fn hit_lines(
         } else {
             None
         };
-        let key = (h.relation.clone(), node.path.clone(), h.inferred);
+        let key = (h.relation.clone(), node.path.clone(), h.confidence.mark());
         let idx = *group_idx.entry(key).or_insert_with(|| {
             let lead = if shared.is_some() {
                 format!("  {}", group_label(&node.path))
@@ -170,7 +170,7 @@ fn hit_lines(
             let idx = groups.len();
             groups.push(HitGroup {
                 lead,
-                mark: if h.inferred { INFERRED_MARK } else { "" },
+                mark: h.confidence.mark(),
                 items: Vec::new(),
             });
             order.push(GroupEntry::Group(idx));
@@ -347,6 +347,7 @@ struct JsonHit<'a> {
     depth: usize,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     inferred: bool,
+    confidence: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -393,6 +394,7 @@ pub fn format_callers_json(
                     relation: &h.relation,
                     depth: h.depth,
                     inferred: h.inferred,
+                    confidence: h.confidence.as_str(),
                     name: h.node.as_ref().map(|n| n.name.as_str()),
                     kind: h.node.as_ref().map(|n| n.kind.as_str()),
                     path: h.node.as_ref().map(|n| n.path.as_str()),
