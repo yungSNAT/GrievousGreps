@@ -224,14 +224,14 @@ impl LookupRules {
         let mut tree_ids = Vec::new();
         for dir in &work {
             let ways = both_ways(dir);
-            // Identity of the folder cleaned as text, as the reference takes it; its real path
-            // as written is already a tree.
-            let id = file_identity(&ways[0]);
+            // Identity of the folder cleaned as text, as the reference takes it, and of the folder
+            // the system opens: a bind mount of that one shows it by neither path in `trees`.
+            let ids = [file_identity(&ways[0]), file_identity(dir)];
             trees.extend(ways);
-            if let Some(id) = id {
-                let root_id = fs::canonicalize(dir)
-                    .ok()
-                    .and_then(|r| r.ancestors().last().and_then(file_identity));
+            let root_id = fs::canonicalize(dir)
+                .ok()
+                .and_then(|r| r.ancestors().last().and_then(file_identity));
+            for id in ids.into_iter().flatten() {
                 let holds_all = Some(id) == home_id || (root_id.is_some() && Some(id) == root_id);
                 tree_ids.push((id, holds_all));
             }
