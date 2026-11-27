@@ -98,6 +98,14 @@ mod tests {
         assert_eq!(f("Kustomization"), Some("kustomize"));
         assert_eq!(f("main.TF"), None);
         assert_eq!(f("x.tf.json"), None);
+        // JavaScript's `$` without the `m` flag matches only at the end of input, never
+        // before a final line terminator (checked against deployFormatOf on Node 26).
+        assert_eq!(f("Dockerfile\n"), None);
+        assert_eq!(f("Dockerfile\r"), None);
+        assert_eq!(f("Dockerfile\u{2029}"), None);
+        assert_eq!(f("compose.yml\n"), None);
+        assert_eq!(f("compose.yml\u{2028}"), None);
+        assert_eq!(f("x.yaml\n"), None);
         assert_eq!(f("/"), None);
         assert_eq!(f(""), None);
     }
