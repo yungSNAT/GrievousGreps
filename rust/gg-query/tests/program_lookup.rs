@@ -299,6 +299,25 @@ fn yarns_own_bin_folder_is_passed_over_and_a_relative_one_is_ignored() {
 }
 
 #[test]
+fn yarns_own_bin_folder_is_known_by_its_real_path_as_written() {
+    // `lk/../bin` is `deep/bin` to the system (`lk` is `deep/x`) but `bin` cleaned as text.
+    let f = Fixture::new();
+    fs::create_dir_all(f.at("deep/x")).expect("x");
+    f.link(&f.s("deep/x"), "lk");
+    f.tool("deep/bin");
+    assert_eq!(
+        lookup(
+            "tool",
+            &f.work,
+            Some(&f.s("deep/bin")),
+            None,
+            Some(&f.s("lk/../bin"))
+        ),
+        Err(NOT_FOUND.to_string())
+    );
+}
+
+#[test]
 fn a_node_modules_bin_folder_is_passed_over_wherever_it_is() {
     let f = Fixture::new();
     f.tool("out/node_modules/.bin");
