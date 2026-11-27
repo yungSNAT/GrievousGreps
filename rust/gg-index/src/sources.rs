@@ -13,9 +13,10 @@
 //!   stopped and the walk falls back to the file system, as Node's `maxBuffer` makes it.
 //! - Unreadable folders: outside Git a folder that cannot be listed fails the command with
 //!   its path, as `readdirSync` throws in TypeScript.
-//! - Names that are not UTF-8: Node decodes them lossily, so such a file never stats and is
-//!   dropped, and such a folder fails the walk unless its lossy name is skipped. The port
-//!   does the same, naming the folder.
+//! - Names that are not UTF-8: Node decodes Git's listing and each folder entry lossily
+//!   (U+FFFD) and uses that spelling as the path, and so does the port. Such a file is
+//!   dropped unless a sibling bears its lossy spelling, which is then listed again; such a
+//!   folder fails the walk with its lossy path unless a sibling folder bears that spelling.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -201,6 +202,9 @@ pub fn walk_dir(dir: &Path, opts: &Options) -> Result<Vec<PathBuf>, String> {
 struct Git(PathBuf);
 
 impl Git {
+    /// Git is found once, passing over the top root. TypeScript looks it up again for each
+    /// followed child, passing over only that child, so a PATH folder inside the top tree
+    /// but outside the child would run there; the port never starts it.
     fn find(root: &Path) -> Option<Self> {
         find_program("git", &[root]).map(Git)
     }
@@ -260,7 +264,7 @@ impl Git {
             ],
         )?;
         Some(
-            records(&out)
+            records(&String::from_utf8_lossy(&out))
                 .filter(|rel| !skipped_path(rel, includes))
                 .map(|rel| join(root, rel))
                 .filter(|abs| small_file(abs))
@@ -295,6 +299,7 @@ impl Git {
             active.remove(&key);
             return Ok(None);
         };
+        let out = String::from_utf8_lossy(&out);
         let mut files = Vec::new();
         for (rel, gitlink, nested) in stage_records(&out) {
             let abs = join(root, rel);
@@ -331,7 +336,7 @@ impl Git {
 
 /// `git ls-files -t --stage` records as `(path, gitlink, nested repository)`. A path has
 /// several stage records during a merge: they collapse, in first-seen order.
-fn stage_records(out: &[u8]) -> Vec<(&str, bool, bool)> {
+fn stage_records(out: &str) -> Vec<(&str, bool, bool)> {
     let mut order: Vec<(&str, bool, bool)> = Vec::new();
     let mut at: HashMap<&str, usize> = HashMap::new();
     for record in records(out) {
@@ -360,11 +365,10 @@ fn stage_records(out: &[u8]) -> Vec<(&str, bool, bool)> {
     order
 }
 
-/// NUL-separated records that are UTF-8; others name no file Node could stat.
-fn records(out: &[u8]) -> impl Iterator<Item = &str> {
-    out.split(|&b| b == 0)
-        .filter_map(|r| std::str::from_utf8(r).ok())
-        .filter(|r| !r.is_empty())
+/// NUL-separated records of Git's output, decoded lossily first as Node decodes it (no
+/// invalid sequence spans a NUL, so this is the same as decoding each record).
+fn records(out: &str) -> impl Iterator<Item = &str> {
+    out.split('\0').filter(|r| !r.is_empty())
 }
 
 /// `resolve(root, rel)` for a Git-relative path.
@@ -397,27 +401,19 @@ fn walk_filesystem(dir: &Path, includes: &HashSet<&str>) -> Result<Vec<PathBuf>,
             stack.pop();
             continue;
         };
-        let full = at.join(&name);
-        match name.to_str() {
-            None if kind.is_dir() => {
-                let lossy = name.to_string_lossy();
-                if !should_skip_dir(&lossy, includes) {
-                    return Err(format!("folder name is not UTF-8: {}", full.display()));
-                }
+        // Node's lossy spelling of the name is the path it then lists or stats.
+        let n = name.to_string_lossy();
+        let full = at.join(&*n);
+        if kind.is_dir() {
+            if !should_skip_dir(&n, includes) {
+                let next = list_dir(&full)?;
+                stack.push((full, next.into_iter()));
             }
-            None => {}
-            Some(n) if kind.is_dir() => {
-                if !should_skip_dir(n, includes) {
-                    let next = list_dir(&full)?;
-                    stack.push((full, next.into_iter()));
-                }
-            }
-            Some(n) if kind.is_file() && !n.starts_with('.') => {
-                if fs::metadata(&full).is_ok_and(|m| m.len() <= MAX_FILE_BYTES) {
-                    out.push(full);
-                }
-            }
-            Some(_) => {}
+        } else if kind.is_file()
+            && !n.starts_with('.')
+            && fs::metadata(&full).is_ok_and(|m| m.len() <= MAX_FILE_BYTES)
+        {
+            out.push(full);
         }
     }
     Ok(out)
@@ -438,9 +434,10 @@ fn list_dir(dir: &Path) -> Result<Vec<(std::ffi::OsString, fs::FileType)>, Strin
     Ok(v)
 }
 
-/// JavaScript's `String.prototype.trim` set: White_Space plus U+FEFF.
+/// JavaScript's `String.prototype.trim` set: WhiteSpace (TAB, VT, FF, U+FEFF, Zs) and the
+/// line terminators, which is Unicode White_Space without NEL (U+0085, a control) plus U+FEFF.
 fn js_trim(s: &str) -> &str {
-    s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+    s.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}')
 }
 
 /// `normExt`.
@@ -646,7 +643,7 @@ mod tests {
 
     #[test]
     fn stage_records_collapse_and_skip_what_is_not_a_record() {
-        let out = b"H 100644 aa 1\ta.ts\0x\0Hx\0H 100644 no-tab\0? \0? nested/\0\
+        let out = "H 100644 aa 1\ta.ts\0x\0Hx\0H 100644 no-tab\0? \0? nested/\0\
 S 160000 bb 0\tsub\0M 100644 cc 2\ta.ts\0M 160000 dd 3\ta.ts\0? new.py\0";
         assert_eq!(
             stage_records(out),

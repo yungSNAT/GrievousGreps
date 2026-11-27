@@ -96,8 +96,9 @@ fn candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
 
 #[cfg(unix)]
 fn runnable(file: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(file).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    // `access(X_OK)`, as `accessSync` asks: it weighs ownership and `noexec` mounts too.
+    std::fs::metadata(file).is_ok_and(|m| m.is_file())
+        && rustix::fs::access(file, rustix::fs::Access::EXEC_OK).is_ok()
 }
 
 #[cfg(not(unix))]
