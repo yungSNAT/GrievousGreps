@@ -435,3 +435,36 @@ pub fn locate_program(name: &str, cwd: &Path) -> Result<PathBuf, String> {
         "{name} was not found on PATH outside the working folder and its subfolders"
     ))
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{LookupRules, file_identity};
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_both_identities() {
+        // `lk/../wk` opens `deep/wk` (`lk` is `deep/x`) but is `wk`, a link to `w2`, cleaned as
+        // text. A bind mount of `deep/wk` shows it by no path in `trees`, so its identity must
+        // be kept beside the cleaned folder's; a test cannot mount, so it reads the rules.
+        let r = tempfile::tempdir().expect("tempdir");
+        let r = fs::canonicalize(r.path()).expect("real tempdir");
+        for d in ["deep/x", "deep/wk", "w2"] {
+            fs::create_dir_all(r.join(d)).expect("folder");
+        }
+        symlink(r.join("deep/x"), r.join("lk")).expect("lk");
+        symlink(r.join("w2"), r.join("wk")).expect("wk");
+        let ids: Vec<_> = LookupRules::new(&r.join("lk/../wk"))
+            .tree_ids
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        for d in ["deep/wk", "w2"] {
+            let id = file_identity(&r.join(d)).expect("identity");
+            assert!(
+                ids.contains(&id),
+                "{d} is not among the working folder's identities"
+            );
+        }
+    }
+}
