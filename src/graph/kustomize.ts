@@ -5,8 +5,8 @@
  * each generated ConfigMap or Secret. In a standalone leaf build (files only, with no options
  * or strategies that alter generation) a workload's reference also links to the generator it
  * names, as `kustomize build` on that folder renames it; so does a reference in an overlay that
- * lists such leaf folders, or in one of those leaves, to the overlay's own generator, when neither
- * renames by prefix or suffix. A build above can still patch
+ * lists such leaf folders, or in one of those leaves, to the overlay's own generator, whatever
+ * prefix or suffix either adds. A build above can still patch
  * or transform references. Otherwise names are not
  * resolved: `namespace`, `namePrefix`, `nameSuffix`, `images`, generator names and patches are
  * not applied to references, which link objects as written; each kustomization using them says
@@ -116,12 +116,13 @@ export function kustomize(rel: string, { d, top }: { d: Document; top: Obj }, li
     });
   }
   const namespace = str(top.namespace, "namespace") || null; // Kustomize reads an empty namespace as none.
-  const words = [dir, str(top.namePrefix, "namePrefix"), str(top.nameSuffix, "nameSuffix"), namespace, ...names];
+  const rename: [string, string] = [str(top.namePrefix, "namePrefix") || "", str(top.nameSuffix, "nameSuffix") || ""];
+  const words = [dir, ...rename, namespace, ...names];
   nodes.unshift(resource(rel, "kustomization", dir, lines(d, d.contents), `${kind} ${dir}`, words.filter((w): w is string => !!w)));
   const present = (f: string) => top[f] !== undefined && top[f] !== null;
   return { nodes, refs: [{
     from, to: "kustomize", dir, entries, patches, generators, generated, repeated,
-    generatorFiles: leafEligible ? generatorFiles : [], leafEligible, namespace, component: kind === "Component",
+    generatorFiles: leafEligible ? generatorFiles : [], leafEligible, namespace, rename, component: kind === "Component",
     unread: UNREAD.filter(present), unapplied: UNAPPLIED.filter(present),
   }] };
 }
@@ -338,22 +339,26 @@ export function linkKustomize(ctx: Context): void {
  * accumulation.
  *
  * Given `leaves`, the build of an overlay: the same rules, except that an entry may also be a folder holding one of
- * those leaves, listed once and not holding the overlay, and neither the overlay nor any of its leaves has `namePrefix` or `nameSuffix`. The
- * overlay's `namespace`, if any, replaces each leaf object's.
+ * those leaves, listed once and not holding the overlay. The overlay's `namespace`, if any, replaces each leaf object's.
+ * A `namePrefix` or `nameSuffix` on either changes no link: a reference names an object as written, and Kustomize
+ * matches it by the names as written, then renames both. A clash counts under a leaf object's or generator's renamed name as well as
+ * its written one (`b-x` from a leaf's `namePrefix: b-` clashes with the overlay's own `b-x`), so either refuses the
+ * build. Objects that only their leaves' prefixes would tell apart are refused here too, though Kustomize builds them
+ * (a false negative only).
  */
 function buildOf(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: Map<string, NodeV1[]>,
   leafFile: (dir: string, local: string) => boolean, unsafeFiles: Set<string>, leaves?: Map<KustomizeRef, Build>): Build | null {
   if (!k.leafEligible || k.component || k.patches.length || k.unread.length || k.unapplied.some((f) => f.startsWith("patches"))) return null;
   if (k.generatorFiles.some((f) => !leafFile(k.dir, f))) return null;
-  if (leaves && renames(k)) return null;
   const build: Build = { members: [], bases: [] };
   const seen = new Set<string>();
-  const add = (n: NodeV1, ns: string) => {
+  const add = (n: NodeV1, ns: string, [prefix, suffix] = ["", ""]) => {
     const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1))!;
-    const key = `${m[1]}\0${ns}\0${m[3]}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    build.members.push({ n, ns });
+    const renamed = `${prefix}${m[3]}${suffix}`;
+    const keys = [...new Set([m[3], renamed])].map((name) => `${m[1]}\0${ns}\0${name}`);
+    if (keys.some((key) => seen.has(key))) return false;
+    for (const key of keys) seen.add(key);
+    build.members.push(renamed === m[3] ? { n, ns } : { n, ns, renamed });
     return true;
   };
   for (const e of k.entries) {
@@ -365,9 +370,9 @@ function buildOf(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: M
     if (base) {
       // Kustomize refuses a folder listed twice, as its objects are then registered twice, and a folder holding this one.
       const held = leaves?.get(base);
-      if (!held || renames(base) || base.dir === "." || k.dir.startsWith(`${base.dir}/`)) return null;
+      if (!held || base.dir === "." || k.dir.startsWith(`${base.dir}/`)) return null;
       build.bases.push(base);
-      for (const m of held.members) if (!add(m.n, k.namespace ?? m.ns)) return null;
+      for (const m of held.members) if (!add(m.n, k.namespace ?? m.ns, base.rename)) return null;
       continue;
     }
     // Kustomize refuses a file outside the kustomization's folder (including escaping symlinks) and an object listed twice.
@@ -380,9 +385,7 @@ function buildOf(k: KustomizeRef, byDir: Map<string, KustomizeRef>, objectsIn: M
 }
 
 /** The objects a build holds, each with its namespace after the build's transforms, and the leaf builds it takes in. */
-interface Build { members: Array<{ n: NodeV1; ns: string }>; bases: KustomizeRef[] }
-
-const renames = (k: KustomizeRef) => k.unapplied.includes("namePrefix") || k.unapplied.includes("nameSuffix");
+interface Build { members: Array<{ n: NodeV1; ns: string; renamed?: string }>; bases: KustomizeRef[] }
 
 /**
  * Link each workload in a build to the build's own generator its ConfigMap or Secret reference names. `kustomize build`
@@ -404,12 +407,16 @@ function linkGenerated(ctx: Context, builds: Map<KustomizeRef, Build>, report: (
     const held = new Map<string, { generated: string[]; written: number }>();
     const entry = (key: string) => held.get(key) ?? held.set(key, { generated: [], written: 0 }).get(key)!;
     for (const g of k.generated) entry(at(g.kind, k.namespace ?? g.ns ?? "default", g.name)).generated.push(g.id);
+    // A leaf's generators and objects clash under their renamed names too; only the written name links.
     for (const b of bases) {
-      for (const g of b.generated) entry(at(g.kind, k.namespace ?? b.namespace ?? g.ns ?? "default", g.name)).generated.push(g.id);
+      for (const g of b.generated) {
+        const ns = k.namespace ?? b.namespace ?? g.ns ?? "default";
+        for (const name of new Set([g.name, `${b.rename[0]}${g.name}${b.rename[1]}`])) entry(at(g.kind, ns, name)).generated.push(g.id);
+      }
     }
-    for (const { n, ns } of members) {
+    for (const { n, ns, renamed } of members) {
       const m = OBJECT_ID.exec(n.id.slice(n.path.length + 1));
-      if (m && held.has(at(m[1], ns, m[3]))) entry(at(m[1], ns, m[3])).written++;
+      for (const name of m ? new Set([m[3], renamed ?? m[3]]) : []) if (held.has(at(m![1], ns, name))) entry(at(m![1], ns, name)).written++;
     }
     const collisions = [...held.entries()].filter(([, c]) => c.generated.length > 1 || c.written > 0);
     if (collisions.length) {

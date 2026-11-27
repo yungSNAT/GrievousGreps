@@ -1,6 +1,6 @@
 /**
  * Kustomize generators across one build level (`src/graph/kustomize.ts`, `linkGenerated`): an overlay listing leaf
- * base folders, with no name prefix or suffix on either, links a workload in a base or in its own files to the overlay
+ * base folders links a workload in a base or in its own files to the overlay
  * generator its ConfigMap or Secret reference names, when the overlay's build holds exactly one object of that kind,
  * name and namespace. Each case's expectation is what `kustomize build` v5.8.3 on the case's overlay folder renames.
  */
@@ -25,8 +25,6 @@ const CASES: Record<string, Record<string, string>> = {
   basensGenns: { "base/kustomization.yaml": `namespace: a\n${BASE}`, "base/d.yaml": dep("api"), "overlay/kustomization.yaml": `resources: [ ../base ]\n${genIn("a")}` },
   basegen: { "base/kustomization.yaml": BASE + GEN, "base/d.yaml": dep("api"), "overlay/kustomization.yaml": OV },
   baseobj: { "base/kustomization.yaml": "resources: [ d.yaml, cm.yaml ]\n", "base/d.yaml": dep("api"), "base/cm.yaml": CM, "overlay/kustomization.yaml": OV },
-  ovprefix: { "base/kustomization.yaml": BASE, "base/d.yaml": dep("api"), "overlay/kustomization.yaml": `namePrefix: p-\n${OV}` },
-  baseprefix: { "base/kustomization.yaml": `namePrefix: p-\n${BASE}`, "base/d.yaml": dep("api"), "overlay/kustomization.yaml": OV },
   twobases: {
     "b1/kustomization.yaml": BASE, "b1/d.yaml": dep("one"), "b2/kustomization.yaml": BASE, "b2/d.yaml": dep("two"),
     "overlay/kustomization.yaml": `resources: [ ../b1, ../b2 ]\n${GEN}`,
@@ -105,10 +103,8 @@ test("an overlay's generator links from the workloads its build renames, base an
   for (const k of ["ancestor/base/overlay", "grandparent/top/mid/overlay"]) {
     assert.ok(reasons.includes(`${k}/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), `${k}\n${reasons.join("\n")}`);
   }
-  // Outside this transform (a prefix or suffix, a base listed twice) and a namespace mismatch: the generator stays unapplied.
-  for (const c of ["ovprefix", "baseprefix", "twice"]) {
-    assert.ok(reasons.includes(`${c}/overlay/kustomization.yaml: configMapGenerator not applied to references, which link objects as written`), `${c}\n${reasons.join("\n")}`);
-  }
+  // Outside this transform (a base listed twice): the generator stays unapplied. Prefixes and suffixes: deploy-kustomize-prefix.test.ts.
+  assert.ok(reasons.includes("twice/overlay/kustomization.yaml: configMapGenerator not applied to references, which link objects as written"), reasons.join("\n"));
   for (const c of ["plain", "ownfile", "twobases", "basens", "objns"]) {
     assert.ok(!reasons.some((r) => r.startsWith(`${c}/overlay/`) && r.includes("configMapGenerator")), `${c}\n${reasons.join("\n")}`);
   }
