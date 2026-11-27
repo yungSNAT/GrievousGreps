@@ -547,7 +547,8 @@ fn reports_serialise_to_the_recorded_json() {
         assert_eq!(
             json,
             read(&fixtures().join(format!("{name}.report.json"))),
-            "{name}: report JSON changed; rerun parity/render-parity.ts --record"
+            "{name}: report JSON changed; write each case's JSON from `cases()` with \
+             serde_json::to_string_pretty, then rerun parity/render-parity.ts --record"
         );
     }
 }
@@ -613,4 +614,33 @@ fn markdown_counts_every_symbol_past_the_cap() {
     assert!(!md.contains("b61 (calls"), "61st symbol listed:\n{md}");
     assert!(!md.contains("**Next**"), "area after the cap listed:\n{md}");
     assert!(md.contains("…4 further symbols not listed."), "{md}");
+}
+
+/// Exactly 60 symbols fill the cap and hide none, so no 'further' line follows. TypeScript
+/// prints '…0 further symbols not listed.' here (it counts the symbol it stops at, as above).
+#[test]
+fn markdown_lists_exactly_sixty_symbols_without_a_further_line() {
+    let mut r = empty_report("main...HEAD", 1);
+    r.modules = vec![
+        module(
+            "Big",
+            &["src/big.ts"],
+            (1..=59)
+                .map(|i| sym(&format!("b{i}"), "src/big.ts", &format!("L{i}"), 1, false))
+                .collect(),
+            &[],
+            None,
+        ),
+        module(
+            "Next",
+            &["src/next.ts"],
+            vec![sym("n", "src/next.ts", "L1", 1, false)],
+            &[],
+            None,
+        ),
+    ];
+    let md = markdown_report(&r, None);
+    assert!(md.contains("b59 (calls"), "59th symbol missing:\n{md}");
+    assert!(md.contains("**Next**"), "60th area missing:\n{md}");
+    assert!(!md.contains("further symbol"), "{md}");
 }

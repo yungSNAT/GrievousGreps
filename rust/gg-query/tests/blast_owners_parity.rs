@@ -2,7 +2,9 @@
 //!
 //! `tests/fixtures/owners/table.json` holds the TypeScript answers of `githubHandle`,
 //! `sinceLabel` and `Date.parse` (what `ownersFor` reads `%aI` with), recorded by
-//! `parity/owners-parity.ts --record`. The git cases follow `ownersFor`, `diffAuthors`
+//! `parity/owners-parity.ts --record`. The `iso` rows are the `%aI` shape git prints and
+//! malformed variants of it; dates without an offset, which `Date.parse` reads as local
+//! time, are left out. The git cases follow `ownersFor`, `diffAuthors`
 //! and `attachOwners` on real repositories.
 
 use std::fs;
@@ -49,17 +51,22 @@ fn since_label_matches_typescript() {
 }
 
 #[test]
-fn parse_iso_ms_matches_date_parse() {
+fn parse_iso_ms_matches_date_parse_on_git_iso_dates() {
     for row in table()["iso"].as_array().unwrap() {
         let raw = row[0].as_str().unwrap();
         assert_eq!(parse_iso_ms(raw), row[1].as_f64(), "Date.parse({raw:?})");
     }
 }
 
+/// Global and system git config stay out, so no hook, template or signing setting slows
+/// or changes the commits.
 fn git(repo: &Path, args: &[&str], env: &[(&str, &str)]) {
+    let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
     let out = Command::new("git")
         .args(args)
         .current_dir(repo)
+        .env("GIT_CONFIG_GLOBAL", null)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .envs(env.iter().copied())
         .output()
         .expect("run git");
@@ -93,8 +100,18 @@ fn commit_as(repo: &Path, files: &[&str], tag: &str, name: &str, email: &str, da
     git(repo, &["commit", "-q", "-m", tag], &env);
 }
 
-fn days_ago(n: f64) -> String {
-    format!("@{} +0000", ((now_ms() - n * DAY_MS) / 1000.0) as i64)
+fn secs_ago(now: f64, n: f64) -> i64 {
+    ((now - n * DAY_MS) / 1000.0) as i64
+}
+
+/// A git author date `n` days before `now`, in whole seconds.
+fn days_ago(now: f64, n: f64) -> String {
+    format!("@{} +0000", secs_ago(now, n))
+}
+
+/// The `last` an owner gets from a commit dated `days_ago(now, n)`.
+fn ms_ago(now: f64, n: f64) -> f64 {
+    secs_ago(now, n) as f64 * 1000.0
 }
 
 const ALICE: &str = "101+alice@users.noreply.github.com";
@@ -103,8 +120,9 @@ const ALICE: &str = "101+alice@users.noreply.github.com";
 fn owners_rank_people_and_drop_bots_and_undated_commits() {
     let tmp = tempdir().unwrap();
     let repo = tmp.path();
+    let now = now_ms();
     init(repo);
-    let d = days_ago(2.0);
+    let d = days_ago(now, 2.0);
     for i in 0..3 {
         commit_as(
             repo,
@@ -156,18 +174,20 @@ fn owners_rank_people_and_drop_bots_and_undated_commits() {
         "helper[bot]@example.com",
         &d,
     );
-    // Year 10000: `%aI` prints a five-digit year, which neither side can read, so the
-    // commit is skipped rather than credited.
-    commit_as(
-        repo,
-        &["src/a.ts"],
-        "far",
-        "Zed",
-        "zed@example.com",
-        "@253402300800 +0000",
-    );
+    // A +25:00 offset: git prints `+25:00` in `%aI`, which `Date.parse` refuses, so these
+    // commits are skipped. Zed alone touches `src/z.ts`, so no share floor can hide him.
+    let undated = format!("@{} +2500", secs_ago(now, 1.0));
+    for i in 0..3 {
+        commit_as(
+            repo,
+            &["src/z.ts"],
+            &format!("zed {i}"),
+            "Zed",
+            "zed@example.com",
+            &undated,
+        );
+    }
 
-    let now = now_ms();
     let files = vec!["src/a.ts".to_string(), "src/b.ts".to_string()];
     let owners = owners_for(repo, &files, &[], now);
     let names: Vec<(&str, Option<&str>, usize)> = owners
@@ -176,7 +196,7 @@ fn owners_rank_people_and_drop_bots_and_undated_commits() {
         .collect();
     // Bob and Carol tie on score and commits; the name decides, and the area keeps 2.
     assert_eq!(names, [("Alice", Some("alice"), 3), ("Bob", None, 1)]);
-    assert!((owners[1].last - (now - 2.0 * DAY_MS)).abs() < 2_000.0);
+    assert_eq!(owners[1].last, ms_ago(now, 2.0));
 
     // Carol touched both files in one commit: one commit, not two.
     let carol = owners_for(repo, &["src/b.ts".to_string()], &[], now);
@@ -196,6 +216,7 @@ fn owners_rank_people_and_drop_bots_and_undated_commits() {
     let by_name = owners_for(repo, &files, &["bob".to_string()], now);
     assert_eq!(by_name[1].name, "Carol");
 
+    assert!(owners_for(repo, &["src/z.ts".to_string()], &[], now).is_empty());
     assert!(owners_for(repo, &[], &[], now).is_empty());
     assert!(owners_for(&repo.join("missing"), &files, &[], now).is_empty());
 }
@@ -204,14 +225,15 @@ fn owners_rank_people_and_drop_bots_and_undated_commits() {
 fn owners_drop_people_under_the_share_floor() {
     let tmp = tempdir().unwrap();
     let repo = tmp.path();
+    let now = now_ms();
     init(repo);
-    let d = days_ago(1.0);
+    let d = days_ago(now, 1.0);
     for i in 0..7 {
         commit_as(repo, &["a.ts"], &format!("a{i}"), "Alice", ALICE, &d);
     }
     commit_as(repo, &["a.ts"], "b", "Bob", "bob@example.com", &d);
     // Bob holds 1 of 8 equal shares, under the 15% floor.
-    let owners = owners_for(repo, &["a.ts".to_string()], &[], now_ms());
+    let owners = owners_for(repo, &["a.ts".to_string()], &[], now);
     assert_eq!(owners.len(), 1);
     assert_eq!(owners[0].name, "Alice");
 }
@@ -250,6 +272,7 @@ fn module(label: &str, files: &[&str]) -> ImpactedModule {
 fn attach_owners_merges_a_person_across_areas_and_ranks_reviewers() {
     let tmp = tempdir().unwrap();
     let repo = tmp.path();
+    let now = now_ms();
     init(repo);
     // 'bob' without a handle keys on his name, which is the handle of his noreply address.
     commit_as(
@@ -258,7 +281,7 @@ fn attach_owners_merges_a_person_across_areas_and_ranks_reviewers() {
         "x",
         "bob",
         "bob@example.com",
-        &days_ago(9.0),
+        &days_ago(now, 9.0),
     );
     commit_as(
         repo,
@@ -266,9 +289,9 @@ fn attach_owners_merges_a_person_across_areas_and_ranks_reviewers() {
         "y",
         "Robert",
         "7+bob@users.noreply.github.com",
-        &days_ago(3.0),
+        &days_ago(now, 3.0),
     );
-    let d1 = days_ago(1.0);
+    let d1 = days_ago(now, 1.0);
     for i in 0..2 {
         commit_as(repo, &["z.ts"], &format!("z{i}"), "Alice", ALICE, &d1);
     }
@@ -295,7 +318,6 @@ fn attach_owners_merges_a_person_across_areas_and_ranks_reviewers() {
         tests: None,
         reviewers: None,
     };
-    let now = now_ms();
     attach_owners(repo, &mut report, &[], now);
 
     assert_eq!(report.areas[0].owners.as_ref().unwrap()[0].name, "bob");
@@ -321,13 +343,14 @@ fn attach_owners_merges_a_person_across_areas_and_ranks_reviewers() {
             ("Carol", None, 1, vec!["W"]),
         ]
     );
-    assert!((reviewers[1].last - (now - 3.0 * DAY_MS)).abs() < 2_000.0);
+    assert_eq!(reviewers[1].last, ms_ago(now, 3.0));
 }
 
 #[test]
 fn diff_authors_reads_names_emails_and_co_author_trailers() {
     let tmp = tempdir().unwrap();
     let repo = tmp.path();
+    let now = now_ms();
     init(repo);
     commit_as(
         repo,
@@ -335,7 +358,7 @@ fn diff_authors_reads_names_emails_and_co_author_trailers() {
         "base",
         "Base",
         "base@example.com",
-        &days_ago(5.0),
+        &days_ago(now, 5.0),
     );
     git(repo, &["checkout", "-q", "-b", "feat"], &[]);
     fs::write(repo.join("a.ts"), "one\n").unwrap();
@@ -353,12 +376,7 @@ fn diff_authors_reads_names_emails_and_co_author_trailers() {
     ];
     git(repo, &["commit", "-q", "-m", message], &env);
     // A second commit by the same author repeats both lines, which are listed once.
-    fs::write(
-        repo.join("a.ts"),
-        "two
-",
-    )
-    .unwrap();
+    fs::write(repo.join("a.ts"), "two\n").unwrap();
     git(repo, &["commit", "-q", "-am", "again"], &env);
 
     assert_eq!(
@@ -393,13 +411,13 @@ fn local_identity_skips_an_empty_name() {
 fn owners_keep_the_newest_author_date_whatever_the_commit_order() {
     let tmp = tempdir().unwrap();
     let repo = tmp.path();
+    let now = now_ms();
     init(repo);
-    let (recent, older) = (days_ago(1.0), days_ago(6.0));
+    let (recent, older) = (days_ago(now, 1.0), days_ago(now, 6.0));
     commit_as(repo, &["a.ts"], "first", "Alice", ALICE, &recent);
     // Committed later but authored earlier: `git log` lists it first.
     commit_as(repo, &["a.ts"], "second", "Alice", ALICE, &older);
-    let now = now_ms();
     let owners = owners_for(repo, &["a.ts".to_string()], &[], now);
     assert_eq!(owners[0].commits, 2);
-    assert!((owners[0].last - (now - DAY_MS)).abs() < 2_000.0);
+    assert_eq!(owners[0].last, ms_ago(now, 1.0));
 }
