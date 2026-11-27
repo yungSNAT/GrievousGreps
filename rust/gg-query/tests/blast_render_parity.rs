@@ -641,6 +641,6 @@ fn markdown_lists_exactly_sixty_symbols_without_a_further_line() {
     ];
     let md = markdown_report(&r, None);
     assert!(md.contains("b59 (calls"), "59th symbol missing:\n{md}");
-    assert!(md.contains("**Next**"), "60th area missing:\n{md}");
+    assert!(md.contains("**Next**"), "second area missing:\n{md}");
     assert!(!md.contains("further symbol"), "{md}");
 }
