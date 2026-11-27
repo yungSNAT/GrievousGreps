@@ -214,7 +214,7 @@ fn a_path_folder_under_the_processs_own_working_folder_is_passed_over() {
 
 #[test]
 fn a_link_to_the_working_folder_is_judged_by_its_real_path() {
-    // `under_by_id` would refuse this too; the next test is the one it alone decides.
+    // `under_by_id` would refuse this too.
     let f = Fixture::new();
     f.tool("work");
     f.link(&f.work.display().to_string(), "out/alias");
@@ -222,9 +222,10 @@ fn a_link_to_the_working_folder_is_judged_by_its_real_path() {
 }
 
 #[test]
-fn a_working_folder_spelt_with_dot_dot_after_a_link_is_known_by_identity() {
+fn a_working_folder_spelt_with_dot_dot_after_a_link_is_its_real_folder() {
     // `lk/../work` is `deep/work` to the system (`lk` is `deep/x`) but `work` when cleaned
-    // as text: the path rules hold the wrong folder, and only its identity catches it.
+    // as text. The real path and the identity both catch it; on POSIX only a bind mount
+    // shows a folder by identity that its real path hides, so no test here pins identity alone.
     let f = Fixture::new();
     fs::create_dir_all(f.at("deep/x")).expect("x");
     f.link(&f.s("deep/x"), "lk");

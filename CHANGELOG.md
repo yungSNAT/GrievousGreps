@@ -71,6 +71,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **`gg-query` passes over Yarn's own bin folder and the working folders by their real path as written.** A `BERRY_BIN_FOLDER`, home or working folder spelt with `..` after a link now resolves as the system resolves it, as the TypeScript lookup does, instead of from the path cleaned as text.
 - **PHP group `use` imports and 2 R extraction checks now match the language rules.** Depth extraction now keeps the group namespace prefix on `use App\Models\{User, Post};` import specifiers (including nested qualified clauses), ignores `UseMethod()` calls without a string-literal `generic` argument when collecting S3 generics, and skips plain `#` comment lines instead of ending a preceding roxygen block.
 - **`callers` quotes the call, not the import, for a name imported under another name.** For a caller whose file imports the definition, as `from pkg.util import helper as h` or `import { helper as h } from "./util"`, the quoted line was the import line, or nothing when the caller was a function that calls `h(...)`. It is now the first line in the caller that uses the name or its alias outside an import, in `trail callers` and `gg-query callers`; the import line is quoted only when no other line uses it.
 - Workspace `skeleton` and `graft_file_api` preserve candidate paths containing a comma and space in their ambiguity messages.

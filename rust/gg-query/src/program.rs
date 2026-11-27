@@ -77,7 +77,8 @@ fn both_ways(dir: &Path) -> Vec<PathBuf> {
         dir.to_path_buf()
     };
     out.push(abs.clone());
-    if let Ok(real) = fs::canonicalize(&abs)
+    // The real path of the folder as written: `..` after a link climbs from the link's target.
+    if let Ok(real) = fs::canonicalize(dir)
         && real != abs
     {
         out.push(real);
