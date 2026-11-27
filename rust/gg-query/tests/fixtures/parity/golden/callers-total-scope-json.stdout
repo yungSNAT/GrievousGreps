@@ -1,0 +1,50 @@
+{
+  "query": "total",
+  "matches": [
+    {
+      "symbol": {
+        "id": "src/lib.ts#total",
+        "name": "total",
+        "kind": "function",
+        "path": "src/lib.ts",
+        "span": "L1-L3"
+      },
+      "hits": [
+        {
+          "id": "src/app.ts#checkout",
+          "relation": "calls",
+          "depth": 1,
+          "confidence": "extracted",
+          "scope": "internal",
+          "name": "checkout",
+          "kind": "function",
+          "path": "src/app.ts",
+          "span": "L3-L5"
+        },
+        {
+          "id": "test/lib.test.ts#checksTotal",
+          "relation": "calls",
+          "depth": 1,
+          "confidence": "extracted",
+          "scope": "test",
+          "name": "checksTotal",
+          "kind": "function",
+          "path": "test/lib.test.ts",
+          "span": "L3-L5"
+        },
+        {
+          "id": "pkg/ext#useTotal",
+          "relation": "calls",
+          "depth": 1,
+          "inferred": true,
+          "confidence": "inferred",
+          "scope": "external"
+        }
+      ]
+    }
+  ],
+  "saved": {
+    "files": 3,
+    "baselineChars": 282
+  }
+}
