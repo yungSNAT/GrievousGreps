@@ -34,7 +34,7 @@ test("typed member call resolves despite global name ambiguity", () => {
   ]);
   const call = edges.find((e) => e.relation === "calls");
   assert.equal(call?.target, "app.py#FastAPI.include_router");
-  assert.equal(call?.confidence, "inferred");
+  assert.equal(call?.confidence, "inferred"); // t.py neither defines nor imports FastAPI
 });
 
 test("untyped ambiguous member call still drops (regression guard)", () => {

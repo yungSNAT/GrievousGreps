@@ -43,6 +43,8 @@ export interface KustomizeRef {
   leafEligible: boolean;
   /** Its `namespace`, which Kustomize gives every object it builds. */
   namespace: string | null;
+  /** Its `namePrefix` and `nameSuffix`, empty when absent. */
+  rename: [string, string];
   component: boolean;
   /** Fields present that add objects or change names or selectors, which the graph does not follow. */
   unread: string[];

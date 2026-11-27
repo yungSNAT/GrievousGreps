@@ -39,6 +39,10 @@ const PY_CTOR_KINDS: Kind[] = ["class"];
  * implicit-self widening) have found nothing. */
 const SWIFT_EXT = /\.swift$/i;
 const EX_EXT = /\.exs?$/i;
+/** The languages whose typed or scoped cross-file edges a precision sample measured (26 Nov 2026:
+ * 108 of 111 right, against 13 of 48 for a bare name). Their edges grade `likely`; every other
+ * language keeps `inferred` until a sample of its own says otherwise. */
+const LIKELY_LANG = /\.(pyi?|rs|[cm]?[jt]sx?)$/i;
 const SWIFT_CTOR_KINDS: Kind[] = ["class", "struct", "enum"];
 /** Kotlin is Swift's case again — `Mailer(host = "smtp")` is an ordinary call node with
  * no `new` to mark it — and it has free functions too, so it takes the same fallback
@@ -336,7 +340,8 @@ export function resolveEdges(
   // The type a Python attribute holds: what its class, else the nearest base class, states
   // for it, when every statement there names one type. A method's return annotation counts;
   // an assignment of no known type (`self.config = None`) leaves the attribute untyped.
-  const pythonFieldType = (owner: string, attr: string, file: string): string | undefined => {
+  // `stated` gets the files whose statements name the type: its scope is judged there.
+  const pythonFieldType = (owner: string, attr: string, file: string, stated: Set<string>): string | undefined => {
     let ownerClass: NodeV1 | undefined;
     if (pythonNamed(owner, "class") > 1) {
       const hit = followPythonName(owner, toPosixPath(file), pythonCtx);
@@ -350,20 +355,22 @@ export function resolveEdges(
     let frontier = [owner];
     for (let depth = 0; depth <= 3 && frontier.length; depth++) {
       if (depth > 0 && frontier.some((type) => pythonNamed(type, "class") > 1)) return undefined;
-      const types = new Set<string | undefined>();
+      const types = new Map<string | undefined, string[]>();
+      const note = (type: string | undefined, at: string | undefined) => types.set(type, [...(types.get(type) ?? []), ...(at ? [at] : [])]);
       for (const type of frontier) {
         for (const { classId, field } of pythonFields.get(`${type}.${attr}`) ?? []) {
           if (depth === 0 && ownerClass && classId !== ownerClass.id.replace(/~\d+$/, "")) continue;
-          if ("type" in field) types.add(field.type);
-          else if ("unknown" in field) types.add(undefined);
+          if ("type" in field) note(field.type, classId.split("#")[0]);
+          else if ("unknown" in field) note(undefined, undefined);
           else {
             const hit = resolveTypedMember(type, field.returns, file, ownerMethod, classParents, classTraits);
-            const signature = hit && hit !== "ambiguous" ? byId.get(hit.id)?.signature : undefined;
-            types.add(/->\s*['"]?(?:\w+\.)*(\w+)['"]?$/.exec(signature ?? "")?.[1]);
+            const method = hit && hit !== "ambiguous" ? byId.get(hit.id) : undefined;
+            note(/->\s*['"]?(?:\w+\.)*(\w+)['"]?$/.exec(method?.signature ?? "")?.[1], method?.path);
           }
         }
       }
-      const only = types.size === 1 ? [...types][0] : undefined;
+      const only = types.size === 1 ? [...types.keys()][0] : undefined;
+      if (only && !pythonNamed(only, "function")) for (const at of types.get(only)!) stated.add(at);
       if (types.size) return only && !pythonNamed(only, "function") ? only : undefined;
       const parents = (type: string) => (depth === 0 && ownerClass ? pythonBasesOf.get(ownerClass.id) : classParents.get(type)) ?? [];
       frontier = frontier.flatMap(parents).filter((type) => !seen.has(type) && seen.add(type));
@@ -510,6 +517,29 @@ export function resolveEdges(
     opts.pythonRoots,
   );
   const pythonCtx: PythonCtx = { modules: pythonModules, perFileName, exports: pythonExports, ownerMethod, classParents, classTraits };
+  // `likely` needs the name to be the file's own or imported from the target's file: a namesake
+  // imported from a package (`undici`'s `Response`) or a global (`Error`) is not the repository's
+  // type. Rust keeps the bare-name grade: 9 of 9 judged `impl Trait for X` by unique name were right.
+  const likelyInScope = (file: string, name: string, targetId: string): boolean => {
+    if (file.endsWith(".rs")) return true;
+    // A name the file declares itself is not the target's type: a same-file target is already `extracted`.
+    const targetFile = byId.get(targetId)?.path;
+    if (!targetFile) return false;
+    if (isJs(file)) {
+      // Through barrels and workspace packages to the definition, where the walk can see it.
+      return (tsModules.get(file)?.imports ?? []).some((i) => {
+        if (i.local !== name) return false;
+        const found = tsModuleOf(i.specifier, file, tsCtx);
+        if (typeof found === "string") return false;
+        if ("module" in found && found.module === targetFile) return true;
+        const at = i.name === "*" ? found : followTsTarget(i.name, found, tsCtx, new Set());
+        const node = typeof at === "string" ? undefined : "id" in at ? at : "scoped" in at ? at.scoped : undefined;
+        return node?.path === targetFile;
+      });
+    }
+    const named = followPythonName(name, toPosixPath(file), pythonCtx);
+    return typeof named === "object" && "id" in named && named.path === targetFile;
+  };
 
   const routeFacts = new Map<string, RouteFacts>();
   for (const e of rawEdges) if (e.routeFacts) routeFacts.set(e.file, e.routeFacts);
@@ -574,7 +604,9 @@ export function resolveEdges(
       const kinds: Kind[] = e.relation === "implements" ? ["interface", "trait"] : ["class", "interface"];
       const hit = resolveName(e.name!, e.file, kinds, perFileName, globalName);
       // an unresolved base is usually an external/imported type — keep the name.
-      add(e.source, hit?.id ?? e.name!, e.relation, hit?.confidence ?? "inferred");
+      const named = hit?.confidence === "inferred" && LIKELY_LANG.test(e.file) && likelyInScope(e.file, e.name!, hit.id)
+        ? "likely" : hit?.confidence;
+      add(e.source, hit?.id ?? e.name!, e.relation, named ?? "inferred");
     } else if (e.relation === "references" && e.name) {
       if (e.specifier) {
         // A named import gives both halves needed for sound resolution: the module
@@ -653,7 +685,9 @@ export function resolveEdges(
       // Python imports identify the target module. A named receiver can be a
       // class or a submodule; both resolve within their explicit import path.
       if (e.rustRoot && (RUST_STD_CRATES.has(e.rustRoot) || opts.rustExternalCrates?.has(e.rustRoot))) continue;
-      const stated = (confidence: EdgeV1["confidence"]) => (e.rustTemplate ? "inferred" as const : confidence);
+      // A macro body is a template: a call in it is at best likely, and a name-only one stays inferred.
+      const stated = (confidence: EdgeV1["confidence"]): EdgeV1["confidence"] =>
+        (!e.rustTemplate || confidence === "inferred" ? confidence : "likely");
       if (e.pythonRebound && e.name) {
         const file = toPosixPath(e.file);
         const start = e.pythonReboundModule ? pythonModuleName(e.pythonReboundModule, file, pythonCtx) : followPythonName(e.pythonRebound, file, pythonCtx);
@@ -686,7 +720,8 @@ export function resolveEdges(
           rustTraitProvides(e, e.rustChain.type ?? null);
           continue;
         }
-        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file) : e.recvType;
+        const attrStated = new Set<string>();
+        const recv = e.rustChain ? rustChainType(e.rustChain, e) : e.recvAttr ? pythonFieldType(e.recvAttr.type, e.recvAttr.attr, e.file, attrStated) : e.recvType;
         if (!recv && !e.rustForm) continue;
         // `x = factory.Store()` may hold what a function named Store returns, not a Store,
         // unless the calling file's own definitions and imports name Store as a class.
@@ -700,6 +735,12 @@ export function resolveEdges(
           continue;
         }
         const recvType = real.type;
+        // A receiver's stated type picked the target: likely, in a measured language, when the
+        // type is in scope (`likelyInScope`).
+        const typedGrade = (h: ReturnType<typeof resolveTypedMember>, type: string): ReturnType<typeof resolveTypedMember> => {
+          if (!h || h === "ambiguous" || h.confidence !== "inferred" || !LIKELY_LANG.test(e.file)) return h;
+          return likelyInScope(e.file, type, h.id) ? { ...h, confidence: "likely" } : h;
+        };
         if (e.rustSelfInImpl) {
           const others = (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((n) => n.id !== e.source);
           const repoType = (globalName.get(recvType) ?? []).some((n) => RUST_OWNER_KINDS.has(n.kind));
@@ -712,16 +753,16 @@ export function resolveEdges(
         const crateDir = real.root ? opts.rustCrateDirs?.get(real.root) : undefined;
         const inCrate = crateDir ? (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((c) => c.path.startsWith(`${crateDir}/`)) : [];
         let hit = !recv ? null : inCrate.length === 1
-          ? { id: inCrate[0].id, confidence: "inferred" as const }
-          : resolveTypedMember(recvType, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount);
+          ? { id: inCrate[0].id, confidence: "likely" as const }
+          : typedGrade(resolveTypedMember(recvType, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount), recvType);
         // Several types of that name, none in this file: this crate's own, as the code reads.
         if (hit === "ambiguous" && e.file.endsWith(".rs") && !real.root) {
           const crate = rustCrateOf(e.file, rustPathCtx);
           const ours = crate === undefined || crate === "." ? [] : (ownerMethod.get(`${recvType}.${e.name}`) ?? []).filter((c) => c.path.startsWith(`${crate}/`));
-          if (ours.length === 1) hit = { id: ours[0].id, confidence: "inferred" };
+          if (ours.length === 1) hit = { id: ours[0].id, confidence: "likely" };
         }
         for (const bound of e.rustBounds ?? []) {
-          hit ??= resolveTypedMember(bound, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount);
+          hit ??= typedGrade(resolveTypedMember(bound, e.name!, e.file, ownerMethod, classParents, classTraits, e.argCount), bound);
         }
         // A Rust `Type::f` the repo's type holds no single `f` for says so, an enum
         // variant's capital name aside: several
@@ -748,7 +789,10 @@ export function resolveEdges(
         }
         if (hit === "ambiguous") continue; // drop — never guess past an ambiguous owner
         if (hit) {
-          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? "inferred" : stated(hit.confidence));
+          // An attribute's type is named where the field is stated, not in the calling file.
+          const target = hit.id;
+          const attrGrade = attrStated.size && [...attrStated].every((at) => likelyInScope(at, recvType, target)) ? "likely" : "inferred";
+          if (hit.id !== e.source || e.rustForm !== "method") add(e.source, hit.id, "calls", e.recvAttr ? attrGrade : stated(hit.confidence));
           continue;
         }
         if (EX_EXT.test(e.file)) {

@@ -649,7 +649,7 @@ function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedF
     const prev = found.get(key);
     // A second edge between the same pair adds nothing but certainty.
     if (prev) {
-      if (e.confidence !== "inferred") delete prev.inferred;
+      if (e.confidence !== "inferred" && e.confidence !== "likely") delete prev.inferred;
       continue;
     }
     const site = callSite(caller, target.name, fileOf.get(caller.path), read);
@@ -658,7 +658,7 @@ function callersLeftBehind(graph: GraphV1, declared: NodeV1[], changed: ChangedF
       seed: { id: seed.id, name: seed.name },
       id: caller.id, name: caller.name, kind: caller.kind, path: caller.path, span: caller.span,
       ...(site === null ? {} : { line: site }),
-      ...(e.confidence === "inferred" ? { inferred: true as const } : {}),
+      ...(e.confidence === "inferred" || e.confidence === "likely" ? { inferred: true as const } : {}),
     });
   }
   return [...found.values()].sort((a, b) =>
