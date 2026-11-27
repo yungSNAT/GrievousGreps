@@ -91,11 +91,9 @@ pub fn opens_quote(text: &str, i: usize, rust: bool) -> bool {
     is_rust_char_literal(&text[i..])
 }
 
+/// Whether `slice`, which starts with the `'` [`opens_quote`] found, opens a Rust char literal.
 fn is_rust_char_literal(slice: &str) -> bool {
-    let mut chars = slice.chars();
-    if chars.next() != Some('\'') {
-        return false;
-    }
+    let mut chars = slice.chars().skip(1);
     match chars.next() {
         None | Some('\'') => false,
         Some('\\') => {

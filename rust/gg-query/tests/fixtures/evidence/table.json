@@ -1,0 +1,2190 @@
+{
+  "syntax": [
+    [
+      "a.py",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "A.PY",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.pyi",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.php",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.lua",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.SQL",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.rs",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": true,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.go",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": true,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.tsx",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": true,
+        "ts": false
+      }
+    ],
+    [
+      "x.jsx",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": true,
+        "ts": false
+      }
+    ],
+    [
+      "x.ts",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": false,
+        "ts": true
+      }
+    ],
+    [
+      "x.mts",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": false,
+        "ts": true
+      }
+    ],
+    [
+      "x.cts",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": false,
+        "ts": true
+      }
+    ],
+    [
+      "x.mjs",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.cjs",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.js",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": true,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.c",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "Makefile",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "dir.d/file",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      ".bashrc",
+      {
+        "hash": false,
+        "dash": false,
+        "slash": true,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.ps1",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "x.hs",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.rb",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.bash",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.zsh",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.pl",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.pm",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.r",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.ex",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.exs",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.jl",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.nim",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.cr",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.coffee",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.tcl",
+      {
+        "hash": true,
+        "dash": false,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.elm",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.ada",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.adb",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ],
+    [
+      "a.ads",
+      {
+        "hash": false,
+        "dash": true,
+        "slash": false,
+        "rust": false,
+        "go": false,
+        "js": false,
+        "jsx": false,
+        "ts": false
+      }
+    ]
+  ],
+  "opens": [
+    [
+      "say \"hi\"",
+      4,
+      false,
+      true
+    ],
+    [
+      "a `b`",
+      2,
+      false,
+      true
+    ],
+    [
+      "x = 'y'",
+      4,
+      false,
+      true
+    ],
+    [
+      "x = 'y'",
+      4,
+      true,
+      true
+    ],
+    [
+      "1'000",
+      1,
+      false,
+      false
+    ],
+    [
+      "1'a",
+      1,
+      false,
+      true
+    ],
+    [
+      "a'1",
+      1,
+      false,
+      true
+    ],
+    [
+      "fn f<'a>()",
+      5,
+      true,
+      false
+    ],
+    [
+      "let c = '\\n';",
+      8,
+      true,
+      true
+    ],
+    [
+      "let c = 'x';",
+      8,
+      true,
+      true
+    ],
+    [
+      "''",
+      0,
+      true,
+      false
+    ],
+    [
+      "abc",
+      1,
+      false,
+      false
+    ],
+    [
+      "abc",
+      3,
+      false,
+      false
+    ],
+    [
+      "",
+      0,
+      true,
+      false
+    ],
+    [
+      "'\\u{1F600}'",
+      0,
+      true,
+      true
+    ],
+    [
+      "'\\aaaaaaaaaa'",
+      0,
+      true,
+      false
+    ],
+    [
+      "'\\aaaaaaaa'",
+      0,
+      true,
+      true
+    ],
+    [
+      "'\\n",
+      0,
+      true,
+      false
+    ],
+    [
+      "'\\''",
+      0,
+      true,
+      false
+    ]
+  ],
+  "code": [
+    [
+      "a.js",
+      null,
+      [
+        "x = /a\\/b/g;"
+      ],
+      [
+        [
+          "x =  ;",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "return /a/.test(s)"
+      ],
+      [
+        [
+          "return  .test(s)",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "return\t/a/"
+      ],
+      [
+        [
+          "return\t ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "let t = typeof /x/"
+      ],
+      [
+        [
+          "let t = typeof  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "if (a) { b } /re/.test(c)"
+      ],
+      [
+        [
+          "if (a) { b }  .test(c)",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "x) { y } /re/"
+      ],
+      [
+        [
+          "x) { y } /re/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "while (f(a)) { b } /re/"
+      ],
+      [
+        [
+          "while (f(a)) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "else { a } /re/"
+      ],
+      [
+        [
+          "else { a }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "} else { a } /re/"
+      ],
+      [
+        [
+          "} else { a }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a = b else { c } /d/"
+      ],
+      [
+        [
+          "a = b else { c } /d/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "xelse { a } /re/"
+      ],
+      [
+        [
+          "xelse { a } /re/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "do { a } /re/"
+      ],
+      [
+        [
+          "do { a }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "try { a } /re/"
+      ],
+      [
+        [
+          "try { a }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        ";finally { a } /re/"
+      ],
+      [
+        [
+          ";finally { a }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<div>{a} /b/"
+      ],
+      [
+        [
+          "<div>{a} /b/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "{ a } /b/"
+      ],
+      [
+        [
+          "{ a } /b/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a < { b } /c/"
+      ],
+      [
+        [
+          "a < { b } /c/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a > { b } /c/"
+      ],
+      [
+        [
+          "a > { b } /c/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a<1>{b} /c/"
+      ],
+      [
+        [
+          "a<1>{b} /c/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a } /b/"
+      ],
+      [
+        [
+          "a } /b/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "if (x) { {a} } /b/"
+      ],
+      [
+        [
+          "if (x) { {a} }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<Fade in />"
+      ],
+      [
+        [
+          "<Fade in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<Fade in />/g"
+      ],
+      [
+        [
+          "<Fade in />/g",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "x = a in />/g"
+      ],
+      [
+        [
+          "x = a in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<a> b in />/"
+      ],
+      [
+        [
+          "<a> b in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<in />"
+      ],
+      [
+        [
+          "<in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<1 in />/"
+      ],
+      [
+        [
+          "<1 in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<a.b:c-d in />"
+      ],
+      [
+        [
+          "<a.b:c-d in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<ab\"x in />/"
+      ],
+      [
+        [
+          "<ab",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<ab=x in />/"
+      ],
+      [
+        [
+          "<ab=x in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<A b={c} in />"
+      ],
+      [
+        [
+          "<A b={c} in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<A b={{c}} in />"
+      ],
+      [
+        [
+          "<A b={{c}} in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<A b={c in />"
+      ],
+      [
+        [
+          "<A b={c in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "return <A in />"
+      ],
+      [
+        [
+          "return <A in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "x <A in />/"
+      ],
+      [
+        [
+          "x <A in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "f() <A in />/"
+      ],
+      [
+        [
+          "f() <A in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "= <A in />"
+      ],
+      [
+        [
+          "= <A in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a[0] <A in />/"
+      ],
+      [
+        [
+          "a[0] <A in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "/>"
+      ],
+      [
+        [
+          "/>",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "  /> x"
+      ],
+      [
+        [
+          "  /> x",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "</td>"
+      ],
+      [
+        [
+          "</td>",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "{a} / 2"
+      ],
+      [
+        [
+          "{a} / 2",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a / b / c"
+      ],
+      [
+        [
+          "a / b / c",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "\"a\" / 2"
+      ],
+      [
+        [
+          "  / 2",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "x[1] / 2"
+      ],
+      [
+        [
+          "x[1] / 2",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "f() / 2"
+      ],
+      [
+        [
+          "f() / 2",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "/[/]/g.test(x)"
+      ],
+      [
+        [
+          " .test(x)",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "x = /abc"
+      ],
+      [
+        [
+          "x = /abc",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "return /é\\é/u"
+      ],
+      [
+        [
+          "return  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "x = /\\/*$/ y"
+      ],
+      [
+        [
+          "x =   y",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "case /a/: break"
+      ],
+      [
+        [
+          "case  : break",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "a = b / c // d"
+      ],
+      [
+        [
+          "a = b / c ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.ts",
+      null,
+      [
+        "<div>{a} /b/"
+      ],
+      [
+        [
+          "<div>{a} /b/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.ts",
+      null,
+      [
+        "<Fade in />/"
+      ],
+      [
+        [
+          "<Fade in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.ts",
+      null,
+      [
+        "<A b={c} in />/g"
+      ],
+      [
+        [
+          "<A b={c} in  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.jsx",
+      null,
+      [
+        "a in />"
+      ],
+      [
+        [
+          "a in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.jsx",
+      null,
+      [
+        "<Fade in />"
+      ],
+      [
+        [
+          "<Fade in />",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.jsx",
+      null,
+      [
+        "return /a/"
+      ],
+      [
+        [
+          "return  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.tsx",
+      null,
+      [
+        "<A in />/x/"
+      ],
+      [
+        [
+          "<A in /> ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.rs",
+      null,
+      [
+        "let c = '\\n'; f()",
+        "let c = '\\u{1F600}'; g()",
+        "let c = '\\''; h()",
+        "fn f<'a>(x: &'a str) {}",
+        "let c = '\\aaaaaaaaaa'; i()",
+        "let c = 'x'; j()",
+        "let c = '\\n"
+      ],
+      [
+        [
+          "let c =  ; f()",
+          null
+        ],
+        [
+          "let c =  ; g()",
+          null
+        ],
+        [
+          "let c = '\\''; h()",
+          null
+        ],
+        [
+          "fn f<'a>(x: &'a str) {}",
+          null
+        ],
+        [
+          "let c = '\\aaaaaaaaaa'; i()",
+          null
+        ],
+        [
+          "let c =  ; j()",
+          null
+        ],
+        [
+          "let c = '\\n",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "let s = \"a\\\"b\"; f()",
+        "let s = 'a\\'b'; g()",
+        "let s = \"\\é\"; h()"
+      ],
+      [
+        [
+          "let s =  ; f()",
+          null
+        ],
+        [
+          "let s =  ; g()",
+          null
+        ],
+        [
+          "let s =  ; h()",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.rs",
+      null,
+      [
+        "let s = r#x; f()",
+        "let s = br#\"x\"#; g()",
+        "let s = cr\"y\"; h()",
+        "let s = xr\"z\"; i()",
+        "let s = r##\"a\"# b\"##; j()",
+        "let s = r#\"abc",
+        "def\"# x",
+        "let s = \"abc",
+        "def\" y",
+        "let s = rb;"
+      ],
+      [
+        [
+          "let s = r#x; f()",
+          null
+        ],
+        [
+          "let s =  ; g()",
+          null
+        ],
+        [
+          "let s =  ; h()",
+          null
+        ],
+        [
+          "let s = xr ; i()",
+          null
+        ],
+        [
+          "let s =  ; j()",
+          null
+        ],
+        [
+          "let s = ",
+          "r\"#"
+        ],
+        [
+          "  x",
+          null
+        ],
+        [
+          "let s = ",
+          "\""
+        ],
+        [
+          "  y",
+          null
+        ],
+        [
+          "let s = rb;",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.c",
+      "*/",
+      [
+        "/* a",
+        "still",
+        "end */ x",
+        "y /* z */ w"
+      ],
+      [
+        [
+          "",
+          "*/"
+        ],
+        [
+          "",
+          "*/"
+        ],
+        [
+          "  x",
+          null
+        ],
+        [
+          "y   w",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.c",
+      null,
+      [
+        "/* a",
+        "still",
+        "end */ x"
+      ],
+      [
+        [
+          "",
+          "*/"
+        ],
+        [
+          "",
+          "*/"
+        ],
+        [
+          "  x",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.py",
+      null,
+      [
+        "s = \"\"\"doc",
+        "more\"\"\" + t",
+        "u = '''x''' + v",
+        "w = 1 # c",
+        "z = 'a#b' # d",
+        "q = 'open"
+      ],
+      [
+        [
+          "s = ",
+          "\"\"\""
+        ],
+        [
+          "  + t",
+          null
+        ],
+        [
+          "u =   + v",
+          null
+        ],
+        [
+          "w = 1 ",
+          null
+        ],
+        [
+          "z =   ",
+          null
+        ],
+        [
+          "q = ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.go",
+      null,
+      [
+        "s := `abc` + x",
+        "t := `multi",
+        "line` + y"
+      ],
+      [
+        [
+          "s :=   + x",
+          null
+        ],
+        [
+          "t := ",
+          "r`"
+        ],
+        [
+          "  + y",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "const t = `a",
+        "b` + c",
+        "\"unterminated",
+        "'unterminated",
+        "f()"
+      ],
+      [
+        [
+          "const t = ",
+          "`"
+        ],
+        [
+          "  + c",
+          null
+        ],
+        [
+          "",
+          null
+        ],
+        [
+          "",
+          null
+        ],
+        [
+          "f()",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.sh",
+      null,
+      [
+        "echo $# x",
+        "a=1 # c",
+        "#!/bin/sh"
+      ],
+      [
+        [
+          "echo $# x",
+          null
+        ],
+        [
+          "a=1 ",
+          null
+        ],
+        [
+          "",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.sql",
+      null,
+      [
+        "select 1 -- c",
+        "select '--' x"
+      ],
+      [
+        [
+          "select 1 ",
+          null
+        ],
+        [
+          "select   x",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.php",
+      null,
+      [
+        "$a = 1; # c",
+        "$b = 2; // d",
+        "$c = '/* e */'; f();"
+      ],
+      [
+        [
+          "$a = 1; ",
+          null
+        ],
+        [
+          "$b = 2; ",
+          null
+        ],
+        [
+          "$c =  ; f();",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.cpp",
+      null,
+      [
+        "int n = 1'000; char c = 'x'; f();"
+      ],
+      [
+        [
+          "int n = 1'000; char c =  ; f();",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.lua",
+      null,
+      [
+        "x = 1 -- c",
+        "s = [[a]] -- d"
+      ],
+      [
+        [
+          "x = 1 ",
+          null
+        ],
+        [
+          "s = [[a]] ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.c",
+      "\"",
+      [
+        "still open\" x",
+        "y"
+      ],
+      [
+        [
+          "  x",
+          null
+        ],
+        [
+          "y",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "throw /a/"
+      ],
+      [
+        [
+          "throw  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "yield /a/"
+      ],
+      [
+        [
+          "yield  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "await /a/"
+      ],
+      [
+        [
+          "await  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "void /a/"
+      ],
+      [
+        [
+          "void  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "delete /a/"
+      ],
+      [
+        [
+          "delete  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "new /a/"
+      ],
+      [
+        [
+          "new  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "for (x of /a/)"
+      ],
+      [
+        [
+          "for (x of  )",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "else /a/"
+      ],
+      [
+        [
+          "else  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "do /a/"
+      ],
+      [
+        [
+          "do  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "for (a) { b } /re/"
+      ],
+      [
+        [
+          "for (a) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "switch (a) { b } /re/"
+      ],
+      [
+        [
+          "switch (a) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "catch (e) { b } /re/"
+      ],
+      [
+        [
+          "catch (e) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "with (a) { b } /re/"
+      ],
+      [
+        [
+          "with (a) { b }  ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<div>if (a) { b } /c/"
+      ],
+      [
+        [
+          "<div>if (a) { b } /c/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.jsx",
+      null,
+      [
+        "x = a in />/g"
+      ],
+      [
+        [
+          "x = a in />/g",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "/>/x/"
+      ],
+      [
+        [
+          "/> ",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "</b> x/"
+      ],
+      [
+        [
+          "</b> x/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "<A b={a>b} in />/g"
+      ],
+      [
+        [
+          "<A b={a>b} in />/g",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.js",
+      null,
+      [
+        "xif (a) { b } /re/"
+      ],
+      [
+        [
+          "xif (a) { b } /re/",
+          null
+        ]
+      ]
+    ],
+    [
+      "a.c",
+      null,
+      [
+        "x = /\\/*$/ y"
+      ],
+      [
+        [
+          "x = /\\/*$/ y",
+          null
+        ]
+      ]
+    ]
+  ],
+  "blank": [
+    [
+      "a.js",
+      [
+        "a /* b",
+        "c */ d",
+        "e // f",
+        "\"g // h\" i",
+        "'j\\'k' l /* m */ n",
+        "x = \"a\\\"b\" // c"
+      ],
+      1,
+      6,
+      [
+        "a     ",
+        "     d",
+        "e     ",
+        "\"g // h\" i",
+        "'j\\'k' l         n",
+        "x = \"a\\\"b\"     "
+      ]
+    ],
+    [
+      "a.rs",
+      [
+        "fn f<'a>(x: &'a str) { g() } // c",
+        "let c = 'x'; // d",
+        "let q = '\\n'; /* e */ h()"
+      ],
+      1,
+      3,
+      [
+        "fn f<'a>(x: &'a str) { g() }     ",
+        "let c = 'x';     ",
+        "let q = '\\n';         h()"
+      ]
+    ],
+    [
+      "a.py",
+      [
+        "x = 1 # c",
+        "s = 'a#b' # d",
+        "t = 1#2"
+      ],
+      1,
+      3,
+      [
+        "x = 1    ",
+        "s = 'a#b'    ",
+        "t = 1#2"
+      ]
+    ],
+    [
+      "a.sh",
+      [
+        "echo $# x",
+        "#!/bin/sh"
+      ],
+      1,
+      2,
+      [
+        "echo $# x",
+        "         "
+      ]
+    ],
+    [
+      "a.lua",
+      [
+        "x = 1 -- c",
+        "y = '--' z"
+      ],
+      1,
+      2,
+      [
+        "x = 1     ",
+        "y = '--' z"
+      ]
+    ],
+    [
+      "a.php",
+      [
+        "$a = 1; # c",
+        "$b = 2; // d",
+        "/* e */ $c = 3;"
+      ],
+      1,
+      3,
+      [
+        "$a = 1;    ",
+        "$b = 2;     ",
+        "        $c = 3;"
+      ]
+    ],
+    [
+      "a.js",
+      [
+        "é /* ü */ ö // ß",
+        "\"\\é\" x // y"
+      ],
+      1,
+      2,
+      [
+        "é         ö     ",
+        "\"\\é\" x     "
+      ]
+    ],
+    [
+      "a.js",
+      [
+        "x = /\\/*$/ y",
+        "a /* b",
+        "c */ d"
+      ],
+      1,
+      3,
+      [
+        "x = /\\/*$/ y",
+        "a     ",
+        "     d"
+      ]
+    ],
+    [
+      "a.js",
+      [
+        "one // a",
+        "two /* b",
+        "three */ c",
+        "four // d"
+      ],
+      2,
+      3,
+      [
+        "two     ",
+        "         c"
+      ]
+    ],
+    [
+      "a.c",
+      [
+        "/**/x",
+        "/***/y",
+        "a/*/b*/c"
+      ],
+      1,
+      3,
+      [
+        "    x",
+        "     y",
+        "a      c"
+      ]
+    ]
+  ]
+}
