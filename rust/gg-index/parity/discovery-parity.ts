@@ -107,7 +107,9 @@ const bin = opt("--bin") ? resolve(opt("--bin")!) : null;
 function run(argv: string[], input = "", cwd?: string): { out: string; status: number | null } {
   if (!bin) throw new Error("--bin <gg-index binary> is required");
   const r = spawnSync(bin, argv, { input, cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
-  if (r.error) throw r.error; // a binary that cannot start is a harness failure, never a match
+  // A binary that cannot start is a harness failure, never a match. EPIPE is a binary that
+  // exited before reading its input (as one without the subcommand does): its status counts.
+  if (r.error && (r.error as NodeJS.ErrnoException).code !== "EPIPE") throw r.error;
   return { out: r.stdout, status: r.status };
 }
 
