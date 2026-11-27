@@ -1,0 +1,8 @@
+[trail] tokens saved ≈ 55 (37%) at most, against reading the 3 file(s) whole
+
+save · method · src/store.ts:L2-L4
+  provenance: 1 EXTRACTED, 3 INFERRED · weakest: INFERRED (inferred)
+  calls ← run (src/app.ts:L4) [INFERRED · likely]: return s.save();
+  calls ← both (src/handler.ts:L10) [INFERRED · likely]: return s.save();
+  calls ← handle (src/handler.ts:L5) [INFERRED]: return res.save();
+  calls ← direct (src/store.ts:L10) [EXTRACTED]: return s.save();

@@ -293,7 +293,7 @@ describe("Rust macro, receiver and path resolution", () => {
         viaMember: true, rustForm: "method", rustAt: 40, rustOwnerBrought: true,
         rustChain: { type: "BuilderAlias", methods: ["finish", "?"] },
       }),
-    ]), [edge(local, read), edge(imported, read)]);
+    ]), [edge(local, read, "likely"), edge(imported, read, "likely")]);
   });
 
   test("an external Rust receiver binds an in-scope extension trait only when the impl fits", () => {
@@ -337,7 +337,7 @@ describe("Rust macro, receiver and path resolution", () => {
       call(remote, "read", { ...member, recvType: "RemoteCache", rustAt: 25 }),
       call(consumer, "read", member),
       call(consumer, "refresh", member),
-    ], { rustCrateDirs, unresolvedCalls }), [edge(local, own), edge(remote, other)]);
+    ], { rustCrateDirs, unresolvedCalls }), [edge(local, own, "likely"), edge(remote, other, "likely")]);
     // The ambiguous read is reported before it is dropped; refresh is reported
     // after the trait lookup fails to find a method for Cache.
     assert.deepEqual(unresolvedCalls, [
@@ -369,9 +369,26 @@ describe("Rust macro, receiver and path resolution", () => {
     ], { rustCrateDirs, unresolvedCalls }), [
       edge(root, platform, "extracted", "imports"),
       edge(run, first, "extracted"), edge(run, second, "extracted"),
-      edge(first, second),
+      edge(first, second, "likely"),
       edge(scoped, first), edge(scoped, second),
     ]);
     assert.deepEqual(unresolvedCalls, [{ source: ambiguous.id, name: "open", through: "3 definitions of that name" }]);
+  });
+
+  test("a call in a macro body is at best likely: definite and likely arrive as likely, inferred stays inferred", () => {
+    const lib = n(posix.join("src", "lib.rs"));
+    const helper = n(lib.path, "function", "helper");
+    const viaType = n(lib.path, "function", "via_type");
+    const viaName = n(lib.path, "function", "via_name");
+    const own = n(lib.path, "function", "own");
+    const store = n(posix.join("src", "store.rs"), "struct", "Store");
+    const save = n(store.path, "function", "Store.save", { owner: "Store" });
+    const far = n(posix.join("src", "far.rs"), "function", "far");
+    const template = { rustTemplate: true } as const;
+    assert.deepEqual(resolveEdges([lib, helper, viaType, viaName, own, store, save, far], [
+      call(own, "helper", { rustForm: "free", ...template }),
+      call(viaType, "save", { viaMember: true, rustForm: "method", recvType: "Store", ...template }),
+      call(viaName, "far", { rustForm: "free", ...template }),
+    ]), [edge(own, helper, "likely"), edge(viaType, save, "likely"), edge(viaName, far, "inferred")]);
   });
 });

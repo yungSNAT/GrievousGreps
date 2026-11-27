@@ -1006,7 +1006,7 @@ pub fn boxed(x: Box<Foo>) { x.f(); }
   assert.deepEqual(calls(graph, "src/lib.rs#boxed"), [f], "a Box derefs by itself");
 });
 
-test("Rust: a call in a `macro_rules` arm is a template's, so inferred and never definite", async (t) => {
+test("Rust: a call in a `macro_rules` arm is a template's, so likely and never definite", async (t) => {
   const graph = await build(t, {
     "src/lib.rs": `pub fn helper() {}
 macro_rules! m { () => { helper() } }
@@ -1014,7 +1014,7 @@ pub fn real() { helper(); }
 `,
   });
   const found = graph.edges.filter((e) => e.relation === "calls" && e.target === "src/lib.rs#helper");
-  assert.deepEqual(found.map((e) => [e.source, e.confidence]).sort(), [["src/lib.rs#m", "inferred"], ["src/lib.rs#real", "extracted"]]);
+  assert.deepEqual(found.map((e) => [e.source, e.confidence]).sort(), [["src/lib.rs#m", "likely"], ["src/lib.rs#real", "extracted"]]);
 });
 
 test("Rust: `Self::f` in a trait impl's own `f` reaches the inherent method, or itself, or is said", async (t) => {
@@ -1176,7 +1176,7 @@ pub fn std_far(v: &Vec<u8>) { v.reach(); }
   }
 });
 
-test("`callers` marks an inferred edge, in plain and JSON output, and no other", async (t) => {
+test("`callers` marks a likely edge, in plain and JSON output, and no other", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "self-import-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "src"));
@@ -1195,13 +1195,13 @@ test("`callers` marks an inferred edge, in plain and JSON output, and no other",
     }
     return text;
   };
-  // The mark follows the file's path, so an inferred and a stated caller in one file are 2 groups.
+  // The mark follows the file's path, so a likely and a stated caller in one file are 2 groups.
   const text = capture(false);
-  assert.match(text, /^  src\/lib\.rs \[inferred\]\n {4}m L\d+: /m);
+  assert.match(text, /^  src\/lib\.rs \[likely\]\n {4}m L\d+: /m);
   assert.match(text, /^  src\/lib\.rs\n {4}real L\d+: /m);
-  const hits = JSON.parse(capture(true)).matches[0].hits as { name: string; inferred?: boolean }[];
-  assert.equal(hits.find((h) => h.name === "m")!.inferred, true);
-  assert.equal(hits.find((h) => h.name === "real")!.inferred, undefined);
+  const hits = JSON.parse(capture(true)).matches[0].hits as { name: string; inferred?: boolean; confidence: string }[];
+  assert.deepEqual([hits.find((h) => h.name === "m")!.inferred, hits.find((h) => h.name === "m")!.confidence], [true, "likely"]);
+  assert.deepEqual([hits.find((h) => h.name === "real")!.inferred, hits.find((h) => h.name === "real")!.confidence], [undefined, "extracted"]);
   const deep = traverse.hitLine("in", { node: null, id: "x", relation: "calls", depth: 2, inferred: true }, true);
   assert.match(deep, /\[inferred\]/);
 });

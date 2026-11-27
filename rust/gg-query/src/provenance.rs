@@ -20,6 +20,8 @@ pub enum Confidence {
     LspResolved,
     LspDispatch,
     Extracted,
+    /// A stated type, path, crate or base class picked the target: a lead, but a strong one.
+    Likely,
     Inferred,
 }
 
@@ -30,6 +32,7 @@ impl Confidence {
             "lsp_resolved" => Self::LspResolved,
             "lsp_dispatch" => Self::LspDispatch,
             "extracted" => Self::Extracted,
+            "likely" => Self::Likely,
             _ => Self::Inferred,
         }
     }
@@ -37,9 +40,10 @@ impl Confidence {
     /// Numeric strength rank: higher is stronger.
     pub fn rank(self) -> u8 {
         match self {
-            Self::LspResolved => 3,
-            Self::LspDispatch => 2,
-            Self::Extracted => 1,
+            Self::LspResolved => 4,
+            Self::LspDispatch => 3,
+            Self::Extracted => 2,
+            Self::Likely => 1,
             Self::Inferred => 0,
         }
     }
@@ -49,6 +53,7 @@ impl Confidence {
             Self::LspResolved => "lsp_resolved",
             Self::LspDispatch => "lsp_dispatch",
             Self::Extracted => "extracted",
+            Self::Likely => "likely",
             Self::Inferred => "inferred",
         }
     }
@@ -57,7 +62,16 @@ impl Confidence {
     pub fn provenance(self) -> EdgeProvenance {
         match self {
             Self::LspResolved | Self::LspDispatch | Self::Extracted => EdgeProvenance::Extracted,
-            Self::Inferred => EdgeProvenance::Inferred,
+            Self::Likely | Self::Inferred => EdgeProvenance::Inferred,
+        }
+    }
+
+    /// The text mark for a hit of this confidence: nothing for a definite one.
+    pub fn mark(self) -> &'static str {
+        match self {
+            Self::Likely => crate::graph::LIKELY_MARK,
+            Self::Inferred => crate::graph::INFERRED_MARK,
+            _ => "",
         }
     }
 
@@ -144,7 +158,10 @@ fn provenance_tag(hit: &EdgeHit) -> String {
         }
         return format!(" [{prov} · weakest: {}]", hit.confidence.as_str());
     }
-    if hit.confidence == Confidence::LspResolved || hit.confidence == Confidence::LspDispatch {
+    if matches!(
+        hit.confidence,
+        Confidence::LspResolved | Confidence::LspDispatch | Confidence::Likely
+    ) {
         format!(" [{prov} · {}]", hit.confidence.as_str())
     } else {
         format!(" [{prov}]")
