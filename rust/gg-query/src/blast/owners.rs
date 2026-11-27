@@ -147,6 +147,10 @@ pub fn parse_iso_ms(raw: &str) -> Option<f64> {
         while b.get(idx).is_some_and(u8::is_ascii_digit) {
             idx += 1;
         }
+        // `Date.parse` refuses a fraction point with no digits after it.
+        if idx == frac_start {
+            return None;
+        }
         let frac = &s[frac_start..idx];
         let mut padded = [b'0'; 3];
         for (slot, ch) in padded.iter_mut().zip(frac.bytes().take(3)) {
