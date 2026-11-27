@@ -9,7 +9,9 @@ use std::process::{Command, Output};
 use gg_index::json::{self, Json};
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("sources").join(name);
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("sources")
+        .join(name);
     drop(fs::remove_dir_all(&dir));
     fs::create_dir_all(&dir).expect("scratch");
     dir
@@ -37,9 +39,15 @@ fn exec(root: &Path, extra: &[&str]) -> Output {
 /// The `[rel, size, mtimeMs]` rows, failing the test on a non-zero exit.
 fn rows(root: &Path, extra: &[&str]) -> Vec<(String, f64, f64)> {
     let out = exec(root, extra);
-    assert!(out.status.success(), "sources failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "sources failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let text = String::from_utf8(out.stdout).expect("utf-8 output");
-    let Json::Arr(items) = json::parse(&text).expect("json") else { panic!("not an array: {text}") };
+    let Json::Arr(items) = json::parse(&text).expect("json") else {
+        panic!("not an array: {text}")
+    };
     items
         .into_iter()
         .map(|row| match row {
@@ -65,7 +73,11 @@ fn git(cwd: &Path, args: &[&str]) {
         .current_dir(cwd)
         .output()
         .expect("git");
-    assert!(st.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&st.stderr));
+    assert!(
+        st.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&st.stderr)
+    );
 }
 
 #[test]
@@ -93,8 +105,13 @@ fn size_and_mtime_are_the_files_own() {
     let r = rows(&root, &[]);
     assert_eq!(r.len(), 1);
     assert_eq!(r[0].1, 17.0);
-    let modified = fs::metadata(root.join("m.go")).expect("stat").modified().expect("mtime");
-    let since = modified.duration_since(std::time::UNIX_EPOCH).expect("after 1970");
+    let modified = fs::metadata(root.join("m.go"))
+        .expect("stat")
+        .modified()
+        .expect("mtime");
+    let since = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970");
     let ms = since.as_secs() as f64 * 1e3 + f64::from(since.subsec_nanos()) / 1e6;
     assert_eq!(r[0].2, ms);
 }
@@ -149,7 +166,10 @@ fn a_nested_clone_is_followed_only_when_asked() {
     write(&child, "n.py", 1);
     git(&child, &["init", "-q"]);
     assert_eq!(rels(&root, &[]), ["a.ts"]);
-    assert_eq!(rels(&root, &["--follow-nested-repos"]), ["a.ts", "child/n.py"]);
+    assert_eq!(
+        rels(&root, &["--follow-nested-repos"]),
+        ["a.ts", "child/n.py"]
+    );
 }
 
 /// Path containment and no following of links out of the root (POSIX: making a link on
