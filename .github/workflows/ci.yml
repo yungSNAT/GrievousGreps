@@ -1,8 +1,11 @@
 name: tests
 
 on:
+  # The Rust coverage integration branch also uploads on push, so pull requests
+  # aimed at it have a base report for their patch figure. Remove it when the
+  # branch merges into main.
   push:
-    branches: [main]
+    branches: [main, ryan/yb17-rust-coverage-2026-11-27]
   pull_request:
   workflow_dispatch:
 
@@ -250,11 +253,60 @@ jobs:
           cargo test --locked
           cargo build --locked --release
 
+  # Line coverage of every Rust crate under rust/ for Codecov, beside the TypeScript
+  # reports the test job keeps. The crate jobs above stay the crates' gates on both
+  # systems. This runs on ubuntu only, so code behind cfg(windows) is not measured.
+  rust-coverage:
+    name: rust coverage
+    needs: [changes]
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@073e1fd0bc889c9aee68dbaaa927cde1b5653a83 # v2.90.11
+        with:
+          tool: cargo-llvm-cov@0.9.2
+          fallback: none
+      # gg-bench's tests start Node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      # Each crate builds with the toolchain pinned in its rust-toolchain.toml.
+      - name: Measure each crate's tests
+        run: |
+          shopt -s nullglob
+          manifests=(rust/*/Cargo.toml)
+          if [ "${#manifests[@]}" -eq 0 ]; then echo "::error::no crate under rust/"; exit 1; fi
+          for manifest in "${manifests[@]}"; do
+            dir=$(dirname "$manifest")
+            (
+              cd "$dir"
+              rustup toolchain install
+              rustup component add llvm-tools-preview
+              cargo llvm-cov --locked --lcov --output-path "$GITHUB_WORKSPACE/coverage-rust-$(basename "$dir").lcov"
+            )
+          done
+      - name: Keep the coverage reports for the Codecov upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-rust
+          path: coverage-rust-*.lcov
+          if-no-files-found: error
+          retention-days: 1
+
   # The upload runs apart from the tests so the OIDC token is never available
-  # while test code runs.
+  # while test code runs. All reports go in one upload, so Codecov never scores a
+  # commit on part of them.
   codecov:
     name: upload coverage to Codecov
-    needs: [changes, test]
+    needs: [changes, test, rust-coverage]
     if: needs.changes.outputs.docs_only != 'true' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -270,10 +322,25 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: coverage-codecov
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-rust
+      # One report per crate under rust/, or no upload: a crate left out would
+      # read as having no coverable lines.
+      - name: List the reports
+        id: reports
+        run: |
+          files=coverage-main.lcov,coverage-alone.lcov
+          for manifest in rust/*/Cargo.toml; do
+            report="coverage-rust-$(basename "$(dirname "$manifest")").lcov"
+            if [ ! -s "$report" ]; then echo "::error::no coverage report $report"; exit 1; fi
+            files="$files,$report"
+          done
+          echo "files=$files" >> "$GITHUB_OUTPUT"
       - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
-          files: coverage-main.lcov,coverage-alone.lcov
+          files: ${{ steps.reports.outputs.files }}
           disable_search: true
           fail_ci_if_error: true
 

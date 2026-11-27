@@ -249,7 +249,7 @@ test("Python: a method call on an attribute a base class types in another file r
   assert.ok(callsOf(graph, "user.py#through_module").includes("pkg/config.py#Config.from_mapping"), "an instance made through a module");
   assert.ok(callsOf(graph, "pkg/base.py#App.own").includes("pkg/config.py#Config.from_mapping"), "through self");
   const viaAttr = graph.edges.find((e) => e.relation === "calls" && e.source === "user.py#create" && e.target === "pkg/config.py#Config.from_mapping");
-  assert.equal(viaAttr?.confidence, "inferred", "an attribute's type read from another file is inferred");
+  assert.equal(viaAttr?.confidence, "likely", "an attribute's type read from another file is likely");
 });
 
 let unsure: Promise<GraphV1> | undefined;

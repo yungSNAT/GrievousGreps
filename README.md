@@ -70,6 +70,7 @@ trail callers <symbol> --direction out   # what it calls
 trail map                            # directory clusters, hubs and hotspots
 trail grep <pattern>                 # every occurrence, grouped by enclosing symbol
 trail ask "<question>"               # the files and symbols that answer it, ranked
+trail gate                           # check architecture rules in trail.gate.json against the graph
 trail viz                            # an interactive viewer of the graph, served on localhost
 ```
 
@@ -126,7 +127,7 @@ For the 18, that order rests on this statement: the truth went into a local log 
 
 Rust recall is partial. Together tokio and tracing hold 1,643 of the 4,403 calls, and their symbols were chosen for names repeated across crates and types.
 
-About 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 false, 95% interval 11% to 27%), at `e37a764` and `949d829`. An edge with that mark is a lead. `callers`, its JSON and the MCP tool show the mark, and at depth 2 or more they also show it on any hit whose every shortest path crosses such an edge. `blast` shows the mark too, counts those dependents and lists them after the definite ones at each depth. Definite edges: 2 of 80 false over the same 2 samples.
+Edges that are not definite come in 2 grades. `[likely]` marks a link to another file that a stated type, an import path, a crate or a base class picked; `[inferred]` marks one matched by name alone. In a sample of our own edges on 26 November 2026 (UTC) at `e51d321`, judged by reading the code, 96 of 99 typed or scoped edges were right (97%; Wilson 95% interval 91% to 99%) in rich (Python), ripgrep (Rust) and hono (TypeScript), and 30 of 32 in TanStack query and trpc (TypeScript; the other 2 unclear). The 3 wrong ones were calls on the platform's `Response`, which hono's own `Response` type shadows. The grade now asks more: in Python, TypeScript and JavaScript the receiver's type or the base class must be imported, through any re-exports, from the file that declares the target, so a namesake from a package or a platform global stays `[inferred]`. Rerun on the same sampled edges, it keeps 94 of the 99 as `[likely]`, all of them right, and 24 of the 32, 23 right and 1 unclear. Name-only edges were right 13 of 48 times. Only Python, TypeScript, JavaScript and Rust edges are graded `[likely]`; other languages keep `[inferred]` until a sample measures them. Before the split, about 1 in 6 `[inferred]` edges were wrong, in 2 samples totalling 80 edges (14 false, 95% interval 11% to 27%), at `e37a764` and `949d829`. An edge with either mark is a lead. `callers`, its JSON and the MCP tool show the mark, and at depth 2 or more they show the weaker mark on any hit whose every shortest path crosses such an edge. `blast` treats both as leads: it marks them `[inferred]`, counts those dependents and lists them after the definite ones at each depth. Definite edges: 2 of 80 false over the same 2 samples.
 
 The 21-repository run was on Linux with Node 26.13.1 on 16 November 2026 (UTC); [benchmark/](benchmark/README.md#recall-history) has the corrections to the truth. Silent undercounts remain.
 
@@ -151,6 +152,7 @@ This table lists what the code changes from upstream `a44da3d` (30 October 2026,
 | Markdown and text search | None | `trail docs`, files ranked by their best section, through the `gg-docs` binary |
 | Dockerfiles, compose and Kubernetes | Not read | Stages, services and objects linked to the code they ship, so `blast` and `callers` reach them ([Use](#use)) |
 | `trail blast` | Lists what depends on the changed lines | Also names the callers a declaration change left unedited and, with `--tests`, the test files the change reaches |
+| Architecture gate | None | `trail gate`, path-glob rules in `trail.gate.json` with a symbol-keyed baseline and `--ratchet` |
 | Distribution | Published on npm, with `trail upgrade` | From source |
 
 Learnings (`trail note`, `check` and `team`), `blast` apart from its row above, the viewer, the MCP server and agent wiring are inherited from upstream. [docs/upstream-guide.md](docs/upstream-guide.md) has the commands, the supported languages and what a node holds.
