@@ -121,7 +121,8 @@ fn skipped_path(path: &str, includes: &HashSet<&str>) -> bool {
         })
 }
 
-/// `path.resolve`: absolute against the current folder, `.` and `..` removed lexically.
+/// `path.resolve`: absolute against the current folder, `.` and `..` removed lexically
+/// (`components` already drops each `.` of an absolute path).
 pub fn resolve(path: &Path) -> Result<PathBuf, String> {
     let abs = if path.is_absolute() {
         path.to_path_buf()
@@ -133,7 +134,6 @@ pub fn resolve(path: &Path) -> Result<PathBuf, String> {
     let mut out = PathBuf::new();
     for c in abs.components() {
         match c {
-            Component::CurDir => {}
             Component::ParentDir => {
                 out.pop();
             }

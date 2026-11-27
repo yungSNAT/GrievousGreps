@@ -195,7 +195,10 @@ mod tests {
         std::fs::create_dir_all(&plain).expect("mkdir");
         std::fs::write(plain.join("tool"), "").expect("write");
         let gone = base.join("gone");
-        let path = env::join_paths([gone, plain, sys.clone()]).expect("join");
+        // A link whose real path is in the working folder is passed over too.
+        let alias = base.join("alias");
+        std::os::unix::fs::symlink(&tree, &alias).expect("link");
+        let path = env::join_paths([gone, plain, alias, sys.clone()]).expect("join");
         assert_eq!(
             find_in("tool", &path, &working, None),
             Some(sys.join("tool"))
