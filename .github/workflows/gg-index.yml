@@ -62,7 +62,10 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npx tsx rust/gg-index/parity/wiring-parity.ts --bin rust/gg-index/target/release/gg-index --count 1000 --seed "$GITHUB_RUN_ID"
       # Stage 3B1a: extension list and per-name classification; 3B1b: source trees
-      # (sources). Cache and fingerprint join with --kinds as they are ported.
+      # (sources). Sources parity compares Linux source discovery on ubuntu-latest
+      # only; windows-latest runs the crate checks and Windows unit tests, while
+      # Windows parity and reparse-point/PATH gaps are deferred to the Windows pass.
+      # Cache and fingerprint join with --kinds as they are ported.
       - name: Compare discovery with the TypeScript
         if: matrix.os == 'ubuntu-latest'
         run: npx tsx rust/gg-index/parity/discovery-parity.ts --bin rust/gg-index/target/release/gg-index --kinds sources --seed "$GITHUB_RUN_ID"

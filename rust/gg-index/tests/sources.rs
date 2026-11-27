@@ -187,6 +187,46 @@ fn files_over_the_size_bound_are_left_out() {
     assert_eq!(rels(&root, &[]), ["at.ts"]);
 }
 
+/// Bounded reads: when Git's output passes 64 MiB the command stops Git and falls back
+/// to walking the file system, returning its full listing (ignored files included).
+#[cfg(unix)]
+#[test]
+fn oversized_git_output_falls_back_to_the_file_system() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = scratch("git-oversized");
+    write(&root, "a.ts", 1);
+    write(&root, "lib/l.ts", 1);
+    fs::write(root.join(".gitignore"), "lib/\n").expect("ignore");
+    let make_git = |name: &str, body: &str| {
+        let bin = scratch(name);
+        let exe = bin.join("git");
+        fs::write(&exe, body).expect("write fake git");
+        fs::set_permissions(&exe, fs::Permissions::from_mode(0o755)).expect("chmod");
+        bin
+    };
+    // Control: a fake `git` within the bound is run and returns only what it prints.
+    let ok_bin = make_git("git-ok-bin", "#!/bin/sh\nprintf 'a.ts\\0'\n");
+    let mut ok_cmd = command(&root, &[]);
+    ok_cmd.env("PATH", &*ok_bin);
+    assert_eq!(parse_rows(ok_cmd.output().expect("spawn")), ["a.ts"]);
+    // Past 64 MiB, Git is stopped and the command falls back to the file system walk.
+    let over = gg_index::sources::MAX_GIT_OUTPUT + 1;
+    let over_bin = make_git(
+        "git-over-bin",
+        &format!("#!/bin/sh\nprintf 'a.ts\\0'\nexec /usr/bin/head -c {over} /dev/zero\n"),
+    );
+    let mut over_cmd = command(&root, &[]);
+    over_cmd.env("PATH", &*over_bin);
+    let mut got = parse_rows(over_cmd.output().expect("spawn"));
+    got.sort();
+    assert_eq!(got, ["a.ts", "lib/l.ts"], "shallow fallback");
+    let mut deep_cmd = command(&root, &["--follow-submodules"]);
+    deep_cmd.env("PATH", &*over_bin);
+    let mut deep = parse_rows(deep_cmd.output().expect("spawn"));
+    deep.sort();
+    assert_eq!(deep, ["a.ts", "lib/l.ts"], "deep fallback");
+}
+
 #[test]
 fn git_trees_list_tracked_and_unignored_files() {
     let root = scratch("git");

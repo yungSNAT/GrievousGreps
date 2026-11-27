@@ -1,8 +1,8 @@
 //! Finding a program to start, by the rule of `src/util/program.ts`: a bare name is looked
 //! up only in PATH's absolute folders, passing over each folder that is a working folder or
-//! under one, a `node_modules/.bin` folder and Yarn's `BERRY_BIN_FOLDER`, and the program
-//! is started by its absolute path. A checkout's own `git` therefore never runs in place
-//! of the person's.
+//! under one, a `node_modules/.bin` folder (case-folded on Windows) and Yarn's
+//! `BERRY_BIN_FOLDER`, and the program is started by its absolute path. A checkout's own
+//! `git` therefore never runs in place of the person's.
 //!
 //! A working folder that is a file system root or the home folder (`holdsAll`) passes over
 //! only itself.
@@ -17,7 +17,15 @@
 //! - `bothWays`: working folders and `BERRY_BIN_FOLDER` are taken in their real spelling
 //!   only (the home folder in both);
 //! - the home folder comes from `HOME` (`USERPROFILE` on Windows) alone, without
-//!   `os.homedir()`'s fallback to the password database.
+//!   `os.homedir()`'s fallback to the password database; an empty `HOME` or `USERPROFILE`
+//!   matches nothing rather than resolving to the process folder as TypeScript's
+//!   `bothWays("")` does.
+//!
+//! Known Windows gaps (deferred to the Windows pass; `node_modules/.bin` case folding is
+//! handled here, and `sources.rs` lists the file-walk gaps):
+//! - PATH entries are split by `std::env::split_paths` without trimming leading or trailing
+//!   whitespace (so `" C:\Git\cmd"` is passed over), and a quoted entry containing `;`
+//!   stays 1 entry where `program.ts` splits on `;` first and strips surrounding quotes.
 
 use std::env;
 use std::ffi::OsString;
@@ -75,11 +83,13 @@ fn find_in(
     berry: Option<&Path>,
 ) -> Option<PathBuf> {
     let passed_over = |dir: &Path| {
-        let package_bin = dir.file_name().is_some_and(|n| n == ".bin")
+        let package_bin = dir
+            .file_name()
+            .is_some_and(|n| same(Path::new(n), Path::new(".bin")))
             && dir
                 .parent()
                 .and_then(Path::file_name)
-                .is_some_and(|n| n == "node_modules");
+                .is_some_and(|n| same(Path::new(n), Path::new("node_modules")));
         package_bin || berry.is_some_and(|b| same(b, dir)) || in_tree(dir, working)
     };
     for entry in env::split_paths(path) {

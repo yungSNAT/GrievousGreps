@@ -4,7 +4,9 @@
 //!
 //! Safety properties, each with a test in `tests/sources.rs`:
 //! - Containment: every path listed is under the root; a path Git or the walk yields
-//!   outside it is dropped, and the output directory is left out.
+//!   outside it is dropped, and the output directory is left out whether `--out-dir`
+//!   spells it through a linked root or through the target's real path (stricter than
+//!   TypeScript, which compares only lexically).
 //! - Links: only the root itself is unwrapped when it is a link to a folder; inside the
 //!   tree a link is never followed (Git's entries are `lstat`ed, the walk takes only real
 //!   files and folders).
@@ -17,6 +19,21 @@
 //!   (U+FFFD) and uses that spelling as the path, and so does the port. Such a file is
 //!   dropped unless a sibling bears its lossy spelling, which is then listed again; such a
 //!   folder fails the walk with its lossy path unless a sibling folder bears that spelling.
+//!
+//! Known Windows gaps (deferred to the Windows pass; CI parity tests Linux source
+//! discovery against TypeScript; `program.rs` handles `node_modules/.bin` case folding):
+//! - Reparse points: outside Git, `DirEntry::file_type` treats only name-surrogate reparse
+//!   tags as links, so non-link reparse points (execution aliases, cloud-file placeholders,
+//!   deduplicated files) are walked where Node/libuv skips every
+//!   `FILE_ATTRIBUTE_REPARSE_POINT` entry as a link.
+//! - Verbatim-path dots: `resolve` keeps `.` segments inside a `\\?\` verbatim path.
+//! - `ELOOP` mapping: `is_loop` is always `false` off Unix, whereas libuv maps
+//!   `ERROR_CANT_RESOLVE_FILENAME` (1921) to `ELOOP`, so a looping root link reports
+//!   `broken symbolic link` rather than `symbolic link loop`.
+//! - Unpaired surrogates: `to_string_lossy` emits 1 U+FFFD where Node's WTF-8 decoding
+//!   emits 3.
+//! - Program lookup (`program.rs`): Windows PATH trimming and quoted `;` splitting, and
+//!   empty `HOME` / `USERPROFILE` handling.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -27,7 +44,7 @@ use std::process::{Command, Stdio};
 
 use crate::deploy::deploy_format_of;
 use crate::json::js_number;
-use crate::program::{find_program, fold, unverbatim};
+use crate::program::{find_program, fold, real, unverbatim};
 use crate::source_files::parser_claims;
 
 /// `SKIP_DIRS`: dependency and build output, never source.
@@ -469,21 +486,27 @@ pub fn list_source_stats(
     opts: &Options,
 ) -> Result<Vec<SourceStat>, String> {
     let files = walk_dir(root, opts)?;
-    let root = resolve(root)?;
+    let requested = resolve(root)?;
+    let canonical = canonical_walk_root(&requested)?;
+    let real_root = real(&canonical);
+    let canon_root = real_root.as_deref().unwrap_or(&canonical);
     let selected: Option<HashSet<String>> = (!opts.extensions.is_empty())
         .then(|| opts.extensions.iter().map(|e| norm_ext(e)).collect());
-    let abs_out = resolve(out_dir)?.to_string_lossy().into_owned();
-    let sep = std::path::MAIN_SEPARATOR;
-    let out_prefix = if abs_out.ends_with(sep) {
-        abs_out.clone()
-    } else {
-        format!("{abs_out}{sep}")
+    let abs_out = resolve(out_dir)?;
+    let canon_out = match abs_out.strip_prefix(&requested) {
+        Ok(rel) => Some(canon_root.join(rel)),
+        Err(_) => real(&abs_out),
     };
     let stat = |abs: PathBuf| -> Option<SourceStat> {
-        let text = abs.to_str()?;
-        if text == abs_out || text.starts_with(&out_prefix) {
+        let rel_path = abs.strip_prefix(&requested).ok()?;
+        if abs.starts_with(&abs_out)
+            || canon_out
+                .as_deref()
+                .is_some_and(|out| canon_root.join(rel_path).starts_with(out))
+        {
             return None;
         }
+        let text = abs.to_str()?;
         let base = abs.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if let Some(sel) = &selected
             && !sel.contains(&extname(base).to_lowercase())
@@ -493,9 +516,7 @@ pub fn list_source_stats(
         if !(parser_claims(text) || (selected.is_none() && deploy_format_of(text).is_some())) {
             return None;
         }
-        let rel: Vec<&str> = abs
-            .strip_prefix(&root)
-            .ok()?
+        let rel: Vec<&str> = rel_path
             .components()
             .filter_map(|c| c.as_os_str().to_str())
             .collect();
