@@ -136,6 +136,10 @@ const runFiles = (list, run, ...flags) =>
       ...tmpEnv,
       ...homeEnv,
       GRAFT_NO_TRAIL_SWITCH: "1",
+      // A contributor's opt-outs would stop the ignore-file writes tests start from;
+      // the tests of the opt-outs set them themselves.
+      GRAFT_NO_GITIGNORE: undefined,
+      GRAFT_NO_IGNORE: undefined,
       ...(coverage ? { NODE_V8_COVERAGE: v8Dir(run) } : {}),
     },
   });

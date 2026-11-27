@@ -1926,11 +1926,15 @@ function collectPhpImportedSymbols(root: SyntaxNode): Map<string, { name: string
   return out;
 }
 
+function phpUsePrefix(decl: SyntaxNode | null | undefined): string {
+  return decl?.namedChildren.find((c) => c.type === "namespace_name")?.text.replace(/^\\|\\$/g, "") ?? "";
+}
+
 function collectPhpUseDeclaration(
   decl: SyntaxNode,
   out: Map<string, { name: string; specifier: string }>,
 ): void {
-  const prefix = decl.namedChildren.find((c) => c.type === "namespace_name")?.text.replace(/\\$/, "") ?? "";
+  const prefix = phpUsePrefix(decl);
   const clauses: SyntaxNode[] = [];
   for (const child of decl.namedChildren) {
     if (child.type === "namespace_use_clause") clauses.push(child);
@@ -1955,7 +1959,8 @@ function phpUseClauseBinding(
   let fqn: string;
   let importedName: string;
   if (qualified) {
-    fqn = qualified.text.replace(/^\\/, "");
+    const raw = qualified.text.replace(/^\\/, "");
+    fqn = prefix ? `${prefix}\\${raw}` : raw;
     importedName = fqn.replace(/^.*\\/, "");
   } else if (names[0]) {
     importedName = names[0].text;
@@ -2579,7 +2584,7 @@ function collectRGenerics(root: SyntaxNode): Set<string> {
     }
     if (fnDef && ownName) {
       const arg = findUseMethodArg(fnDef.childForFieldName("body"));
-      if (arg !== undefined) generics.add(arg || ownName); // "" means UseMethod() with no args
+      if (arg) generics.add(arg);
     }
     for (const child of node.namedChildren) visit(child);
   };
@@ -2588,14 +2593,17 @@ function collectRGenerics(root: SyntaxNode): Set<string> {
 }
 
 /** Searches a function body for a `UseMethod(...)` call and returns its
- * string-literal generic-name argument, `""` if called with no arguments
- * (defaults to the enclosing function's own name), or `undefined` if no
- * `UseMethod` call is found at all. */
+ * string-literal `generic` argument, or `undefined` when no `UseMethod` call
+ * with a non-empty string generic is found (R errors without one). */
 function findUseMethodArg(node: SyntaxNode | null | undefined): string | undefined {
   if (!node) return undefined;
   if (node.type === "call" && rCalleeName(node) === "UseMethod") {
-    const first = rCallArgs(node)[0]?.childForFieldName("value");
-    return first?.type === "string" ? (rStringContent(first) ?? "") : "";
+    const genericArg =
+      rNamedArg(node, "generic") ??
+      rCallArgs(node).find((a) => !a.childForFieldName("name"))?.childForFieldName("value") ??
+      null;
+    const generic = rStringContent(genericArg);
+    if (generic) return generic;
   }
   for (const child of node.namedChildren) {
     const found = findUseMethodArg(child);
@@ -2737,11 +2745,9 @@ function rExported(name: string, ctx: WalkCtx, node: SyntaxNode): boolean {
  *
  * `comment` is a grammar EXTRA in this grammar (floats loosely between
  * sibling nodes rather than attaching to "the next statement" via a field),
- * so this walks backward through `previousNamedSibling` collecting a
- * contiguous run of `comment` nodes — the run ends at the first non-comment
- * sibling, or at the first comment that isn't itself a roxygen (`#'`) line,
- * either of which is roxygen's own "this block documents the next statement"
- * boundary.
+ * so this walks backward through `previousNamedSibling` collecting `comment`
+ * nodes — the run ends at the first non-comment sibling, skipping ordinary
+ * `#` lines as `roxygen2` does.
  *
  * Returns:
  *  - `true` — a roxygen block was found and it contains `@export`.
@@ -2759,9 +2765,10 @@ function rRoxygenExported(node: SyntaxNode): boolean | null {
   let exported = false;
   while (sib?.type === "comment") {
     const text = sib.text.trim();
-    if (!text.startsWith("#'")) break; // an ordinary # comment ends the roxygen block
-    sawRoxygen = true;
-    if (/^#'\s*@export\b/.test(text)) exported = true;
+    if (text.startsWith("#'")) {
+      sawRoxygen = true;
+      if (/^#'\s*@export\b/.test(text)) exported = true;
+    }
     sib = sib.previousNamedSibling;
   }
   return sawRoxygen ? exported : null;
@@ -3752,9 +3759,10 @@ if (lang === "kotlin") return node.type === "import_header";
 
 function importSpecifier(node: SyntaxNode, lang: Language): string | null {
   if (lang === "php") {
-    // namespace_use_clause → its `qualified_name`/`name`, e.g. `App\Models\Animal`.
-    const q = node.namedChildren.find((c) => c.type === "qualified_name" || c.type === "name");
-    return q ? q.text.replace(/^\\/, "") : null;
+    // namespace_use_clause → its `qualified_name`/`name`, prefixed by the
+    // enclosing group's `namespace_name` (e.g. `use App\Models\{User, Sub\Post};`).
+    const prefix = node.parent?.type === "namespace_use_group" ? phpUsePrefix(node.parent.parent) : "";
+    return phpUseClauseBinding(node, prefix)?.specifier ?? null;
   }
   if (lang === "python") {
     const m =
