@@ -31,7 +31,7 @@ const RELATIONS = new Set<string>([
   "contains", "calls", "imports", "references", "implements", "extends",
 ]);
 const CONFIDENCE = new Set<string>([
-  "lsp_resolved", "lsp_dispatch", "extracted", "inferred",
+  "lsp_resolved", "lsp_dispatch", "extracted", "likely", "inferred",
 ]);
 // Relations whose target may be a deliberately-unresolved external string rather
 // than an in-repo node id: an import's module specifier, a heritage clause naming

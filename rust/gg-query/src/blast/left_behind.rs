@@ -189,7 +189,7 @@ pub(super) fn callers_left_behind(
             continue;
         };
         let key = format!("{}\0{}", seed.id, caller.id);
-        let is_inferred = e.confidence == "inferred";
+        let is_inferred = e.confidence == "inferred" || e.confidence == "likely";
         if let Some(prev) = found.get_mut(&key) {
             if !is_inferred {
                 prev.inferred = false;
