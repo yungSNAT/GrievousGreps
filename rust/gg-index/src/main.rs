@@ -212,7 +212,7 @@ fn read_stdin(limit: u64) -> Result<String, String> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
-        .take(limit + 1)
+        .take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| format!("stdin: {e}"))?;
     if bytes.len() as u64 > limit {

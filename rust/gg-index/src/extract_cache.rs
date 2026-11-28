@@ -68,13 +68,11 @@ pub fn write_extract_cache(out_dir: &Path, extractor: &str, cache: &Json) -> boo
     let Some(Json::Obj(entries)) = files else {
         return false;
     };
-    let mut head_json = json::stringify_compact(&Json::Obj(head));
-    head_json.pop();
+    let header = cache_header(head);
     let leaf = format!("{EXTRACT_CACHE_PREFIX}.{extractor}.json");
     let ok = safe_write::stream_in_cache(out_dir, OsStr::new(&leaf), |file| {
         let mut w = BufWriter::with_capacity(1 << 20, file);
-        w.write_all(head_json.as_bytes())?;
-        w.write_all(b",\"files\":{")?;
+        w.write_all(header.as_bytes())?;
         let mut buf = String::new();
         for (i, (rel, entry)) in json::js_key_order(entries).into_iter().enumerate() {
             buf.clear();
@@ -94,6 +92,17 @@ pub fn write_extract_cache(out_dir: &Path, extractor: &str, cache: &Json) -> boo
         safe_write::prune_cache(out_dir, EXTRACT_CACHE_PREFIX, KEEP_SIDECARS);
     }
     ok
+}
+
+fn cache_header(head: Vec<(Vec<u16>, Json)>) -> String {
+    let mut out = String::new();
+    json::write_compact_ascii(&Json::Obj(head), &mut out);
+    out.pop();
+    if out.len() > 1 {
+        out.push(',');
+    }
+    out.push_str("\"files\":{");
+    out
 }
 
 /// Read `<out_dir>/.cache/extract.<extractor>.json`, filtering `files` through

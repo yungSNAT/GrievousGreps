@@ -103,8 +103,9 @@ where
     F: FnMut(&mut File) -> io::Result<()>,
 {
     let (base, dirs) = split_under(out_dir, ".cache")?;
-    std::fs::create_dir_all(&base)?;
     let dirs: Vec<&OsStr> = dirs.iter().map(OsString::as_os_str).collect();
+    validate_components(&dirs, leaf)?;
+    std::fs::create_dir_all(&base)?;
     stream_atomic_inside(&base, &dirs, leaf, fill)
 }
 
@@ -159,7 +160,8 @@ fn split_under(out_dir: &Path, sub: &str) -> io::Result<(PathBuf, Vec<OsString>)
 
 fn read_bounded(file: File, max_bytes: u64) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
-    file.take(max_bytes + 1).read_to_end(&mut out)?;
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut out)?;
     if out.len() as u64 > max_bytes {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -186,68 +188,8 @@ fn ends_in_dot(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn split(p: &Path) -> (PathBuf, Vec<OsString>) {
-        split_under(p, ".graph").unwrap()
-    }
-
-    #[test]
-    fn a_root_output_directory_is_its_own_base() {
-        let root = std::path::absolute(Path::new("/")).unwrap();
-        assert_eq!(split(&root), (root.clone(), vec![".graph".into()]));
-        assert_eq!(
-            split(&root.join("graft")),
-            (root.clone(), vec!["graft".into(), ".graph".into()])
-        );
-        assert_eq!(split(&root.join("..")), (root, vec![".graph".into()]));
-    }
-
-    #[test]
-    fn a_relative_output_directory_resolves_against_the_current_directory() {
-        let here = std::path::absolute(Path::new(".")).unwrap();
-        assert_eq!(
-            split(Path::new("graft")),
-            (here.clone(), vec!["graft".into(), ".graph".into()])
-        );
-        assert_eq!(
-            split(Path::new("a/graft")),
-            (here.join("a"), vec!["graft".into(), ".graph".into()])
-        );
-        assert!(split_under(Path::new(".."), ".graph").is_err());
-        assert!(split_under(Path::new("graft/.."), ".graph").is_err());
-    }
-
-    #[test]
-    fn the_base_is_the_raw_dirname_as_in_typescript() {
-        let r = std::path::absolute(Path::new("/r")).unwrap();
-        let graph: OsString = ".graph".into();
-        assert_eq!(
-            split(&r.join("graft").join(".")),
-            (r.join("graft"), vec![graph.clone()])
-        );
-        assert_eq!(
-            split(&r.join("graft").join(".").join("")),
-            (r.join("graft"), vec![graph.clone()])
-        );
-        assert_eq!(
-            split(&r.join("link").join("..").join("graft")),
-            (r.clone(), vec!["graft".into(), graph])
-        );
-        assert!(split_under(&r.join("graft").join(".."), ".graph").is_err());
-        assert!(!ends_in_dot(Path::new("a/b..")));
-        assert!(ends_in_dot(Path::new(".")));
-    }
-
-    #[test]
-    fn matches_sidecar_names() {
-        assert!(matches_sidecar(OsStr::new("extract.a.json"), "extract"));
-        assert!(matches_sidecar(OsStr::new("extract.json"), "extract"));
-        assert!(!matches_sidecar(OsStr::new("extract2.a.json"), "extract"));
-        assert!(!matches_sidecar(OsStr::new("extract.a.tmp"), "extract"));
-    }
-}
+#[path = "safe_write_tests.rs"]
+mod tests;
 
 /// `path` with `.` and `..` removed without consulting the file system.
 fn lexical(path: &Path) -> PathBuf {
@@ -464,7 +406,10 @@ mod imp {
         }
     }
 
-    fn pin_existing(base: &Path, dirs: &[&OsStr]) -> io::Result<Option<(PathBuf, Vec<File>)>> {
+    pub(super) fn pin_existing(
+        base: &Path,
+        dirs: &[&OsStr],
+    ) -> io::Result<Option<(PathBuf, Vec<File>)>> {
         let Some(mut cur) = maybe(fs::canonicalize(base))? else {
             return Ok(None);
         };
@@ -518,7 +463,7 @@ mod imp {
         leaf: &OsStr,
         max_bytes: u64,
     ) -> io::Result<Option<Vec<u8>>> {
-        let Some((cur, _pins)) = pin_existing(base, dirs)? else {
+        let Some((cur, pins)) = pin_existing(base, dirs)? else {
             return Ok(None);
         };
         let open = OpenOptions::new()
@@ -532,11 +477,13 @@ mod imp {
         if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 || !meta.is_file() {
             return Ok(None);
         }
-        super::read_bounded(file, max_bytes).map(Some)
+        let out = super::read_bounded(file, max_bytes).map(Some);
+        drop(pins);
+        out
     }
 
     pub(super) fn prune(base: &Path, dirs: &[&OsStr], prefix: &str, keep: usize) -> io::Result<()> {
-        let Some((cur, _pins)) = pin_existing(base, dirs)? else {
+        let Some((cur, pins)) = pin_existing(base, dirs)? else {
             return Ok(());
         };
         let mut mine: Vec<(OsString, f64)> = Vec::new();
@@ -556,6 +503,7 @@ mod imp {
         for (name, _) in mine.into_iter().skip(keep) {
             let _ = fs::remove_file(cur.join(name));
         }
+        drop(pins);
         Ok(())
     }
 }
