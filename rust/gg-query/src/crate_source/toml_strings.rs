@@ -183,7 +183,7 @@ pub(super) fn parse_ml_literal_string(
             b'\r' => {
                 consume_newline_at(bytes, pos)?;
                 if retain {
-                    out.push('\n');
+                    out.push_str("\r\n");
                 }
             }
             _ => {

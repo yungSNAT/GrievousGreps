@@ -71,6 +71,7 @@ Built on Trail-Code 0.28.0. Sections below this one are upstream's.
 
 ### Fixed
 
+- **`gg-query` keeps CRLF inside multi-line literal strings in `Cargo.toml`.** `parse_ml_literal_string` converted `\r\n` inside `'''...'''` to `\n`, whilst TOML 1.0 leaves multi-line literal string content unmodified after trimming an opening newline; it now preserves `\r\n` verbatim, matching `smol-toml`.
 - **`gg-query` passes over Yarn's own bin folder and the working folders by their real path as written.** A `BERRY_BIN_FOLDER` or working folder spelt with `..` after a link now resolves as the system resolves it, as the TypeScript lookup does, instead of from the path cleaned as text.
 - **`gg-query blast` shortens names and spots test files as `trail blast` does.** A long concept name is cut at its first clause break, counted in UTF-16 units and with JavaScript's whitespace (tab, no-break space, U+2028, U+3000, U+FEFF) read as spaces, so a trailing U+0085 is now kept; `Concept:` after leading spaces is kept; a directory with a doubled trailing slash keeps its parent; and `.test.cjsx`, `.mjsx`, `.ctsx` and `.mtsx` files count as tests.
 - **`gg-query blast` reads commit dates as `trail blast` does when it names owners and reviewers.** A commit whose author date git prints with an impossible offset (`+25:00`, `+00:99`, `+100:39`), a 60th second, a signed field or an empty fraction was credited by `gg-query` and skipped by `trail`; it is now skipped by both, and `24:00:00` reads as the end of the day in both.

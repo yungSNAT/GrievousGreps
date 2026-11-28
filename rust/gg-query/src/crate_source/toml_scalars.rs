@@ -91,16 +91,16 @@ pub(super) fn parse_escape_at(src: &str, pos: &mut usize) -> Result<char, ReadFi
             )));
         }
     };
-    let end = *pos + hex_len;
-    if end > bytes.len() || !bytes[*pos..end].iter().all(u8::is_ascii_hexdigit) {
-        return Err(syntax_err(
-            "invalid or truncated unicode escape in Cargo.toml",
-        ));
+    let mut code = 0u32;
+    for _ in 0..hex_len {
+        let Some(digit) = bytes.get(*pos).and_then(|&b| (b as char).to_digit(16)) else {
+            return Err(syntax_err(
+                "invalid or truncated unicode escape in Cargo.toml",
+            ));
+        };
+        code = (code << 4) | digit;
+        *pos += 1;
     }
-    let hex = &src[*pos..end];
-    *pos = end;
-    let code = u32::from_str_radix(hex, 16)
-        .map_err(|_| syntax_err("invalid unicode escape in Cargo.toml"))?;
     char::from_u32(code).ok_or_else(|| syntax_err("invalid unicode scalar in Cargo.toml"))
 }
 
@@ -196,15 +196,18 @@ fn is_gregorian_leap_year(year: u16) -> bool {
 
 pub(super) fn is_valid_date(s: &str) -> bool {
     let b = s.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' || !b[..4].iter().all(u8::is_ascii_digit) {
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
         return false;
     }
-    let Ok(year) = s[..4].parse::<u16>() else {
+    let (Some(y_hi), Some(y_lo), Some(m), Some(d)) = (
+        parse_two_digits(&b[0..2]),
+        parse_two_digits(&b[2..4]),
+        parse_two_digits(&b[5..7]),
+        parse_two_digits(&b[8..10]),
+    ) else {
         return false;
     };
-    let (Some(m), Some(d)) = (parse_two_digits(&b[5..7]), parse_two_digits(&b[8..10])) else {
-        return false;
-    };
+    let year = u16::from(y_hi) * 100 + u16::from(y_lo);
     let max_day = match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -242,9 +245,6 @@ fn is_valid_time(s: &str) -> bool {
 }
 
 fn is_valid_offset(s: &str) -> bool {
-    if s == "Z" || s == "z" {
-        return true;
-    }
     let b = s.as_bytes();
     if b.len() != 6 || (b[0] != b'+' && b[0] != b'-') || b[3] != b':' {
         return false;
@@ -389,11 +389,12 @@ pub(super) fn insert_dotted_key(
     budget: &mut MemoryBudget,
 ) -> Result<(), ReadFileError> {
     for seg in &key_path[..key_path.len() - 1] {
-        if matches!(cur.get(seg.as_str()), Some(EntryKind::ImplicitTable(_))) {
-            if let Some(EntryKind::ImplicitTable(m)) = cur.remove(seg.as_str()) {
-                cur.insert(seg.clone(), EntryKind::DottedTable(m));
+        if let Some(entry) = cur.get_mut(seg.as_str()) {
+            if let EntryKind::ImplicitTable(m) = entry {
+                let taken = std::mem::take(m);
+                *entry = EntryKind::DottedTable(taken);
             }
-        } else if !cur.contains_key(seg.as_str()) {
+        } else {
             budget.charge(seg.len() + KEY_ENTRY_OVERHEAD)?;
             cur.insert(seg.clone(), EntryKind::DottedTable(BTreeMap::new()));
         }
