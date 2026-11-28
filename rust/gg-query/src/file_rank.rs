@@ -360,7 +360,11 @@ pub fn combine_comparable_scopes(docs: &[ScopedDoc]) -> FusionResult {
     let mut ranked: Vec<ScopedDoc> = acc
         .into_values()
         .map(|mut d| {
-            d.score /= max_score;
+            d.score = if max_score > 0.0 {
+                d.score / max_score
+            } else {
+                0.0
+            };
             d
         })
         .collect();

@@ -137,4 +137,15 @@ fn combine_comparable_scopes_handles_empty_single_and_multi_scope_fusion() {
         .unwrap();
     assert_eq!(replaced.scope, "s2");
     assert!((replaced.score - 0.5).abs() < 1e-9);
+
+    // Negative-sign NaN survives `d.score <= 0.0`, sorts after `2.0` via `total_cmp`,
+    // overwrites `acc["x"]` because `4.0 >= -NaN` is false, and drives `max_score == 0.0`.
+    let neg_nan = combine_comparable_scopes(&[
+        sdoc("x", "s1", 4.0),
+        sdoc("x", "s2", 2.0),
+        sdoc("x", "s2", -f64::NAN),
+    ]);
+    assert_eq!(neg_nan.ranked.len(), 1);
+    assert_eq!(neg_nan.ranked[0].id, "x");
+    assert_eq!(neg_nan.ranked[0].score, 0.0);
 }

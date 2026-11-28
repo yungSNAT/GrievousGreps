@@ -45,8 +45,20 @@ fn sample_graph() -> serde_json::Value {
     })
 }
 
+fn two_node_graph() -> serde_json::Value {
+    json!({
+        "meta": { "nodeCount": 2, "edgeCount": 0 },
+        "nodes": [
+            { "id": "file:src/only.ts", "name": "only.ts", "kind": "file", "path": "src/only.ts", "span": "L1-L2", "signature": "only.ts", "exported": false, "origin": "ast", "chars": 20 },
+            { "id": "src/only.ts#solo", "name": "solo", "kind": "function", "path": "src/only.ts", "span": "L1-L2", "signature": "function solo()", "exported": true, "origin": "ast" }
+        ],
+        "edges": []
+    })
+}
+
 fn run_gg(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_gg-query"))
+        .env_remove("GRAFT_NO_REFRESH")
         .args(args)
         .output()
         .expect("spawn gg-query")
@@ -78,9 +90,9 @@ fn sync_status_and_context_dir_variants() {
     assert!(st_ok.status.success());
     assert!(String::from_utf8_lossy(&st_ok.stdout).contains("in sync with the code"));
 
-    // Explicit `--dir` override.
+    // Explicit `--dir` override loads `custom_ctx` (2 nodes) instead of `.trail/cache` (4 nodes).
     let custom = tmp.path().join("custom_ctx");
-    write_wiring(&custom, sample_graph());
+    write_wiring(&custom, two_node_graph());
     let st_dir = run_gg(&[
         "--dir",
         custom.to_str().unwrap(),
@@ -88,6 +100,7 @@ fn sync_status_and_context_dir_variants() {
         repo.to_str().unwrap(),
     ]);
     assert!(st_dir.status.success());
+    assert!(String::from_utf8_lossy(&st_dir.stdout).contains("2 nodes"));
 }
 
 #[test]
@@ -187,9 +200,18 @@ fn callers_and_blast_command_errors_and_formats() {
     fs::create_dir_all(&empty).unwrap();
     let e = empty.to_str().unwrap();
 
-    assert!(!run_gg(&["callers", "dup", e]).status.success());
-    assert!(!run_gg(&["blast", e]).status.success());
-    assert!(!run_gg(&["blast", e, "--format", "bogus"]).status.success());
+    let callers_missing = run_gg(&["callers", "dup", e]);
+    assert!(!callers_missing.status.success());
+    assert!(String::from_utf8_lossy(&callers_missing.stderr).contains("no graph found at"));
+    let blast_missing = run_gg(&["blast", e]);
+    assert!(!blast_missing.status.success());
+    assert!(String::from_utf8_lossy(&blast_missing.stderr).contains("no graph found at"));
+    let blast_bad_fmt = run_gg(&["blast", e, "--format", "bogus"]);
+    assert!(!blast_bad_fmt.status.success());
+    assert!(
+        String::from_utf8_lossy(&blast_bad_fmt.stderr)
+            .contains("--format must be text, markdown, mermaid or json")
+    );
 
     let repo = tmp.path().join("repo");
     write_wiring(&repo.join("graft"), sample_graph());
@@ -198,10 +220,13 @@ fn callers_and_blast_command_errors_and_formats() {
     // Two matches sharing name `dup` + unresolved import hit (`ext#ghost`) + invalid `--in` prefix.
     let callers_ok = run_gg(&["callers", "dup", r]);
     assert!(callers_ok.status.success());
+    let callers_stdout = String::from_utf8_lossy(&callers_ok.stdout);
+    assert!(callers_stdout.contains("src/a.ts"));
+    assert!(callers_stdout.contains("ext#ghost (unresolved import)"));
+    let callers_bad_in = run_gg(&["callers", "dup", r, "--in", "nope"]);
+    assert!(!callers_bad_in.status.success());
     assert!(
-        !run_gg(&["callers", "dup", r, "--in", "nope"])
-            .status
-            .success()
+        String::from_utf8_lossy(&callers_bad_in.stderr).contains("nothing indexed under \"nope\"")
     );
 }
 
