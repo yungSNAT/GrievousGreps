@@ -304,3 +304,26 @@ pub fn read_ask_index(out_dir: &Path) -> io::Result<Option<AskIndex>> {
     }
     Ok(Some(idx))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::is_cjk;
+
+    #[test]
+    fn is_cjk_matches_every_han_kana_and_hangul_block() {
+        let cjk_samples: &[u32] = &[
+            0x2E80, 0x2F00, 0x3005, 0x3007, 0x3021, 0x3038, 0x3400, 0x4E00, 0xF900, 0x20000,
+            0x2A700, 0x2B740, 0x2B820, 0x2CEB0, 0x2F800, 0x30000, 0x3041, 0x309D, 0x1B001, 0x1B132,
+            0x1B150, 0x1F200, 0x30A1, 0x30FD, 0x31F0, 0x32D0, 0x3300, 0xFF66, 0xFF71, 0x1B000,
+            0x1B120, 0x1B155, 0x1B164, 0x1100, 0x3131, 0x3200, 0x3260, 0xA960, 0xAC00, 0xD7B0,
+            0xD7CB, 0xFFA0, 0xFFC2, 0xFFCA, 0xFFD2, 0xFFDA,
+        ];
+        for &cp in cjk_samples {
+            let ch = char::from_u32(cp).expect("valid scalar");
+            assert!(is_cjk(ch), "expected CJK for U+{cp:04X}");
+        }
+        for non in ['a', 'Z', '0', 'é', 'Ω', '😀'] {
+            assert!(!is_cjk(non), "unexpected CJK for {non:?}");
+        }
+    }
+}

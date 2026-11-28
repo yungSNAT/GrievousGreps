@@ -70,9 +70,6 @@ fn prepare_sidecar<'a>(
         return None;
     }
     let by_id: HashMap<&str, &AskIndexDoc> = idx.docs.iter().map(|d| (d.id.as_str(), d)).collect();
-    if by_id.len() != nodes.len() {
-        return None;
-    }
 
     let mut body_lens = Vec::with_capacity(nodes.len());
     let mut postings = Vec::with_capacity(nodes.len());
@@ -213,5 +210,36 @@ mod tests {
         let err = checked_add_body_len(usize::MAX, 1).expect_err("overflow must fail");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         assert!(err.to_string().contains("aggregate body length overflow"));
+    }
+
+    #[test]
+    fn to_sqlite_i64_and_prepare_sidecar_reject_invalid_inputs() {
+        assert_eq!(to_sqlite_i64(7, "df").expect("fits"), 7);
+        let err = to_sqlite_i64(usize::MAX, "body_len").expect_err("overflow");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("body_len"));
+
+        let bad_ver = Some(AskIndex {
+            version: 1,
+            avg_body_len: 0.0,
+            df: Vec::new(),
+            doc_count: 0,
+            docs: Vec::new(),
+        });
+        assert!(prepare_sidecar(&bad_ver, &[]).is_none());
+
+        let mismatch = Some(AskIndex {
+            version: 2,
+            avg_body_len: 1.0,
+            df: vec![("alpha".into(), 1)],
+            doc_count: 1,
+            docs: vec![AskIndexDoc {
+                id: "a#f".into(),
+                name: vec![("alpha".into(), 1)],
+                path: Vec::new(),
+                body: Vec::new(),
+            }],
+        });
+        assert!(prepare_sidecar(&mismatch, &[]).is_none());
     }
 }

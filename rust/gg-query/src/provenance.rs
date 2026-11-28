@@ -224,27 +224,14 @@ pub fn format_callers_provenance_text(
     let mut blocks: Vec<String> = Vec::with_capacity(results.len());
     for r in results {
         let mut lines = vec![header_of(&r.symbol)];
-        if r.hits.is_empty() {
+        let summary = summarise_provenance(&r.hits);
+        if let (Some(wp), Some(wc)) = (summary.weakest_provenance, summary.weakest_confidence) {
+            let (ex, inf) = (summary.extracted, summary.inferred);
             lines.push(format!(
-                "  no indexed {} for {}",
-                if direction == Direction::Out {
-                    "callees"
-                } else {
-                    "callers"
-                },
-                r.symbol.name
+                "  provenance: {ex} EXTRACTED, {inf} INFERRED · weakest: {} ({})",
+                wp.as_str(),
+                wc.as_str()
             ));
-        } else {
-            let summary = summarise_provenance(&r.hits);
-            if let (Some(wp), Some(wc)) = (summary.weakest_provenance, summary.weakest_confidence) {
-                lines.push(format!(
-                    "  provenance: {} EXTRACTED, {} INFERRED · weakest: {} ({})",
-                    summary.extracted,
-                    summary.inferred,
-                    wp.as_str(),
-                    wc.as_str()
-                ));
-            }
             for h in &r.hits {
                 lines.push(format_hit_with_provenance(
                     direction,
@@ -255,6 +242,13 @@ pub fn format_callers_provenance_text(
                     &mut cache,
                 ));
             }
+        } else {
+            let label = if direction == Direction::Out {
+                "callees"
+            } else {
+                "callers"
+            };
+            lines.push(format!("  no indexed {label} for {}", r.symbol.name));
         }
         if let Some(calls) = unresolved_by_name.get(&r.symbol.name)
             && let Some(note) = unresolved_note_for(calls, direction, &r.symbol.name)

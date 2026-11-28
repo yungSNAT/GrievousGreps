@@ -486,3 +486,7 @@ impl GraphStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "store_tests.rs"]
+mod tests;
