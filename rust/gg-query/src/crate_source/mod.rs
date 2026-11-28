@@ -393,3 +393,6 @@ pub fn format_crate_source_text(report: &CrateSourceReport) -> String {
 pub fn format_crate_source_json(report: &CrateSourceReport) -> Result<String, String> {
     serde_json::to_string_pretty(report).map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod unit_tests;
