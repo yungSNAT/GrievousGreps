@@ -11,10 +11,13 @@ pub mod types;
 pub use types::*;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io;
 use std::path::Path;
 
 use crate::ask::concepts::load_concepts;
-use crate::graph::{Direction, EdgeHit, NodeV1, is_deploy_file, span_range};
+use crate::graph::{
+    Direction, EdgeHit, EdgeV1, NodeV1, UnresolvedCall, is_deploy_file, span_range,
+};
 use crate::safe_io::read_contained_to_string;
 use crate::store::GraphStore;
 
@@ -59,17 +62,15 @@ pub(crate) struct ModuleIndex {
 impl ModuleIndex {
     fn load(out_dir: &Path) -> Self {
         let mut claims: HashMap<String, (String, usize)> = HashMap::new();
-        if let Ok(docs) = load_concepts(out_dir, None) {
-            for doc in docs {
-                if doc.name.is_empty() {
-                    continue;
-                }
-                let size = doc.sources.len();
-                for src in doc.sources {
-                    let replace = claims.get(&src).is_none_or(|prev| size < prev.1);
-                    if replace {
-                        claims.insert(src, (doc.name.clone(), size));
-                    }
+        for doc in load_concepts(out_dir, None).unwrap_or_default() {
+            if doc.name.is_empty() {
+                continue;
+            }
+            let size = doc.sources.len();
+            for src in doc.sources {
+                let replace = claims.get(&src).is_none_or(|prev| size < prev.1);
+                if replace {
+                    claims.insert(src, (doc.name.clone(), size));
                 }
             }
         }
@@ -306,25 +307,26 @@ fn collect_file_seeds(
 fn merge_file_hits(
     file_path: &str,
     hits: Vec<EdgeHit>,
-    merged: &mut HashMap<String, (Impacted, HashSet<String>)>,
-    merged_order: &mut Vec<String>,
+    merged: &mut Vec<(Impacted, HashSet<String>)>,
+    merged_idx: &mut HashMap<String, usize>,
 ) {
     for h in hits {
         let Some(hit) = to_impacted(&h) else {
             continue;
         };
-        if let Some((prev, from)) = merged.get_mut(&hit.id) {
+        if let Some(&idx) = merged_idx.get(&hit.id) {
+            let (prev, from) = &mut merged[idx];
             from.insert(file_path.to_string());
             if hit.depth < prev.depth || (hit.depth == prev.depth && prev.inferred && !hit.inferred)
             {
                 *prev = hit;
             }
         } else {
-            let id = hit.id.clone();
+            let idx = merged.len();
+            merged_idx.insert(hit.id.clone(), idx);
             let mut from = HashSet::new();
             from.insert(file_path.to_string());
-            merged.insert(id.clone(), (hit, from));
-            merged_order.push(id);
+            merged.push((hit, from));
         }
     }
 }
@@ -338,105 +340,177 @@ pub fn compute_blast_report(
     basis: String,
     opts: &BlastOptions,
 ) -> Result<BlastReport, String> {
-    let (nodes, edges, unresolved_calls) = store
-        .with_read_snapshot(|s| Ok((s.all_nodes()?, s.all_edges()?, s.all_unresolved_calls()?)))
-        .map_err(|e| e.to_string())?;
+    compute_blast_report_io(store, root, out_dir, changed, basis, opts).map_err(|e| e.to_string())
+}
 
-    let file_nodes: HashMap<&str, &NodeV1> = nodes
+#[derive(Default)]
+struct WalkSummary {
+    seeds: Vec<Seed>,
+    unindexed: Vec<String>,
+    deleted: Vec<String>,
+    seed_nodes_by_file: BTreeMap<String, Vec<NodeV1>>,
+    declared_seeds: Vec<NodeV1>,
+    impacted: Vec<Impacted>,
+    origins: HashMap<String, HashSet<String>>,
+}
+
+fn walk_changed_files(
+    store: &GraphStore,
+    seed_ctx: &SeedContext<'_>,
+    changed: &[ChangedFile],
+    depth: usize,
+    file_cache: &mut HashMap<String, Option<Vec<String>>>,
+) -> io::Result<WalkSummary> {
+    let file_nodes: HashMap<&str, &NodeV1> = seed_ctx
+        .nodes
         .iter()
         .filter(|n| n.kind == "file")
         .map(|n| (n.path.as_str(), n))
         .collect();
+    let mut summary = WalkSummary::default();
+    let mut merged: Vec<(Impacted, HashSet<String>)> = Vec::new();
+    let mut merged_idx: HashMap<String, usize> = HashMap::new();
+    for file in changed {
+        if file.status == ChangeStatus::Deleted {
+            summary.deleted.push(file.path.clone());
+            continue;
+        }
+        let Some(&file_node) = file_nodes.get(file.path.as_str()) else {
+            summary.unindexed.push(file.path.clone());
+            continue;
+        };
+        let mut acc = SeedAccum {
+            cache: file_cache,
+            seeds: &mut summary.seeds,
+            declared: &mut summary.declared_seeds,
+        };
+        let walk_seeds = collect_file_seeds(seed_ctx, file, file_node, &mut acc);
+        summary
+            .seed_nodes_by_file
+            .insert(file.path.clone(), walk_seeds.clone());
+        let walk_ids: Vec<String> = walk_seeds.into_iter().map(|n| n.id).collect();
+        let hits = store.impact_of_many(&walk_ids, depth, Direction::In)?;
+        merge_file_hits(&file.path, hits, &mut merged, &mut merged_idx);
+    }
+    summary.impacted.reserve(merged.len());
+    for (hit, from) in merged {
+        summary.origins.insert(hit.id.clone(), from);
+        summary.impacted.push(hit);
+    }
+    Ok(summary)
+}
 
+fn optional_tests(
+    store: &GraphStore,
+    nodes: &[NodeV1],
+    seed_nodes_by_file: &BTreeMap<String, Vec<NodeV1>>,
+    changed: &[ChangedFile],
+    want_tests: bool,
+) -> io::Result<Option<Vec<TestReach>>> {
+    if !want_tests {
+        return Ok(None);
+    }
+    let all_walk_seeds: Vec<NodeV1> = seed_nodes_by_file.values().flatten().cloned().collect();
+    Ok(Some(tests_reached(store, nodes, &all_walk_seeds, changed)?))
+}
+
+struct GraphSnapshot {
+    nodes: Vec<NodeV1>,
+    edges: Vec<EdgeV1>,
+    unresolved_calls: Vec<UnresolvedCall>,
+}
+
+fn compute_blast_report_io(
+    store: &GraphStore,
+    root: &Path,
+    out_dir: &Path,
+    changed: Vec<ChangedFile>,
+    basis: String,
+    opts: &BlastOptions,
+) -> io::Result<BlastReport> {
+    let snap = store.with_read_snapshot(|s| {
+        Ok(GraphSnapshot {
+            nodes: s.all_nodes()?,
+            edges: s.all_edges()?,
+            unresolved_calls: s.all_unresolved_calls()?,
+        })
+    })?;
     let mut file_cache: HashMap<String, Option<Vec<String>>> = HashMap::new();
     let removed = build_removed_squashed(&changed);
     let seed_ctx = SeedContext {
-        nodes: &nodes,
+        nodes: &snap.nodes,
         removed: &removed,
         root,
         seed_all_on_empty_ranges: opts.seed_all_on_empty_ranges,
     };
-
-    let mut seeds = Vec::new();
-    let mut unindexed = Vec::new();
-    let mut deleted = Vec::new();
-    let mut seed_nodes_by_file: BTreeMap<String, Vec<NodeV1>> = BTreeMap::new();
-    let mut declared_seeds = Vec::new();
-    let mut merged: HashMap<String, (Impacted, HashSet<String>)> = HashMap::new();
-    let mut merged_order: Vec<String> = Vec::new();
-
-    for file in &changed {
-        if file.status == ChangeStatus::Deleted {
-            deleted.push(file.path.clone());
-            continue;
-        }
-        let Some(&file_node) = file_nodes.get(file.path.as_str()) else {
-            unindexed.push(file.path.clone());
-            continue;
-        };
-        let mut acc = SeedAccum {
-            cache: &mut file_cache,
-            seeds: &mut seeds,
-            declared: &mut declared_seeds,
-        };
-        let walk_seeds = collect_file_seeds(&seed_ctx, file, file_node, &mut acc);
-        seed_nodes_by_file.insert(file.path.clone(), walk_seeds.clone());
-        let walk_ids: Vec<String> = walk_seeds.into_iter().map(|n| n.id).collect();
-        let hits = store
-            .impact_of_many(&walk_ids, opts.depth, Direction::In)
-            .map_err(|e| e.to_string())?;
-        merge_file_hits(&file.path, hits, &mut merged, &mut merged_order);
-    }
-
-    let mut impacted = Vec::with_capacity(merged_order.len());
-    let mut origins: HashMap<String, HashSet<String>> = HashMap::new();
-    for id in merged_order {
-        if let Some((hit, from)) = merged.remove(&id) {
-            origins.insert(hit.id.clone(), from);
-            impacted.push(hit);
-        }
-    }
-
-    let index = ModuleIndex::load(out_dir);
-    let (modules, test_modules) = group_by_module(&impacted, &changed, &origins, &index);
-    let areas = changed_areas(
-        &nodes,
-        &edges,
+    let walk = walk_changed_files(store, &seed_ctx, &changed, opts.depth, &mut file_cache)?;
+    let tests = optional_tests(
+        store,
+        &snap.nodes,
+        &walk.seed_nodes_by_file,
         &changed,
-        &seed_nodes_by_file,
-        &index,
-        &modules,
-    );
-    let unresolved = unresolved_for_seeds(&unresolved_calls, &seeds);
-    let left_behind = callers_left_behind(
-        &nodes,
-        &edges,
-        &declared_seeds,
-        &changed,
+        opts.tests,
+    )?;
+    Ok(walk.finish(
+        &snap,
         root,
+        out_dir,
         &mut file_cache,
-    );
-    let tests = if opts.tests {
-        let all_walk_seeds: Vec<NodeV1> = seed_nodes_by_file.values().flatten().cloned().collect();
-        Some(tests_reached(store, &nodes, &all_walk_seeds, &changed)?)
-    } else {
-        None
-    };
-
-    Ok(BlastReport {
-        basis,
-        depth: opts.depth,
         changed,
-        unindexed,
-        deleted,
-        seeds,
-        impacted,
-        modules,
-        test_modules,
-        areas,
-        unresolved,
-        left_behind,
+        basis,
+        opts.depth,
         tests,
-        reviewers: None,
-    })
+    ))
+}
+
+impl WalkSummary {
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        self,
+        snap: &GraphSnapshot,
+        root: &Path,
+        out_dir: &Path,
+        file_cache: &mut HashMap<String, Option<Vec<String>>>,
+        changed: Vec<ChangedFile>,
+        basis: String,
+        depth: usize,
+        tests: Option<Vec<TestReach>>,
+    ) -> BlastReport {
+        let index = ModuleIndex::load(out_dir);
+        let (modules, test_modules) =
+            group_by_module(&self.impacted, &changed, &self.origins, &index);
+        let areas = changed_areas(
+            &snap.nodes,
+            &snap.edges,
+            &changed,
+            &self.seed_nodes_by_file,
+            &index,
+            &modules,
+        );
+        let unresolved = unresolved_for_seeds(&snap.unresolved_calls, &self.seeds);
+        let left_behind = callers_left_behind(
+            &snap.nodes,
+            &snap.edges,
+            &self.declared_seeds,
+            &changed,
+            root,
+            file_cache,
+        );
+        BlastReport {
+            basis,
+            depth,
+            changed,
+            unindexed: self.unindexed,
+            deleted: self.deleted,
+            seeds: self.seeds,
+            impacted: self.impacted,
+            modules,
+            test_modules,
+            areas,
+            unresolved,
+            left_behind,
+            tests,
+            reviewers: None,
+        }
+    }
 }

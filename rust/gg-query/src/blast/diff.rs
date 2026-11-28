@@ -303,3 +303,60 @@ fn push_diff_line(hunk: &mut Hunk, line: DiffLine, within_file: bool) {
     }
     hunk.lines.push(line);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_name_status_handles_copies_and_truncated_records() {
+        let copied = parse_name_status(b"C095\0src/orig.ts\0src/copy.ts\0");
+        assert_eq!(copied.len(), 1);
+        assert_eq!(copied[0].status, ChangeStatus::Renamed);
+        assert_eq!(copied[0].old_path.as_deref(), Some("src/orig.ts"));
+        assert_eq!(copied[0].path, "src/copy.ts");
+
+        assert!(parse_name_status(b"R100\0").is_empty());
+        assert!(parse_name_status(b"R100\0src/only_old.ts\0").is_empty());
+        assert!(parse_name_status(b"M\0").is_empty());
+    }
+
+    #[test]
+    fn apply_hunks_skips_malformed_hunk_headers_and_strips_tab_timestamps() {
+        let mut files = vec![ChangedFile {
+            path: "src/a.ts".to_string(),
+            status: ChangeStatus::Modified,
+            old_path: None,
+            ranges: Vec::new(),
+            hunks: Vec::new(),
+        }];
+        let patch = concat!(
+            "diff --git a/src/a.ts b/src/a.ts\n",
+            "--- a/src/a.ts\t2026-11-27\n",
+            "+++ b/src/a.ts\t2026-11-27\n",
+            "@@ not a valid hunk header @@\n",
+            "+ignored line\n",
+            "@@ -1 +1 @@\n",
+            "-old\n",
+            "+new\n",
+        );
+        apply_hunks(&mut files, patch);
+        assert_eq!(files[0].ranges, vec![LineRange { start: 1, end: 1 }]);
+        assert_eq!(files[0].hunks.len(), 1);
+        assert_eq!(
+            files[0].hunks[0].lines,
+            vec![
+                DiffLine {
+                    n: None,
+                    sign: "-",
+                    text: "old".to_string(),
+                },
+                DiffLine {
+                    n: Some(1),
+                    sign: "+",
+                    text: "new".to_string(),
+                },
+            ]
+        );
+    }
+}
