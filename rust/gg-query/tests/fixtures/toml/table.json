@@ -1,0 +1,1539 @@
+{
+  "docs": [
+    [
+      "[package]\nname = \"a\\b\\t\\n\\f\\r\\\"\\\\z\"\n",
+      true,
+      "a\b\t\n\f\r\"\\z"
+    ],
+    [
+      "[package]\nname = \"\\u00e9\"\n",
+      true,
+      "é"
+    ],
+    [
+      "[package]\nname = \"\\U0001F600\"\n",
+      true,
+      "😀"
+    ],
+    [
+      "[package]\nname = \"\\u12\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\\uZZZZ\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\\uD800\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\\U00110000\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"a\\\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"abc\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"ab\ncd\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"a\rb\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"a\u0001b\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"a\tb\"\n",
+      true,
+      "a\tb"
+    ],
+    [
+      "[package]\nname = \"ab\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\\q\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\\U0001F60\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\\uéé\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"été\"\n",
+      true,
+      "été"
+    ],
+    [
+      "x = \"a\\nb\"\n",
+      true,
+      null
+    ],
+    [
+      "x = \"abc",
+      false,
+      null
+    ],
+    [
+      "x = \"a\\",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = 'a\\b'\n",
+      true,
+      "a\\b"
+    ],
+    [
+      "[package]\nname = 'abc\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = 'a\nb'\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = 'a\rb'\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = 'a\u0001b'\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = 'a\tb'\n",
+      true,
+      "a\tb"
+    ],
+    [
+      "[package]\nname = 'ab'\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = ''\n",
+      true,
+      ""
+    ],
+    [
+      "[package]\nname = 'ü'\n",
+      true,
+      "ü"
+    ],
+    [
+      "x = 'abc",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"\nabc\"\"\"\n",
+      true,
+      "abc"
+    ],
+    [
+      "[package]\nname = \"\"\"a\\\n   b\"\"\"\n",
+      true,
+      "ab"
+    ],
+    [
+      "[package]\nname = \"\"\"a\\  \n  b\"\"\"\n",
+      true,
+      "ab"
+    ],
+    [
+      "[package]\nname = \"\"\"a\\\n  \n  b\"\"\"\n",
+      true,
+      "ab"
+    ],
+    [
+      "[package]\nname = \"\"\"a\\\n\t\r\n  b\"\"\"\n",
+      true,
+      "ab"
+    ],
+    [
+      "[package]\nname = \"\"\"a\\\n\r  b\"\"\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"a\"\"\"\"\n",
+      true,
+      "a\""
+    ],
+    [
+      "[package]\nname = \"\"\"a\"\"\"\"\"\n",
+      true,
+      "a\"\""
+    ],
+    [
+      "[package]\nname = \"\"\"a\"\"\"\"\"\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"a\r\nb\"\"\"\n",
+      true,
+      "a\r\nb"
+    ],
+    [
+      "[package]\nname = \"\"\"abc\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"a\rb\"\"\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"\\u00e9\\n\"\"\"\n",
+      true,
+      "é\n"
+    ],
+    [
+      "[package]\nname = \"\"\"a\u0001b\"\"\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"a\tb\"\"\"\n",
+      true,
+      "a\tb"
+    ],
+    [
+      "[package]\nname = \"\"\"ab\"\"\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"\r\nabc\"\"\"\n",
+      true,
+      "abc"
+    ],
+    [
+      "[package]\nname = \"\"\"a\"b\"\"c\"\"\"\n",
+      true,
+      "a\"b\"\"c"
+    ],
+    [
+      "[package]\nname = \"\"\"a\\q\"\"\"\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = \"\"\"\\\n\"\"\"\n",
+      true,
+      ""
+    ],
+    [
+      "[package]\nname = \"\"\"\"\"\"\n",
+      true,
+      ""
+    ],
+    [
+      "[package]\nname = \"\"\"a\\\n",
+      false,
+      null
+    ],
+    [
+      "x = \"\"\"a\\nb\"\"\"\n",
+      true,
+      null
+    ],
+    [
+      "x = \"\"\"a\r\nb\"\"\"\n",
+      true,
+      null
+    ],
+    [
+      "x = \"\"\"a\\",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = '''\nabc'''\n",
+      true,
+      "abc"
+    ],
+    [
+      "[package]\nname = '''a''''\n",
+      true,
+      "a'"
+    ],
+    [
+      "[package]\nname = '''a'''''\n",
+      true,
+      "a''"
+    ],
+    [
+      "[package]\nname = '''a''''''\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = '''abc\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = '''a\u0001b'''\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = '''a\tb'''\n",
+      true,
+      "a\tb"
+    ],
+    [
+      "[package]\nname = '''ab'''\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = '''a\r\nb'''\n",
+      true,
+      "a\r\nb"
+    ],
+    [
+      "[package]\nname = '''a\rb'''\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = '''a'b''c'''\n",
+      true,
+      "a'b''c"
+    ],
+    [
+      "[package]\nname = ''''''\n",
+      true,
+      ""
+    ],
+    [
+      "[package]\nname = '''\r\nx'''\n",
+      true,
+      "x"
+    ],
+    [
+      "x = '''a\r\nb'''\n",
+      true,
+      null
+    ],
+    [
+      "# c\u0001\nx = 1\n",
+      false,
+      null
+    ],
+    [
+      "# c\tok\nx = 1\n",
+      true,
+      null
+    ],
+    [
+      "# c\nx = 1\n",
+      false,
+      null
+    ],
+    [
+      "x = 1\r\ny = 2\r\n",
+      true,
+      null
+    ],
+    [
+      "x = 1\ry = 2\n",
+      false,
+      null
+    ],
+    [
+      "x = 1 # end\n",
+      true,
+      null
+    ],
+    [
+      "x = 1 #\u0000\n",
+      false,
+      null
+    ],
+    [
+      "# only\n",
+      true,
+      null
+    ],
+    [
+      "",
+      true,
+      null
+    ],
+    [
+      "\n\n",
+      true,
+      null
+    ],
+    [
+      "x = 1 # c\r\n",
+      true,
+      null
+    ],
+    [
+      "x = 1\r",
+      false,
+      null
+    ],
+    [
+      "# c\r",
+      false,
+      null
+    ],
+    [
+      "\"a b\" = 1\n",
+      true,
+      null
+    ],
+    [
+      "'k' = 1\n",
+      true,
+      null
+    ],
+    [
+      "a.b.c = 1\n",
+      true,
+      null
+    ],
+    [
+      "\"\" = 1\n",
+      true,
+      null
+    ],
+    [
+      "= 1\n",
+      false,
+      null
+    ],
+    [
+      "a$ = 1\n",
+      false,
+      null
+    ],
+    [
+      "a . b = 1\n",
+      true,
+      null
+    ],
+    [
+      "a.'b'.\"c\" = 1\n",
+      true,
+      null
+    ],
+    [
+      "a. = 1\n",
+      false,
+      null
+    ],
+    [
+      ".a = 1\n",
+      false,
+      null
+    ],
+    [
+      "a.\"b = 1\n",
+      false,
+      null
+    ],
+    [
+      "a 'b' = 1\n",
+      false,
+      null
+    ],
+    [
+      "x\n",
+      false,
+      null
+    ],
+    [
+      "x 1\n",
+      false,
+      null
+    ],
+    [
+      "x = 1 y = 2\n",
+      false,
+      null
+    ],
+    [
+      "x =\n",
+      false,
+      null
+    ],
+    [
+      "x = \n",
+      false,
+      null
+    ],
+    [
+      "1234 = 5\n",
+      true,
+      null
+    ],
+    [
+      "true = 1\n",
+      true,
+      null
+    ],
+    [
+      "a-b_c = 1\n",
+      true,
+      null
+    ],
+    [
+      "é = 1\n",
+      false,
+      null
+    ],
+    [
+      "x = 1\nx = 2\n",
+      false,
+      null
+    ],
+    [
+      "x = 1\nx.y = 2\n",
+      false,
+      null
+    ],
+    [
+      "a.b = 1\na.c = 2\n",
+      true,
+      null
+    ],
+    [
+      "a.b = 1\na = 2\n",
+      false,
+      null
+    ],
+    [
+      "'a\nb' = 1\n",
+      false,
+      null
+    ],
+    [
+      "\"a\\u0041\" = 1\n",
+      true,
+      null
+    ],
+    [
+      "\"a\\q\" = 1\n",
+      false,
+      null
+    ],
+    [
+      "\"\"\"a\"\"\" = 1\n",
+      false,
+      null
+    ],
+    [
+      "'''a''' = 1\n",
+      false,
+      null
+    ],
+    [
+      "x = 1_000\n",
+      true,
+      null
+    ],
+    [
+      "x = 1__0\n",
+      false,
+      null
+    ],
+    [
+      "x = _1\n",
+      false,
+      null
+    ],
+    [
+      "x = 1_\n",
+      false,
+      null
+    ],
+    [
+      "x = 0x_1\n",
+      false,
+      null
+    ],
+    [
+      "x = 0xDEAD_beef\n",
+      true,
+      null
+    ],
+    [
+      "x = 0o17\n",
+      true,
+      null
+    ],
+    [
+      "x = 0o8\n",
+      false,
+      null
+    ],
+    [
+      "x = 0b101\n",
+      true,
+      null
+    ],
+    [
+      "x = 0b2\n",
+      false,
+      null
+    ],
+    [
+      "x = +0x1\n",
+      false,
+      null
+    ],
+    [
+      "x = 01\n",
+      false,
+      null
+    ],
+    [
+      "x = +inf\n",
+      true,
+      null
+    ],
+    [
+      "x = -inf\n",
+      true,
+      null
+    ],
+    [
+      "x = +nan\n",
+      true,
+      null
+    ],
+    [
+      "x = -nan\n",
+      true,
+      null
+    ],
+    [
+      "x = inf\n",
+      true,
+      null
+    ],
+    [
+      "x = nan\n",
+      true,
+      null
+    ],
+    [
+      "x = 1e10\n",
+      true,
+      null
+    ],
+    [
+      "x = 1E+2\n",
+      true,
+      null
+    ],
+    [
+      "x = 1e-_2\n",
+      false,
+      null
+    ],
+    [
+      "x = 1e_2\n",
+      false,
+      null
+    ],
+    [
+      "x = 1.5\n",
+      true,
+      null
+    ],
+    [
+      "x = 1.\n",
+      false,
+      null
+    ],
+    [
+      "x = .5\n",
+      false,
+      null
+    ],
+    [
+      "x = 1.5e3\n",
+      true,
+      null
+    ],
+    [
+      "x = 1e\n",
+      false,
+      null
+    ],
+    [
+      "x = 00.1\n",
+      false,
+      null
+    ],
+    [
+      "x = 0.0\n",
+      true,
+      null
+    ],
+    [
+      "x = -0\n",
+      true,
+      null
+    ],
+    [
+      "x = +0\n",
+      true,
+      null
+    ],
+    [
+      "x = 3.14_15\n",
+      true,
+      null
+    ],
+    [
+      "x = 1_.5\n",
+      false,
+      null
+    ],
+    [
+      "x = 1._5\n",
+      false,
+      null
+    ],
+    [
+      "x = 0x\n",
+      false,
+      null
+    ],
+    [
+      "x = 0o\n",
+      false,
+      null
+    ],
+    [
+      "x = 0b\n",
+      false,
+      null
+    ],
+    [
+      "x = 1e+\n",
+      false,
+      null
+    ],
+    [
+      "x = --1\n",
+      false,
+      null
+    ],
+    [
+      "x = +-1\n",
+      false,
+      null
+    ],
+    [
+      "x = 0xg\n",
+      false,
+      null
+    ],
+    [
+      "x = 1.5.2\n",
+      false,
+      null
+    ],
+    [
+      "x = 1e5e5\n",
+      false,
+      null
+    ],
+    [
+      "x = -01\n",
+      false,
+      null
+    ],
+    [
+      "x = 0_1\n",
+      false,
+      null
+    ],
+    [
+      "x = 1e01\n",
+      true,
+      null
+    ],
+    [
+      "x = +1.5\n",
+      true,
+      null
+    ],
+    [
+      "x = -1e-2\n",
+      true,
+      null
+    ],
+    [
+      "x = 9223372036854775807\n",
+      false,
+      null
+    ],
+    [
+      "x = 1.0e_5\n",
+      false,
+      null
+    ],
+    [
+      "x = Inf\n",
+      false,
+      null
+    ],
+    [
+      "x = 0X1\n",
+      false,
+      null
+    ],
+    [
+      "x = é\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-02-29\n",
+      true,
+      null
+    ],
+    [
+      "x = 2000-02-29\n",
+      true,
+      null
+    ],
+    [
+      "x = 1900-02-29\n",
+      true,
+      null
+    ],
+    [
+      "x = 2024-02-29\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-13-01\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-04-31\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-00-10\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-00\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00Z\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00.999999-07:00\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27 07:32:00\n",
+      true,
+      null
+    ],
+    [
+      "x = 07:32:00\n",
+      true,
+      null
+    ],
+    [
+      "x = 07:32:00.5\n",
+      true,
+      null
+    ],
+    [
+      "x = 24:00:00\n",
+      false,
+      null
+    ],
+    [
+      "x = 07:60:00\n",
+      false,
+      null
+    ],
+    [
+      "x = 07:32:61\n",
+      false,
+      null
+    ],
+    [
+      "x = 07:32:60\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+24:00\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+05:60\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+0530\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27t07:32:00z\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00.Z\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27X07:32:00\n",
+      false,
+      null
+    ],
+    [
+      "x = 07:32:00.\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-5-27\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979/05/27\n",
+      false,
+      null
+    ],
+    [
+      "x = 07-32-00\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+05:30\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00-00:00\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00.5+05:30\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27T7:32:00Z\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00 Z\n",
+      false,
+      null
+    ],
+    [
+      "x = 0000-01-01\n",
+      true,
+      null
+    ],
+    [
+      "x = 9999-12-31\n",
+      true,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+5:30\n",
+      false,
+      null
+    ],
+    [
+      "x = a979-05-27\n",
+      false,
+      null
+    ],
+    [
+      "x = 19a9-05-27\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-0a-27\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-2a\n",
+      false,
+      null
+    ],
+    [
+      "x = 0a:32:00\n",
+      false,
+      null
+    ],
+    [
+      "x = 07:3a:00\n",
+      false,
+      null
+    ],
+    [
+      "x = 07:32:0a\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00Zx\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+0a:30\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00+05:3a\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00*05:30\n",
+      false,
+      null
+    ],
+    [
+      "x = 1979-05-27T07:32:00.5a\n",
+      false,
+      null
+    ],
+    [
+      "x = true\n",
+      true,
+      null
+    ],
+    [
+      "x = false\n",
+      true,
+      null
+    ],
+    [
+      "x = True\n",
+      false,
+      null
+    ],
+    [
+      "x = tru\n",
+      false,
+      null
+    ],
+    [
+      "x = falsey\n",
+      false,
+      null
+    ],
+    [
+      "x = truex\n",
+      false,
+      null
+    ],
+    [
+      "x = [1, 2,]\n",
+      true,
+      null
+    ],
+    [
+      "x = [ ]\n",
+      true,
+      null
+    ],
+    [
+      "x = [1 2]\n",
+      false,
+      null
+    ],
+    [
+      "x = [[1], [2, [3]]]\n",
+      true,
+      null
+    ],
+    [
+      "x = [\n  1, # c\n  2,\n]\n",
+      true,
+      null
+    ],
+    [
+      "x = [1, 'a', 1979-05-27]\n",
+      true,
+      null
+    ],
+    [
+      "x = [,]\n",
+      false,
+      null
+    ],
+    [
+      "x = [1,,2]\n",
+      false,
+      null
+    ],
+    [
+      "x = [1\n",
+      false,
+      null
+    ],
+    [
+      "x = [\n\n",
+      false,
+      null
+    ],
+    [
+      "x = [1, {a = 1}]\n",
+      true,
+      null
+    ],
+    [
+      "x = [\"a\", \"\"\"b\"\"\"]\n",
+      true,
+      null
+    ],
+    [
+      "x = [ # c\n]\n",
+      true,
+      null
+    ],
+    [
+      "x = [1]x\n",
+      false,
+      null
+    ],
+    [
+      "x = {a = 1, b.c = 2}\n",
+      true,
+      null
+    ],
+    [
+      "x = {a = 1, a = 2}\n",
+      false,
+      null
+    ],
+    [
+      "x = {}\n",
+      true,
+      null
+    ],
+    [
+      "x = { }\n",
+      true,
+      null
+    ],
+    [
+      "x = {a.b = 1, a.c = 2}\n",
+      true,
+      null
+    ],
+    [
+      "x = {a.b = 1, a = 2}\n",
+      false,
+      null
+    ],
+    [
+      "x = {a = {b = 1}}\n",
+      true,
+      null
+    ],
+    [
+      "x = {a = 1 b = 2}\n",
+      false,
+      null
+    ],
+    [
+      "x = {a = 1\n",
+      false,
+      null
+    ],
+    [
+      "x = {a}\n",
+      false,
+      null
+    ],
+    [
+      "x = {,}\n",
+      false,
+      null
+    ],
+    [
+      "x = {a = [1, 2]}\n",
+      true,
+      null
+    ],
+    [
+      "x = {a = 1}x\n",
+      false,
+      null
+    ],
+    [
+      "x = { a = 1 , b = 'x' }\n",
+      true,
+      null
+    ],
+    [
+      "x = {a = 1, a.b = 2}\n",
+      false,
+      null
+    ],
+    [
+      "x = {a = 1}\nx.b = 2\n",
+      false,
+      null
+    ],
+    [
+      "[x]\na = {b = 1}\n[x.a]\n",
+      false,
+      null
+    ],
+    [
+      "x = [1]\n[x]\n",
+      false,
+      null
+    ],
+    [
+      "x = 1\n[x]\n",
+      false,
+      null
+    ],
+    [
+      "x = {a = 1}\n[x.a]\n",
+      false,
+      null
+    ],
+    [
+      "[a]\n[a]\n",
+      false,
+      null
+    ],
+    [
+      "[a.b]\n[a]\n",
+      true,
+      null
+    ],
+    [
+      "[a]\n[a.b]\n",
+      true,
+      null
+    ],
+    [
+      "[[a]]\n[a]\n",
+      false,
+      null
+    ],
+    [
+      "[a]\n[[a]]\n",
+      false,
+      null
+    ],
+    [
+      "a.b = 1\n[a.b]\n",
+      false,
+      null
+    ],
+    [
+      "[a]\nb.c = 1\n[a.b]\n",
+      false,
+      null
+    ],
+    [
+      "[ a . b ]\nx = 1\n",
+      true,
+      null
+    ],
+    [
+      "[[a.b]]\n[a.b.c]\n",
+      true,
+      null
+    ],
+    [
+      "[a] x\n",
+      false,
+      null
+    ],
+    [
+      "[a\n",
+      false,
+      null
+    ],
+    [
+      "[]\n",
+      false,
+      null
+    ],
+    [
+      "[[a]\n",
+      false,
+      null
+    ],
+    [
+      "[[a]]\n[[a]]\nx = 1\n",
+      true,
+      null
+    ],
+    [
+      "[[p]]\nname = 'q'\n[p.q]\nx = 1\n",
+      true,
+      null
+    ],
+    [
+      "[a] # c\nx = 1\n",
+      true,
+      null
+    ],
+    [
+      "[a]]\n",
+      false,
+      null
+    ],
+    [
+      "[[a]]]\n",
+      false,
+      null
+    ],
+    [
+      "[a.'b c'.\"d\"]\nx = 1\n",
+      true,
+      null
+    ],
+    [
+      "[a]\nx = 1\n[a.b]\nx = 2\n[a.b.c]\n",
+      true,
+      null
+    ],
+    [
+      "[a.b]\n[a.b.c]\n[a.b]\n",
+      false,
+      null
+    ],
+    [
+      "[ [a] ]\n",
+      false,
+      null
+    ],
+    [
+      "[[ a ]]\n",
+      true,
+      null
+    ],
+    [
+      "[a.]\n",
+      false,
+      null
+    ],
+    [
+      "[.a]\n",
+      false,
+      null
+    ],
+    [
+      "[a..b]\n",
+      false,
+      null
+    ],
+    [
+      "a = 1\n[a.b]\n",
+      false,
+      null
+    ],
+    [
+      "[a]\n[b]\n[a.c]\n",
+      true,
+      null
+    ],
+    [
+      "[[a]]\nb = 1\n[[a]]\nb = 2\n[a.c]\nd = 3\n",
+      true,
+      null
+    ],
+    [
+      "[[a.b]]\n[a]\n",
+      true,
+      null
+    ],
+    [
+      "[a]\n[[a.b]]\n[[a.b]]\n",
+      true,
+      null
+    ],
+    [
+      "[a.b.c]\n[a.b]\nc = 1\n",
+      false,
+      null
+    ],
+    [
+      "[a]\nb = 1\n[a.b.c]\n",
+      false,
+      null
+    ],
+    [
+      "[a]\nb.c = 1\n[a.b.d]\n",
+      true,
+      null
+    ],
+    [
+      "[[a]]\n[a.b]\n[[a.b]]\n",
+      false,
+      null
+    ],
+    [
+      "x = 1\n[[x]]\n",
+      false,
+      null
+    ],
+    [
+      "[x]\n[[x.y]]\n[x.y]\n",
+      false,
+      null
+    ],
+    [
+      "[[x.y]]\n[x.y.z]\n[[x.y]]\n[x.y.z]\n",
+      true,
+      null
+    ],
+    [
+      "[a.b.c]\n[a]\nb.d = 1\n",
+      false,
+      null
+    ],
+    [
+      "[a.b.c]\n[a]\nb.c = 1\n",
+      false,
+      null
+    ],
+    [
+      "[package]\nname = 'p'\nversion = '1.0.0'\n",
+      true,
+      "p"
+    ],
+    [
+      "[[package]]\nname = 'p'\n",
+      true,
+      null
+    ],
+    [
+      "package.name = 'p'\n",
+      true,
+      "p"
+    ],
+    [
+      "[package]\nname.x = 'p'\n",
+      true,
+      null
+    ],
+    [
+      "[package]\nname = 1\n",
+      true,
+      null
+    ],
+    [
+      "package = {name = 'p'}\n",
+      true,
+      "p"
+    ],
+    [
+      "[package]\nname = 'p'\n[package.metadata]\nname = 'q'\n",
+      true,
+      "p"
+    ],
+    [
+      "[package]\nversion.workspace = true\nname = 'w'\n",
+      true,
+      "w"
+    ],
+    [
+      "workspace = { package = { version = '1.0.0' } }\n",
+      true,
+      null
+    ],
+    [
+      "[workspace]\npackage = { version = '1.0.0' }\n",
+      true,
+      null
+    ],
+    [
+      "[workspace.package]\nversion = '1.0.0'\n",
+      true,
+      null
+    ],
+    [
+      "[package.metadata.a]\nb = 1\n",
+      true,
+      null
+    ]
+  ]
+}

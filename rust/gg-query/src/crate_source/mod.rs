@@ -7,6 +7,8 @@
 mod git;
 mod lockfile;
 mod manifest;
+#[cfg(test)]
+mod toml_parity_tests;
 mod toml_scalars;
 mod toml_strings;
 mod toml_syntax;

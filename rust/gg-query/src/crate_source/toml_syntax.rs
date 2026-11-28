@@ -39,9 +39,6 @@ fn is_identity_assignment(
         return false;
     }
     let total_len = active_ptr.len() + key_path.len();
-    if total_len == 0 || total_len > 3 {
-        return false;
-    }
     let seg = |i: usize| -> &str {
         if i < active_ptr.len() {
             active_ptr[i].0.as_str()
@@ -49,19 +46,16 @@ fn is_identity_assignment(
             key_path[i - active_ptr.len()].as_str()
         }
     };
-    match seg(0) {
-        "package" => match total_len {
-            1 => true,
-            2 => matches!(seg(1), "name" | "version"),
-            3 => seg(1) == "version" && seg(2) == "workspace",
-            _ => false,
-        },
-        "workspace" => match total_len {
-            1 => true,
-            2 => seg(1) == "package",
-            3 => seg(1) == "package" && seg(2) == "version",
-            _ => false,
-        },
+    match total_len {
+        1 => matches!(seg(0), "package" | "workspace"),
+        2 => matches!(
+            (seg(0), seg(1)),
+            ("package", "name" | "version") | ("workspace", "package")
+        ),
+        3 => matches!(
+            (seg(0), seg(1), seg(2)),
+            ("package", "version", "workspace") | ("workspace", "package", "version")
+        ),
         _ => false,
     }
 }
