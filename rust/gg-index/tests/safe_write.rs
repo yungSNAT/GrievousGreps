@@ -3,7 +3,10 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use gg_index::safe_write::{write_atomic_inside, write_wiring};
+use gg_index::safe_write::{
+    prune_cache, read_in_cache, read_inside, stream_atomic_inside, write_atomic_inside,
+    write_in_cache, write_wiring,
+};
 
 fn scratch(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
@@ -57,13 +60,120 @@ fn errors_name_the_output_directory() {
 #[test]
 fn refuses_bad_components() {
     let base = scratch("components");
-    for bad in ["", ".", "..", "a/b"] {
+    for bad in [
+        "", ".", "..", "a/b", "a\\b", "/", "\\", "sub/", "sub\\", "\0", "a\0b",
+    ] {
         assert!(
             write_atomic_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), b"x").is_err(),
-            "{bad:?}"
+            "write dir {bad:?}"
+        );
+        assert!(
+            stream_atomic_inside(&base, &[], OsStr::new(bad), |_| Ok(())).is_err(),
+            "stream leaf {bad:?}"
+        );
+        assert!(
+            read_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), 4096).is_err(),
+            "read dir {bad:?}"
+        );
+        assert!(
+            read_inside(&base, &[], OsStr::new(bad), 4096).is_err(),
+            "read leaf {bad:?}"
         );
     }
-    assert!(write_atomic_inside(&base, &[], OsStr::new(".."), b"x").is_err());
+    assert!(
+        read_inside(
+            &base,
+            &[OsStr::new("/"), OsStr::new("etc")],
+            OsStr::new("hosts"),
+            4096,
+        )
+        .is_err()
+    );
+    #[cfg(windows)]
+    for bad in ["C:", "C:foo"] {
+        assert!(
+            read_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), 4096).is_err(),
+            "win prefix {bad:?}"
+        );
+        assert!(
+            stream_atomic_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), |_| Ok(())).is_err(),
+            "win stream {bad:?}"
+        );
+    }
+}
+
+#[test]
+fn refuses_nul_components_before_disk_io() {
+    let base = scratch("nul-before-io");
+    let absent = base.join("absent");
+    for bad in ["\0", "a\0b"] {
+        let err = read_inside(&absent, &[], OsStr::new(bad), 4096).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        let err =
+            write_atomic_inside(&base, &[OsStr::new("newdir")], OsStr::new(bad), b"x").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(!base.join("newdir").exists(), "dir created before refusal");
+    }
+}
+
+#[test]
+fn stream_in_cache_refuses_bad_leaf_before_creating_base() {
+    let base = scratch("cache-nul-base");
+    let missing_parent = base.join("uncreated");
+    let out = missing_parent.join("graft");
+    let err = write_in_cache(&out, OsStr::new("a\0b"), b"x").unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(
+        !missing_parent.exists(),
+        "base dir created before component validation"
+    );
+}
+
+#[test]
+fn read_inside_handles_u64_max_bound() {
+    let dir = scratch("max-bound");
+    let out = dir.join("graft");
+    write_in_cache(&out, OsStr::new("extract.a.json"), b"abc").unwrap();
+    assert_eq!(
+        read_in_cache(&out, OsStr::new("extract.a.json"), u64::MAX).unwrap(),
+        Some(b"abc".to_vec())
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn stream_atomic_inside_blocks_ancestor_rename_while_writing_on_windows() {
+    use std::io::Write;
+    let base = scratch("win-pin-write");
+    let graft = base.join("graft");
+    let cache = graft.join(".cache");
+    stream_atomic_inside(
+        &base,
+        &[OsStr::new("graft"), OsStr::new(".cache")],
+        OsStr::new("extract.a.json"),
+        |file| {
+            assert!(std::fs::rename(&graft, base.join("moved-graft")).is_err());
+            assert!(std::fs::rename(&cache, base.join("moved-cache")).is_err());
+            file.write_all(b"ok")
+        },
+    )
+    .unwrap();
+    std::fs::rename(&graft, base.join("moved-graft")).unwrap();
+}
+
+#[test]
+fn bounded_cache_read_and_prune_edges() {
+    let dir = scratch("cache-read-edges");
+    let out = dir.join("graft");
+    write_in_cache(&out, OsStr::new("extract.a.json"), b"0123456789abcdef0").unwrap();
+    assert_eq!(
+        read_in_cache(&out, OsStr::new("extract.a.json"), 17).unwrap(),
+        Some(b"0123456789abcdef0".to_vec())
+    );
+    assert!(read_in_cache(&out, OsStr::new("extract.a.json"), 16).is_err());
+    assert!(read_in_cache(&out, OsStr::new("../evil"), 16).is_err());
+    prune_cache(&dir.join("absent"), "extract", 2);
+    prune_cache(std::path::Path::new("graft/.."), "extract", 2);
 }
 
 #[test]

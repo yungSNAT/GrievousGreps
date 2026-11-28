@@ -542,13 +542,13 @@ pub fn list_source_stats(
 
 /// Node's `mtimeMs`: `sec * 1e3 + nsec / 1e6`, from the time as libuv gives it.
 #[cfg(unix)]
-fn mtime_ms(meta: &fs::Metadata) -> f64 {
+pub(crate) fn mtime_ms(meta: &fs::Metadata) -> f64 {
     use std::os::unix::fs::MetadataExt;
     meta.mtime() as f64 * 1e3 + meta.mtime_nsec() as f64 / 1e6
 }
 
 #[cfg(windows)]
-fn mtime_ms(meta: &fs::Metadata) -> f64 {
+pub(crate) fn mtime_ms(meta: &fs::Metadata) -> f64 {
     use std::os::windows::fs::MetadataExt;
     // libuv's uv__filetime_to_timespec: 100 ns ticks since 1601.
     const TICKS: i64 = 10_000_000;

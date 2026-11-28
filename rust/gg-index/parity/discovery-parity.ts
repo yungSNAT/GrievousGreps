@@ -108,9 +108,10 @@ const bin = opt("--bin") ? resolve(opt("--bin")!) : null;
 function run(argv: string[], input = "", cwd?: string): { out: string; status: number | null } {
   if (!bin) throw new Error("--bin <gg-index binary> is required");
   const r = spawnSync(bin, argv, { input, cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
-  // A binary that cannot start is a harness failure, never a match. EPIPE is a binary that
-  // exited before reading its input (as one without the subcommand does): its status counts.
-  if (r.error && (r.error as NodeJS.ErrnoException).code !== "EPIPE") throw r.error;
+  // A binary that cannot start is a harness failure, never a match. EPIPE/EOF is a binary
+  // that exited before reading its input (as one without the subcommand does): its status counts.
+  const code = (r.error as NodeJS.ErrnoException | undefined)?.code;
+  if (r.error && code !== "EPIPE" && code !== "EOF") throw r.error;
   return { out: r.stdout, status: r.status };
 }
 
@@ -270,13 +271,13 @@ function cacheRound(work: string, i: number): void {
     }
   }
   const tsOk = writeExtractCache(sides.ts, c);
-  const rsOk = run(["cache", "write", "--out-dir", sides.rs, "--extractor", stamp!], JSON.stringify(c)).out.trim();
+  const rsOk = checked(run(["cache", "write", "--out-dir", sides.rs, "--extractor", stamp!], JSON.stringify(c)));
   compare("cache-write", i, String(tsOk), rsOk, "returned");
   const tsPath = extractCachePath(sides.ts)!;
   const rsPath = join(sides.rs, ".cache", `extract.${stamp}.json`);
   compare("cache-bytes", i, existsSync(tsPath) ? readFileSync(tsPath, "latin1") : "absent", existsSync(rsPath) ? readFileSync(rsPath, "latin1") : "absent", "file bytes");
   compare("cache-pruned", i, readdirSync(join(sides.ts, ".cache")).sort().join(","), readdirSync(join(sides.rs, ".cache")).sort().join(","), ".cache listing");
-  compare("cache-read", i, JSON.stringify(readExtractCache(sides.ts)), run(["cache", "read", "--out-dir", sides.ts, "--extractor", stamp!]).out.trim(), "read back");
+  compare("cache-read", i, JSON.stringify(readExtractCache(sides.ts)), checked(run(["cache", "read", "--out-dir", sides.ts, "--extractor", stamp!])), "read back");
 
   const only = rand() < 0.3 ? ["src"] : [];
   const exts = rand() < 0.3 ? [".ts"] : [];
@@ -284,10 +285,10 @@ function cacheRound(work: string, i: number): void {
   const fa = ["fingerprint", "write", "--out-dir", sides.rs, "--extractor", stamp!];
   for (const d of only) fa.push("--only-dir", d);
   for (const e of exts) fa.push("--ext", e);
-  compare("fp-write", i, String(fpTs), run(fa, JSON.stringify(c.files)).out.trim(), "returned");
+  compare("fp-write", i, String(fpTs), checked(run(fa, JSON.stringify(c.files))), "returned");
   const fpRs = join(sides.rs, ".cache", `fingerprint.${stamp}.json`);
   compare("fp-bytes", i, readFileSync(fingerprintPath(sides.ts), "latin1"), existsSync(fpRs) ? readFileSync(fpRs, "latin1") : "absent", "file bytes");
-  compare("fp-read", i, JSON.stringify(readFingerprint(sides.ts)), run(["fingerprint", "read", "--out-dir", sides.ts, "--extractor", stamp!]).out.trim(), "read back");
+  compare("fp-read", i, JSON.stringify(readFingerprint(sides.ts)), checked(run(["fingerprint", "read", "--out-dir", sides.ts, "--extractor", stamp!])), "read back");
 }
 
 const record = opt("--record");

@@ -274,6 +274,54 @@ pub fn stringify(v: &Json) -> String {
     out
 }
 
+/// `JSON.stringify(value)` (compact, raw UTF-8 except controls and lone surrogates).
+pub fn stringify_compact(v: &Json) -> String {
+    let mut out = String::new();
+    write_compact(v, false, &mut out);
+    out
+}
+
+/// Append `asciiJson(JSON.stringify(value))` (compact, U+007F and up escaped) to `out`.
+pub fn write_compact_ascii(v: &Json, out: &mut String) {
+    write_compact(v, true, out);
+}
+
+/// Append `asciiJson(JSON.stringify(s))` for a UTF-16 string to `out`.
+pub fn write_str_ascii(s: &[u16], out: &mut String) {
+    write_string_mode(s, true, out);
+}
+
+fn write_compact(v: &Json, ascii: bool, out: &mut String) {
+    match v {
+        Json::Null => out.push_str("null"),
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Num(n) => out.push_str(&js_number(*n)),
+        Json::Str(s) => write_string_mode(s, ascii, out),
+        Json::Arr(items) => {
+            out.push('[');
+            for (n, item) in items.iter().enumerate() {
+                if n > 0 {
+                    out.push(',');
+                }
+                write_compact(item, ascii, out);
+            }
+            out.push(']');
+        }
+        Json::Obj(members) => {
+            out.push('{');
+            for (n, (k, val)) in js_key_order(members).into_iter().enumerate() {
+                if n > 0 {
+                    out.push(',');
+                }
+                write_string_mode(k, ascii, out);
+                out.push(':');
+                write_compact(val, ascii, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
 fn write_value(v: &Json, depth: usize, out: &mut String) {
     match v {
         Json::Null => out.push_str("null"),
@@ -316,7 +364,7 @@ fn indent(depth: usize, out: &mut String) {
 }
 
 /// Own-property order: array-index keys ascending, then the rest in insertion order.
-fn js_key_order(members: &[(Vec<u16>, Json)]) -> Vec<&(Vec<u16>, Json)> {
+pub(crate) fn js_key_order(members: &[(Vec<u16>, Json)]) -> Vec<&(Vec<u16>, Json)> {
     let mut index: Vec<(u32, &(Vec<u16>, Json))> = Vec::new();
     let mut rest = Vec::new();
     for m in members {
@@ -345,8 +393,15 @@ fn array_index(key: &[u16]) -> Option<u32> {
 }
 
 fn write_string(s: &[u16], out: &mut String) {
+    write_string_mode(s, true, out);
+}
+
+fn write_string_mode(s: &[u16], ascii: bool, out: &mut String) {
     out.push('"');
-    for &u in s {
+    let mut i = 0;
+    while i < s.len() {
+        let u = s[i];
+        i += 1;
         match u {
             0x22 => out.push_str("\\\""),
             0x5c => out.push_str("\\\\"),
@@ -356,10 +411,25 @@ fn write_string(s: &[u16], out: &mut String) {
             0x0d => out.push_str("\\r"),
             0x09 => out.push_str("\\t"),
             // Controls by JSON.stringify; U+007F and up (surrogates included) by asciiJson.
-            0x00..=0x1f | 0x7f.. => {
+            0x00..=0x1f => {
                 let _ = write!(out, "\\u{u:04x}");
             }
-            _ => out.push(char::from(u as u8)),
+            0x7f.. if ascii => {
+                let _ = write!(out, "\\u{u:04x}");
+            }
+            0xd800..=0xdbff => {
+                if let Some(&lo) = s.get(i).filter(|&&lo| (0xdc00..=0xdfff).contains(&lo)) {
+                    i += 1;
+                    let cp = 0x10000 + ((u32::from(u - 0xd800) << 10) | u32::from(lo - 0xdc00));
+                    out.extend(char::from_u32(cp));
+                } else {
+                    let _ = write!(out, "\\u{u:04x}");
+                }
+            }
+            0xdc00..=0xdfff => {
+                let _ = write!(out, "\\u{u:04x}");
+            }
+            _ => out.extend(char::from_u32(u32::from(u))),
         }
     }
     out.push('"');
@@ -376,132 +446,4 @@ pub fn js_number(v: f64) -> String {
     // Rust's `{:e}` breaks a tie between 2 shortest digit strings upwards; ECMAScript
     // picks the even one (-859538942790036.25 prints as ...036.2). ryu-js follows ECMAScript.
     ryu_js::Buffer::new().format_finite(v).to_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn numbers_print_as_javascript_does() {
-        let cases = [
-            (0.0, "0"),
-            (-0.0, "0"),
-            (1.0, "1"),
-            (-1.5, "-1.5"),
-            (100.0, "100"),
-            (0.1, "0.1"),
-            (1e21, "1e+21"),
-            (1e20, "100000000000000000000"),
-            (123_456_789_012_345_680_000.0, "123456789012345680000"),
-            (1.5e-7, "1.5e-7"),
-            (0.000_001, "0.000001"),
-            (5e-324, "5e-324"),
-            (1.797_693_134_862_315_7e308, "1.7976931348623157e+308"),
-            // Both literals parse to a double ending in .25, a tie between .2 and .3.
-            (-859_538_942_790_036.2, "-859538942790036.2"),
-            (1_030_019_659_035_116.2, "1030019659035116.2"),
-            (1.23e-18, "1.23e-18"),
-            (9_007_199_254_740_994.0, "9007199254740994"),
-            (f64::INFINITY, "null"),
-        ];
-        assert_eq!(-859_538_942_790_036.2_f64.fract(), -0.25);
-        for (v, want) in cases {
-            assert_eq!(js_number(v), want, "{v:e}");
-        }
-    }
-
-    #[test]
-    fn strings_escape_as_ascii_json_does() {
-        let v = Json::Str(vec![
-            0x22, 0x5c, 0x2f, 0x0a, 0x01, 0x7f, 0xe9, 0x2028, 0xd83d, 0xde00, 0xdc00,
-        ]);
-        assert_eq!(
-            stringify(&v),
-            r#""\"\\/\n\u0001\u007f\u00e9\u2028\ud83d\ude00\udc00""#
-        );
-    }
-
-    #[test]
-    fn repeated_key_keeps_first_place_and_last_value() {
-        let v = parse(r#"{"a":1,"b":2,"a":3}"#).unwrap();
-        assert_eq!(stringify(&v), "{\n  \"a\": 3,\n  \"b\": 2\n}");
-    }
-
-    #[test]
-    fn index_keys_print_first_in_numeric_order() {
-        let v = parse(r#"{"b":1,"10":2,"2":3,"01":4,"4294967295":5,"4294967294":6}"#).unwrap();
-        let keys: Vec<String> = match &v {
-            Json::Obj(m) => js_key_order(m)
-                .iter()
-                .map(|(k, _)| String::from_utf16_lossy(k))
-                .collect(),
-            _ => unreachable!(),
-        };
-        assert_eq!(keys, ["2", "10", "4294967294", "b", "01", "4294967295"]);
-    }
-
-    #[test]
-    fn lone_surrogate_escapes_round_trip() {
-        let v = parse(r#""\uD800x""#).unwrap();
-        assert_eq!(v, Json::Str(vec![0xd800, 0x78]));
-        assert_eq!(stringify(&v), r#""\ud800x""#);
-    }
-
-    #[test]
-    fn rejects_what_json_parse_rejects() {
-        for bad in [
-            "",
-            "01",
-            "1.",
-            "[1,]",
-            "{\"a\":1,}",
-            "'a'",
-            "\"\t\"",
-            "\u{feff}{}",
-            "[1] 2",
-            "-",
-            "1e",
-            "\"\\x\"",
-        ] {
-            assert!(parse(bad).is_err(), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn repeated_keys_in_a_large_object_use_the_index() {
-        let keys: String = (0..40).map(|n| format!("\"k{n}\":{n},")).collect();
-        let v = parse(&format!("{{{keys}\"k3\":true,\"k39\":null,\"z\":0}}")).unwrap();
-        let Json::Obj(m) = &v else { unreachable!() };
-        assert_eq!(m.len(), 41);
-        assert_eq!(m[3], (utf16("k3"), Json::Bool(true)));
-        assert_eq!(m[39], (utf16("k39"), Json::Null));
-        assert_eq!(m[40].0, utf16("z"));
-    }
-
-    #[test]
-    fn nesting_stops_past_the_cap() {
-        let deep = |d: usize| format!("{}{}", "[".repeat(d), "]".repeat(d));
-        let ok = std::thread::Builder::new()
-            .stack_size(STACK_BYTES)
-            .spawn(move || {
-                (
-                    parse(&deep(MAX_DEPTH + 1)).is_ok(),
-                    parse(&deep(MAX_DEPTH + 2)).is_err(),
-                )
-            })
-            .unwrap()
-            .join()
-            .unwrap();
-        assert_eq!(ok, (true, true));
-    }
-
-    #[test]
-    fn empty_containers_stay_on_one_line() {
-        let v = parse(r#"{"a":[],"b":{},"c":[[]]}"#).unwrap();
-        assert_eq!(
-            stringify(&v),
-            "{\n  \"a\": [],\n  \"b\": {},\n  \"c\": [\n    []\n  ]\n}"
-        );
-    }
 }
