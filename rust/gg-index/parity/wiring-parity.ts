@@ -13,7 +13,7 @@
  * `--record` writes `<name>.wiring.json` beside each `<name>.json` from the TypeScript
  * writer: the goldens the Rust tests compare against. Exit 1 when any case differs.
  */
-import { spawnSync } from "node:child_process";
+import { spawnSync } from "../../../src/util/program.js";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, resolve } from "node:path";
