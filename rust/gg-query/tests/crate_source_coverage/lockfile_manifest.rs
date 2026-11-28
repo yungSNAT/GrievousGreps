@@ -58,13 +58,13 @@ fn auto_scans_lockfiles_enforcing_skip_dirs_depth_and_symlinks() {
         make_lock("skip", "1.0.0", None),
     );
     write_file(
-        &repo.join("a/b/c/d/Cargo.lock"),
+        &repo.join("a/b/c/Cargo.lock"),
         make_lock("deep", "1.0.0", None),
     );
     #[cfg(unix)]
     let _guard = {
         use std::os::unix::fs::{PermissionsExt, symlink};
-        symlink(repo.join("sub"), repo.join("sym_sub")).unwrap();
+        symlink(repo.join("target"), repo.join("sym_sub")).unwrap();
         let blocked = repo.join("unreadable");
         fs::create_dir(&blocked).unwrap();
         fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
