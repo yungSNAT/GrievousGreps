@@ -16,14 +16,19 @@
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 fn validate_components(dirs: &[&OsStr], leaf: &OsStr) -> io::Result<()> {
     for seg in dirs.iter().chain([&leaf]) {
-        let ok = !seg.is_empty()
-            && *seg != "."
-            && *seg != ".."
-            && Path::new(seg).components().count() == 1;
+        let no_sep = !seg
+            .as_encoded_bytes()
+            .iter()
+            .any(|&b| b == b'/' || b == b'\\');
+        let ok = no_sep
+            && matches!(
+                Path::new(seg).components().next(),
+                Some(Component::Normal(_))
+            );
         if !ok {
             return Err(refuse(format!(
                 "refusing a path component: {}",
@@ -236,24 +241,11 @@ mod tests {
     }
 
     #[test]
-    fn bounded_read_and_sidecar_prune_handle_edges() {
-        let dir = std::env::temp_dir().join(format!("gg-index-sw-{}", std::process::id()));
-        drop(std::fs::remove_dir_all(&dir));
-        let out = dir.join("graft");
-        write_in_cache(&out, OsStr::new("extract.a.json"), b"0123456789abcdef0").unwrap();
-        assert_eq!(
-            read_in_cache(&out, OsStr::new("extract.a.json"), 17).unwrap(),
-            Some(b"0123456789abcdef0".to_vec())
-        );
-        assert!(read_in_cache(&out, OsStr::new("extract.a.json"), 16).is_err());
-        assert!(read_in_cache(&out, OsStr::new("../evil"), 16).is_err());
-        prune_cache(&dir.join("absent"), "extract", 2);
-        prune_cache(Path::new("graft/.."), "extract", 2);
+    fn matches_sidecar_names() {
         assert!(matches_sidecar(OsStr::new("extract.a.json"), "extract"));
         assert!(matches_sidecar(OsStr::new("extract.json"), "extract"));
         assert!(!matches_sidecar(OsStr::new("extract2.a.json"), "extract"));
         assert!(!matches_sidecar(OsStr::new("extract.a.tmp"), "extract"));
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 

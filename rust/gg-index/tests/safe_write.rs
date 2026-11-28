@@ -3,7 +3,10 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use gg_index::safe_write::{read_inside, stream_atomic_inside, write_atomic_inside, write_wiring};
+use gg_index::safe_write::{
+    prune_cache, read_in_cache, read_inside, stream_atomic_inside, write_atomic_inside,
+    write_in_cache, write_wiring,
+};
 
 fn scratch(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
@@ -95,6 +98,21 @@ fn refuses_bad_components() {
             "win stream {bad:?}"
         );
     }
+}
+
+#[test]
+fn bounded_cache_read_and_prune_edges() {
+    let dir = scratch("cache-read-edges");
+    let out = dir.join("graft");
+    write_in_cache(&out, OsStr::new("extract.a.json"), b"0123456789abcdef0").unwrap();
+    assert_eq!(
+        read_in_cache(&out, OsStr::new("extract.a.json"), 17).unwrap(),
+        Some(b"0123456789abcdef0".to_vec())
+    );
+    assert!(read_in_cache(&out, OsStr::new("extract.a.json"), 16).is_err());
+    assert!(read_in_cache(&out, OsStr::new("../evil"), 16).is_err());
+    prune_cache(&dir.join("absent"), "extract", 2);
+    prune_cache(std::path::Path::new("graft/.."), "extract", 2);
 }
 
 #[test]
