@@ -188,6 +188,16 @@ fn extract_cache_read_filters_forged_and_malformed_entries() {
         );
     }
 
+    // Invalid UTF-8 bytes on disk return empty cache.
+    fs::write(&file, b"\xff").expect("write bad utf-8");
+    assert_eq!(
+        run(
+            &["cache", "read", "--out-dir", out_s, "--extractor", stamp],
+            ""
+        ),
+        empty
+    );
+
     // Empty extractor: no memo is written or read.
     assert_eq!(
         run(
@@ -340,6 +350,21 @@ fn fingerprint_writes_utf8_prunes_and_reads_back() {
             "null\n"
         );
     }
+    fs::write(&fp_path, b"\xff").expect("write bad utf-8");
+    assert_eq!(
+        run(
+            &[
+                "fingerprint",
+                "read",
+                "--out-dir",
+                out_s,
+                "--extractor",
+                stamp
+            ],
+            ""
+        ),
+        "null\n"
+    );
 }
 
 #[test]

@@ -3,6 +3,8 @@
 //! Each stage matches the TypeScript output byte for byte before it is wired in.
 
 pub mod deploy;
+pub mod extract_cache;
+pub mod fingerprint;
 pub mod json;
 pub mod program;
 pub mod safe_write;

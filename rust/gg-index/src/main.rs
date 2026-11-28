@@ -51,14 +51,66 @@ enum Cmd {
         #[arg(long = "ext", allow_hyphen_values = true)]
         ext: Vec<String>,
     },
+    /// Read or write the per-file extraction cache sidecar (a test interface)
+    Cache {
+        #[command(subcommand)]
+        action: CacheCmd,
+    },
+    /// Read or write the fingerprint sidecar (a test interface)
+    Fingerprint {
+        #[command(subcommand)]
+        action: FingerprintCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum CacheCmd {
+    /// Write the cache JSON from stdin to <DIR>/.cache/extract.<STAMP>.json; print true or false
+    Write {
+        #[arg(long, value_name = "DIR", value_parser = clap::builder::TypedValueParser::map(clap::builder::OsStringValueParser::new(), PathBuf::from))]
+        out_dir: PathBuf,
+        #[arg(long)]
+        extractor: String,
+    },
+    /// Read <DIR>/.cache/extract.<STAMP>.json; print compact JSON
+    Read {
+        #[arg(long, value_name = "DIR", value_parser = clap::builder::TypedValueParser::map(clap::builder::OsStringValueParser::new(), PathBuf::from))]
+        out_dir: PathBuf,
+        #[arg(long)]
+        extractor: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum FingerprintCmd {
+    /// Write the fingerprint projected from entries JSON on stdin; print true or false
+    Write {
+        #[arg(long, value_name = "DIR", value_parser = clap::builder::TypedValueParser::map(clap::builder::OsStringValueParser::new(), PathBuf::from))]
+        out_dir: PathBuf,
+        #[arg(long)]
+        extractor: String,
+        /// Repo-relative folder prefixes persisted in the fingerprint (repeatable)
+        #[arg(long = "only-dir")]
+        only_dir: Vec<String>,
+        /// Normalised extension selection persisted in the fingerprint (repeatable)
+        #[arg(long = "ext", allow_hyphen_values = true)]
+        ext: Vec<String>,
+    },
+    /// Read <DIR>/.cache/fingerprint.<STAMP>.json; print compact JSON or null
+    Read {
+        #[arg(long, value_name = "DIR", value_parser = clap::builder::TypedValueParser::map(clap::builder::OsStringValueParser::new(), PathBuf::from))]
+        out_dir: PathBuf,
+        #[arg(long)]
+        extractor: String,
+    },
 }
 
 /// The most `classify` reads from stdin; more is refused rather than buffered.
 const MAX_CLASSIFY_INPUT: u64 = 64 << 20;
 
 fn main() -> ExitCode {
-    let (graph, out_dir) = match Cli::parse().command {
-        Cmd::Wiring { graph, out_dir } => (graph, out_dir),
+    let work: Box<dyn FnOnce() -> ExitCode + Send> = match Cli::parse().command {
+        Cmd::Wiring { graph, out_dir } => Box::new(move || wiring(&graph, out_dir.as_deref())),
         Cmd::Extensions => return report(print(&extensions())),
         Cmd::Sources {
             root,
@@ -82,23 +134,71 @@ fn main() -> ExitCode {
             );
         }
         Cmd::Classify => {
-            return report(read_stdin().and_then(|text| {
+            return report(read_stdin(MAX_CLASSIFY_INPUT).and_then(|text| {
                 let mut out = std::io::BufWriter::new(std::io::stdout().lock());
                 classify(&text, &mut out)
                     .and_then(|()| out.flush())
                     .map_err(|e| e.to_string())
             }));
         }
+        Cmd::Cache { action } => Box::new(move || cache_cmd(action)),
+        Cmd::Fingerprint { action } => Box::new(move || fingerprint_cmd(action)),
     };
     // Deeply nested graphs recurse once a level; give them the stack they need.
     std::thread::Builder::new()
         .stack_size(gg_index::json::STACK_BYTES)
-        .spawn(move || wiring(&graph, out_dir.as_deref()))
+        .spawn(work)
         .map(|worker| worker.join().unwrap_or(ExitCode::FAILURE))
         .unwrap_or_else(|e| {
             eprintln!("gg-index: cannot start the worker thread: {e}");
             ExitCode::FAILURE
         })
+}
+
+fn cache_cmd(action: CacheCmd) -> ExitCode {
+    let result = match action {
+        CacheCmd::Write { out_dir, extractor } => {
+            read_stdin(gg_index::extract_cache::MAX_CACHE_BYTES)
+                .and_then(|text| gg_index::json::parse(&text))
+                .and_then(|val| {
+                    let ok = gg_index::extract_cache::write_extract_cache(
+                        &out_dir, &extractor, &val,
+                    );
+                    print(if ok { "true\n" } else { "false\n" })
+                })
+        }
+        CacheCmd::Read { out_dir, extractor } => {
+            let val = gg_index::extract_cache::read_extract_cache(&out_dir, &extractor);
+            print(&format!("{}\n", gg_index::json::stringify_compact(&val)))
+        }
+    };
+    report(result)
+}
+
+fn fingerprint_cmd(action: FingerprintCmd) -> ExitCode {
+    let result = match action {
+        FingerprintCmd::Write {
+            out_dir,
+            extractor,
+            only_dir,
+            ext,
+        } => read_stdin(gg_index::extract_cache::MAX_CACHE_BYTES)
+            .and_then(|text| gg_index::json::parse(&text))
+            .and_then(|val| {
+                let ok = gg_index::fingerprint::write_fingerprint(
+                    &out_dir, &extractor, &val, &only_dir, &ext,
+                );
+                print(if ok { "true\n" } else { "false\n" })
+            }),
+        FingerprintCmd::Read { out_dir, extractor } => {
+            let line = match gg_index::fingerprint::read_fingerprint(&out_dir, &extractor) {
+                Some(val) => format!("{}\n", gg_index::json::stringify_compact(&val)),
+                None => "null\n".into(),
+            };
+            print(&line)
+        }
+    };
+    report(result)
 }
 
 fn extensions() -> String {
@@ -109,15 +209,15 @@ fn extensions() -> String {
     format!("[{}]\n", quoted.join(","))
 }
 
-fn read_stdin() -> Result<String, String> {
+fn read_stdin(limit: u64) -> Result<String, String> {
     let mut bytes = Vec::new();
     std::io::stdin()
         .lock()
-        .take(MAX_CLASSIFY_INPUT + 1)
+        .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| format!("stdin: {e}"))?;
-    if bytes.len() as u64 > MAX_CLASSIFY_INPUT {
-        return Err(format!("stdin: more than {MAX_CLASSIFY_INPUT} bytes"));
+    if bytes.len() as u64 > limit {
+        return Err(format!("stdin: more than {limit} bytes"));
     }
     String::from_utf8(bytes).map_err(|e| format!("stdin: not UTF-8: {e}"))
 }

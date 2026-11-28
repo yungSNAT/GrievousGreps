@@ -274,6 +274,54 @@ pub fn stringify(v: &Json) -> String {
     out
 }
 
+/// `JSON.stringify(value)` (compact, raw UTF-8 except controls and lone surrogates).
+pub fn stringify_compact(v: &Json) -> String {
+    let mut out = String::new();
+    write_compact(v, false, &mut out);
+    out
+}
+
+/// Append `asciiJson(JSON.stringify(value))` (compact, U+007F and up escaped) to `out`.
+pub fn write_compact_ascii(v: &Json, out: &mut String) {
+    write_compact(v, true, out);
+}
+
+/// Append `asciiJson(JSON.stringify(s))` for a UTF-16 string to `out`.
+pub fn write_str_ascii(s: &[u16], out: &mut String) {
+    write_string_mode(s, true, out);
+}
+
+fn write_compact(v: &Json, ascii: bool, out: &mut String) {
+    match v {
+        Json::Null => out.push_str("null"),
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Num(n) => out.push_str(&js_number(*n)),
+        Json::Str(s) => write_string_mode(s, ascii, out),
+        Json::Arr(items) => {
+            out.push('[');
+            for (n, item) in items.iter().enumerate() {
+                if n > 0 {
+                    out.push(',');
+                }
+                write_compact(item, ascii, out);
+            }
+            out.push(']');
+        }
+        Json::Obj(members) => {
+            out.push('{');
+            for (n, (k, val)) in js_key_order(members).into_iter().enumerate() {
+                if n > 0 {
+                    out.push(',');
+                }
+                write_string_mode(k, ascii, out);
+                out.push(':');
+                write_compact(val, ascii, out);
+            }
+            out.push('}');
+        }
+    }
+}
+
 fn write_value(v: &Json, depth: usize, out: &mut String) {
     match v {
         Json::Null => out.push_str("null"),
@@ -316,7 +364,7 @@ fn indent(depth: usize, out: &mut String) {
 }
 
 /// Own-property order: array-index keys ascending, then the rest in insertion order.
-fn js_key_order(members: &[(Vec<u16>, Json)]) -> Vec<&(Vec<u16>, Json)> {
+pub(crate) fn js_key_order(members: &[(Vec<u16>, Json)]) -> Vec<&(Vec<u16>, Json)> {
     let mut index: Vec<(u32, &(Vec<u16>, Json))> = Vec::new();
     let mut rest = Vec::new();
     for m in members {
@@ -345,8 +393,15 @@ fn array_index(key: &[u16]) -> Option<u32> {
 }
 
 fn write_string(s: &[u16], out: &mut String) {
+    write_string_mode(s, true, out);
+}
+
+fn write_string_mode(s: &[u16], ascii: bool, out: &mut String) {
     out.push('"');
-    for &u in s {
+    let mut i = 0;
+    while i < s.len() {
+        let u = s[i];
+        i += 1;
         match u {
             0x22 => out.push_str("\\\""),
             0x5c => out.push_str("\\\\"),
@@ -356,10 +411,25 @@ fn write_string(s: &[u16], out: &mut String) {
             0x0d => out.push_str("\\r"),
             0x09 => out.push_str("\\t"),
             // Controls by JSON.stringify; U+007F and up (surrogates included) by asciiJson.
-            0x00..=0x1f | 0x7f.. => {
+            0x00..=0x1f => {
                 let _ = write!(out, "\\u{u:04x}");
             }
-            _ => out.push(char::from(u as u8)),
+            0x7f.. if ascii => {
+                let _ = write!(out, "\\u{u:04x}");
+            }
+            0xd800..=0xdbff => {
+                if let Some(&lo) = s.get(i).filter(|&&lo| (0xdc00..=0xdfff).contains(&lo)) {
+                    i += 1;
+                    let cp = 0x10000 + ((u32::from(u - 0xd800) << 10) | u32::from(lo - 0xdc00));
+                    out.extend(char::from_u32(cp));
+                } else {
+                    let _ = write!(out, "\\u{u:04x}");
+                }
+            }
+            0xdc00..=0xdfff => {
+                let _ = write!(out, "\\u{u:04x}");
+            }
+            _ => out.extend(char::from_u32(u32::from(u))),
         }
     }
     out.push('"');
@@ -503,5 +573,35 @@ mod tests {
             stringify(&v),
             "{\n  \"a\": [],\n  \"b\": {},\n  \"c\": [\n    []\n  ]\n}"
         );
+    }
+
+    #[test]
+    fn compact_utf8_and_ascii_match_javascript_stringify() {
+        let v = Json::Obj(vec![
+            (utf16("n"), Json::Null),
+            (utf16("b"), Json::Arr(vec![Json::Bool(true), Json::Bool(false)])),
+            (utf16("x"), Json::Num(1.5)),
+            (
+                utf16("s"),
+                Json::Str(vec![
+                    0x22, 0x5c, 0x08, 0x0c, 0x0a, 0x0d, 0x09, 0x01, 0x7f, 0x00fc, 0x65e5,
+                    0xd83d, 0xde00, 0xd800, 0x78, 0xdc00, 0xd800,
+                ]),
+            ),
+            (utf16("empty"), Json::Obj(vec![])),
+        ]);
+        assert_eq!(
+            stringify_compact(&v),
+            "{\"n\":null,\"b\":[true,false],\"x\":1.5,\"s\":\"\\\"\\\\\\b\\f\\n\\r\\t\\u0001\u{7f}ü日😀\\ud800x\\udc00\\ud800\",\"empty\":{}}"
+        );
+        let mut asc = String::new();
+        write_compact_ascii(&v, &mut asc);
+        assert_eq!(
+            asc,
+            "{\"n\":null,\"b\":[true,false],\"x\":1.5,\"s\":\"\\\"\\\\\\b\\f\\n\\r\\t\\u0001\\u007f\\u00fc\\u65e5\\ud83d\\ude00\\ud800x\\udc00\\ud800\",\"empty\":{}}"
+        );
+        let mut key_asc = String::new();
+        write_str_ascii(&utf16("ü"), &mut key_asc);
+        assert_eq!(key_asc, "\"\\u00fc\"");
     }
 }
