@@ -325,3 +325,19 @@ pub fn run_crate_source(args: &CrateSourceArgs<'_>, json: bool) -> Result<(), St
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_optional_index_leaves_non_object_json_unchanged() {
+        let idx = IndexState {
+            state: "fresh",
+            changed: None,
+            reason: None,
+        };
+        let out = with_optional_index("[1]".to_string(), Some(&idx)).unwrap();
+        assert_eq!(out, "[\n  1\n]");
+    }
+}

@@ -43,12 +43,11 @@ fn hit_line(direction: Direction, hit: &EdgeHit, show_depth: bool) -> String {
     } else {
         String::new()
     };
-    let label = match &hit.node {
-        Some(n) => format!("{} ({}:{})", n.name, n.path, n.span),
-        None => format!("{} (unresolved import)", hit.id),
-    };
     let mark = hit.confidence.mark();
-    format!("  {} {arrow} {label}{depth_tag}{mark}", hit.relation)
+    format!(
+        "  {} {arrow} {} (unresolved import){depth_tag}{mark}",
+        hit.relation, hit.id
+    )
 }
 
 fn grouped_hit(node: &NodeV1, depth: usize, show_depth: bool, quote: Option<&Quote>) -> String {
