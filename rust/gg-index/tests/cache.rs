@@ -90,6 +90,20 @@ fn touch_at(path: &Path, secs: u64) {
         .expect("set_modified");
 }
 
+fn seed_old(dir: &Path, prefix: &str) {
+    for k in 0..3u64 {
+        touch_at(&dir.join(format!("{prefix}.old{k}.json")), 1_000_000_000 + k);
+    }
+}
+
+#[cfg(unix)]
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .expect("lstat")
+        .file_type()
+        .is_symlink()
+}
+
 fn sorted_names(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(dir)
         .expect("readdir")
@@ -105,9 +119,7 @@ fn extract_cache_writes_ascii_prunes_sidecars_and_reads_back() {
     let out = base.join("graft");
     let cache_dir = out.join(".cache");
     fs::create_dir_all(&cache_dir).expect("mkdir");
-    for k in 0..3u64 {
-        touch_at(&cache_dir.join(format!("extract.old{k}.json")), 1_000_000_000 + k);
-    }
+    seed_old(&cache_dir, "extract");
     fs::write(cache_dir.join("fingerprint.keep.json"), "{}").expect("fp");
     fs::create_dir(cache_dir.join("extract.dir.json")).expect("dir");
 
@@ -123,7 +135,10 @@ fn extract_cache_writes_ascii_prunes_sidecars_and_reads_back() {
     );
     assert_eq!(cache_op("write", &out, stamp, &payload), "true\n");
     let written = fs::read(cache_dir.join(format!("extract.{stamp}.json"))).expect("read");
-    assert!(written.iter().all(|&b| b < 0x80), "extract cache must be pure ASCII");
+    assert!(
+        written.iter().all(|&b| b < 0x80),
+        "extract cache must be pure ASCII"
+    );
     assert!(!written.ends_with(b"\n"), "no trailing newline");
     assert_eq!(
         sorted_names(&cache_dir),
@@ -199,17 +214,12 @@ fn extract_cache_rejects_malformed_files_and_bad_extractors() {
     }
     fs::write(&file, b"\xff").expect("write bad utf-8");
     assert_eq!(cache_op("read", &out, stamp, ""), empty);
-    assert_eq!(
-        cache_op("write", &out, "", "{\"version\":1,\"extractor\":\"\",\"files\":{}}"),
-        "false\n"
-    );
-    assert_eq!(cache_op("read", &out, "", ""), "{\"version\":1,\"extractor\":\"\",\"files\":{}}\n");
+    let blank = "{\"version\":1,\"extractor\":\"\",\"files\":{}}";
+    assert_eq!(cache_op("write", &out, "", blank), "false\n");
+    assert_eq!(cache_op("read", &out, "", ""), format!("{blank}\n"));
     let evil = "{\"version\":1,\"extractor\":\"../evil\",\"files\":{}}";
     assert_eq!(cache_op("write", &out, "../evil", evil), "false\n");
-    assert_eq!(
-        cache_op("read", &out, "../evil", ""),
-        "{\"version\":1,\"extractor\":\"../evil\",\"files\":{}}\n"
-    );
+    assert_eq!(cache_op("read", &out, "../evil", ""), format!("{evil}\n"));
 }
 
 #[test]
@@ -218,9 +228,7 @@ fn fingerprint_writes_utf8_prunes_and_reads_back() {
     let out = base.join("graft");
     let cache_dir = out.join(".cache");
     fs::create_dir_all(&cache_dir).expect("mkdir");
-    for k in 0..3u64 {
-        touch_at(&cache_dir.join(format!("fingerprint.old{k}.json")), 1_000_000_000 + k);
-    }
+    seed_old(&cache_dir, "fingerprint");
     fs::write(cache_dir.join("extract.keep.json"), "{}").expect("extract");
 
     let stamp = "1122334455667788";
@@ -333,7 +341,12 @@ fn containment_refuses_escape_and_handles_empty_out_dir() {
     );
     assert!(out.status.success());
     assert_eq!(String::from_utf8(out.stdout).unwrap(), "true\n");
-    assert!(empty_cwd.join(".cache").join(format!("fingerprint.{stamp}.json")).is_file());
+    assert!(
+        empty_cwd
+            .join(".cache")
+            .join(format!("fingerprint.{stamp}.json"))
+            .is_file()
+    );
 }
 
 #[test]
@@ -405,8 +418,8 @@ fn symlinked_dirs_and_leaves_are_refused_on_unix() {
     );
     assert_eq!(cache_op("write", &link_out, stamp, &fresh), "true\n");
     assert_eq!(fs::read_to_string(&victim).expect("victim"), valid_cache);
-    assert!(!fs::symlink_metadata(&leaf).expect("lstat").file_type().is_symlink());
-    assert!(fs::symlink_metadata(&link_sidecar).expect("lstat").file_type().is_symlink());
+    assert!(!is_link(&leaf));
+    assert!(is_link(&link_sidecar));
 }
 
 #[cfg(unix)]
@@ -420,8 +433,8 @@ fn unreadable_cache_entries_return_empty_on_unix() {
     let stamp = "0011223344556677";
     let empty = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
     let leaf = cache_dir.join(format!("extract.{stamp}.json"));
-    fs::write(&leaf, format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}"))
-        .expect("write");
+    let body = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
+    fs::write(&leaf, body).expect("write");
     fs::set_permissions(&leaf, fs::Permissions::from_mode(0o000)).expect("chmod");
     assert_eq!(cache_op("read", &out, stamp, ""), empty);
     fs::set_permissions(&leaf, fs::Permissions::from_mode(0o644)).expect("chmod");
@@ -455,9 +468,7 @@ fn junctioned_cache_paths_and_leaves_are_refused_on_windows() {
     let empty = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
     let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
     fs::write(outside.join(format!("extract.{stamp}.json")), &valid_cache).expect("write");
-    for k in 0..3u64 {
-        touch_at(&outside.join(format!("extract.old{k}.json")), 1_000_000_000 + k);
-    }
+    seed_old(&outside, "extract");
 
     let junc_out = base.join("graft");
     make_junction(&junc_out, &outside);
@@ -483,7 +494,10 @@ fn junctioned_cache_paths_and_leaves_are_refused_on_windows() {
     let other = "1111222233334444";
     let other_cache = format!("{{\"version\":1,\"extractor\":\"{other}\",\"files\":{{}}}}");
     assert_eq!(cache_op("write", &junc_out, other, &other_cache), "true\n");
-    assert!(junc_sidecar.exists(), "prune leaves junction sidecars alone");
+    assert!(
+        junc_sidecar.exists(),
+        "prune leaves junction sidecars alone"
+    );
     fs::remove_dir(&junc_leaf).expect("rm junction");
     fs::remove_dir(&junc_sidecar).expect("rm junction");
 }
