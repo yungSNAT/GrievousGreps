@@ -92,7 +92,10 @@ fn touch_at(path: &Path, secs: u64) {
 
 fn seed_old(dir: &Path, prefix: &str) {
     for k in 0..3u64 {
-        touch_at(&dir.join(format!("{prefix}.old{k}.json")), 1_000_000_000 + k);
+        touch_at(
+            &dir.join(format!("{prefix}.old{k}.json")),
+            1_000_000_000 + k,
+        );
     }
 }
 
