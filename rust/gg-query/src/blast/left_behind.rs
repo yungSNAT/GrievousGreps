@@ -137,6 +137,62 @@ fn call_site(
     }
 }
 
+fn build_watched_targets<'a>(
+    nodes: &'a [NodeV1],
+    declared: &'a [NodeV1],
+) -> HashMap<&'a str, (&'a NodeV1, &'a NodeV1)> {
+    let mut watched: HashMap<&str, (&NodeV1, &NodeV1)> =
+        declared.iter().map(|n| (n.id.as_str(), (n, n))).collect();
+    for seed in declared {
+        if seed.kind != "method" || !matches!(seed.name.as_str(), "constructor" | "__init__") {
+            continue;
+        }
+        let Some(owner_name) = seed.owner.as_deref() else {
+            continue;
+        };
+        let seed_span = span_range(&seed.span);
+        if let Some(owner) = nodes.iter().find(|n| {
+            n.kind == "class"
+                && n.path == seed.path
+                && n.name == owner_name
+                && matches!((span_range(&n.span), seed_span), (Some(b), Some(s)) if b.0 <= s.0 && b.1 >= s.1)
+        }) {
+            watched.entry(owner.id.as_str()).or_insert((owner, seed));
+        }
+    }
+    watched
+}
+
+fn to_left_behind(
+    seed: &NodeV1,
+    caller: &NodeV1,
+    line: Option<usize>,
+    inferred: bool,
+) -> LeftBehind {
+    LeftBehind {
+        seed: LeftBehindSeed {
+            id: seed.id.clone(),
+            name: seed.name.clone(),
+        },
+        id: caller.id.clone(),
+        name: caller.name.clone(),
+        kind: caller.kind.clone(),
+        path: caller.path.clone(),
+        span: caller.span.clone(),
+        line,
+        inferred,
+    }
+}
+
+fn sort_left_behind(out: &mut [LeftBehind]) {
+    out.sort_by(|a, b| {
+        js_locale_cmp(&a.path, &b.path)
+            .then_with(|| a.line.unwrap_or(0).cmp(&b.line.unwrap_or(0)))
+            .then_with(|| js_locale_cmp(&a.name, &b.name))
+            .then_with(|| js_locale_cmp(&a.seed.name, &b.seed.name))
+    });
+}
+
 pub(super) fn callers_left_behind(
     nodes: &[NodeV1],
     edges: &[EdgeV1],
@@ -149,28 +205,7 @@ pub(super) fn callers_left_behind(
         return Vec::new();
     }
     let by_id: HashMap<&str, &NodeV1> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-    let mut watched: HashMap<String, NodeV1> =
-        declared.iter().map(|n| (n.id.clone(), n.clone())).collect();
-
-    for seed in declared {
-        if seed.kind != "method"
-            || !matches!(seed.name.as_str(), "constructor" | "__init__")
-            || seed.owner.is_none()
-        {
-            continue;
-        }
-        let seed_span = span_range(&seed.span);
-        let owner_name = seed.owner.as_deref().unwrap_or("");
-        if let Some(owner) = nodes.iter().find(|n| {
-            n.kind == "class"
-                && n.path == seed.path
-                && n.name == owner_name
-                && matches!((span_range(&n.span), seed_span), (Some(b), Some(s)) if b.0 <= s.0 && b.1 >= s.1)
-        }) {
-            watched.entry(owner.id.clone()).or_insert_with(|| seed.clone());
-        }
-    }
-
+    let watched = build_watched_targets(nodes, declared);
     let file_of: HashMap<&str, &ChangedFile> =
         changed.iter().map(|f| (f.path.as_str(), f)).collect();
     let mut found: HashMap<String, LeftBehind> = HashMap::new();
@@ -179,13 +214,9 @@ pub(super) fn callers_left_behind(
         if e.relation != "calls" || e.source == e.target {
             continue;
         }
-        let Some(seed) = watched.get(&e.target) else {
-            continue;
-        };
-        let Some(&target) = by_id.get(e.target.as_str()) else {
-            continue;
-        };
-        let Some(&caller) = by_id.get(e.source.as_str()) else {
+        let (Some(&(target, seed)), Some(&caller)) =
+            (watched.get(e.target.as_str()), by_id.get(e.source.as_str()))
+        else {
             continue;
         };
         let key = format!("{}\0{}", seed.id, caller.id);
@@ -196,41 +227,16 @@ pub(super) fn callers_left_behind(
             }
             continue;
         }
-        let line = match call_site(
-            caller,
-            &target.name,
-            file_of.get(caller.path.as_str()).copied(),
-            root,
-            cache,
-        ) {
+        let file = file_of.get(caller.path.as_str()).copied();
+        let line = match call_site(caller, &target.name, file, root, cache) {
             CallSiteResult::Edited => continue,
             CallSiteResult::Line(n) => Some(n),
             CallSiteResult::None => None,
         };
-        found.insert(
-            key,
-            LeftBehind {
-                seed: LeftBehindSeed {
-                    id: seed.id.clone(),
-                    name: seed.name.clone(),
-                },
-                id: caller.id.clone(),
-                name: caller.name.clone(),
-                kind: caller.kind.clone(),
-                path: caller.path.clone(),
-                span: caller.span.clone(),
-                line,
-                inferred: is_inferred,
-            },
-        );
+        found.insert(key, to_left_behind(seed, caller, line, is_inferred));
     }
 
     let mut out: Vec<LeftBehind> = found.into_values().collect();
-    out.sort_by(|a, b| {
-        js_locale_cmp(&a.path, &b.path)
-            .then_with(|| a.line.unwrap_or(0).cmp(&b.line.unwrap_or(0)))
-            .then_with(|| js_locale_cmp(&a.name, &b.name))
-            .then_with(|| js_locale_cmp(&a.seed.name, &b.seed.name))
-    });
+    sort_left_behind(&mut out);
     out
 }

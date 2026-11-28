@@ -175,9 +175,6 @@ pub(super) fn call_end(lines: &[String], n: usize, at: usize, last: usize) -> us
 }
 
 fn declaration(node: &NodeV1, start: usize, end: usize, lines: &[String]) -> (usize, String) {
-    if start == 0 || start > lines.len() {
-        return (start, String::new());
-    }
     let last = end
         .min(start.saturating_add(MAX_WRAPPED_LINES - 1))
         .min(lines.len());
@@ -198,10 +195,7 @@ fn declaration(node: &NodeV1, start: usize, end: usize, lines: &[String]) -> (us
             }
         }
     }
-    (
-        start,
-        squash(lines.get(start - 1).map_or("", String::as_str)),
-    )
+    (start, squash(&lines[start - 1]))
 }
 
 pub(super) fn declaration_changed(

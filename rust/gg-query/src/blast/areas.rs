@@ -1,6 +1,7 @@
 //! Module grouping, changed-area coarsening, unresolved calls, and test reachability for `blast`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::io;
 
 use crate::graph::{Direction, EdgeHit, EdgeV1, NodeV1, UnresolvedCall, js_locale_cmp};
 use crate::store::GraphStore;
@@ -17,6 +18,44 @@ fn is_test_only(mod_item: &ImpactedModule) -> bool {
     !mod_item.files.is_empty() && mod_item.files.iter().all(|f| is_blast_test_path(f))
 }
 
+fn finalize_module(
+    mod_item: &mut ImpactedModule,
+    origins: &HashMap<String, HashSet<String>>,
+    index: &ModuleIndex,
+) {
+    let mut from_set = HashSet::new();
+    for s in &mod_item.symbols {
+        from_set.extend(origins.get(&s.id).into_iter().flatten().cloned());
+    }
+    let mut from: Vec<String> = from_set.into_iter().collect();
+    from.sort();
+    mod_item.from = from;
+    mod_item.files.sort();
+    mod_item.symbols.sort_by(|a, b| {
+        a.depth
+            .cmp(&b.depth)
+            .then_with(|| a.inferred.cmp(&b.inferred))
+            .then_with(|| js_locale_cmp(&a.path, &b.path))
+    });
+    if let Some(c) = shared_concept(&mod_item.files, index) {
+        mod_item.label = c;
+        mod_item.label_source = LabelSource::Concept;
+    } else {
+        let names: Vec<String> = mod_item.symbols.iter().map(|s| s.name.clone()).collect();
+        mod_item.label = hub_label(&names, &mod_item.key);
+        mod_item.label_source = LabelSource::Symbol;
+    }
+}
+
+fn sort_modules(list: &mut [ImpactedModule]) {
+    list.sort_by(|a, b| {
+        b.symbols
+            .len()
+            .cmp(&a.symbols.len())
+            .then_with(|| js_locale_cmp(&a.label, &b.label))
+    });
+}
+
 pub(super) fn group_by_module(
     impacted: &[Impacted],
     changed: &[ChangedFile],
@@ -25,7 +64,6 @@ pub(super) fn group_by_module(
 ) -> (Vec<ImpactedModule>, Vec<ImpactedModule>) {
     let changed_paths: HashSet<&str> = changed.iter().map(|c| c.path.as_str()).collect();
     let mut by_key: HashMap<String, ImpactedModule> = HashMap::new();
-
     for hit in impacted {
         if changed_paths.contains(hit.path.as_str()) {
             continue;
@@ -47,56 +85,17 @@ pub(super) fn group_by_module(
             mod_entry.files.push(hit.path.clone());
         }
     }
-
-    for mod_item in by_key.values_mut() {
-        let mut from_set = HashSet::new();
-        for s in &mod_item.symbols {
-            if let Some(srcs) = origins.get(&s.id) {
-                for p in srcs {
-                    from_set.insert(p.clone());
-                }
-            }
-        }
-        let mut from: Vec<String> = from_set.into_iter().collect();
-        from.sort();
-        mod_item.from = from;
-        mod_item.files.sort();
-        mod_item.symbols.sort_by(|a, b| {
-            a.depth
-                .cmp(&b.depth)
-                .then_with(|| a.inferred.cmp(&b.inferred))
-                .then_with(|| js_locale_cmp(&a.path, &b.path))
-        });
-        let concept = shared_concept(&mod_item.files, index);
-        if let Some(c) = concept {
-            mod_item.label = c;
-            mod_item.label_source = LabelSource::Concept;
-        } else {
-            let names: Vec<String> = mod_item.symbols.iter().map(|s| s.name.clone()).collect();
-            mod_item.label = hub_label(&names, &mod_item.key);
-            mod_item.label_source = LabelSource::Symbol;
-        }
-    }
-
-    let sort_mods = |list: &mut Vec<ImpactedModule>| {
-        list.sort_by(|a, b| {
-            b.symbols
-                .len()
-                .cmp(&a.symbols.len())
-                .then_with(|| js_locale_cmp(&a.label, &b.label))
-        });
-    };
-    let mut prod = Vec::new();
-    let mut tests = Vec::new();
-    for m in by_key.into_values() {
+    let (mut prod, mut tests) = (Vec::new(), Vec::new());
+    for mut m in by_key.into_values() {
+        finalize_module(&mut m, origins, index);
         if is_test_only(&m) {
             tests.push(m);
         } else {
             prod.push(m);
         }
     }
-    sort_mods(&mut prod);
-    sort_mods(&mut tests);
+    sort_modules(&mut prod);
+    sort_modules(&mut tests);
     (prod, tests)
 }
 
@@ -321,23 +320,76 @@ pub(super) fn unresolved_for_seeds(
     out
 }
 
+struct TestAcc {
+    depth: usize,
+    changed: bool,
+    definite: bool,
+    hits: Vec<(String, usize)>,
+}
+
+fn collect_test_hits(
+    store: &GraphStore,
+    seeds: &[NodeV1],
+    by_path: &mut HashMap<String, TestAcc>,
+) -> io::Result<()> {
+    let seed_ids: Vec<String> = seeds.iter().map(|s| s.id.clone()).collect();
+    if seed_ids.is_empty() {
+        return Ok(());
+    }
+    for h in store.impact_of_many(&seed_ids, usize::MAX, Direction::In)? {
+        let Some(n) = h.node else {
+            continue;
+        };
+        if !is_blast_test_path(&n.path) {
+            continue;
+        }
+        let entry = by_path.entry(n.path.clone()).or_insert_with(|| TestAcc {
+            depth: h.depth,
+            changed: false,
+            definite: false,
+            hits: Vec::new(),
+        });
+        entry.depth = entry.depth.min(h.depth);
+        if !h.inferred {
+            entry.definite = true;
+        }
+        if n.kind != "file" {
+            entry.hits.push((n.name, h.depth));
+        }
+    }
+    Ok(())
+}
+
+fn into_test_reach(path: String, mut acc: TestAcc) -> TestReach {
+    acc.hits
+        .sort_by(|a, b| a.1.cmp(&b.1).then_with(|| js_locale_cmp(&a.0, &b.0)));
+    let mut seen = HashSet::new();
+    let mut symbols = Vec::new();
+    for (name, _) in acc.hits {
+        if seen.insert(name.clone()) {
+            symbols.push(name);
+        }
+    }
+    TestReach {
+        path,
+        depth: acc.depth,
+        changed: acc.changed,
+        inferred: !acc.definite,
+        symbols,
+    }
+}
+
 pub(super) fn tests_reached(
     store: &GraphStore,
     nodes: &[NodeV1],
     seeds: &[NodeV1],
     changed: &[ChangedFile],
-) -> Result<Vec<TestReach>, String> {
+) -> io::Result<Vec<TestReach>> {
     let indexed: HashSet<&str> = nodes
         .iter()
         .filter(|n| n.kind == "file")
         .map(|n| n.path.as_str())
         .collect();
-    struct TestAcc {
-        depth: usize,
-        changed: bool,
-        definite: bool,
-        hits: Vec<(String, usize)>,
-    }
     let mut by_path: HashMap<String, TestAcc> = HashMap::new();
     for f in changed {
         if f.status != ChangeStatus::Deleted
@@ -355,56 +407,10 @@ pub(super) fn tests_reached(
             );
         }
     }
-    let seed_ids: Vec<String> = seeds.iter().map(|s| s.id.clone()).collect();
-    if !seed_ids.is_empty() {
-        let hits = store
-            .impact_of_many(&seed_ids, usize::MAX, Direction::In)
-            .map_err(|e| e.to_string())?;
-        for h in hits {
-            let Some(n) = h.node else {
-                continue;
-            };
-            if !is_blast_test_path(&n.path) {
-                continue;
-            }
-            let entry = by_path.entry(n.path.clone()).or_insert_with(|| TestAcc {
-                depth: h.depth,
-                changed: false,
-                definite: false,
-                hits: Vec::new(),
-            });
-            if h.depth < entry.depth {
-                entry.depth = h.depth;
-            }
-            if !h.inferred {
-                entry.definite = true;
-            }
-            if n.kind != "file" {
-                entry.hits.push((n.name, h.depth));
-            }
-        }
-    }
-
+    collect_test_hits(store, seeds, &mut by_path)?;
     let mut out: Vec<TestReach> = by_path
         .into_iter()
-        .map(|(path, mut acc)| {
-            acc.hits
-                .sort_by(|a, b| a.1.cmp(&b.1).then_with(|| js_locale_cmp(&a.0, &b.0)));
-            let mut seen = HashSet::new();
-            let mut symbols = Vec::new();
-            for (name, _) in acc.hits {
-                if seen.insert(name.clone()) {
-                    symbols.push(name);
-                }
-            }
-            TestReach {
-                path,
-                depth: acc.depth,
-                changed: acc.changed,
-                inferred: !acc.definite,
-                symbols,
-            }
-        })
+        .map(|(path, acc)| into_test_reach(path, acc))
         .collect();
     out.sort_by(|a, b| {
         a.depth
