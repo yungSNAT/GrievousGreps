@@ -116,24 +116,21 @@ pub(super) fn read_manifest_identity(
     let mut workspace_version = false;
 
     for entry in entries {
-        if entry.header_kind != HeaderKind::Table {
-            continue;
-        }
         let path: Vec<&str> = entry.full_path.iter().map(String::as_str).collect();
-        match path.as_slice() {
-            ["package", "name"] => {
+        match (entry.header_kind, path.as_slice()) {
+            (HeaderKind::Table, ["package", "name"]) => {
                 if let TomlValue::Str(s) = entry.value {
                     name = Some(s);
                 }
             }
-            ["package", "version"] => match entry.value {
+            (HeaderKind::Table, ["package", "version"]) => match entry.value {
                 TomlValue::Str(s) => version = Some(s),
                 TomlValue::InlineTable(pairs) if is_inline_workspace_true(&pairs) => {
                     workspace_version = true;
                 }
                 _ => {}
             },
-            ["package", "version", "workspace"] => {
+            (HeaderKind::Table, ["package", "version", "workspace"]) => {
                 if matches!(entry.value, TomlValue::Bool(true)) {
                     workspace_version = true;
                 }
@@ -154,13 +151,13 @@ fn extract_workspace_package_version(text: &str) -> Result<Option<String>, ReadF
     let target = ["workspace", "package", "version"];
     let mut found: Option<String> = None;
     for entry in entries {
-        if entry.header_kind != HeaderKind::Table {
-            continue;
-        }
         let path: Vec<&str> = entry.full_path.iter().map(String::as_str).collect();
-        let ver_val = if path.as_slice() == target {
+        let ver_val = if entry.header_kind == HeaderKind::Table && path.as_slice() == target {
             Some(&entry.value)
-        } else if path.len() < target.len() && target[..path.len()] == path[..] {
+        } else if entry.header_kind == HeaderKind::Table
+            && path.len() < target.len()
+            && target[..path.len()] == path[..]
+        {
             match &entry.value {
                 TomlValue::InlineTable(pairs) => lookup_inline_path(pairs, &target[path.len()..]),
                 _ => None,
@@ -224,10 +221,7 @@ pub(super) fn resolve_workspace_version(
         if cur == canon_bound {
             break;
         }
-        let Some(parent) = cur.parent() else {
-            break;
-        };
-        cur = parent.to_path_buf();
+        cur.pop();
     }
     Ok(None)
 }
