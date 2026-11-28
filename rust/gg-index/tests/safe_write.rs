@@ -3,7 +3,7 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use gg_index::safe_write::{write_atomic_inside, write_wiring};
+use gg_index::safe_write::{read_inside, stream_atomic_inside, write_atomic_inside, write_wiring};
 
 fn scratch(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
@@ -57,13 +57,44 @@ fn errors_name_the_output_directory() {
 #[test]
 fn refuses_bad_components() {
     let base = scratch("components");
-    for bad in ["", ".", "..", "a/b"] {
+    for bad in ["", ".", "..", "a/b", "a\\b", "/", "\\", "sub/", "sub\\"] {
         assert!(
             write_atomic_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), b"x").is_err(),
-            "{bad:?}"
+            "write dir {bad:?}"
+        );
+        assert!(
+            stream_atomic_inside(&base, &[], OsStr::new(bad), |_| Ok(())).is_err(),
+            "stream leaf {bad:?}"
+        );
+        assert!(
+            read_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), 4096).is_err(),
+            "read dir {bad:?}"
+        );
+        assert!(
+            read_inside(&base, &[], OsStr::new(bad), 4096).is_err(),
+            "read leaf {bad:?}"
         );
     }
-    assert!(write_atomic_inside(&base, &[], OsStr::new(".."), b"x").is_err());
+    assert!(
+        read_inside(
+            &base,
+            &[OsStr::new("/"), OsStr::new("etc")],
+            OsStr::new("hosts"),
+            4096,
+        )
+        .is_err()
+    );
+    #[cfg(windows)]
+    for bad in ["C:", "C:foo"] {
+        assert!(
+            read_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), 4096).is_err(),
+            "win prefix {bad:?}"
+        );
+        assert!(
+            stream_atomic_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), |_| Ok(())).is_err(),
+            "win stream {bad:?}"
+        );
+    }
 }
 
 #[test]
