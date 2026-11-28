@@ -113,23 +113,21 @@ fn scan_lockfiles(
             *exhausted = true;
             return;
         }
-        let Ok(ft) = entry.file_type() else {
+        let Some(ft) = entry.file_type().ok().filter(|ft| !ft.is_symlink()) else {
             continue;
         };
-        if ft.is_symlink() {
-            continue;
-        }
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
         let path = entry.path();
-        if ft.is_file() && name_str == "Cargo.lock" {
-            if let Some(canon) = contained_canonical(&path, repo_canon) {
-                if out.len() >= MAX_LOCKFILES {
-                    *exhausted = true;
-                    return;
-                }
-                out.push(canon);
+        if ft.is_file()
+            && name_str == "Cargo.lock"
+            && let Some(canon) = contained_canonical(&path, repo_canon)
+        {
+            if out.len() >= MAX_LOCKFILES {
+                *exhausted = true;
+                return;
             }
+            out.push(canon);
         } else if ft.is_dir() && !SKIP_DIRS.contains(&name_str.as_ref()) {
             subdirs.push(path);
         }

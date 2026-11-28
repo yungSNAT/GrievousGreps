@@ -45,7 +45,7 @@ pub(super) fn extract_git_origin_url(
 fn resolve_git_dir_pointer(
     rev_dir: &Path,
     cargo_home: &Path,
-) -> Result<Option<(PathBuf, PathBuf)>, ReadFileError> {
+) -> Result<Option<(PathBuf, PathBuf)>, String> {
     let dot_git = rev_dir.join(".git");
     let Some(canon) = contained_canonical(&dot_git, rev_dir) else {
         return Ok(None);
@@ -55,7 +55,7 @@ fn resolve_git_dir_pointer(
     }
     let text = match read_bounded_regular_file(&canon, 4096) {
         Ok(t) => t,
-        Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+        Err(ReadFileError::BudgetExhausted(m)) => return Err(m),
         Err(ReadFileError::Other(_)) => return Ok(None),
     };
     let Some(target) = text.trim().strip_prefix("gitdir:").map(str::trim) else {
@@ -76,13 +76,13 @@ fn resolve_git_dir_pointer(
 fn read_verified_git_sha(
     rev_dir: &Path,
     cargo_home: &Path,
-) -> Result<Option<(String, Option<String>)>, ReadFileError> {
+) -> Result<Option<(String, Option<String>)>, String> {
     let mut discovered_origin: Option<String> = None;
     if let Some((git_dir, boundary)) = resolve_git_dir_pointer(rev_dir, cargo_home)? {
         discovered_origin = match extract_git_origin_url(&git_dir, &boundary) {
             Ok(Some(url)) => Some(normalise_git_url(&url)),
             Ok(None) | Err(ReadFileError::Other(_)) => None,
-            Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+            Err(ReadFileError::BudgetExhausted(m)) => return Err(m),
         };
         let head = git_dir.join("HEAD");
         if let Some(canon_head) = contained_canonical(&head, &boundary) {
@@ -106,13 +106,13 @@ fn read_verified_git_sha(
                                         )));
                                     }
                                 }
-                                Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+                                Err(ReadFileError::BudgetExhausted(m)) => return Err(m),
                                 Err(ReadFileError::Other(_)) => {}
                             }
                         }
                     }
                 }
-                Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+                Err(ReadFileError::BudgetExhausted(m)) => return Err(m),
                 Err(ReadFileError::Other(_)) => {}
             }
         }
@@ -129,7 +129,7 @@ fn read_verified_git_sha(
                     return Ok(Some((sha.to_ascii_lowercase(), discovered_origin)));
                 }
             }
-            Err(err @ ReadFileError::BudgetExhausted(_)) => return Err(err),
+            Err(ReadFileError::BudgetExhausted(m)) => return Err(m),
             Err(ReadFileError::Other(_)) => {}
         }
     }
@@ -202,18 +202,16 @@ pub(super) fn resolve_git(
 
     for (repo_dir_name, repo_dir) in repo_dirs {
         let rev_dir = repo_dir.join(short_rev);
-        if !fs::symlink_metadata(&rev_dir)
-            .is_ok_and(|m| m.file_type().is_dir() && !m.file_type().is_symlink())
-        {
-            continue;
-        }
-        let Some(canon_rev) = contained_canonical(&rev_dir, &repo_dir) else {
+        let Some(canon_rev) = fs::symlink_metadata(&rev_dir)
+            .ok()
+            .filter(|m| m.file_type().is_dir() && !m.file_type().is_symlink())
+            .and_then(|_| contained_canonical(&rev_dir, &repo_dir))
+        else {
             continue;
         };
         let sha_res = match read_verified_git_sha(&canon_rev, cargo_home) {
             Ok(v) => v,
-            Err(ReadFileError::BudgetExhausted(m)) => return ResolveOutcome::BudgetExhausted(m),
-            Err(ReadFileError::Other(_)) => None,
+            Err(m) => return ResolveOutcome::BudgetExhausted(m),
         };
         let Some((actual_sha, origin_url)) = sha_res else {
             match find_verified_crates_under(&canon_rev, &canon_rev, name, version, 2) {
