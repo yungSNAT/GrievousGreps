@@ -60,7 +60,9 @@ fn errors_name_the_output_directory() {
 #[test]
 fn refuses_bad_components() {
     let base = scratch("components");
-    for bad in ["", ".", "..", "a/b", "a\\b", "/", "\\", "sub/", "sub\\"] {
+    for bad in [
+        "", ".", "..", "a/b", "a\\b", "/", "\\", "sub/", "sub\\", "\0", "a\0b",
+    ] {
         assert!(
             write_atomic_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), b"x").is_err(),
             "write dir {bad:?}"
@@ -97,6 +99,20 @@ fn refuses_bad_components() {
             stream_atomic_inside(&base, &[OsStr::new(bad)], OsStr::new("f"), |_| Ok(())).is_err(),
             "win stream {bad:?}"
         );
+    }
+}
+
+#[test]
+fn refuses_nul_components_before_disk_io() {
+    let base = scratch("nul-before-io");
+    let absent = base.join("absent");
+    for bad in ["\0", "a\0b"] {
+        let err = read_inside(&absent, &[], OsStr::new(bad), 4096).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        let err =
+            write_atomic_inside(&base, &[OsStr::new("newdir")], OsStr::new(bad), b"x").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(!base.join("newdir").exists(), "dir created before refusal");
     }
 }
 
