@@ -117,6 +117,51 @@ fn refuses_nul_components_before_disk_io() {
 }
 
 #[test]
+fn stream_in_cache_refuses_bad_leaf_before_creating_base() {
+    let base = scratch("cache-nul-base");
+    let missing_parent = base.join("uncreated");
+    let out = missing_parent.join("graft");
+    let err = write_in_cache(&out, OsStr::new("a\0b"), b"x").unwrap_err();
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert!(
+        !missing_parent.exists(),
+        "base dir created before component validation"
+    );
+}
+
+#[test]
+fn read_inside_handles_u64_max_bound() {
+    let dir = scratch("max-bound");
+    let out = dir.join("graft");
+    write_in_cache(&out, OsStr::new("extract.a.json"), b"abc").unwrap();
+    assert_eq!(
+        read_in_cache(&out, OsStr::new("extract.a.json"), u64::MAX).unwrap(),
+        Some(b"abc".to_vec())
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn stream_atomic_inside_blocks_ancestor_rename_while_writing_on_windows() {
+    use std::io::Write;
+    let base = scratch("win-pin-write");
+    let graft = base.join("graft");
+    let cache = graft.join(".cache");
+    stream_atomic_inside(
+        &base,
+        &[OsStr::new("graft"), OsStr::new(".cache")],
+        OsStr::new("extract.a.json"),
+        |file| {
+            assert!(std::fs::rename(&graft, base.join("moved-graft")).is_err());
+            assert!(std::fs::rename(&cache, base.join("moved-cache")).is_err());
+            file.write_all(b"ok")
+        },
+    )
+    .unwrap();
+    std::fs::rename(&graft, base.join("moved-graft")).unwrap();
+}
+
+#[test]
 fn bounded_cache_read_and_prune_edges() {
     let dir = scratch("cache-read-edges");
     let out = dir.join("graft");

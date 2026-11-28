@@ -147,3 +147,48 @@ fn own_parse(rel: &[u16], e: &Json) -> bool {
         .iter()
         .all(|n| matches!(n.get("path"), Some(Json::Str(p)) if p == rel))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join("gg-index-extract-cache")
+            .join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn empty_header_writes_valid_json() {
+        let base = scratch("empty-head");
+        let out = base.join("graft");
+        let stamp = "0123456789abcdef";
+        let payload = json::parse(r#"{"files":{}}"#).unwrap();
+        assert!(write_extract_cache(&out, stamp, &payload));
+        let path = out.join(".cache").join(format!("extract.{stamp}.json"));
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text, r#"{"files":{}}"#);
+        assert!(json::parse(&text).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn non_ascii_header_is_escaped_to_ascii() {
+        let base = scratch("non-ascii-head");
+        let out = base.join("graft");
+        let stamp = "0123456789abcdef";
+        let payload = json::parse(r#"{"version":1,"extractor":"café","files":{}}"#).unwrap();
+        assert!(write_extract_cache(&out, stamp, &payload));
+        let path = out.join(".cache").join(format!("extract.{stamp}.json"));
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(bytes.iter().all(|&b| b < 0x80));
+        assert_eq!(
+            bytes,
+            br#"{"version":1,"extractor":"caf\u00e9","files":{}}"#
+        );
+        let _ = std::fs::remove_dir_all(&base);
+    }
+}
