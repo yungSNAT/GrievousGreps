@@ -28,11 +28,11 @@ const KEPT: &[(&str, bool, Option<&str>)] = &[
     ("x = 1979-04-31\n", false, None),
     // TOML integers are 64-bit; smol-toml refuses those past 2^53 unless asked for BigInt.
     ("x = 9223372036854775807\n", true, None),
-    // RFC 3339 allows a leap second; smol-toml refuses second 60.
+    // TOML 1.0.0 ABNF (time-second = 2DIGIT ; 00-58, 00-59, 00-60) and toml-test's
+    // invalid/datetime/second-over.toml (61) permit second 60; smol-toml refuses it.
     ("x = 07:32:60\n", true, None),
-    // The spec lets a parser normalise a newline in a multi-line string; Rust gives `\n`.
+    // TOML 1.0.0 lets a parser normalise newlines in a multi-line basic string; Rust gives `\n`.
     ("[package]\nname = \"\"\"a\r\nb\"\"\"\n", true, Some("a\nb")),
-    ("[package]\nname = '''a\r\nb'''\n", true, Some("a\nb")),
     // Dotted keys may define an implicit super-table created by a sub-table header (also pinned by
     // tests/manifest_toml_validation.rs); smol-toml marks implicit super-tables as explicit.
     ("[a.b.c]\n[a]\nb.d = 1\n", true, None),
@@ -62,7 +62,11 @@ fn parse_toml_document_accepts_what_smol_toml_accepts() {
     let table: Value =
         serde_json::from_str(&fs::read_to_string(path).expect("read table")).expect("parse table");
     let docs = table["docs"].as_array().expect("docs");
-    assert!(docs.len() > 100, "the table holds its documents");
+    assert_eq!(
+        docs.len(),
+        307,
+        "the table holds all 307 recorded documents"
+    );
     let mut wrong = Vec::new();
     let mut kept = 0;
     for row in docs {
