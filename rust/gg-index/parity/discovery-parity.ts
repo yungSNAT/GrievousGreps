@@ -9,7 +9,8 @@
  *   - classify: NUL-separated paths on stdin; per path `[parser claims it, deploy format]`;
  *   - sources: generated trees (skip dirs, dot dirs and dot files, `--include-dir`, files
  *     over 1 MB, symlinks, a symlinked root, Git with `.gitignore`, a nested clone and a
- *     submodule, `--only-dir`, `-e`, an output dir inside the root, case pairs);
+ *     submodule, `--only-dir`, `-e`, an output dir inside the root, case pairs, names
+ *     that are not UTF-8 on Linux);
  *     `[rel, size, mtimeMs]` per file, in order;
  *   - cache and fingerprint: generated entries (absent and present `via`, `error`,
  *     `deploy`, `skipped`, non-ASCII and astral text, foreign `path`, older sidecars to
@@ -177,7 +178,7 @@ function makeTree(work: string, i: number): TreeCase {
     subs: rand() < 0.3,
     nested: rand() < 0.3,
     onlyDirs: rand() < 0.2 ? some(["src", "lib", "deep/a"], 0.5) : [],
-    exts: rand() < 0.2 ? some([".ts", "PY", ".yaml", "rs", ".tf", " .Go "], 0.4) : [],
+    exts: rand() < 0.2 ? some([".ts", "PY", ".yaml", "rs", ".tf", " .Go ", "\u0085.ts", " .ts"], 0.4) : [],
   };
 }
 
@@ -212,6 +213,27 @@ function submoduleCase(work: string): TreeCase {
   git(root, "submodule", "add", "-q", upstream, "vendor/sub");
   git(root, "submodule", "add", "-q", upstream, "libs/sub");
   return { root, outDir: join(root, "graft"), includes: [], subs: true, nested: false, onlyDirs: [], exts: [] };
+}
+
+/**
+ * Names that are not UTF-8 (Linux only), fixed rather than drawn: a file and a folder whose
+ * lossy spelling (U+FFFD) is a sibling's name, and a file whose lossy spelling names nothing,
+ * walked on the file system, through Git and in deep mode.
+ */
+function bytesCases(work: string): TreeCase[] {
+  if (process.platform !== "linux") return [];
+  const raw = (dir: string, before: string, after: string) => Buffer.concat([Buffer.from(`${dir}/${before}`), Buffer.from([0xff]), Buffer.from(after)]);
+  return ["fs", "git", "deep"].map((mode) => {
+    const root = join(work, `bytes-${mode}`);
+    mkdirSync(join(root, "d�"), { recursive: true });
+    writeFileSync(join(root, "a�.ts"), "x");
+    writeFileSync(raw(root, "a", ".ts"), "x");
+    writeFileSync(raw(root, "b", ".ts"), "x");
+    mkdirSync(raw(root, "d", ""));
+    writeFileSync(join(root, "d�", "x.ts"), "x");
+    if (mode !== "fs") git(root, "init", "-q");
+    return { root, outDir: join(root, "graft"), includes: [], subs: mode === "deep", nested: false, onlyDirs: [], exts: [] };
+  });
 }
 
 const NON_ASCII = ["ü", "日本", "😀", " ", "é", "\u0000"];
@@ -279,19 +301,21 @@ if (record) {
   process.exit(0);
 }
 
+let trees = 0;
 const work = mkdtempSync(join(tmpdir(), "gg-index-discovery-"));
 try {
   compare("extensions", 0, JSON.stringify(EXTS), checked(run(["extensions"])), "supportedExtensions");
   const paths = Array.from({ length: 2000 }, () => `${pick(["", "a/", "a\\b\\", "deep/x/", "x/"])}${pick(["", ...PREFIXES])}${fileName()}${pick(["", "", "", ...SUFFIXES])}`);
   compare("classify", 0, JSON.stringify(paths.map(tsClassify)), checked(run(["classify"], paths.join("\0"))), "per path");
   if (kinds.has("sources")) {
-    const cases = [submoduleCase(work)];
+    const cases = [submoduleCase(work), ...bytesCases(work)];
     for (let i = 0; i < count; i++) cases.push(makeTree(work, i));
+    trees = cases.length;
     cases.forEach((c, i) => compare("sources", i, tsSources(c), rsSources(c), c.root));
   }
   if (kinds.has("cache")) for (let i = 0; i < count; i++) cacheRound(work, i);
 } finally {
   rmSync(work, { recursive: true, force: true });
 }
-console.log(JSON.stringify({ kinds: [...kinds], classified: 2000, trees: kinds.has("sources") ? count + 1 : 0, cacheRounds: kinds.has("cache") ? count : 0, differ, seed: firstSeed }));
+console.log(JSON.stringify({ kinds: [...kinds], classified: 2000, trees, cacheRounds: kinds.has("cache") ? count : 0, differ, seed: firstSeed }));
 process.exit(differ ? 1 : 0);
