@@ -161,9 +161,8 @@ fn cache_cmd(action: CacheCmd) -> ExitCode {
             read_stdin(gg_index::extract_cache::MAX_CACHE_BYTES)
                 .and_then(|text| gg_index::json::parse(&text))
                 .and_then(|val| {
-                    let ok = gg_index::extract_cache::write_extract_cache(
-                        &out_dir, &extractor, &val,
-                    );
+                    let ok =
+                        gg_index::extract_cache::write_extract_cache(&out_dir, &extractor, &val);
                     print(if ok { "true\n" } else { "false\n" })
                 })
         }

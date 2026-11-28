@@ -49,7 +49,11 @@ fn exec_in(args: &[&str], input: &[u8], cwd: &Path) -> Output {
 }
 
 fn run(args: &[&str], input: &str) -> String {
-    let out = exec_in(args, input.as_bytes(), Path::new(env!("CARGO_MANIFEST_DIR")));
+    let out = exec_in(
+        args,
+        input.as_bytes(),
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    );
     assert!(
         out.status.success(),
         "gg-index {args:?} failed: {}",
@@ -68,7 +72,14 @@ fn cache_op(verb: &str, out: &Path, stamp: &str, input: &str) -> String {
 
 fn fp_op(verb: &str, out: &Path, stamp: &str, extra: &[&str], input: &str) -> String {
     let out_s = out.to_str().expect("utf-8");
-    let mut args = vec!["fingerprint", verb, "--out-dir", out_s, "--extractor", stamp];
+    let mut args = vec![
+        "fingerprint",
+        verb,
+        "--out-dir",
+        out_s,
+        "--extractor",
+        stamp,
+    ];
     args.extend_from_slice(extra);
     run(&args, input)
 }
@@ -347,7 +358,14 @@ fn containment_refuses_escape_and_bad_stdin_inputs() {
     let empty_cwd = base.join("empty-cwd");
     fs::create_dir_all(&empty_cwd).expect("mkdir");
     let out = exec_in(
-        &["fingerprint", "write", "--out-dir", "", "--extractor", stamp],
+        &[
+            "fingerprint",
+            "write",
+            "--out-dir",
+            "",
+            "--extractor",
+            stamp,
+        ],
         b"{}",
         &empty_cwd,
     );
