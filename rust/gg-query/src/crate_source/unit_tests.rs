@@ -28,9 +28,15 @@ fn normalise_lexical_resolves_cur_dir_and_parent_segments() {
         PathBuf::from("../a/c")
     );
     assert_eq!(normalise_lexical(Path::new("./a/../b")), PathBuf::from("b"));
+    #[cfg(unix)]
     assert_eq!(
         normalise_lexical(Path::new("/../a/./b")),
         PathBuf::from("/a/b")
+    );
+    #[cfg(windows)]
+    assert_eq!(
+        normalise_lexical(Path::new(r"C:\..\a\.\b")),
+        PathBuf::from(r"C:\a\b")
     );
 }
 
