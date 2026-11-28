@@ -60,7 +60,7 @@
     "gray-matter": "^4.0.3",
     "openai": "^7.62.0",
     "smol-toml": "^1.9.1",
-    "vscode-jsonrpc": "^8.2.1",
+    "vscode-jsonrpc": "^10.0.0",
     "vscode-languageserver-protocol": "^3.18.2",
     "web-tree-sitter": "^0.27.2",
     "web-tree-sitter-depth": "npm:web-tree-sitter@0.22.2",
