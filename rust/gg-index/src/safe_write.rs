@@ -20,11 +20,11 @@ use std::path::{Component, Path, PathBuf};
 
 fn validate_components(dirs: &[&OsStr], leaf: &OsStr) -> io::Result<()> {
     for seg in dirs.iter().chain([&leaf]) {
-        let no_sep = !seg
+        let valid_bytes = !seg
             .as_encoded_bytes()
             .iter()
-            .any(|&b| b == b'/' || b == b'\\');
-        let ok = no_sep
+            .any(|&b| b == 0 || b == b'/' || b == b'\\');
+        let ok = valid_bytes
             && matches!(
                 Path::new(seg).components().next(),
                 Some(Component::Normal(_))

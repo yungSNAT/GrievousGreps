@@ -383,6 +383,12 @@ fn cache_and_fingerprint_writes_handle_bad_stdin() {
     assert!(!bad_utf8.status.success());
 }
 
+fn populated_cache(stamp: &str, file: &str) -> String {
+    format!(
+        "{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{\"{file}\":{{\"size\":1,\"mtimeMs\":1,\"hash\":\"h\",\"nodes\":[],\"rawEdges\":[]}}}}}}"
+    )
+}
+
 #[cfg(unix)]
 #[test]
 fn symlinked_dirs_and_leaves_are_refused_on_unix() {
@@ -392,35 +398,33 @@ fn symlinked_dirs_and_leaves_are_refused_on_unix() {
     fs::create_dir_all(&outside).expect("mkdir");
     let stamp = "0011223344556677";
     let empty = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
-    let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
+    let populated = populated_cache(stamp, "a.ts");
 
     let link_out = base.join("graft");
     symlink(&outside, &link_out).expect("link");
-    assert_eq!(cache_op("write", &link_out, stamp, &valid_cache), "false\n");
+    assert_eq!(cache_op("write", &link_out, stamp, &populated), "false\n");
     assert_eq!(fs::read_dir(&outside).expect("readdir").count(), 0);
     fs::remove_file(&link_out).expect("rm");
 
     fs::create_dir_all(&link_out).expect("mkdir");
     symlink(&outside, link_out.join(".cache")).expect("link");
-    fs::write(outside.join(format!("extract.{stamp}.json")), &valid_cache).expect("write");
-    assert_eq!(cache_op("write", &link_out, stamp, &valid_cache), "false\n");
+    fs::write(outside.join(format!("extract.{stamp}.json")), &populated).expect("write");
+    assert_eq!(cache_op("write", &link_out, stamp, &populated), "false\n");
     assert_eq!(cache_op("read", &link_out, stamp, ""), empty);
     fs::remove_file(link_out.join(".cache")).expect("rm");
 
     let cache_dir = link_out.join(".cache");
     fs::create_dir_all(&cache_dir).expect("mkdir");
     let victim = outside.join("victim.json");
-    fs::write(&victim, &valid_cache).expect("write");
+    fs::write(&victim, &populated).expect("write");
     let leaf = cache_dir.join(format!("extract.{stamp}.json"));
     symlink(&victim, &leaf).expect("link");
     let link_sidecar = cache_dir.join("extract.link.json");
     symlink(&victim, &link_sidecar).expect("link");
     assert_eq!(cache_op("read", &link_out, stamp, ""), empty);
-    let fresh = format!(
-        "{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{\"a.ts\":{{\"size\":1,\"mtimeMs\":1,\"hash\":\"h\",\"nodes\":[],\"rawEdges\":[]}}}}}}"
-    );
+    let fresh = populated_cache(stamp, "b.ts");
     assert_eq!(cache_op("write", &link_out, stamp, &fresh), "true\n");
-    assert_eq!(fs::read_to_string(&victim).expect("victim"), valid_cache);
+    assert_eq!(fs::read_to_string(&victim).expect("victim"), populated);
     assert!(!is_link(&leaf));
     assert!(is_link(&link_sidecar));
 }
@@ -436,8 +440,7 @@ fn unreadable_cache_entries_return_empty_on_unix() {
     let stamp = "0011223344556677";
     let empty = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
     let leaf = cache_dir.join(format!("extract.{stamp}.json"));
-    let body = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
-    fs::write(&leaf, body).expect("write");
+    fs::write(&leaf, populated_cache(stamp, "a.ts")).expect("write");
     fs::set_permissions(&leaf, fs::Permissions::from_mode(0o000)).expect("chmod");
     assert_eq!(cache_op("read", &out, stamp, ""), empty);
     fs::set_permissions(&leaf, fs::Permissions::from_mode(0o644)).expect("chmod");
@@ -466,25 +469,30 @@ fn make_junction(link: &Path, target: &Path) {
 fn junctioned_cache_paths_and_leaves_are_refused_on_windows() {
     let base = scratch("win-junctions");
     let outside = base.join("outside");
-    fs::create_dir_all(&outside).expect("mkdir");
+    fs::create_dir_all(outside.join(".cache")).expect("mkdir");
     let stamp = "0011223344556677";
     let empty = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
-    let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
-    fs::write(outside.join(format!("extract.{stamp}.json")), &valid_cache).expect("write");
+    let populated = populated_cache(stamp, "a.ts");
+    fs::write(outside.join(format!("extract.{stamp}.json")), &populated).expect("write");
+    fs::write(
+        outside.join(".cache").join(format!("extract.{stamp}.json")),
+        &populated,
+    )
+    .expect("write");
     seed_old(&outside, "extract");
 
     let junc_out = base.join("graft");
     make_junction(&junc_out, &outside);
-    assert_eq!(cache_op("write", &junc_out, stamp, &valid_cache), "false\n");
+    assert_eq!(cache_op("write", &junc_out, stamp, &populated), "false\n");
     assert_eq!(cache_op("read", &junc_out, stamp, ""), empty);
     fs::remove_dir(&junc_out).expect("rm junction");
 
     fs::create_dir_all(&junc_out).expect("mkdir");
     make_junction(&junc_out.join(".cache"), &outside);
-    assert_eq!(cache_op("write", &junc_out, stamp, &valid_cache), "false\n");
+    assert_eq!(cache_op("write", &junc_out, stamp, &populated), "false\n");
     assert_eq!(cache_op("read", &junc_out, stamp, ""), empty);
     gg_index::safe_write::prune_cache(&junc_out, "extract", 2);
-    assert_eq!(sorted_names(&outside).len(), 4);
+    assert_eq!(sorted_names(&outside).len(), 5);
     fs::remove_dir(junc_out.join(".cache")).expect("rm junction");
 
     let cache_dir = junc_out.join(".cache");
@@ -495,8 +503,10 @@ fn junctioned_cache_paths_and_leaves_are_refused_on_windows() {
     make_junction(&junc_sidecar, &outside);
     assert_eq!(cache_op("read", &junc_out, stamp, ""), empty);
     let other = "1111222233334444";
-    let other_cache = format!("{{\"version\":1,\"extractor\":\"{other}\",\"files\":{{}}}}");
-    assert_eq!(cache_op("write", &junc_out, other, &other_cache), "true\n");
+    assert_eq!(
+        cache_op("write", &junc_out, other, &populated_cache(other, "b.ts")),
+        "true\n"
+    );
     assert!(
         junc_sidecar.exists(),
         "prune leaves junction sidecars alone"
