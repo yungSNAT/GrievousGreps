@@ -324,3 +324,36 @@ impl GraphStore {
         Ok(out)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_ranked(pointer: &str, min_seq: i64, other_id: &str, rel: &str) -> RankedStructuralRow {
+        RankedStructuralRow {
+            pointer: pointer.to_string(),
+            min_seq,
+            row: StructuralHitRow {
+                other_id: other_id.to_string(),
+                relation: rel.to_string(),
+                name: None,
+                path: None,
+                span: None,
+                summary: None,
+                signature: None,
+            },
+        }
+    }
+
+    #[test]
+    fn ranked_structural_row_eq_and_tie_breakers() {
+        let a = mk_ranked("a.rs:L1", 1, "id_a", "calls");
+        let a_dup = mk_ranked("a.rs:L1", 1, "id_a", "calls");
+        let b_id = mk_ranked("a.rs:L1", 1, "id_b", "calls");
+        let b_rel = mk_ranked("a.rs:L1", 1, "id_a", "references");
+        assert!(a == a_dup);
+        assert!(a != b_id);
+        assert_eq!(a.cmp(&b_id), Ordering::Less);
+        assert_eq!(a.cmp(&b_rel), Ordering::Less);
+    }
+}

@@ -202,7 +202,7 @@ mod unix {
         Ok(File::from(owned))
     }
 
-    fn open_canon_dir(canon_root: &Path) -> io::Result<File> {
+    pub(super) fn open_canon_dir(canon_root: &Path) -> io::Result<File> {
         let root_flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
         let mut cur =
             File::from(openat(CWD, "/", root_flags, Mode::empty()).map_err(io::Error::from)?);
@@ -305,9 +305,40 @@ mod unix {
 
 #[cfg(test)]
 mod tests {
-    use super::{anchor_root, open_contained_anchored, read_contained_to_string};
-    use std::fs;
+    use super::{
+        anchor_root, open_contained_anchored, read_bounded_to_string, read_contained_to_string,
+    };
+    use std::fs::{self, File, OpenOptions};
+    use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn read_bounded_enforces_metadata_and_post_stat_growth_caps() {
+        let tmp = tempdir().expect("tmp");
+        let path = tmp.path().join("grow.txt");
+        fs::write(&path, "123456").expect("write");
+        let f1 = File::open(&path).expect("open");
+        let m1 = f1.metadata().expect("meta");
+        assert!(read_bounded_to_string(f1, &m1, Some(3)).is_none());
+
+        fs::write(&path, "ab").expect("shrink");
+        let f2 = File::open(&path).expect("open2");
+        let m2 = f2.metadata().expect("meta2");
+        assert_eq!(m2.len(), 2);
+        let mut w = OpenOptions::new().append(true).open(&path).expect("append");
+        w.write_all(b"cdefgh").expect("grow");
+        w.flush().expect("flush");
+        assert!(read_bounded_to_string(f2, &m2, Some(4)).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_canon_dir_rejects_parent_dir_component() {
+        let err = super::unix::open_canon_dir(std::path::Path::new("/tmp/../tmp"))
+            .expect_err("non-canonical path must fail");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(err.to_string().contains("non-canonical root path"));
+    }
 
     #[test]
     fn rejects_traversal_and_reads_valid_contained_file() {
