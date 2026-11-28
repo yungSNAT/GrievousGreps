@@ -58,6 +58,21 @@ fn run(args: &[&str], input: &str) -> String {
     String::from_utf8(out.stdout).expect("utf-8 stdout")
 }
 
+fn cache_op(verb: &str, out: &Path, stamp: &str, input: &str) -> String {
+    let out_s = out.to_str().expect("utf-8");
+    run(
+        &["cache", verb, "--out-dir", out_s, "--extractor", stamp],
+        input,
+    )
+}
+
+fn fp_op(verb: &str, out: &Path, stamp: &str, extra: &[&str], input: &str) -> String {
+    let out_s = out.to_str().expect("utf-8");
+    let mut args = vec!["fingerprint", verb, "--out-dir", out_s, "--extractor", stamp];
+    args.extend_from_slice(extra);
+    run(&args, input)
+}
+
 fn touch_at(path: &Path, secs: u64) {
     let file = fs::File::create(path).expect("create");
     file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
@@ -89,12 +104,7 @@ fn extract_cache_writes_ascii_prunes_sidecars_and_reads_back() {
         \"skipped\":\"s\"}},\
         \"src/plain.ts\":{{\"size\":7,\"mtimeMs\":2,\"hash\":\"h2\",\"nodes\":[],\"rawEdges\":[]}}}}}}"
     );
-    let out_s = out.to_str().expect("utf-8");
-    let wrote = run(
-        &["cache", "write", "--out-dir", out_s, "--extractor", stamp],
-        &payload,
-    );
-    assert_eq!(wrote, "true\n");
+    assert_eq!(cache_op("write", &out, stamp, &payload), "true\n");
 
     let written = fs::read(cache_dir.join(format!("extract.{stamp}.json"))).expect("read");
     assert!(
@@ -118,10 +128,6 @@ fn extract_cache_writes_ascii_prunes_sidecars_and_reads_back() {
         ]
     );
 
-    let got = run(
-        &["cache", "read", "--out-dir", out_s, "--extractor", stamp],
-        "",
-    );
     let expected = format!(
         "{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{\
         \"src/café.ts\":{{\"size\":42,\"mtimeMs\":1.5,\"hash\":\"h1\",\
@@ -131,7 +137,7 @@ fn extract_cache_writes_ascii_prunes_sidecars_and_reads_back() {
         \"skipped\":\"s\"}},\
         \"src/plain.ts\":{{\"size\":7,\"mtimeMs\":2,\"hash\":\"h2\",\"nodes\":[],\"rawEdges\":[]}}}}}}\n"
     );
-    assert_eq!(got, expected);
+    assert_eq!(cache_op("read", &out, stamp, ""), expected);
 }
 
 #[test]
@@ -154,13 +160,8 @@ fn extract_cache_read_filters_forged_and_malformed_entries() {
         \"src/empty.ts\":{{\"size\":1,\"mtimeMs\":2,\"hash\":\"h\",\"nodes\":[],\"rawEdges\":[]}}}}}}"
     );
     fs::write(&file, forged).expect("write");
-    let out_s = out.to_str().expect("utf-8");
-    let got = run(
-        &["cache", "read", "--out-dir", out_s, "--extractor", stamp],
-        "",
-    );
     assert_eq!(
-        got,
+        cache_op("read", &out, stamp, ""),
         format!(
             "{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{\
             \"src/ok.ts\":{{\"size\":1,\"mtimeMs\":2,\"hash\":\"h\",\"nodes\":[{{\"path\":\"src/ok.ts\"}}],\"rawEdges\":[]}},\
@@ -179,67 +180,36 @@ fn extract_cache_read_filters_forged_and_malformed_entries() {
         "[]".into(),
     ] {
         fs::write(&file, bad).expect("write bad");
-        assert_eq!(
-            run(
-                &["cache", "read", "--out-dir", out_s, "--extractor", stamp],
-                ""
-            ),
-            empty
-        );
+        assert_eq!(cache_op("read", &out, stamp, ""), empty);
     }
-
-    // Invalid UTF-8 bytes on disk return empty cache.
     fs::write(&file, b"\xff").expect("write bad utf-8");
-    assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", out_s, "--extractor", stamp],
-            ""
-        ),
-        empty
-    );
+    assert_eq!(cache_op("read", &out, stamp, ""), empty);
 
-    // Empty extractor: no memo is written or read.
+    // Empty extractor and path traversal in extractor are refused.
     assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", out_s, "--extractor", ""],
-            &format!("{{\"version\":1,\"extractor\":\"\",\"files\":{{}}}}"),
+        cache_op(
+            "write",
+            &out,
+            "",
+            "{\"version\":1,\"extractor\":\"\",\"files\":{}}"
         ),
         "false\n"
     );
     assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", out_s, "--extractor", ""],
-            ""
-        ),
+        cache_op("read", &out, "", ""),
         "{\"version\":1,\"extractor\":\"\",\"files\":{}}\n"
     );
-    // Traversal in extractor is refused.
     assert_eq!(
-        run(
-            &[
-                "cache",
-                "write",
-                "--out-dir",
-                out_s,
-                "--extractor",
-                "../evil"
-            ],
-            "{\"version\":1,\"extractor\":\"../evil\",\"files\":{}}",
+        cache_op(
+            "write",
+            &out,
+            "../evil",
+            "{\"version\":1,\"extractor\":\"../evil\",\"files\":{}}"
         ),
         "false\n"
     );
     assert_eq!(
-        run(
-            &[
-                "cache",
-                "read",
-                "--out-dir",
-                out_s,
-                "--extractor",
-                "../evil"
-            ],
-            "",
-        ),
+        cache_op("read", &out, "../evil", ""),
         "{\"version\":1,\"extractor\":\"../evil\",\"files\":{}}\n"
     );
 }
@@ -260,43 +230,15 @@ fn fingerprint_writes_utf8_prunes_and_reads_back() {
 
     let stamp = "1122334455667788";
     let entries = r#"{"ü/a.ts":{"size":12,"mtimeMs":3.5,"hash":"ab","nodes":[],"rawEdges":[]},"src/b.py":{"size":4,"mtimeMs":9,"hash":"cd"}}"#;
-    let out_s = out.to_str().expect("utf-8");
-    let wrote = run(
-        &[
-            "fingerprint",
-            "write",
-            "--out-dir",
-            out_s,
-            "--extractor",
-            stamp,
-            "--only-dir",
-            "src",
-            "--ext",
-            ".ts",
-        ],
-        entries,
-    );
-    assert_eq!(wrote, "true\n");
+    let extra = ["--only-dir", "src", "--ext", ".ts"];
+    assert_eq!(fp_op("write", &out, stamp, &extra, entries), "true\n");
 
     let fp_path = cache_dir.join(format!("fingerprint.{stamp}.json"));
     let expected = format!(
         "{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{\"ü/a.ts\":[12,3.5,\"ab\"],\"src/b.py\":[4,9,\"cd\"]}},\"onlyDirs\":[\"src\"],\"extensions\":[\".ts\"]}}"
     );
     assert_eq!(fs::read_to_string(&fp_path).expect("read"), expected);
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "read",
-                "--out-dir",
-                out_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        format!("{expected}\n")
-    );
+    assert_eq!(fp_op("read", &out, stamp, &[], ""), format!("{expected}\n"));
 
     let mut left: Vec<String> = fs::read_dir(&cache_dir)
         .expect("readdir")
@@ -311,23 +253,31 @@ fn fingerprint_writes_utf8_prunes_and_reads_back() {
             "fingerprint.old2.json".into(),
         ]
     );
+}
+
+#[test]
+fn fingerprint_handles_empty_extractor_and_corrupt_files() {
+    let base = scratch("fp-edges");
+    let out = base.join("graft");
+    let cache_dir = out.join(".cache");
+    fs::create_dir_all(&cache_dir).expect("mkdir");
+    let stamp = "1122334455667788";
+
+    // Existing `.cache` with missing leaf file returns empty / null.
+    assert_eq!(
+        cache_op("read", &out, stamp, ""),
+        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
+    );
+    assert_eq!(fp_op("read", &out, stamp, &[], ""), "null\n");
 
     // Empty extractor falls back to "nostamp" as fingerprint.ts does.
+    assert_eq!(fp_op("write", &out, "", &[], "{}"), "true\n");
     assert_eq!(
-        run(
-            &["fingerprint", "write", "--out-dir", out_s, "--extractor", ""],
-            "{}",
-        ),
-        "true\n"
-    );
-    assert_eq!(
-        run(
-            &["fingerprint", "read", "--out-dir", out_s, "--extractor", ""],
-            ""
-        ),
+        fp_op("read", &out, "", &[], ""),
         "{\"version\":1,\"extractor\":\"nostamp\",\"files\":{}}\n"
     );
 
+    let fp_path = cache_dir.join(format!("fingerprint.{stamp}.json"));
     for bad in [
         format!("{{\"version\":2,\"extractor\":\"{stamp}\",\"files\":{{}}}}"),
         "{\"version\":1,\"extractor\":\"other\",\"files\":{}}".into(),
@@ -335,131 +285,33 @@ fn fingerprint_writes_utf8_prunes_and_reads_back() {
         "{bad".into(),
     ] {
         fs::write(&fp_path, bad).expect("write bad");
-        assert_eq!(
-            run(
-                &[
-                    "fingerprint",
-                    "read",
-                    "--out-dir",
-                    out_s,
-                    "--extractor",
-                    stamp
-                ],
-                ""
-            ),
-            "null\n"
-        );
+        assert_eq!(fp_op("read", &out, stamp, &[], ""), "null\n");
     }
     fs::write(&fp_path, b"\xff").expect("write bad utf-8");
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "read",
-                "--out-dir",
-                out_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        "null\n"
-    );
+    assert_eq!(fp_op("read", &out, stamp, &[], ""), "null\n");
 }
 
 #[test]
-fn containment_and_bad_inputs_are_handled_safely() {
+fn containment_refuses_blocked_cache_dirs_and_dir_leaves() {
     let base = scratch("containment");
     let stamp = "aabbccdd11223344";
+    let empty_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
+    let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
 
     // Missing parent directory on read: returns empty/null without creating anything.
     let absent = base.join("missing").join("graft");
-    let absent_s = absent.to_str().expect("utf-8");
-    assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", absent_s, "--extractor", stamp],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "read",
-                "--out-dir",
-                absent_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        "null\n"
-    );
+    assert_eq!(cache_op("read", &absent, stamp, ""), empty_cache);
+    assert_eq!(fp_op("read", &absent, stamp, &[], ""), "null\n");
     assert!(!base.join("missing").exists());
 
     // `.cache` is a file, not a directory.
     let blocked = base.join("blocked");
     fs::create_dir_all(&blocked).expect("mkdir");
     fs::write(blocked.join(".cache"), "not a dir").expect("write");
-    let blocked_s = blocked.to_str().expect("utf-8");
-    let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
-    assert_eq!(
-        run(
-            &[
-                "cache",
-                "write",
-                "--out-dir",
-                blocked_s,
-                "--extractor",
-                stamp
-            ],
-            &valid_cache
-        ),
-        "false\n"
-    );
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "write",
-                "--out-dir",
-                blocked_s,
-                "--extractor",
-                stamp
-            ],
-            "{}"
-        ),
-        "false\n"
-    );
-    assert_eq!(
-        run(
-            &[
-                "cache",
-                "read",
-                "--out-dir",
-                blocked_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "read",
-                "--out-dir",
-                blocked_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        "null\n"
-    );
+    assert_eq!(cache_op("write", &blocked, stamp, &valid_cache), "false\n");
+    assert_eq!(fp_op("write", &blocked, stamp, &[], "{}"), "false\n");
+    assert_eq!(cache_op("read", &blocked, stamp, ""), empty_cache);
+    assert_eq!(fp_op("read", &blocked, stamp, &[], ""), "null\n");
 
     // Leaf is a directory.
     let dirleaf = base.join("dirleaf");
@@ -471,59 +323,22 @@ fn containment_and_bad_inputs_are_handled_safely() {
             .join(format!("fingerprint.{stamp}.json")),
     )
     .expect("mkdir");
-    let dirleaf_s = dirleaf.to_str().expect("utf-8");
-    assert_eq!(
-        run(
-            &[
-                "cache",
-                "write",
-                "--out-dir",
-                dirleaf_s,
-                "--extractor",
-                stamp
-            ],
-            &valid_cache
-        ),
-        "false\n"
-    );
-    assert_eq!(
-        run(
-            &[
-                "cache",
-                "read",
-                "--out-dir",
-                dirleaf_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "read",
-                "--out-dir",
-                dirleaf_s,
-                "--extractor",
-                stamp
-            ],
-            ""
-        ),
-        "null\n"
-    );
+    assert_eq!(cache_op("write", &dirleaf, stamp, &valid_cache), "false\n");
+    assert_eq!(cache_op("read", &dirleaf, stamp, ""), empty_cache);
+    assert_eq!(fp_op("read", &dirleaf, stamp, &[], ""), "null\n");
+}
+
+#[test]
+fn containment_refuses_escape_and_bad_stdin_inputs() {
+    let base = scratch("containment-stdin");
+    let stamp = "aabbccdd11223344";
+    let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
 
     // Trailing `..` escapes base and is refused.
     let esc = base.join("esc");
     fs::create_dir_all(&esc).expect("mkdir");
-    let esc_s = esc.join("..").to_string_lossy().into_owned();
     assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", &esc_s, "--extractor", stamp],
-            &valid_cache
-        ),
+        cache_op("write", &esc.join(".."), stamp, &valid_cache),
         "false\n"
     );
     assert!(!base.join(".cache").exists());
@@ -547,37 +362,12 @@ fn containment_and_bad_inputs_are_handled_safely() {
 
     // Non-object JSON input returns false on write.
     let ok = base.join("ok");
-    let ok_s = ok.to_str().expect("utf-8");
-    assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", ok_s, "--extractor", stamp],
-            "[]"
-        ),
-        "false\n"
-    );
-    assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", ok_s, "--extractor", stamp],
-            "{\"version\":1}"
-        ),
-        "false\n"
-    );
-    assert_eq!(
-        run(
-            &[
-                "fingerprint",
-                "write",
-                "--out-dir",
-                ok_s,
-                "--extractor",
-                stamp
-            ],
-            "[]"
-        ),
-        "false\n"
-    );
+    assert_eq!(cache_op("write", &ok, stamp, "[]"), "false\n");
+    assert_eq!(cache_op("write", &ok, stamp, "{\"version\":1}"), "false\n");
+    assert_eq!(fp_op("write", &ok, stamp, &[], "[]"), "false\n");
 
     // Invalid JSON or invalid UTF-8 fails with a non-zero exit.
+    let ok_s = ok.to_str().expect("utf-8");
     let bad_json = exec_in(
         &["cache", "write", "--out-dir", ok_s, "--extractor", stamp],
         b"{bad",
@@ -607,39 +397,21 @@ fn symlinks_and_unreadable_entries_are_refused_on_unix() {
     let outside = base.join("outside");
     fs::create_dir_all(&outside).expect("mkdir");
     let stamp = "0011223344556677";
+    let empty = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n");
     let valid_cache = format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}");
 
     // Symlinked outDir and symlinked .cache are refused for write and read.
     let link_out = base.join("graft");
     symlink(&outside, &link_out).expect("link");
-    let link_s = link_out.to_str().expect("utf-8");
-    assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", link_s, "--extractor", stamp],
-            &valid_cache
-        ),
-        "false\n"
-    );
+    assert_eq!(cache_op("write", &link_out, stamp, &valid_cache), "false\n");
     assert_eq!(fs::read_dir(&outside).expect("readdir").count(), 0);
     fs::remove_file(&link_out).expect("rm");
 
     fs::create_dir_all(&link_out).expect("mkdir");
     symlink(&outside, link_out.join(".cache")).expect("link");
     fs::write(outside.join(format!("extract.{stamp}.json")), &valid_cache).expect("write");
-    assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", link_s, "--extractor", stamp],
-            &valid_cache
-        ),
-        "false\n"
-    );
-    assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", link_s, "--extractor", stamp],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
+    assert_eq!(cache_op("write", &link_out, stamp, &valid_cache), "false\n");
+    assert_eq!(cache_op("read", &link_out, stamp, ""), empty);
     fs::remove_file(link_out.join(".cache")).expect("rm");
 
     // Symlink leaf is never read through, and write replaces the link without touching target.
@@ -649,26 +421,13 @@ fn symlinks_and_unreadable_entries_are_refused_on_unix() {
     fs::write(&victim, &valid_cache).expect("write");
     let leaf = cache_dir.join(format!("extract.{stamp}.json"));
     symlink(&victim, &leaf).expect("link");
-    // Symlink leaf is also never deleted by pruneSidecars.
     let link_sidecar = cache_dir.join("extract.link.json");
     symlink(&victim, &link_sidecar).expect("link");
-    assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", link_s, "--extractor", stamp],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
+    assert_eq!(cache_op("read", &link_out, stamp, ""), empty);
     let fresh = format!(
         "{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{\"a.ts\":{{\"size\":1,\"mtimeMs\":1,\"hash\":\"h\",\"nodes\":[],\"rawEdges\":[]}}}}}}"
     );
-    assert_eq!(
-        run(
-            &["cache", "write", "--out-dir", link_s, "--extractor", stamp],
-            &fresh
-        ),
-        "true\n"
-    );
+    assert_eq!(cache_op("write", &link_out, stamp, &fresh), "true\n");
     assert_eq!(fs::read_to_string(&victim).expect("victim"), valid_cache);
     assert!(
         !fs::symlink_metadata(&leaf)
@@ -686,21 +445,9 @@ fn symlinks_and_unreadable_entries_are_refused_on_unix() {
 
     // Unreadable leaf and unreadable .cache return empty without panicking.
     fs::set_permissions(&leaf, fs::Permissions::from_mode(0o000)).expect("chmod");
-    assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", link_s, "--extractor", stamp],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
+    assert_eq!(cache_op("read", &link_out, stamp, ""), empty);
     fs::set_permissions(&leaf, fs::Permissions::from_mode(0o644)).expect("chmod");
     fs::set_permissions(&cache_dir, fs::Permissions::from_mode(0o000)).expect("chmod");
-    assert_eq!(
-        run(
-            &["cache", "read", "--out-dir", link_s, "--extractor", stamp],
-            ""
-        ),
-        format!("{{\"version\":1,\"extractor\":\"{stamp}\",\"files\":{{}}}}\n")
-    );
+    assert_eq!(cache_op("read", &link_out, stamp, ""), empty);
     fs::set_permissions(&cache_dir, fs::Permissions::from_mode(0o755)).expect("chmod");
 }

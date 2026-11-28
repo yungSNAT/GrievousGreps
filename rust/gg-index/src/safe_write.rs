@@ -110,11 +110,7 @@ pub fn write_in_cache(out_dir: &Path, leaf: &OsStr, data: &[u8]) -> io::Result<P
 
 /// Read `<out_dir>/.cache/<leaf>` inside `dirname(out_dir)` without creating directories or
 /// following symlinks.
-pub fn read_in_cache(
-    out_dir: &Path,
-    leaf: &OsStr,
-    max_bytes: u64,
-) -> io::Result<Option<Vec<u8>>> {
+pub fn read_in_cache(out_dir: &Path, leaf: &OsStr, max_bytes: u64) -> io::Result<Option<Vec<u8>>> {
     let (base, dirs) = split_under(out_dir, ".cache")?;
     let dirs: Vec<&OsStr> = dirs.iter().map(OsString::as_os_str).collect();
     read_inside(&base, &dirs, leaf, max_bytes)
@@ -406,12 +402,7 @@ mod imp {
         super::read_bounded(file, max_bytes).map(Some)
     }
 
-    pub(super) fn prune(
-        base: &Path,
-        dirs: &[&OsStr],
-        prefix: &str,
-        keep: usize,
-    ) -> io::Result<()> {
+    pub(super) fn prune(base: &Path, dirs: &[&OsStr], prefix: &str, keep: usize) -> io::Result<()> {
         let Some(dir) = open_existing(base, dirs)? else {
             return Ok(());
         };
@@ -552,12 +543,7 @@ mod imp {
         super::read_bounded(file, max_bytes).map(Some)
     }
 
-    pub(super) fn prune(
-        base: &Path,
-        dirs: &[&OsStr],
-        prefix: &str,
-        keep: usize,
-    ) -> io::Result<()> {
+    pub(super) fn prune(base: &Path, dirs: &[&OsStr], prefix: &str, keep: usize) -> io::Result<()> {
         let Some((cur, _pins)) = pin_existing(base, dirs)? else {
             return Ok(());
         };

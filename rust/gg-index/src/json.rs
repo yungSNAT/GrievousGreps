@@ -579,13 +579,16 @@ mod tests {
     fn compact_utf8_and_ascii_match_javascript_stringify() {
         let v = Json::Obj(vec![
             (utf16("n"), Json::Null),
-            (utf16("b"), Json::Arr(vec![Json::Bool(true), Json::Bool(false)])),
+            (
+                utf16("b"),
+                Json::Arr(vec![Json::Bool(true), Json::Bool(false)]),
+            ),
             (utf16("x"), Json::Num(1.5)),
             (
                 utf16("s"),
                 Json::Str(vec![
-                    0x22, 0x5c, 0x08, 0x0c, 0x0a, 0x0d, 0x09, 0x01, 0x7f, 0x00fc, 0x65e5,
-                    0xd83d, 0xde00, 0xd800, 0x78, 0xdc00, 0xd800,
+                    0x22, 0x5c, 0x08, 0x0c, 0x0a, 0x0d, 0x09, 0x01, 0x7f, 0x00fc, 0x65e5, 0xd83d,
+                    0xde00, 0xd800, 0x78, 0xdc00, 0xd800,
                 ]),
             ),
             (utf16("empty"), Json::Obj(vec![])),
